@@ -1,0 +1,13 @@
+[package]
+name = "arpagona-agent-core"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+description = "Pure core types for ARPAGONA Agent Core"
+
+[dependencies]
+chrono.workspace = true
+serde.workspace = true
+serde_json.workspace = true
