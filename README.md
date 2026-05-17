@@ -65,6 +65,12 @@ arpagona-agent-core/
         episode.rs
         source.rs
         errors.rs
+    graph-memory/
+      Cargo.toml
+      src/
+        lib.rs
+      migrations/
+        0001_graph_memory.surql
   apps/
     mission-control/
       README.md
@@ -75,30 +81,37 @@ arpagona-agent-core/
 
 ## État actuel
 
-La première brique fournit :
+Les premières briques fournissent :
 
 - la structure monorepo ;
 - la documentation fondatrice ;
 - le crate Rust `crates/core` ;
 - des types fondamentaux sérialisables ;
+- un crate expérimental `crates/graph-memory` pour persister la mémoire graphe dans SurrealDB ;
+- une migration SurrealDB initiale pour faits, sources, épisodes, observations, audit, décisions et actions proposées ;
 - quelques tests unitaires de base.
 
 Le crate `core` est volontairement limité à des types purs et réutilisables. Il ne contient ni logique LLM, ni logique SurrealDB, ni API, ni exécution d'outils.
+
+Le crate `graph-memory` porte l'adapter SurrealDB séparé du domaine core. Il expose une interface `GraphMemoryStore` et une implémentation `SurrealGraphMemoryStore` testée avec SurrealDB en mémoire.
 
 ## Compiler et tester
 
 Depuis la racine du projet :
 
 ```bash
+cargo fmt
 cargo check
 cargo test
 ```
+
+La documentation de la mémoire graphe se trouve dans `docs/graph-memory.md`.
 
 ## Volontairement non implémenté en V0
 
 - Pas d'interface web réelle.
 - Pas de serveur Axum.
-- Pas de connexion SurrealDB.
+- Pas de connexion SurrealDB dans `crates/core`.
 - Pas d'appel LLM.
 - Pas de shell libre.
 - Pas d'envoi email réel.

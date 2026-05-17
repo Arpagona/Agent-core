@@ -16,9 +16,19 @@ Exclus : API, UI, base de données, LLM, outils exécutables, scheduler actif.
 
 ## Brique 2 — Graph Memory
 
+État : première implémentation expérimentale disponible dans `crates/graph-memory`.
+
 - Adapter SurrealDB.
 - Modèle de persistance pour faits, sources, épisodes, observations et décisions.
 - Requêtes de base et migrations initiales.
+
+Inclus en V0 expérimentale :
+
+- interface `GraphMemoryStore` ;
+- adapter `SurrealGraphMemoryStore` ;
+- migration `0001_graph_memory.surql` ;
+- persistance de base pour `Fact`, `Source` et `AuditEvent` ;
+- tests SurrealDB en mémoire.
 
 ## Brique 3 — Decision Gate
 
