@@ -12,6 +12,7 @@ Task -> ProposedAction -> DecisionGate -> Decision -> AuditEvent -> Consultation
 
 - Serveur API Axum minimal : `arpagona-api-server`.
 - CLI installable : binaire `arpagona`, package Cargo `arpagona-cli`.
+- Interface terminal interactive alpha : `arpagona chat`.
 - Graph Memory V0 séparée du serveur API alpha.
 - Decision Gate alpha.
 - Stockage alpha en mémoire dans le serveur API.
@@ -31,7 +32,39 @@ cargo clippy --workspace --all-targets -- -D warnings
 
 La checklist complète est dans [`docs/alpha-release-checklist.md`](docs/alpha-release-checklist.md).
 
-## Démo complète recommandée
+## Démo terminal interactive recommandée
+
+Terminal 1 :
+
+```bash
+cargo run -p arpagona-api-server
+```
+
+Terminal 2 :
+
+```bash
+cargo run -p arpagona-cli -- chat --provider mock
+```
+
+Dans le chat :
+
+```text
+Prépare un brouillon de réponse client
+/evaluate action-1
+/audit
+/quit
+```
+
+Le mode `chat` utilise `mock` par défaut afin de fonctionner sur Ubuntu sans clé API ni réseau LLM. Avec OpenAI :
+
+```bash
+export OPENAI_API_KEY="..."
+cargo run -p arpagona-cli -- chat --provider openai
+```
+
+Documentation dédiée : [`docs/terminal-interface.md`](docs/terminal-interface.md).
+
+## Démo commandes séparées
 
 Terminal 1 :
 
@@ -101,6 +134,7 @@ Quand le binaire `arpagona` est installé :
 ```bash
 cargo install --path crates/cli
 arpagona health
+arpagona chat --provider mock
 ```
 
 ## Configuration
@@ -123,6 +157,7 @@ arpagona --api-url http://127.0.0.1:3000 health
 
 ```bash
 arpagona serve
+arpagona chat [--provider mock] [--workspace-id workspace-alpha] [--task-id task-1] [--permission simulate_email]
 arpagona health
 arpagona task create "Titre" [--description "..."] [--workspace-id workspace-alpha]
 arpagona agent propose "Prompt" [--provider openai] [--task-id task-1] [--workspace-id workspace-alpha]
@@ -134,6 +169,8 @@ arpagona audit list
 ## Agent Proposer V0 / provider LLM
 
 `arpagona agent propose "..."` appelle `POST /agent/propose`. Par défaut, le provider est `openai`; pour une démo sans réseau ni clé, utiliser `--provider mock`.
+
+`arpagona chat` appelle aussi `POST /agent/propose`, mais son provider par défaut est `mock` pour faciliter l'installation Ubuntu et les tests sans clé.
 
 Configuration OpenAI :
 
@@ -168,6 +205,7 @@ cargo run -p arpagona-api-server
 
 - Données perdues au redémarrage du serveur : stockage API in-memory.
 - IDs déterministes locaux (`task-1`, `action-1`, etc.).
+- Interface terminal interactive simple, pas encore TUI plein écran.
 - Pas d'exécution réelle d'email : `simulate_email` ne fait que proposer une action.
 - Pas d'exécution réelle d'outil.
 - Pas d'authentification/API key dans cette vertical slice locale.
