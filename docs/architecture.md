@@ -22,7 +22,7 @@ Mission Control sera l'interface web de supervision. Elle permettra de consulter
 
 ## Graph Memory
 
-Graph Memory sera la couche de mémoire structurée. Elle stockera les faits, sources, épisodes, observations, relations et décisions importantes. SurrealDB est la base cible, mais le crate core ne contient aucune logique de persistance.
+Graph Memory sera la couche de mémoire structurée. Elle stockera les faits, sources, épisodes, observations, relations et décisions importantes. Le contrat domaine vit dans `crates/core` sous forme d'un port Rust pur (`GraphMemoryStore`) et d'une implémentation en mémoire (`InMemoryGraphMemoryStore`). Le crate `crates/graph-memory` est l'adapter persistant SurrealDB : il expose `SurrealGraphMemoryStore` et un port async expérimental nommé `AsyncGraphMemoryStore`, distinct du contrat domaine. Aucune couche Graph Memory ne donne de pouvoir d'exécution aux agents.
 
 ## Decision Gate
 
