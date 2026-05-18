@@ -76,7 +76,7 @@ struct AgentProposeRequest {
     provider: String,
 }
 
-#[derive(Serialize)]
+#[derive(Debug, Serialize)]
 struct AgentProposeResponse {
     proposed_action: ProposedAction,
 }
@@ -187,12 +187,16 @@ async fn agent_propose(
     };
 
     let draft = match request.provider.as_str() {
-        "openai" => OpenAiProvider::from_env()?
-            .propose_action(llm_request)
-            .await?,
-        "mock" => MockProvider::safe_default()
-            .propose_action(llm_request)
-            .await?,
+        "openai" => {
+            OpenAiProvider::from_env()?
+                .propose_action(llm_request)
+                .await?
+        }
+        "mock" => {
+            MockProvider::safe_default()
+                .propose_action(llm_request)
+                .await?
+        }
         other => {
             return Err(ApiError::bad_request(format!(
                 "unsupported agent proposer provider '{other}' (expected 'openai' or 'mock')"
@@ -345,6 +349,31 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn agent_propose_openai_without_key_returns_error_without_side_effects() {
+        std::env::remove_var("OPENAI_API_KEY");
+        let state = AppState::default();
+        let error = agent_propose(
+            State(state.clone()),
+            Json(AgentProposeRequest {
+                workspace_id: "workspace-alpha".to_owned(),
+                task_id: Some("task-1".to_owned()),
+                prompt: "Prépare un brouillon de réponse client".to_owned(),
+                provider: "openai".to_owned(),
+            }),
+        )
+        .await
+        .expect_err("missing OPENAI_API_KEY should fail clearly");
+
+        assert_eq!(error.status, StatusCode::SERVICE_UNAVAILABLE);
+        assert!(error.message.contains("OPENAI_API_KEY"));
+
+        let store = state.lock().expect("store should lock");
+        assert_eq!(store.proposed_actions.len(), 0);
+        assert_eq!(store.decisions.len(), 0);
+        assert_eq!(store.audit_events.len(), 0);
+    }
+
+    #[tokio::test]
     async fn agent_propose_with_mock_stores_pending_action_without_decision() {
         let state = AppState::default();
         let response = agent_propose(
@@ -363,7 +392,10 @@ mod tests {
             response.0.proposed_action.status,
             ProposedActionStatus::PendingDecision
         );
-        assert_eq!(response.0.proposed_action.proposed_by.as_str(), "agent-proposer-v0");
+        assert_eq!(
+            response.0.proposed_action.proposed_by.as_str(),
+            "agent-proposer-v0"
+        );
 
         let store = state.lock().expect("store should lock");
         assert_eq!(store.proposed_actions.len(), 1);

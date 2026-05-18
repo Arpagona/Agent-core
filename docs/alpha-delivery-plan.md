@@ -20,6 +20,7 @@ Livré dans cette alpha :
 - `crates/core` : types domaine purs, Decision Gate et helpers d'audit.
 - `crates/graph-memory` : adapter expérimental SurrealDB séparé.
 - `crates/cli` : CLI `arpagona` appelant l'API locale.
+- `crates/llm` : provider LLM expérimental, proposition uniquement.
 - Documentation alpha : `README_ALPHA.md`, `docs/cli.md`, ce plan.
 
 ## Démo complète
@@ -36,6 +37,7 @@ Terminal 2 :
 ```bash
 cargo run -p arpagona-cli -- health
 cargo run -p arpagona-cli -- task create "Préparer une réponse client"
+cargo run -p arpagona-cli -- agent propose "Prépare un brouillon de réponse client" --provider mock
 cargo run -p arpagona-cli -- action propose --type simulate_email --risk medium
 cargo run -p arpagona-cli -- action evaluate action-1
 cargo run -p arpagona-cli -- audit list
@@ -64,7 +66,8 @@ arpagona health
 - Aucun envoi email réel : `simulate_email` reste une simulation.
 - Aucun shell libre.
 - Aucun secret exposé au LLM.
-- Aucun appel LLM obligatoire dans l'alpha.
+- Aucun appel LLM obligatoire dans l'alpha : `provider=mock` permet le test sans réseau.
+- Un appel LLM éventuel produit uniquement une `ProposedAction` pending, jamais une exécution.
 - Le système doit rester local-first et installable.
 
 ## Périmètre inclus
@@ -79,6 +82,7 @@ POST /tasks
 GET  /tasks
 POST /proposed-actions
 GET  /proposed-actions
+POST /agent/propose
 POST /decision-gate/evaluate
 GET  /decisions
 GET  /audit
@@ -93,10 +97,24 @@ Commandes alpha :
 ```bash
 arpagona health
 arpagona task create "Préparer une réponse client"
+arpagona agent propose "Prépare un brouillon de réponse client" --provider openai
 arpagona action propose --type simulate_email --risk medium
 arpagona action evaluate action-1
 arpagona audit list
 ```
+
+### 2 bis. Agent Proposer V0
+
+`POST /agent/propose` et `arpagona agent propose` ajoutent une brique LLM provider expérimentale. Configuration :
+
+```bash
+export OPENAI_API_KEY="..."
+export OPENAI_MODEL="gpt-4.1-mini" # optionnel
+```
+
+Règles : le LLM propose uniquement, la `ProposedAction` reste `pending_decision`, aucune `Decision` n'est créée automatiquement et le Decision Gate doit être appelé explicitement ensuite.
+
+Documentation détaillée : [`docs/llm-provider.md`](llm-provider.md).
 
 ### 3. Decision Gate minimal
 
@@ -118,7 +136,7 @@ Règles alpha :
 - Shell.
 - Exécution réelle d'outils.
 - Envoi email réel.
-- Appel LLM obligatoire.
+- Appel LLM obligatoire : le provider mock doit suffire pour l'alpha locale.
 - Authentification/API keys.
 - Persistance serveur de la vertical slice CLI/API.
 
@@ -126,6 +144,6 @@ Règles alpha :
 
 - `cargo check` passe.
 - `cargo test` passe.
-- Vérification manuelle effectuée : `health`, `task create`, `action propose`, `action evaluate`, `audit list`.
+- Vérification manuelle effectuée : `health`, `task create`, `agent propose --provider mock`, `action propose`, `action evaluate`, `audit list`.
 - Documentation alpha à jour.
 - Commit sur `main` avec message `Add alpha CLI`.

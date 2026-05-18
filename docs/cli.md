@@ -117,6 +117,35 @@ Created proposed action: action-1
 Status: pending_decision
 ```
 
+### Proposer une action via Agent Proposer V0
+
+```bash
+cargo run -p arpagona-cli -- agent propose "Prépare un brouillon de réponse client"
+```
+
+Options :
+
+- `--provider openai` par défaut ; utiliser `--provider mock` pour un test sans réseau.
+- `--task-id task-1` par défaut.
+- `--workspace-id workspace-alpha` par défaut.
+
+Appelle :
+
+```text
+POST /agent/propose
+```
+
+Affiche :
+
+```text
+Proposed action: action-1
+Type: simulate_email
+Risk: low
+Status: pending_decision
+```
+
+Cette commande ne déclenche pas le Decision Gate et ne crée aucune `Decision`.
+
 ### Évaluer une action
 
 ```bash

@@ -15,7 +15,8 @@ Task -> ProposedAction -> DecisionGate -> Decision -> AuditEvent -> Consultation
 - Graph Memory V0 séparée du serveur API alpha.
 - Decision Gate alpha.
 - Stockage alpha en mémoire dans le serveur API.
-- Aucun appel LLM, aucun scheduler, aucun envoi email réel, aucune exécution d'outil.
+- Provider LLM expérimental : `agent propose` transforme un prompt en `ProposedAction` pending.
+- Aucun scheduler, aucun envoi email réel, aucune exécution d'outil.
 
 ## Vérification globale
 
@@ -43,6 +44,7 @@ Terminal 2 :
 ```bash
 cargo run -p arpagona-cli -- health
 cargo run -p arpagona-cli -- task create "Préparer une réponse client"
+cargo run -p arpagona-cli -- agent propose "Prépare un brouillon de réponse client" --provider mock
 cargo run -p arpagona-cli -- action propose --type simulate_email --risk medium
 cargo run -p arpagona-cli -- action evaluate action-1
 cargo run -p arpagona-cli -- audit list
@@ -57,6 +59,11 @@ Created task: task-1
 Title: Préparer une réponse client
 
 Created proposed action: action-1
+Status: pending_decision
+
+Proposed action: action-2
+Type: simulate_email
+Risk: low
 Status: pending_decision
 
 Decision: needs_human_approval
@@ -118,10 +125,30 @@ arpagona --api-url http://127.0.0.1:3000 health
 arpagona serve
 arpagona health
 arpagona task create "Titre" [--description "..."] [--workspace-id workspace-alpha]
+arpagona agent propose "Prompt" [--provider openai] [--task-id task-1] [--workspace-id workspace-alpha]
 arpagona action propose [--type simulate_email] [--risk medium] [--task-id task-1] [--target client@example.com] [--rationale "Préparer un brouillon sans l’envoyer"] [--permission simulate_email]
 arpagona action evaluate action-1 [--permission simulate_email]
 arpagona audit list
 ```
+
+## Agent Proposer V0 / provider LLM
+
+`arpagona agent propose "..."` appelle `POST /agent/propose`. Par défaut, le provider est `openai`; pour une démo sans réseau ni clé, utiliser `--provider mock`.
+
+Configuration OpenAI :
+
+```bash
+export OPENAI_API_KEY="..."
+export OPENAI_MODEL="gpt-4.1-mini" # optionnel
+```
+
+Le LLM propose uniquement. La sortie reste une `ProposedAction` avec `status: pending_decision`; la CLI n'appelle pas le Decision Gate automatiquement. L'étape suivante reste explicite :
+
+```bash
+cargo run -p arpagona-cli -- action evaluate action-1 --permission simulate_email
+```
+
+Voir [`docs/llm-provider.md`](docs/llm-provider.md).
 
 ## Note sur `serve` pendant l’alpha
 
@@ -145,5 +172,5 @@ cargo run -p arpagona-api-server
 - Pas d'exécution réelle d'outil.
 - Pas d'authentification/API key dans cette vertical slice locale.
 - Pas de persistance serveur obligatoire.
-- Pas de LLM, scheduler, Mission Control complet, UI ou validation humaine interactive.
+- Provider LLM V0 limité à la proposition d'action ; pas de scheduler, Mission Control complet, UI ou validation humaine interactive.
 - Pas de store HTTP pour les policies : ces sujets sont post-alpha.

@@ -12,6 +12,7 @@ const DEFAULT_AGENT_ID: &str = "agent-alpha";
 const DEFAULT_TASK_ID: &str = "task-1";
 const DEFAULT_TARGET: &str = "client@example.com";
 const DEFAULT_RATIONALE: &str = "Préparer un brouillon sans l’envoyer";
+const DEFAULT_PROVIDER: &str = "openai";
 
 #[derive(Debug, Parser)]
 #[command(name = "arpagona", version, about = "ARPAGONA alpha CLI")]
@@ -34,6 +35,8 @@ enum Command {
     Task(TaskCommand),
     /// Propose or evaluate actions.
     Action(ActionCommand),
+    /// Ask an agent provider to propose actions.
+    Agent(AgentCommand),
     /// Read audit events.
     Audit(AuditCommand),
 }
@@ -66,6 +69,33 @@ struct CreateTaskArgs {
 struct ActionCommand {
     #[command(subcommand)]
     command: ActionSubcommand,
+}
+
+#[derive(Debug, Args)]
+struct AgentCommand {
+    #[command(subcommand)]
+    command: AgentSubcommand,
+}
+
+#[derive(Debug, Subcommand)]
+enum AgentSubcommand {
+    /// Ask an LLM or mock provider to propose a pending action.
+    Propose(ProposeAgentArgs),
+}
+
+#[derive(Debug, Args)]
+struct ProposeAgentArgs {
+    /// User prompt transformed into a ProposedAction through /agent/propose.
+    prompt: String,
+    /// Agent proposer provider.
+    #[arg(long, default_value = DEFAULT_PROVIDER)]
+    provider: String,
+    /// Task id linked to the proposed action.
+    #[arg(long, default_value = DEFAULT_TASK_ID)]
+    task_id: String,
+    /// Workspace id.
+    #[arg(long, default_value = DEFAULT_WORKSPACE_ID)]
+    workspace_id: String,
 }
 
 #[derive(Debug, Subcommand)]
@@ -158,6 +188,11 @@ struct EvaluateResponse {
 }
 
 #[derive(Debug, Deserialize)]
+struct AgentProposeResponse {
+    proposed_action: ProposedAction,
+}
+
+#[derive(Debug, Deserialize)]
 struct DecisionView {
     #[allow(dead_code)]
     id: String,
@@ -188,6 +223,9 @@ async fn run() -> Result<(), Box<dyn Error>> {
         Command::Action(action) => match action.command {
             ActionSubcommand::Propose(args) => propose_action(&client, &api_url, args).await?,
             ActionSubcommand::Evaluate(args) => evaluate_action(&client, &api_url, args).await?,
+        },
+        Command::Agent(agent) => match agent.command {
+            AgentSubcommand::Propose(args) => propose_agent_action(&client, &api_url, args).await?,
         },
         Command::Audit(audit) => match audit.command {
             AuditSubcommand::List => list_audit(&client, &api_url).await?,
@@ -267,6 +305,41 @@ async fn propose_action(
 
     println!("Created proposed action: {}", response.id);
     println!("Status: {}", to_api_string(&response.status)?);
+    Ok(())
+}
+
+async fn propose_agent_action(
+    client: &Client,
+    api_url: &str,
+    args: ProposeAgentArgs,
+) -> Result<(), Box<dyn Error>> {
+    let response: AgentProposeResponse = get_json(
+        client
+            .post(format!("{api_url}/agent/propose"))
+            .json(&json!({
+                "workspace_id": args.workspace_id,
+                "task_id": args.task_id,
+                "prompt": args.prompt,
+                "provider": args.provider,
+            }))
+            .send()
+            .await?,
+    )
+    .await?;
+
+    println!("Proposed action: {}", response.proposed_action.id);
+    println!(
+        "Type: {}",
+        to_api_string(&response.proposed_action.action_type)?
+    );
+    println!(
+        "Risk: {}",
+        to_api_string(&response.proposed_action.risk_level)?
+    );
+    println!(
+        "Status: {}",
+        to_api_string(&response.proposed_action.status)?
+    );
     Ok(())
 }
 
@@ -390,6 +463,27 @@ mod tests {
                 assert!(matches!(args.risk, RiskArg::Medium));
             }
             _ => panic!("expected action propose"),
+        }
+    }
+
+    #[test]
+    fn cli_parses_agent_propose_defaults() {
+        let cli = Cli::parse_from([
+            "arpagona",
+            "agent",
+            "propose",
+            "Prépare un brouillon de réponse client",
+        ]);
+        match cli.command {
+            Command::Agent(AgentCommand {
+                command: AgentSubcommand::Propose(args),
+            }) => {
+                assert_eq!(args.prompt, "Prépare un brouillon de réponse client");
+                assert_eq!(args.provider, "openai");
+                assert_eq!(args.task_id, "task-1");
+                assert_eq!(args.workspace_id, "workspace-alpha");
+            }
+            _ => panic!("expected agent propose"),
         }
     }
 

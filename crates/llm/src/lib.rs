@@ -240,7 +240,12 @@ fn extract_output_text(value: &Value) -> Option<String> {
         .get("output")?
         .as_array()?
         .iter()
-        .flat_map(|item| item.get("content").and_then(Value::as_array).into_iter().flatten())
+        .flat_map(|item| {
+            item.get("content")
+                .and_then(Value::as_array)
+                .into_iter()
+                .flatten()
+        })
         .filter_map(|content| content.get("text").and_then(Value::as_str))
         .collect::<Vec<_>>()
         .join("")
@@ -319,6 +324,24 @@ mod tests {
     }
 
     #[test]
+    fn proposed_action_draft_serializes_and_deserializes() {
+        let draft = ProposedActionDraft {
+            action_type: ActionType::SimulateEmail,
+            target: Some("client-response-draft".to_owned()),
+            risk_level: RiskLevel::Low,
+            required_permissions: vec![Permission::SimulateEmail],
+            rationale: "Prepare a draft only.".to_owned(),
+            payload: json!({"body": "Bonjour"}),
+        };
+
+        let encoded = serde_json::to_string(&draft).expect("draft should serialize");
+        let decoded: ProposedActionDraft =
+            serde_json::from_str(&encoded).expect("draft should deserialize");
+
+        assert_eq!(decoded, draft);
+    }
+
+    #[test]
     fn draft_materializes_pending_proposed_action_with_safe_id() {
         let draft = ProposedActionDraft {
             action_type: ActionType::ManageTask,
@@ -342,8 +365,23 @@ mod tests {
     }
 
     #[test]
+    fn llm_originated_action_remains_pending_decision() {
+        let action = MockProvider::safe_default().draft.into_proposed_action(
+            WorkspaceId::new("workspace-alpha"),
+            None,
+            AgentId::new("agent-proposer-v0"),
+            ProposedActionId::new("action-llm-1"),
+        );
+
+        assert_eq!(action.status, ProposedActionStatus::PendingDecision);
+    }
+
+    #[test]
     fn extracts_response_output_text() {
         let value = json!({"output_text": "{\"rationale\":\"ok\"}"});
-        assert_eq!(extract_output_text(&value).as_deref(), Some("{\"rationale\":\"ok\"}"));
+        assert_eq!(
+            extract_output_text(&value).as_deref(),
+            Some("{\"rationale\":\"ok\"}")
+        );
     }
 }
