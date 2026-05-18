@@ -13,6 +13,8 @@ Task -> ProposedAction -> DecisionGate -> Decision -> AuditEvent -> Consultation
 - Serveur API Axum minimal : `arpagona-api-server`.
 - CLI installable : binaire `arpagona`, package Cargo `arpagona-cli`.
 - Interface terminal interactive alpha : `arpagona chat`.
+- Bannière terminal ARPAGONA avec couleurs ANSI/rainbow glow léger.
+- Commandes OpenAI : `arpagona auth status` et `arpagona auth openai`.
 - Graph Memory V0 séparée du serveur API alpha.
 - Decision Gate alpha.
 - Stockage alpha en mémoire dans le serveur API.
@@ -58,7 +60,9 @@ Prépare un brouillon de réponse client
 Le mode `chat` utilise `mock` par défaut afin de fonctionner sur Ubuntu sans clé API ni réseau LLM. Avec OpenAI :
 
 ```bash
+cargo run -p arpagona-cli -- auth openai
 export OPENAI_API_KEY="..."
+cargo run -p arpagona-cli -- auth status
 cargo run -p arpagona-cli -- chat --provider openai
 ```
 
@@ -158,6 +162,8 @@ arpagona --api-url http://127.0.0.1:3000 health
 ```bash
 arpagona serve
 arpagona chat [--provider mock] [--workspace-id workspace-alpha] [--task-id task-1] [--permission simulate_email]
+arpagona auth status
+arpagona auth openai
 arpagona health
 arpagona task create "Titre" [--description "..."] [--workspace-id workspace-alpha]
 arpagona agent propose "Prompt" [--provider openai] [--task-id task-1] [--workspace-id workspace-alpha]
@@ -175,9 +181,13 @@ arpagona audit list
 Configuration OpenAI :
 
 ```bash
+arpagona auth openai
 export OPENAI_API_KEY="..."
 export OPENAI_MODEL="gpt-4.1-mini" # optionnel
+arpagona auth status
 ```
+
+La clé est masquée par `auth status` et ne doit jamais être committée. L'alpha utilise l'auth par API key ; OAuth complet est post-alpha / provider-dependent.
 
 Le LLM propose uniquement. La sortie reste une `ProposedAction` avec `status: pending_decision`; la CLI n'appelle pas le Decision Gate automatiquement. L'étape suivante reste explicite :
 
@@ -205,10 +215,10 @@ cargo run -p arpagona-api-server
 
 - Données perdues au redémarrage du serveur : stockage API in-memory.
 - IDs déterministes locaux (`task-1`, `action-1`, etc.).
-- Interface terminal interactive simple, pas encore TUI plein écran.
+- Interface terminal interactive colorée mais pas encore TUI plein écran.
 - Pas d'exécution réelle d'email : `simulate_email` ne fait que proposer une action.
 - Pas d'exécution réelle d'outil.
-- Pas d'authentification/API key dans cette vertical slice locale.
 - Pas de persistance serveur obligatoire.
+- Auth OpenAI par API key seulement ; OAuth complet est post-alpha / provider-dependent.
 - Provider LLM V0 limité à la proposition d'action ; pas de scheduler, Mission Control complet, UI ou validation humaine interactive.
 - Pas de store HTTP pour les policies : ces sujets sont post-alpha.
