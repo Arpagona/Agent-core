@@ -170,7 +170,7 @@ impl GraphMemoryStore for InMemoryGraphMemoryStore {
             .filter(|fact| fact.entity_type == entity_type && fact.entity_id == entity_id)
             .cloned()
             .collect::<Vec<_>>();
-        facts.sort_by(|left, right| left.created_at.cmp(&right.created_at));
+        facts.sort_by_key(|fact| fact.created_at);
         Ok(facts)
     }
 
@@ -250,7 +250,7 @@ impl GraphMemoryStore for InMemoryGraphMemoryStore {
             .filter(|observation| &observation.episode_id == episode_id)
             .cloned()
             .collect::<Vec<_>>();
-        observations.sort_by(|left, right| left.created_at.cmp(&right.created_at));
+        observations.sort_by_key(|observation| observation.created_at);
         Ok(observations)
     }
 
@@ -273,7 +273,7 @@ impl GraphMemoryStore for InMemoryGraphMemoryStore {
             .filter(|event| event.workspace_id.as_ref() == Some(workspace_id))
             .cloned()
             .collect::<Vec<_>>();
-        events.sort_by(|left, right| left.created_at.cmp(&right.created_at));
+        events.sort_by_key(|event| event.created_at);
         Ok(events)
     }
 

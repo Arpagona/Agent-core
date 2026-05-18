@@ -18,9 +18,15 @@ pub const GRAPH_MEMORY_SCHEMA: &str = include_str!("../migrations/0001_graph_mem
 #[derive(Debug, Error)]
 pub enum GraphMemoryError {
     #[error("surrealdb error: {0}")]
-    Surreal(#[from] surrealdb::Error),
+    Surreal(Box<surrealdb::Error>),
     #[error("serialization error: {0}")]
     Serialization(#[from] serde_json::Error),
+}
+
+impl From<surrealdb::Error> for GraphMemoryError {
+    fn from(error: surrealdb::Error) -> Self {
+        Self::Surreal(Box::new(error))
+    }
 }
 
 pub type Result<T> = std::result::Result<T, GraphMemoryError>;

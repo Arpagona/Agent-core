@@ -197,7 +197,13 @@ mod tests {
         risk_threshold: Option<RiskLevel>,
         requires_human_approval: bool,
     ) -> Policy {
-        policy_with_enabled(id, action_type, risk_threshold, requires_human_approval, true)
+        policy_with_enabled(
+            id,
+            action_type,
+            risk_threshold,
+            requires_human_approval,
+            true,
+        )
     }
 
     fn policy_with_enabled(
@@ -222,8 +228,7 @@ mod tests {
     fn low_risk_approved() {
         let action = proposed_action(ActionType::ReadDocument, RiskLevel::Low);
 
-        let decision =
-            evaluate_proposed_action(&action, &[], &[Permission::ReadDocument]);
+        let decision = evaluate_proposed_action(&action, &[], &[Permission::ReadDocument]);
 
         assert_eq!(decision.status, DecisionStatus::Approved);
         assert_eq!(decision.id, DecisionId::new("decision-action-1"));
@@ -235,8 +240,7 @@ mod tests {
     fn medium_needs_human_approval() {
         let action = proposed_action(ActionType::ReadDocument, RiskLevel::Medium);
 
-        let decision =
-            evaluate_proposed_action(&action, &[], &[Permission::ReadDocument]);
+        let decision = evaluate_proposed_action(&action, &[], &[Permission::ReadDocument]);
 
         assert_eq!(decision.status, DecisionStatus::NeedsHumanApproval);
         assert!(decision.reason.contains("Medium risk"));
@@ -263,11 +267,13 @@ mod tests {
             false,
         )];
 
-        let decision =
-            evaluate_proposed_action(&action, &policies, &[Permission::WriteDocument]);
+        let decision = evaluate_proposed_action(&action, &policies, &[Permission::WriteDocument]);
 
         assert_eq!(decision.status, DecisionStatus::Blocked);
-        assert_eq!(decision.policies_applied, vec![PolicyId::new("block-high-write-document")]);
+        assert_eq!(
+            decision.policies_applied,
+            vec![PolicyId::new("block-high-write-document")]
+        );
         assert!(decision.reason.contains("active policy"));
     }
 
@@ -282,8 +288,7 @@ mod tests {
             false,
         )];
 
-        let decision =
-            evaluate_proposed_action(&action, &policies, &[Permission::ReadDocument]);
+        let decision = evaluate_proposed_action(&action, &policies, &[Permission::ReadDocument]);
 
         assert_eq!(decision.status, DecisionStatus::Approved);
         assert!(decision.policies_applied.is_empty());
@@ -291,10 +296,12 @@ mod tests {
 
     #[test]
     fn custom_action_needs_human_approval() {
-        let action = proposed_action(ActionType::Custom("refresh_index".to_owned()), RiskLevel::Low);
+        let action = proposed_action(
+            ActionType::Custom("refresh_index".to_owned()),
+            RiskLevel::Low,
+        );
 
-        let decision =
-            evaluate_proposed_action(&action, &[], &[Permission::ReadDocument]);
+        let decision = evaluate_proposed_action(&action, &[], &[Permission::ReadDocument]);
 
         assert_eq!(decision.status, DecisionStatus::NeedsHumanApproval);
         assert!(decision.reason.contains("Custom action"));
@@ -303,8 +310,7 @@ mod tests {
     #[test]
     fn audit_event_created_after_decision() {
         let action = proposed_action(ActionType::ReadDocument, RiskLevel::Low);
-        let decision =
-            evaluate_proposed_action(&action, &[], &[Permission::ReadDocument]);
+        let decision = evaluate_proposed_action(&action, &[], &[Permission::ReadDocument]);
 
         let event = audit_event_for_decision(&action, &decision);
 

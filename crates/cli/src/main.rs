@@ -210,12 +210,17 @@ fn serve() -> Result<(), Box<dyn Error>> {
 }
 
 async fn health(client: &Client, api_url: &str) -> Result<(), Box<dyn Error>> {
-    let response: HealthResponse = get_json(client.get(format!("{api_url}/health")).send().await?).await?;
+    let response: HealthResponse =
+        get_json(client.get(format!("{api_url}/health")).send().await?).await?;
     println!("ARPAGONA API: {}", response.status);
     Ok(())
 }
 
-async fn create_task(client: &Client, api_url: &str, args: CreateTaskArgs) -> Result<(), Box<dyn Error>> {
+async fn create_task(
+    client: &Client,
+    api_url: &str,
+    args: CreateTaskArgs,
+) -> Result<(), Box<dyn Error>> {
     let response: Task = get_json(
         client
             .post(format!("{api_url}/tasks"))
@@ -235,7 +240,11 @@ async fn create_task(client: &Client, api_url: &str, args: CreateTaskArgs) -> Re
     Ok(())
 }
 
-async fn propose_action(client: &Client, api_url: &str, args: ProposeActionArgs) -> Result<(), Box<dyn Error>> {
+async fn propose_action(
+    client: &Client,
+    api_url: &str,
+    args: ProposeActionArgs,
+) -> Result<(), Box<dyn Error>> {
     let permissions = normalize_permissions(args.permissions);
     let response: ProposedAction = get_json(
         client
@@ -261,7 +270,11 @@ async fn propose_action(client: &Client, api_url: &str, args: ProposeActionArgs)
     Ok(())
 }
 
-async fn evaluate_action(client: &Client, api_url: &str, args: EvaluateActionArgs) -> Result<(), Box<dyn Error>> {
+async fn evaluate_action(
+    client: &Client,
+    api_url: &str,
+    args: EvaluateActionArgs,
+) -> Result<(), Box<dyn Error>> {
     let response: EvaluateResponse = get_json(
         client
             .post(format!("{api_url}/decision-gate/evaluate"))
@@ -280,7 +293,8 @@ async fn evaluate_action(client: &Client, api_url: &str, args: EvaluateActionArg
 }
 
 async fn list_audit(client: &Client, api_url: &str) -> Result<(), Box<dyn Error>> {
-    let events: Vec<AuditEvent> = get_json(client.get(format!("{api_url}/audit")).send().await?).await?;
+    let events: Vec<AuditEvent> =
+        get_json(client.get(format!("{api_url}/audit")).send().await?).await?;
 
     if events.is_empty() {
         println!("No audit events.");
@@ -311,7 +325,9 @@ async fn list_audit(client: &Client, api_url: &str) -> Result<(), Box<dyn Error>
     Ok(())
 }
 
-async fn get_json<T: for<'de> Deserialize<'de>>(response: reqwest::Response) -> Result<T, Box<dyn Error>> {
+async fn get_json<T: for<'de> Deserialize<'de>>(
+    response: reqwest::Response,
+) -> Result<T, Box<dyn Error>> {
     let status = response.status();
     let text = response.text().await?;
     if !status.is_success() {
@@ -329,8 +345,8 @@ fn to_api_string<T: Serialize>(value: &T) -> Result<String, Box<dyn Error>> {
 
 fn normalize_action_type(action_type: &str) -> Value {
     match action_type {
-        "read_memory" | "write_memory" | "read_document" | "write_document" | "propose_tool_use"
-        | "simulate_email" | "manage_task" => json!(action_type),
+        "read_memory" | "write_memory" | "read_document" | "write_document"
+        | "propose_tool_use" | "simulate_email" | "manage_task" => json!(action_type),
         custom => json!({ "custom": custom }),
     }
 }
