@@ -13,6 +13,11 @@ The repository currently contains a fast-moving alpha foundation with several ex
 Current observed state:
 
 - `PROJECT_OBJECTIVES.md` exists and defines the canonical vision of the project.
+- `PROJECT_STATUS.md` exists and defines the canonical operational status of the repository.
+- `README.md` now points contributors and agents to both canonical project files before any modification.
+- `docs/roadmap.md` now distinguishes the target architectural order from experimental work already prototyped out of order.
+- `docs/architecture.md` now includes explicit architectural re-centering guidance.
+- `docs/compute-reservoir.md` now frames the future Compute Reservoir without implementing it.
 - `crates/core` exists and contains the core domain vocabulary: agents, workspaces, tasks, goals, proposed actions, decisions, policies, permissions, risks, graph primitives, audit events, memory concepts and cognitive primitives.
 - `Decision Gate` currently exists as alpha logic inside `crates/core`.
 - `Reservoir Echo` currently exists inside the Cognitive Runtime primitives as short-term volatile cognitive continuity.
@@ -38,6 +43,10 @@ However, the repository must now be re-centered around governance layers before 
 |---|---|---|---|
 | `PROJECT_OBJECTIVES.md` | Stable foundation | Canonical project vision | Must be read before every significant change. |
 | `PROJECT_STATUS.md` | Stable foundation | Canonical operational status | Must be updated after every significant change. |
+| `README.md` | Stable foundation | Entry point for contributors | Points to canonical objective/status files and consolidation priority. |
+| `docs/roadmap.md` | Stable foundation | Architectural implementation order | Re-centered around governance-first consolidation. |
+| `docs/architecture.md` | Stable foundation | Target architecture and boundaries | Includes Architectural Re-Centering section. |
+| `docs/compute-reservoir.md` | Stable foundation | Future Compute Reservoir framing | Documentation only; no crate implemented yet. |
 | `crates/core` | Stable foundation | Domain vocabulary and pure types | Must not become a catch-all crate. Governance logic should be extracted when safe. |
 | Core domain types | Stable foundation | Shared typed language | Should remain pure, serializable and dependency-light. |
 | Decision Gate | Alpha | Pre-execution governance | Currently inside `crates/core`; should become `crates/decision-gate`. |
@@ -64,11 +73,13 @@ Stable foundations:
 
 - the founding principle: no direct execution by agents;
 - the canonical objective document;
+- the canonical operational status document;
 - the monorepo direction;
 - Rust as backend foundation;
 - local-first, graph-native, compute-aware, auditable and human-governed architecture;
 - `ProposedAction -> DecisionGate -> Decision -> Audit` as the mandatory control path;
-- separation between domain vocabulary and adapters as an architectural rule.
+- separation between domain vocabulary and adapters as an architectural rule;
+- documentation-level separation between Reservoir Echo and Compute Reservoir.
 
 ## 4. What Is Experimental
 
@@ -197,3 +208,29 @@ A significant modification includes:
 - changing the project roadmap or implementation order.
 
 The update must clearly state whether the change is stable, alpha, experimental, deferred or not implemented.
+
+## 11. Latest Session Update
+
+This session performed a documentation-only architectural re-centering.
+
+Changed:
+
+- created `PROJECT_STATUS.md` as the canonical operational status file;
+- updated `README.md` to require reading `PROJECT_OBJECTIVES.md` and `PROJECT_STATUS.md` before modifications;
+- updated `README.md` to state that the immediate objective is consolidation, not feature expansion;
+- updated `docs/roadmap.md` to clarify that some bricks were prototyped out of order and must now return to the target architectural sequence;
+- updated `docs/architecture.md` with an `Architectural Re-Centering` section;
+- created `docs/compute-reservoir.md` as a documentation-only framing file.
+
+Not changed:
+
+- no new crate was created;
+- no runtime feature was added;
+- no endpoint was added;
+- no provider was added;
+- no tool execution was introduced;
+- Decision Gate was not moved yet;
+- Compute Reservoir was not implemented yet;
+- Tool Registry was not implemented yet.
+
+Next recommended action remains: extract Decision Gate into `crates/decision-gate` in a dedicated safe change, then create a minimal `crates/compute-reservoir`.
