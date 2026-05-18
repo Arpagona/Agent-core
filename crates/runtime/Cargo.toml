@@ -1,0 +1,18 @@
+[package]
+name = "arpagona-runtime"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+description = "Experimental safe cognitive runtime loop for ARPAGONA Agent Core"
+
+[dependencies]
+arpagona-agent-core = { path = "../core" }
+arpagona-llm = { path = "../llm" }
+chrono.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+
+[dev-dependencies]
+tokio.workspace = true
