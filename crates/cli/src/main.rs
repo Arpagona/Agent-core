@@ -372,11 +372,17 @@ async fn chat(client: &Client, api_url: &str, args: ChatArgs) -> Result<(), Box<
                     provider = next_provider;
                     println!("{} {}", style_success("Provider:"), provider);
                 } else {
-                    println!("{}", style_error("Unsupported provider. Use mock or openai."));
+                    println!(
+                        "{}",
+                        style_error("Unsupported provider. Use mock or openai.")
+                    );
                 }
             }
             ChatLine::UnknownCommand(command) => {
-                println!("{}", style_warning(&format!("Unknown command: {command}. Type /help.")));
+                println!(
+                    "{}",
+                    style_warning(&format!("Unknown command: {command}. Type /help."))
+                );
             }
             ChatLine::Prompt(prompt) => {
                 match propose_agent_request(
@@ -390,7 +396,9 @@ async fn chat(client: &Client, api_url: &str, args: ChatArgs) -> Result<(), Box<
                 .await
                 {
                     Ok(response) => print_agent_proposal(&response.proposed_action)?,
-                    Err(error) => println!("{}", format_provider_error(&provider, &error.to_string())),
+                    Err(error) => {
+                        println!("{}", format_provider_error(&provider, &error.to_string()))
+                    }
                 }
             }
         }
@@ -403,7 +411,11 @@ fn auth_status() {
     println!("{}", rainbow_text("ARPAGONA OpenAI Auth Status"));
     match env::var("OPENAI_API_KEY") {
         Ok(key) if !key.trim().is_empty() => {
-            println!("{} {}", style_success("OPENAI_API_KEY:"), mask_openai_key(&key));
+            println!(
+                "{} {}",
+                style_success("OPENAI_API_KEY:"),
+                mask_openai_key(&key)
+            );
         }
         _ => {
             println!("{} not configured", style_warning("OPENAI_API_KEY:"));
@@ -416,14 +428,20 @@ fn auth_status() {
             println!("{} {}", style_success("OPENAI_MODEL:"), model);
         }
         _ => {
-            println!("{} not set, provider default will be used", style_dim("OPENAI_MODEL:"));
+            println!(
+                "{} not set, provider default will be used",
+                style_dim("OPENAI_MODEL:")
+            );
         }
     }
 }
 
 fn auth_openai_instructions() {
     println!("{}", rainbow_text("Configure OpenAI for ARPAGONA"));
-    println!("{}", style_dim("Alpha uses API key auth. Full OAuth is post-alpha / provider-dependent."));
+    println!(
+        "{}",
+        style_dim("Alpha uses API key auth. Full OAuth is post-alpha / provider-dependent.")
+    );
     println!();
     println!("1. Create a local env file:");
     println!("   mkdir -p ~/.config/arpagona");
@@ -443,10 +461,22 @@ fn auth_openai_instructions() {
 
 fn print_chat_banner(api_url: &str, provider: &str, workspace_id: &str, task_id: &str) {
     println!();
-    println!("{}", rainbow_text("╔════════════════════════════════════════════════════════════╗"));
-    println!("{}", rainbow_text("║                 ARPAGONA AGENT CORE                      ║"));
-    println!("{}", rainbow_text("║            Cognitive Runtime Alpha Terminal              ║"));
-    println!("{}", rainbow_text("╚════════════════════════════════════════════════════════════╝"));
+    println!(
+        "{}",
+        rainbow_text("╔════════════════════════════════════════════════════════════╗")
+    );
+    println!(
+        "{}",
+        rainbow_text("║                 ARPAGONA AGENT CORE                      ║")
+    );
+    println!(
+        "{}",
+        rainbow_text("║            Cognitive Runtime Alpha Terminal              ║")
+    );
+    println!(
+        "{}",
+        rainbow_text("╚════════════════════════════════════════════════════════════╝")
+    );
     println!(
         "{} {} | {} {} | {} {} | {} {}",
         style_dim("provider:"),
@@ -458,21 +488,49 @@ fn print_chat_banner(api_url: &str, provider: &str, workspace_id: &str, task_id:
         style_dim("task:"),
         task_id,
     );
-    println!("{}", style_dim("Type /help for commands. Nothing is executed directly."));
+    println!(
+        "{}",
+        style_dim("Type /help for commands. Nothing is executed directly.")
+    );
     println!();
 }
 
 fn print_chat_help() {
     println!("{}", style_info("Commands:"));
-    println!("  {}                 Show this help", style_command("/help"));
-    println!("  {} | {}         Leave chat", style_command("/quit"), style_command("/exit"));
+    println!(
+        "  {}                 Show this help",
+        style_command("/help")
+    );
+    println!(
+        "  {} | {}         Leave chat",
+        style_command("/quit"),
+        style_command("/exit")
+    );
     println!("  {}                List tasks", style_command("/tasks"));
-    println!("  {}              List proposed actions", style_command("/actions"));
-    println!("  {}    Evaluate a proposed action", style_command("/evaluate action-1"));
-    println!("  {}                List audit events", style_command("/audit"));
-    println!("  {}        Use mock provider", style_command("/provider mock"));
-    println!("  {}      Use OpenAI provider", style_command("/provider openai"));
-    println!("\n{}", style_dim("Any other text is sent to /agent/propose and returns a pending ProposedAction."));
+    println!(
+        "  {}              List proposed actions",
+        style_command("/actions")
+    );
+    println!(
+        "  {}    Evaluate a proposed action",
+        style_command("/evaluate action-1")
+    );
+    println!(
+        "  {}                List audit events",
+        style_command("/audit")
+    );
+    println!(
+        "  {}        Use mock provider",
+        style_command("/provider mock")
+    );
+    println!(
+        "  {}      Use OpenAI provider",
+        style_command("/provider openai")
+    );
+    println!(
+        "\n{}",
+        style_dim("Any other text is sent to /agent/propose and returns a pending ProposedAction.")
+    );
 }
 
 async fn health(client: &Client, api_url: &str) -> Result<(), Box<dyn Error>> {
@@ -518,7 +576,11 @@ async fn list_tasks(client: &Client, api_url: &str) -> Result<(), Box<dyn Error>
     for task in tasks {
         println!("{} {}", style_dim("- id:"), task.id);
         println!("  {} {}", style_dim("title:"), task.title);
-        println!("  {} {}", style_dim("status:"), to_api_string(&task.status)?);
+        println!(
+            "  {} {}",
+            style_dim("status:"),
+            to_api_string(&task.status)?
+        );
     }
 
     Ok(())
@@ -549,8 +611,16 @@ async fn propose_action(
     )
     .await?;
 
-    println!("{} {}", style_success("Created proposed action:"), response.id);
-    println!("{} {}", style_dim("Status:"), to_api_string(&response.status)?);
+    println!(
+        "{} {}",
+        style_success("Created proposed action:"),
+        response.id
+    );
+    println!(
+        "{} {}",
+        style_dim("Status:"),
+        to_api_string(&response.status)?
+    );
     Ok(())
 }
 
@@ -598,9 +668,21 @@ async fn propose_agent_request(
 fn print_agent_proposal(action: &ProposedAction) -> Result<(), Box<dyn Error>> {
     println!("{}", style_info("ProposedAction"));
     println!("{} {}", style_dim("id:"), action.id);
-    println!("{} {}", style_dim("type:"), to_api_string(&action.action_type)?);
-    println!("{} {}", style_dim("risk:"), style_risk(&to_api_string(&action.risk_level)?));
-    println!("{} {}", style_dim("status:"), style_status(&to_api_string(&action.status)?));
+    println!(
+        "{} {}",
+        style_dim("type:"),
+        to_api_string(&action.action_type)?
+    );
+    println!(
+        "{} {}",
+        style_dim("risk:"),
+        style_risk(&to_api_string(&action.risk_level)?)
+    );
+    println!(
+        "{} {}",
+        style_dim("status:"),
+        style_status(&to_api_string(&action.status)?)
+    );
     println!("{} {}", style_dim("rationale:"), action.rationale);
     println!("{} /evaluate {}", style_dim("next:"), action.id);
     Ok(())
@@ -642,7 +724,11 @@ async fn evaluate_action_request(
 }
 
 fn print_decision(response: &EvaluateResponse) -> Result<(), Box<dyn Error>> {
-    println!("{} {}", style_success("Decision:"), style_status(&response.decision.status));
+    println!(
+        "{} {}",
+        style_success("Decision:"),
+        style_status(&response.decision.status)
+    );
     println!("{} {}", style_info("Audit:"), response.audit_event.id);
     Ok(())
 }
@@ -664,9 +750,21 @@ async fn list_actions(client: &Client, api_url: &str) -> Result<(), Box<dyn Erro
     println!("{}", style_info("Proposed actions"));
     for action in actions {
         println!("{} {}", style_dim("- id:"), action.id);
-        println!("  {} {}", style_dim("action_type:"), to_api_string(&action.action_type)?);
-        println!("  {} {}", style_dim("risk_level:"), style_risk(&to_api_string(&action.risk_level)?));
-        println!("  {} {}", style_dim("status:"), style_status(&to_api_string(&action.status)?));
+        println!(
+            "  {} {}",
+            style_dim("action_type:"),
+            to_api_string(&action.action_type)?
+        );
+        println!(
+            "  {} {}",
+            style_dim("risk_level:"),
+            style_risk(&to_api_string(&action.risk_level)?)
+        );
+        println!(
+            "  {} {}",
+            style_dim("status:"),
+            style_status(&to_api_string(&action.status)?)
+        );
     }
 
     Ok(())
@@ -684,7 +782,11 @@ async fn list_audit(client: &Client, api_url: &str) -> Result<(), Box<dyn Error>
     println!("{}", style_info("Audit events"));
     for event in events {
         println!("{} {}", style_dim("- id:"), event.id);
-        println!("  {} {}", style_dim("event_type:"), to_api_string(&event.event_type)?);
+        println!(
+            "  {} {}",
+            style_dim("event_type:"),
+            to_api_string(&event.event_type)?
+        );
         println!(
             "  {} {}",
             style_dim("proposed_action_id:"),
@@ -847,15 +949,24 @@ fn style_info(text: &str) -> String {
 }
 
 fn style_command(text: &str) -> String {
-    format!("{ANSI_BOLD}{}{ANSI_RESET}", style_text(text, TermColor::Magenta))
+    format!(
+        "{ANSI_BOLD}{}{ANSI_RESET}",
+        style_text(text, TermColor::Magenta)
+    )
 }
 
 fn style_prompt(text: &str) -> String {
-    format!("{ANSI_BOLD}{}{ANSI_RESET}", style_text(text, TermColor::Cyan))
+    format!(
+        "{ANSI_BOLD}{}{ANSI_RESET}",
+        style_text(text, TermColor::Cyan)
+    )
 }
 
 fn style_dim(text: &str) -> String {
-    format!("{ANSI_DIM}{}{ANSI_RESET}", style_text(text, TermColor::Gray))
+    format!(
+        "{ANSI_DIM}{}{ANSI_RESET}",
+        style_text(text, TermColor::Gray)
+    )
 }
 
 fn style_text(text: &str, color: TermColor) -> String {
@@ -888,7 +999,10 @@ fn rainbow_text(text: &str) -> String {
             output.push(character);
             continue;
         }
-        output.push_str(&style_text(&character.to_string(), colors[color_index % colors.len()]));
+        output.push_str(&style_text(
+            &character.to_string(),
+            colors[color_index % colors.len()],
+        ));
         color_index += 1;
     }
     output
