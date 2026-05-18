@@ -138,24 +138,49 @@ Contraintes :
 
 Documentation dédiée : `docs/runtime.md`.
 
+## Brique 9 — Terminal Interface
+
+État : mode interactif alpha ajouté dans `crates/cli` via `arpagona chat`.
+
+Objectif : permettre une installation/test Ubuntu avec une expérience terminal proche de Hermes/OpenClaw, sans TUI plein écran ni exécution directe.
+
+Inclus :
+
+- `arpagona chat` ;
+- provider `mock` par défaut pour tests sans réseau ;
+- provider `openai` optionnel ;
+- commandes internes `/help`, `/quit`, `/tasks`, `/actions`, `/evaluate`, `/audit`, `/provider` ;
+- vérification `/health` au démarrage ;
+- affichage lisible des `ProposedAction`, `Decision` et `AuditEvent`.
+
+Contraintes :
+
+- pas de ratatui/crossterm ;
+- pas de shell ;
+- pas de scheduler ;
+- pas d'exécution d'outils ;
+- le Decision Gate reste déclenché explicitement par `/evaluate`.
+
+Documentation dédiée : `docs/terminal-interface.md`.
+
 Sous-brique suivante recommandée :
 
-- stabiliser un contrat d'intégration API/CLI dans une session dédiée, en gardant `MockProvider` testable sans réseau et en arrêtant toujours la boucle à `ProposedAction`.
+- valider localement `cargo fmt/check/test/clippy`, puis tester l'installation Ubuntu depuis les sources avec `cargo install --path crates/cli` et `arpagona chat --provider mock`.
 
-## Brique 9 — Mission Control
+## Brique 10 — Mission Control
 
 - Next.js + TypeScript.
 - Dashboard de supervision.
 - Validation humaine des actions sensibles.
 
-## Brique 10 — Orchestrator
+## Brique 11 — Orchestrator
 
 - Coordination des agents.
 - Cycle tâche / objectif / proposition d'action.
 - Abstraction des providers LLM.
 - Raccordement au Cognitive Runtime.
 
-## Brique 11 — Workers d'ingestion
+## Brique 12 — Workers d'ingestion
 
 - Ingestion documentaire.
 - Extraction de sources, observations et faits.
