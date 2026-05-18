@@ -236,6 +236,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "arpagona-runtime"
+version = "0.1.0"
+dependencies = [
+ "arpagona-agent-core",
+ "arpagona-llm",
+ "chrono",
+ "serde",
+ "serde_json",
+ "tokio",
+]
+
+[[package]]
 name = "arrayvec"
 version = "0.7.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"

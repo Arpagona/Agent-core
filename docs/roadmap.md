@@ -140,7 +140,7 @@ Documentation dédiée : `docs/runtime.md`.
 
 Sous-brique suivante recommandée :
 
-- valider localement `cargo fmt/check/test/clippy`, puis exposer le runtime via un endpoint expérimental contrôlé `POST /runtime/propose` ou le brancher prudemment derrière `/agent/propose`.
+- stabiliser un contrat d'intégration API/CLI dans une session dédiée, en gardant `MockProvider` testable sans réseau et en arrêtant toujours la boucle à `ProposedAction`.
 
 ## Brique 9 — Mission Control
 

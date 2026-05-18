@@ -141,6 +141,8 @@ where
             notes: vec![
                 "Runtime stopped at ProposedAction.".to_owned(),
                 "Decision Gate must be called explicitly by the host application.".to_owned(),
+                "No Decision was created.".to_owned(),
+                "No AuditEvent was created.".to_owned(),
                 "No tool execution occurred.".to_owned(),
             ],
         })
@@ -194,7 +196,9 @@ pub fn materialize_draft(
 fn derive_tags(prompt: &str) -> Vec<String> {
     let mut tags = vec![];
     let lower = prompt.to_ascii_lowercase();
-    for candidate in ["email", "client", "devis", "document", "task", "mémoire", "memory"] {
+    for candidate in [
+        "email", "client", "devis", "document", "task", "mémoire", "memory",
+    ] {
         if lower.contains(candidate) {
             tags.push(candidate.to_owned());
         }
@@ -239,7 +243,7 @@ pub fn runtime_cycle_input(
         agent_id: AgentId::new(agent_id.into()),
         user_prompt: user_prompt.into(),
         context_refs: vec![],
-        metadata: Value::Object(Default::default()),
+        metadata: runtime_metadata(),
         created_at: now,
     }
 }
@@ -285,13 +289,32 @@ mod tests {
             .await
             .expect("mock runtime should propose");
 
-        assert_eq!(output.proposed_action.status, ProposedActionStatus::PendingDecision);
-        assert_eq!(output.proposed_action.action_type, ActionType::SimulateEmail);
+        assert_eq!(
+            output.proposed_action.status,
+            ProposedActionStatus::PendingDecision
+        );
+        assert_eq!(
+            output.proposed_action.action_type,
+            ActionType::SimulateEmail
+        );
         assert!(output
             .notes
             .iter()
             .any(|note| note.contains("No tool execution")));
-        assert!(output.cycle_plan.proposal_index().unwrap() < output.cycle_plan.decision_gate_index().unwrap());
+        assert!(output.notes.iter().any(|note| note.contains("No Decision")));
+        assert!(output
+            .notes
+            .iter()
+            .any(|note| note.contains("No AuditEvent")));
+        assert!(
+            output.cycle_plan.proposal_index().unwrap()
+                < output.cycle_plan.decision_gate_index().unwrap()
+        );
+        assert_eq!(output.input.metadata["executes_tools"], false);
+        assert_eq!(
+            output.input.metadata["calls_decision_gate_automatically"],
+            false
+        );
     }
 
     #[test]

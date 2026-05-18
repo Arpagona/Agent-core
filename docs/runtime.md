@@ -63,6 +63,8 @@ Cela permet :
 - `OpenAiProvider` pour proposer via OpenAI ;
 - futurs providers locaux Ollama.
 
+Le provider propose seulement un draft. ARPAGONA matérialise une `ProposedAction` puis décide explicitement plus tard via le Decision Gate.
+
 ### propose_once
 
 Exécute un seul cycle de proposition :
@@ -94,13 +96,13 @@ Exécute un seul cycle de proposition :
 
 ## Prochaine étape
 
-Ajouter un endpoint expérimental contrôlé :
+Stabiliser le contrat d'intégration avant tout branchement API/CLI :
 
-```text
-POST /runtime/propose
-```
+- garder `MockProvider` comme chemin de test sans réseau ;
+- garder la décision hors du runtime ;
+- vérifier que toute intégration future s'arrête encore à `ProposedAction`.
 
-ou intégrer `CognitiveRuntime<MockProvider/OpenAiProvider>` derrière `/agent/propose`, mais uniquement après validation locale de :
+Toute évolution doit rester précédée par :
 
 ```bash
 cargo fmt --check
