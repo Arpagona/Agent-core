@@ -53,9 +53,13 @@ Sous-brique suivante :
 
 ## Brique 5 — API Server
 
-- Serveur Axum.
-- Endpoints REST initiaux.
-- Consultation des tâches, actions proposées, décisions et audit.
+État : alpha minimale dans `apps/api-server`.
+
+- Serveur Axum lançable avec `cargo run -p arpagona-api-server`.
+- Stockage in-memory des `Task`, `ProposedAction`, `Decision` et `AuditEvent`.
+- Endpoints REST initiaux : `health`, `tasks`, `proposed-actions`, `decision-gate/evaluate`, `decisions`, `audit`.
+- Consultation du flux `Task -> ProposedAction -> DecisionGate -> Decision -> AuditEvent` sans LLM, shell, scheduler, outil exécutable ni SurrealDB obligatoire.
+- Documentation dédiée : `docs/api-server.md`.
 
 ## Brique 6 — Mission Control
 

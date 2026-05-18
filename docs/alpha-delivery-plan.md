@@ -74,7 +74,6 @@ Endpoints alpha :
 
 ```text
 GET  /health
-POST /workspaces
 POST /tasks
 GET  /tasks
 POST /proposed-actions
@@ -86,7 +85,8 @@ GET  /audit
 
 Stockage alpha :
 
-- `InMemoryGraphMemoryStore` par défaut ;
+- état HTTP in-memory pour `Task`, `ProposedAction`, `Decision` et `AuditEvent` dans l'API server alpha ;
+- `InMemoryGraphMemoryStore` reste disponible côté domaine pour tests et développements mémoire ;
 - SurrealDB peut rester expérimental et optionnel.
 
 Contraintes :
