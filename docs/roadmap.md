@@ -100,24 +100,62 @@ Contraintes :
 
 Documentation dédiée : `docs/cognitive-runtime.md`.
 
+## Brique 8 — Runtime V0
+
+État : crate expérimental `crates/runtime` ajouté.
+
+Objectif : orchestrer une première boucle mini Hermes-like sans exécution directe.
+
+Flux V0 :
+
+```text
+CognitiveCycleInput
+-> CognitivePulse
+-> ReservoirState
+-> LlmProvider
+-> ProposedAction
+```
+
+Inclus :
+
+- `RuntimeConfig` ;
+- `CognitiveRuntimeState` ;
+- `CognitiveRuntime<P: LlmProvider>` ;
+- `propose_once()` ;
+- enrichissement du prompt provider par les échos actifs du réservoir ;
+- `RuntimeCycleOutput` ;
+- tests avec `MockProvider`.
+
+Contraintes :
+
+- la boucle s'arrête à `ProposedAction` ;
+- `DecisionGate` n'est pas appelé automatiquement ;
+- aucun `Decision` ni `AuditEvent` n'est créé par ce crate ;
+- pas d'exécution d'outils ;
+- pas de scheduler ;
+- pas d'I/O direct ;
+- provider OpenAI possible via abstraction, mais tests sans réseau.
+
+Documentation dédiée : `docs/runtime.md`.
+
 Sous-brique suivante recommandée :
 
-- créer `crates/runtime` pour orchestrer une boucle V0 : `CognitiveCycleInput -> ReservoirState -> LlmProvider -> ProposedAction`, sans exécution directe.
+- valider localement `cargo fmt/check/test/clippy`, puis exposer le runtime via un endpoint expérimental contrôlé `POST /runtime/propose` ou le brancher prudemment derrière `/agent/propose`.
 
-## Brique 8 — Mission Control
+## Brique 9 — Mission Control
 
 - Next.js + TypeScript.
 - Dashboard de supervision.
 - Validation humaine des actions sensibles.
 
-## Brique 9 — Orchestrator
+## Brique 10 — Orchestrator
 
 - Coordination des agents.
 - Cycle tâche / objectif / proposition d'action.
 - Abstraction des providers LLM.
 - Raccordement au Cognitive Runtime.
 
-## Brique 10 — Workers d'ingestion
+## Brique 11 — Workers d'ingestion
 
 - Ingestion documentaire.
 - Extraction de sources, observations et faits.
