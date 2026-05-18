@@ -16,19 +16,19 @@ Exclus : API, UI, base de données, LLM, outils exécutables, scheduler actif.
 
 ## Brique 2 — Graph Memory
 
-État : première implémentation expérimentale disponible dans `crates/graph-memory`.
+État : démarrage par une abstraction pure Rust dans `crates/core`, avant l'adapter SurrealDB.
 
-- Adapter SurrealDB.
-- Modèle de persistance pour faits, sources, épisodes, observations et décisions.
-- Requêtes de base et migrations initiales.
+- Port synchrone `GraphMemoryStore` sans dépendance DB.
+- Implémentation `InMemoryGraphMemoryStore` pour tests et développement du domaine.
+- Stockage minimal de `Source`, `Fact`, `Episode`, `Observation`, `AuditEvent` et relations `GraphRelation` / `RelationType`.
+- Requêtes de base, dont récupération des faits actifs par entité.
 
-Inclus en V0 expérimentale :
+Sous-brique suivante :
 
-- interface `GraphMemoryStore` ;
-- adapter `SurrealGraphMemoryStore` ;
+- adapter `SurrealGraphMemoryStore` séparé du domaine core ;
 - migration `0001_graph_memory.surql` ;
-- persistance de base pour `Fact`, `Source` et `AuditEvent` ;
-- tests SurrealDB en mémoire.
+- persistance SurrealDB pour les mêmes objets et relations ;
+- tests d'adapter avec SurrealDB en mémoire.
 
 ## Brique 3 — Decision Gate
 
