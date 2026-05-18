@@ -57,23 +57,67 @@ Sous-brique suivante :
 
 - Serveur Axum lançable avec `cargo run -p arpagona-api-server`.
 - Stockage in-memory des `Task`, `ProposedAction`, `Decision` et `AuditEvent`.
-- Endpoints REST initiaux : `health`, `tasks`, `proposed-actions`, `decision-gate/evaluate`, `decisions`, `audit`.
-- Consultation du flux `Task -> ProposedAction -> DecisionGate -> Decision -> AuditEvent` sans LLM, shell, scheduler, outil exécutable ni SurrealDB obligatoire.
+- Endpoints REST initiaux : `health`, `tasks`, `proposed-actions`, `agent/propose`, `decision-gate/evaluate`, `decisions`, `audit`.
+- Consultation du flux `Task -> ProposedAction -> DecisionGate -> Decision -> AuditEvent` sans shell, scheduler, outil exécutable ni SurrealDB obligatoire.
+- Provider LLM expérimental limité à la proposition de `ProposedAction`.
 - Documentation dédiée : `docs/api-server.md`.
 
-## Brique 6 — Mission Control
+## Brique 6 — LLM Provider / Agent Proposer
+
+État : V0 expérimentale dans `crates/llm` et endpoint `POST /agent/propose`.
+
+- `LlmProvider` abstrait.
+- `MockProvider` pour tests et démos sans réseau.
+- `OpenAiProvider` utilisant l'API Responses via `OPENAI_API_KEY`.
+- `ProposedActionDraft` transformé en `ProposedAction` avec `PendingDecision`.
+- Aucune exécution, aucun tool OpenAI, aucun appel automatique au Decision Gate.
+- Documentation dédiée : `docs/llm-provider.md`.
+
+## Brique 7 — Cognitive Runtime / Rippletide Layer
+
+État : primitives domaine ajoutées dans `crates/core/src/cognitive.rs`.
+
+Objectif : reconnecter l'alpha avec la vision initiale d'un mini système agentique Hermes-like amélioré par des couches cognitives explicites.
+
+Inclus :
+
+- `CognitiveLayer` : Input, WorkingMemory, ReservoirEcho, GraphMemory, AgentProposal, DecisionGate, HumanBoundary, Audit, Reflection, etc. ;
+- `AgentLoopPhase` : ordre alpha-safe d'une boucle agentique ;
+- `CognitivePulse` : signal court terme ;
+- `ReservoirTrace` : trace d'écho avec activation et décroissance ;
+- `ReservoirState` : réservoir court terme borné et déterministe ;
+- `CognitiveCycleInput` ;
+- `CognitiveCyclePlan::alpha_safe_default()`.
+
+Contraintes :
+
+- pure domain, pas d'I/O ;
+- pas d'appel LLM ;
+- pas de scheduler ;
+- pas d'exécution ;
+- le réservoir n'est pas une mémoire persistante ;
+- Graph Memory reste responsable de la mémoire durable.
+
+Documentation dédiée : `docs/cognitive-runtime.md`.
+
+Sous-brique suivante recommandée :
+
+- créer `crates/runtime` pour orchestrer une boucle V0 : `CognitiveCycleInput -> ReservoirState -> LlmProvider -> ProposedAction`, sans exécution directe.
+
+## Brique 8 — Mission Control
 
 - Next.js + TypeScript.
 - Dashboard de supervision.
 - Validation humaine des actions sensibles.
 
-## Brique 7 — Orchestrator
+## Brique 9 — Orchestrator
 
 - Coordination des agents.
 - Cycle tâche / objectif / proposition d'action.
 - Abstraction des providers LLM.
+- Raccordement au Cognitive Runtime.
 
-## Brique 8 — Workers d'ingestion
+## Brique 10 — Workers d'ingestion
 
 - Ingestion documentaire.
 - Extraction de sources, observations et faits.
