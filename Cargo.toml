@@ -3,7 +3,8 @@ members = [
     "apps/api-server",
     "crates/cli",
     "crates/core",
-    "crates/graph-memory"
+    "crates/graph-memory",
+    "crates/llm"
 ]
 resolver = "2"
 

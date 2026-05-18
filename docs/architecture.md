@@ -51,7 +51,9 @@ L'Orchestrator coordonnera les agents, les tâches, les objectifs et les proposi
 
 ## LLM Providers
 
-Les providers LLM seront branchés plus tard. Le core ne contient aucune logique de prompt, de streaming, d'appel modèle ou de gestion de secrets.
+Les providers LLM vivent hors de `crates/core`, dans `crates/llm`. La V0 expérimentale transforme une demande utilisateur en `ProposedActionDraft`, puis en `ProposedAction` avec le statut `pending_decision`.
+
+Contraintes permanentes : le LLM ne doit jamais exécuter, ne doit pas utiliser d'outils OpenAI, ne doit pas faire de web search et ne doit jamais contourner le Decision Gate. `OPENAI_API_KEY` est lu uniquement par le provider OpenAI et ne doit jamais être loggé.
 
 ## Scheduler
 

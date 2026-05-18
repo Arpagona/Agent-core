@@ -71,6 +71,10 @@ arpagona-agent-core/
         lib.rs
       migrations/
         0001_graph_memory.surql
+    llm/
+      Cargo.toml
+      src/
+        lib.rs
   apps/
     mission-control/
       README.md
@@ -88,12 +92,15 @@ Les premières briques fournissent :
 - le crate Rust `crates/core` ;
 - des types fondamentaux sérialisables ;
 - un crate expérimental `crates/graph-memory` pour persister la mémoire graphe dans SurrealDB ;
+- un crate expérimental `crates/llm` pour transformer une demande utilisateur en `ProposedAction` pending, sans exécution ;
 - une migration SurrealDB initiale pour faits, sources, épisodes, observations, audit, décisions et actions proposées ;
 - quelques tests unitaires de base.
 
 Le crate `core` est volontairement limité à des types purs et réutilisables. Il ne contient ni logique LLM, ni logique SurrealDB, ni API, ni exécution d'outils.
 
 Le crate `graph-memory` porte l'adapter SurrealDB séparé du domaine core. La source de vérité domaine est le trait synchrone `GraphMemoryStore` dans `crates/core`; l'adapter persistant expose `SurrealGraphMemoryStore` et un port async expérimental `AsyncGraphMemoryStore`, testés avec SurrealDB en mémoire.
+
+Le crate `llm` porte les providers expérimentaux. Même lorsqu'un provider OpenAI est utilisé, il ne peut produire qu'un `ProposedActionDraft`, ensuite matérialisé en `ProposedAction` avec le statut `pending_decision`. Aucun outil réel n'est exécuté et le Decision Gate reste obligatoire avant toute suite.
 
 ## Compiler et tester
 
@@ -112,7 +119,7 @@ La documentation de la mémoire graphe se trouve dans `docs/graph-memory.md`.
 - Pas d'interface web réelle.
 - Pas de serveur Axum.
 - Pas de connexion SurrealDB dans `crates/core`.
-- Pas d'appel LLM.
+- Pas d'appel LLM d'exécution : l'intégration LLM expérimentale propose uniquement des actions pending.
 - Pas de shell libre.
 - Pas d'envoi email réel.
 - Pas de registre d'outils exécutable.

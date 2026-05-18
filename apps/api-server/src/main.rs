@@ -6,6 +6,7 @@ use arpagona_agent_core::{
     DecisionStatus, Permission, ProposedAction, ProposedActionId, ProposedActionStatus, RiskLevel,
     Task, TaskId, TaskPriority, TaskStatus, WorkspaceId,
 };
+use arpagona_llm::{LlmActionRequest, LlmProvider, MockProvider, OpenAiProvider};
 use axum::extract::State;
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
@@ -67,6 +68,19 @@ struct EvaluateDecisionGateResponse {
     audit_event: AuditEvent,
 }
 
+#[derive(Deserialize)]
+struct AgentProposeRequest {
+    workspace_id: String,
+    task_id: Option<String>,
+    prompt: String,
+    provider: String,
+}
+
+#[derive(Serialize)]
+struct AgentProposeResponse {
+    proposed_action: ProposedAction,
+}
+
 #[derive(Serialize)]
 struct ErrorResponse {
     error: String,
@@ -94,6 +108,7 @@ fn app(state: AppState) -> Router {
             "/proposed-actions",
             post(create_proposed_action).get(list_proposed_actions),
         )
+        .route("/agent/propose", post(agent_propose))
         .route("/decision-gate/evaluate", post(evaluate_decision_gate))
         .route("/decisions", get(list_decisions))
         .route("/audit", get(list_audit))
@@ -163,6 +178,45 @@ async fn list_proposed_actions(
     Ok(Json(state.lock()?.proposed_actions.clone()))
 }
 
+async fn agent_propose(
+    State(state): State<AppState>,
+    Json(request): Json<AgentProposeRequest>,
+) -> Result<Json<AgentProposeResponse>, ApiError> {
+    let llm_request = LlmActionRequest {
+        prompt: request.prompt,
+    };
+
+    let draft = match request.provider.as_str() {
+        "openai" => OpenAiProvider::from_env()?
+            .propose_action(llm_request)
+            .await?,
+        "mock" => MockProvider::safe_default()
+            .propose_action(llm_request)
+            .await?,
+        other => {
+            return Err(ApiError::bad_request(format!(
+                "unsupported agent proposer provider '{other}' (expected 'openai' or 'mock')"
+            )))
+        }
+    };
+
+    let mut store = state.lock()?;
+    let generated_action_id =
+        ProposedActionId::new(format!("action-{}", store.proposed_actions.len() + 1));
+    let action = draft.into_proposed_action(
+        WorkspaceId::new(request.workspace_id),
+        request.task_id.map(TaskId::new),
+        AgentId::new("agent-proposer-v0"),
+        generated_action_id,
+    );
+
+    store.proposed_actions.push(action.clone());
+
+    Ok(Json(AgentProposeResponse {
+        proposed_action: action,
+    }))
+}
+
 async fn evaluate_decision_gate(
     State(state): State<AppState>,
     Json(request): Json<EvaluateDecisionGateRequest>,
@@ -217,12 +271,20 @@ impl AppState {
     }
 }
 
+#[derive(Debug)]
 struct ApiError {
     status: StatusCode,
     message: String,
 }
 
 impl ApiError {
+    fn bad_request(message: impl Into<String>) -> Self {
+        Self {
+            status: StatusCode::BAD_REQUEST,
+            message: message.into(),
+        }
+    }
+
     fn not_found(message: impl Into<String>) -> Self {
         Self {
             status: StatusCode::NOT_FOUND,
@@ -234,6 +296,18 @@ impl ApiError {
         Self {
             status: StatusCode::INTERNAL_SERVER_ERROR,
             message: message.into(),
+        }
+    }
+}
+
+impl From<arpagona_llm::LlmError> for ApiError {
+    fn from(error: arpagona_llm::LlmError) -> Self {
+        match error {
+            arpagona_llm::LlmError::MissingApiKey => ApiError {
+                status: StatusCode::SERVICE_UNAVAILABLE,
+                message: error.to_string(),
+            },
+            _ => ApiError::internal(error.to_string()),
         }
     }
 }
@@ -268,5 +342,32 @@ mod tests {
             status_from_decision(&DecisionStatus::NeedsHumanApproval),
             ProposedActionStatus::NeedsHumanApproval
         );
+    }
+
+    #[tokio::test]
+    async fn agent_propose_with_mock_stores_pending_action_without_decision() {
+        let state = AppState::default();
+        let response = agent_propose(
+            State(state.clone()),
+            Json(AgentProposeRequest {
+                workspace_id: "workspace-alpha".to_owned(),
+                task_id: Some("task-1".to_owned()),
+                prompt: "Prépare un brouillon de réponse client".to_owned(),
+                provider: "mock".to_owned(),
+            }),
+        )
+        .await
+        .expect("mock proposal should succeed");
+
+        assert_eq!(
+            response.0.proposed_action.status,
+            ProposedActionStatus::PendingDecision
+        );
+        assert_eq!(response.0.proposed_action.proposed_by.as_str(), "agent-proposer-v0");
+
+        let store = state.lock().expect("store should lock");
+        assert_eq!(store.proposed_actions.len(), 1);
+        assert_eq!(store.decisions.len(), 0);
+        assert_eq!(store.audit_events.len(), 0);
     }
 }

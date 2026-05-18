@@ -189,6 +189,7 @@ name = "arpagona-api-server"
 version = "0.1.0"
 dependencies = [
  "arpagona-agent-core",
+ "arpagona-llm",
  "axum",
  "chrono",
  "serde",
@@ -219,6 +220,18 @@ dependencies = [
  "serde_json",
  "surrealdb",
  "thiserror 1.0.69",
+ "tokio",
+]
+
+[[package]]
+name = "arpagona-llm"
+version = "0.1.0"
+dependencies = [
+ "arpagona-agent-core",
+ "chrono",
+ "reqwest 0.12.28",
+ "serde",
+ "serde_json",
  "tokio",
 ]
 
