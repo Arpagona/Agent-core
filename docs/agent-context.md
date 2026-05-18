@@ -57,15 +57,16 @@ Ne pas créer en avance :
 ## État des briques
 
 - Brique 1 — Fondation core : commencée. Le crate `crates/core` compile et contient les types fondamentaux.
-- Brique 2 — Graph Memory : première implémentation expérimentale ajoutée dans `crates/graph-memory`.
+- Brique 2 — Graph Memory : abstraction domaine pure Rust dans `crates/core`, avec adapter SurrealDB expérimental dans `crates/graph-memory`.
 - Brique 3 — Decision Gate : pas encore implémentée. Ne pas la démarrer sans demande explicite.
 - Briques suivantes — Tool Registry, API Server, Mission Control, Orchestrator, Workers d'ingestion : prévues mais non implémentées.
 
 ## Décisions techniques prises
 
-- Graph Memory est séparée de `crates/core` pour garder le domaine indépendant de SurrealDB.
+- Graph Memory garde son contrat domaine dans `crates/core` pour rester indépendant de SurrealDB.
 - Le crate `crates/graph-memory` dépend de `arpagona-agent-core`, `surrealdb`, `serde`, `serde_json`, `chrono`, `thiserror`, `async-trait` et `tokio` pour les tests.
-- `GraphMemoryStore` définit une interface async minimale.
+- `GraphMemoryStore` est le port synchrone canonique du core ; `InMemoryGraphMemoryStore` est son implémentation pure en mémoire.
+- `AsyncGraphMemoryStore` est le port async expérimental de l'adapter SurrealDB, renommé pour ne pas concurrencer le contrat domaine.
 - `SurrealGraphMemoryStore` est l'adapter SurrealDB.
 - La migration initiale est `crates/graph-memory/migrations/0001_graph_memory.surql`.
 - Les documents SurrealDB stockent les structs core dans un champ `data`, avec quelques champs dupliqués pour les requêtes et index (`entity_type`, `entity_id`, `workspace_id`, `created_at`).
@@ -74,6 +75,6 @@ Ne pas créer en avance :
 ## Prochaines priorités recommandées
 
 1. Stabiliser la Graph Memory V0 après revue.
-2. Ajouter des méthodes pour `Episode`, `Observation`, `ProposedAction` et `Decision` seulement quand un besoin concret apparaît.
+2. Stabiliser les conventions SurrealDB pour `Episode`, `Observation` et `GraphRelation`.
 3. Clarifier les relations graphe et les requêtes nécessaires aux décisions.
 4. Implémenter ensuite la Brique 3 — Decision Gate, en gardant toute exécution réelle hors de portée des agents.

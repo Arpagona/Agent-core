@@ -1,8 +1,13 @@
-use arpagona_core::{AuditEvent, Fact, FactId, FactStatus, Source, SourceId, WorkspaceId};
+use arpagona_core::{
+    AuditEvent, Episode, EpisodeId, Fact, FactId, FactStatus, GraphRef, GraphRelation, Observation,
+    ObservationId, Source, SourceId, WorkspaceId,
+};
 use async_trait::async_trait;
 use serde::de::DeserializeOwned;
 use serde::Deserialize;
 use serde_json::Value;
+use std::collections::hash_map::DefaultHasher;
+use std::hash::{Hash, Hasher};
 use surrealdb::engine::any::Any;
 use surrealdb::sql::Thing;
 use surrealdb::{Connection, Surreal};
@@ -20,20 +25,49 @@ pub enum GraphMemoryError {
 
 pub type Result<T> = std::result::Result<T, GraphMemoryError>;
 
+/// Experimental async SurrealDB adapter port.
+///
+/// The canonical domain contract is `arpagona_core::GraphMemoryStore`.
+/// This async port exists only because the SurrealDB client is async and the
+/// V0 core contract intentionally remains synchronous and database-free.
+/// Keep this adapter aligned with the core model, but do not treat it as a
+/// second domain source of truth.
 #[async_trait]
-pub trait GraphMemoryStore {
+pub trait AsyncGraphMemoryStore {
     async fn init_schema(&self) -> Result<()>;
+
+    async fn upsert_source(&self, source: Source) -> Result<()>;
+    async fn get_source(&self, id: SourceId) -> Result<Option<Source>>;
+
     async fn upsert_fact(&self, fact: Fact) -> Result<()>;
     async fn get_fact(&self, id: FactId) -> Result<Option<Fact>>;
     async fn list_facts_for_entity(&self, entity_type: &str, entity_id: &str) -> Result<Vec<Fact>>;
+    async fn list_active_facts_for_entity(
+        &self,
+        entity_type: &str,
+        entity_id: &str,
+    ) -> Result<Vec<Fact>>;
     async fn revoke_fact(&self, id: FactId) -> Result<()>;
-    async fn upsert_source(&self, source: Source) -> Result<()>;
-    async fn get_source(&self, id: SourceId) -> Result<Option<Source>>;
+
+    async fn upsert_episode(&self, episode: Episode) -> Result<()>;
+    async fn get_episode(&self, id: EpisodeId) -> Result<Option<Episode>>;
+
+    async fn upsert_observation(&self, observation: Observation) -> Result<()>;
+    async fn get_observation(&self, id: ObservationId) -> Result<Option<Observation>>;
+    async fn list_observations_for_episode(
+        &self,
+        episode_id: EpisodeId,
+    ) -> Result<Vec<Observation>>;
+
     async fn record_audit_event(&self, event: AuditEvent) -> Result<()>;
     async fn list_audit_events_for_workspace(
         &self,
         workspace_id: WorkspaceId,
     ) -> Result<Vec<AuditEvent>>;
+
+    async fn add_relation(&self, relation: GraphRelation) -> Result<()>;
+    async fn list_relations(&self) -> Result<Vec<GraphRelation>>;
+    async fn list_relations_from(&self, from: GraphRef) -> Result<Vec<GraphRelation>>;
 }
 
 #[derive(Clone, Debug)]
@@ -73,13 +107,22 @@ where
 }
 
 #[async_trait]
-impl<C> GraphMemoryStore for SurrealGraphMemoryStore<C>
+impl<C> AsyncGraphMemoryStore for SurrealGraphMemoryStore<C>
 where
     C: Connection + Send + Sync,
 {
     async fn init_schema(&self) -> Result<()> {
         self.db.query(GRAPH_MEMORY_SCHEMA).await?.check()?;
         Ok(())
+    }
+
+    async fn upsert_source(&self, source: Source) -> Result<()> {
+        self.upsert_document("source", source.id.as_str(), &source)
+            .await
+    }
+
+    async fn get_source(&self, id: SourceId) -> Result<Option<Source>> {
+        select_data(&self.db, "source", id.as_str()).await
     }
 
     async fn upsert_fact(&self, fact: Fact) -> Result<()> {
@@ -121,6 +164,19 @@ where
         Ok(rows.into_iter().map(|row| row.data).collect())
     }
 
+    async fn list_active_facts_for_entity(
+        &self,
+        entity_type: &str,
+        entity_id: &str,
+    ) -> Result<Vec<Fact>> {
+        Ok(self
+            .list_facts_for_entity(entity_type, entity_id)
+            .await?
+            .into_iter()
+            .filter(|fact| fact.status == FactStatus::Active)
+            .collect())
+    }
+
     async fn revoke_fact(&self, id: FactId) -> Result<()> {
         let Some(mut fact) = self.get_fact(id.clone()).await? else {
             return Ok(());
@@ -131,13 +187,60 @@ where
         self.upsert_fact(fact).await
     }
 
-    async fn upsert_source(&self, source: Source) -> Result<()> {
-        self.upsert_document("source", source.id.as_str(), &source)
-            .await
+    async fn upsert_episode(&self, episode: Episode) -> Result<()> {
+        self.db
+            .query(
+                "UPDATE type::thing('episode', $id) \
+                 SET data = $data, workspace_id = $workspace_id, created_at = $created_at",
+            )
+            .bind(("id", episode.id.to_string()))
+            .bind(("data", serde_json::to_value(&episode)?))
+            .bind(("workspace_id", episode.workspace_id.to_string()))
+            .bind(("created_at", episode.created_at.to_rfc3339()))
+            .await?
+            .check()?;
+        Ok(())
     }
 
-    async fn get_source(&self, id: SourceId) -> Result<Option<Source>> {
-        select_data(&self.db, "source", id.as_str()).await
+    async fn get_episode(&self, id: EpisodeId) -> Result<Option<Episode>> {
+        select_data(&self.db, "episode", id.as_str()).await
+    }
+
+    async fn upsert_observation(&self, observation: Observation) -> Result<()> {
+        self.db
+            .query(
+                "UPDATE type::thing('observation', $id) \
+                 SET data = $data, episode_id = $episode_id, created_at = $created_at",
+            )
+            .bind(("id", observation.id.to_string()))
+            .bind(("data", serde_json::to_value(&observation)?))
+            .bind(("episode_id", observation.episode_id.to_string()))
+            .bind(("created_at", observation.created_at.to_rfc3339()))
+            .await?
+            .check()?;
+        Ok(())
+    }
+
+    async fn get_observation(&self, id: ObservationId) -> Result<Option<Observation>> {
+        select_data(&self.db, "observation", id.as_str()).await
+    }
+
+    async fn list_observations_for_episode(
+        &self,
+        episode_id: EpisodeId,
+    ) -> Result<Vec<Observation>> {
+        let rows: Vec<DataRow<Observation>> = self
+            .db
+            .query(
+                "SELECT data, created_at FROM observation \
+                 WHERE episode_id = $episode_id \
+                 ORDER BY created_at ASC",
+            )
+            .bind(("episode_id", episode_id.to_string()))
+            .await?
+            .take(0)?;
+
+        Ok(rows.into_iter().map(|row| row.data).collect())
     }
 
     async fn record_audit_event(&self, event: AuditEvent) -> Result<()> {
@@ -173,6 +276,52 @@ where
 
         Ok(rows.into_iter().map(|row| row.data).collect())
     }
+
+    async fn add_relation(&self, relation: GraphRelation) -> Result<()> {
+        let id = graph_relation_id(&relation)?;
+        self.db
+            .query(
+                "UPDATE type::thing('graph_relation', $id) \
+                 SET data = $data, from_node_type = $from_node_type, from_node_id = $from_node_id, \
+                     relation_type = $relation_type",
+            )
+            .bind(("id", id))
+            .bind(("data", serde_json::to_value(&relation)?))
+            .bind(("from_node_type", graph_ref_node_type(&relation.from)?))
+            .bind(("from_node_id", relation.from.node_id.clone()))
+            .bind(("relation_type", relation_type_value(&relation)?))
+            .await?
+            .check()?;
+        Ok(())
+    }
+
+    async fn list_relations(&self) -> Result<Vec<GraphRelation>> {
+        let rows: Vec<DataRow<GraphRelation>> = self
+            .db
+            .query("SELECT data FROM graph_relation")
+            .await?
+            .take(0)?;
+        Ok(rows.into_iter().map(|row| row.data).collect())
+    }
+
+    async fn list_relations_from(&self, from: GraphRef) -> Result<Vec<GraphRelation>> {
+        let rows: Vec<DataRow<GraphRelation>> = self
+            .db
+            .query(
+                "SELECT data FROM graph_relation \
+                 WHERE from_node_type = $from_node_type AND from_node_id = $from_node_id",
+            )
+            .bind(("from_node_type", graph_ref_node_type(&from)?))
+            .bind(("from_node_id", from.node_id.clone()))
+            .await?
+            .take(0)?;
+
+        Ok(rows
+            .into_iter()
+            .map(|row| row.data)
+            .filter(|relation| relation.from == from)
+            .collect())
+    }
 }
 
 #[derive(Debug, Deserialize)]
@@ -197,6 +346,27 @@ where
     }
 }
 
+fn graph_relation_id(relation: &GraphRelation) -> Result<String> {
+    let encoded = serde_json::to_string(relation)?;
+    let mut hasher = DefaultHasher::new();
+    encoded.hash(&mut hasher);
+    Ok(format!("relation-{:x}", hasher.finish()))
+}
+
+fn graph_ref_node_type(graph_ref: &GraphRef) -> Result<String> {
+    Ok(serde_json::to_value(&graph_ref.node_type)?
+        .as_str()
+        .unwrap_or("other")
+        .to_owned())
+}
+
+fn relation_type_value(relation: &GraphRelation) -> Result<String> {
+    Ok(serde_json::to_value(&relation.relation_type)?
+        .as_str()
+        .unwrap_or("other")
+        .to_owned())
+}
+
 #[allow(dead_code)]
 fn _record_id(table: &str, id: &str) -> Thing {
     Thing::from((table, id))
@@ -205,7 +375,10 @@ fn _record_id(table: &str, id: &str) -> Thing {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use arpagona_core::{ActorRef, AgentId, AuditEventId, AuditEventType, SourceType};
+    use arpagona_core::{
+        ActorRef, AgentId, AuditEventId, AuditEventType, GraphNodeType, RelationType, SourceType,
+        TaskId,
+    };
     use chrono::Utc;
     use serde_json::json;
     use surrealdb::engine::local::{Db, Mem};
@@ -250,6 +423,27 @@ mod tests {
         }
     }
 
+    fn sample_episode(id: &str) -> Episode {
+        Episode {
+            id: EpisodeId::new(id),
+            workspace_id: WorkspaceId::new("workspace-1"),
+            task_id: Some(TaskId::new("task-1")),
+            agent_id: Some(AgentId::new("agent-1")),
+            summary: "Graph memory adapter test episode.".to_owned(),
+            created_at: Utc::now(),
+        }
+    }
+
+    fn sample_observation(id: &str, episode_id: EpisodeId) -> Observation {
+        Observation {
+            id: ObservationId::new(id),
+            episode_id,
+            content: "SurrealDB adapter stores observations.".to_owned(),
+            source_id: Some(SourceId::new("source-1")),
+            created_at: Utc::now(),
+        }
+    }
+
     fn sample_audit_event(id: &str, workspace_id: &str) -> AuditEvent {
         AuditEvent {
             id: AuditEventId::new(id),
@@ -289,6 +483,12 @@ mod tests {
             .expect("list facts");
         assert_eq!(listed.len(), 1);
         assert_eq!(listed[0].id, FactId::new("fact-1"));
+
+        let active = store
+            .list_active_facts_for_entity("company", "arpagona")
+            .await
+            .expect("active facts");
+        assert_eq!(active.len(), 1);
     }
 
     #[tokio::test]
@@ -330,6 +530,12 @@ mod tests {
             .expect("get fact")
             .expect("fact exists");
         assert_eq!(stored.status, FactStatus::Revoked);
+
+        let active = store
+            .list_active_facts_for_entity("company", "arpagona")
+            .await
+            .expect("active facts");
+        assert!(active.is_empty());
     }
 
     #[tokio::test]
@@ -348,6 +554,69 @@ mod tests {
             .expect("source exists");
 
         assert_eq!(stored, source);
+    }
+
+    #[tokio::test]
+    async fn inserts_and_reads_episode_and_observation() {
+        let store = memory_store().await;
+        let episode = sample_episode("episode-1");
+        let observation = sample_observation("observation-1", episode.id.clone());
+
+        store
+            .upsert_episode(episode.clone())
+            .await
+            .expect("upsert episode");
+        store
+            .upsert_observation(observation.clone())
+            .await
+            .expect("upsert observation");
+
+        let stored_episode = store
+            .get_episode(EpisodeId::new("episode-1"))
+            .await
+            .expect("get episode")
+            .expect("episode exists");
+        let observations = store
+            .list_observations_for_episode(EpisodeId::new("episode-1"))
+            .await
+            .expect("list observations");
+
+        assert_eq!(stored_episode, episode);
+        assert_eq!(observations, vec![observation.clone()]);
+        assert_eq!(
+            store
+                .get_observation(ObservationId::new("observation-1"))
+                .await
+                .expect("get observation"),
+            Some(observation)
+        );
+    }
+
+    #[tokio::test]
+    async fn inserts_and_reads_graph_relation() {
+        let store = memory_store().await;
+        let relation = GraphRelation::new(
+            GraphRef::new(GraphNodeType::Observation, "observation-1"),
+            GraphRef::with_relation(GraphNodeType::Fact, "fact-1", RelationType::Supports),
+            RelationType::Supports,
+        );
+
+        store
+            .add_relation(relation.clone())
+            .await
+            .expect("add relation");
+
+        assert_eq!(
+            store.list_relations().await.unwrap(),
+            vec![relation.clone()]
+        );
+        assert_eq!(
+            store
+                .list_relations_from(GraphRef::new(GraphNodeType::Observation, "observation-1"))
+                .await
+                .unwrap(),
+            vec![relation]
+        );
     }
 
     #[tokio::test]

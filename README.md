@@ -93,7 +93,7 @@ Les premières briques fournissent :
 
 Le crate `core` est volontairement limité à des types purs et réutilisables. Il ne contient ni logique LLM, ni logique SurrealDB, ni API, ni exécution d'outils.
 
-Le crate `graph-memory` porte l'adapter SurrealDB séparé du domaine core. Il expose une interface `GraphMemoryStore` et une implémentation `SurrealGraphMemoryStore` testée avec SurrealDB en mémoire.
+Le crate `graph-memory` porte l'adapter SurrealDB séparé du domaine core. La source de vérité domaine est le trait synchrone `GraphMemoryStore` dans `crates/core`; l'adapter persistant expose `SurrealGraphMemoryStore` et un port async expérimental `AsyncGraphMemoryStore`, testés avec SurrealDB en mémoire.
 
 ## Compiler et tester
 

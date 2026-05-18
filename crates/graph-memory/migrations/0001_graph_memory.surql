@@ -17,7 +17,15 @@ DEFINE INDEX episode_workspace ON TABLE episode COLUMNS workspace_id;
 DEFINE TABLE observation SCHEMALESS;
 DEFINE FIELD data ON TABLE observation TYPE object;
 DEFINE FIELD episode_id ON TABLE observation TYPE string;
+DEFINE FIELD created_at ON TABLE observation TYPE string;
 DEFINE INDEX observation_episode ON TABLE observation COLUMNS episode_id;
+
+DEFINE TABLE graph_relation SCHEMALESS;
+DEFINE FIELD data ON TABLE graph_relation TYPE object;
+DEFINE FIELD from_node_type ON TABLE graph_relation TYPE string;
+DEFINE FIELD from_node_id ON TABLE graph_relation TYPE string;
+DEFINE FIELD relation_type ON TABLE graph_relation TYPE string;
+DEFINE INDEX graph_relation_from ON TABLE graph_relation COLUMNS from_node_type, from_node_id;
 
 DEFINE TABLE audit_event SCHEMALESS;
 DEFINE FIELD data ON TABLE audit_event TYPE object;
