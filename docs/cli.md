@@ -14,11 +14,51 @@ Via la CLI alpha :
 cargo run -p arpagona-cli -- serve
 ```
 
-Équivalent direct :
+Équivalent direct recommandé pendant l'alpha :
 
 ```bash
 cargo run -p arpagona-api-server
 ```
+
+## Interface terminal interactive
+
+```bash
+cargo run -p arpagona-cli -- chat --provider mock
+```
+
+Après installation :
+
+```bash
+arpagona chat --provider mock
+```
+
+Le mode `chat` vérifie `/health`, affiche une bannière terminal, puis accepte des demandes utilisateur et des commandes internes.
+
+Provider par défaut du mode chat : `mock`.
+
+Avec OpenAI :
+
+```bash
+export OPENAI_API_KEY="..."
+arpagona chat --provider openai
+```
+
+Commandes internes :
+
+```text
+/help                 Afficher l'aide
+/quit ou /exit        Quitter
+/tasks                Lister les tâches
+/actions              Lister les actions proposées
+/evaluate action-1    Évaluer une action via Decision Gate
+/audit                Lister les événements d'audit
+/provider mock        Basculer sur le provider mock
+/provider openai      Basculer sur le provider OpenAI
+```
+
+Tout autre texte est envoyé à `/agent/propose`. Le résultat est une `ProposedAction` avec `pending_decision`. Rien n'est exécuté directement.
+
+Documentation dédiée : [`terminal-interface.md`](terminal-interface.md).
 
 ## Commandes
 
@@ -204,4 +244,5 @@ Affiche chaque événement de façon lisible :
 ```bash
 cargo install --path crates/cli
 arpagona health
+arpagona chat --provider mock
 ```
