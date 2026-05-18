@@ -3,6 +3,7 @@ use clap::{Args, Parser, Subcommand, ValueEnum};
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
+use std::env;
 use std::error::Error;
 use std::io::{self, Write};
 use std::process::Command as ProcessCommand;
@@ -15,6 +16,10 @@ const DEFAULT_TARGET: &str = "client@example.com";
 const DEFAULT_RATIONALE: &str = "Préparer un brouillon sans l’envoyer";
 const DEFAULT_PROVIDER: &str = "openai";
 const DEFAULT_CHAT_PROVIDER: &str = "mock";
+
+const ANSI_RESET: &str = "\x1b[0m";
+const ANSI_BOLD: &str = "\x1b[1m";
+const ANSI_DIM: &str = "\x1b[2m";
 
 #[derive(Debug, Parser)]
 #[command(name = "arpagona", version, about = "ARPAGONA alpha CLI")]
@@ -35,6 +40,8 @@ enum Command {
     Chat(ChatArgs),
     /// Check API health.
     Health,
+    /// Show OpenAI auth status and setup guidance.
+    Auth(AuthCommand),
     /// Manage tasks.
     Task(TaskCommand),
     /// Propose or evaluate actions.
@@ -59,6 +66,20 @@ struct ChatArgs {
     /// Permission granted when evaluating actions. Repeatable.
     #[arg(long = "permission", default_value = "simulate_email")]
     permissions: Vec<String>,
+}
+
+#[derive(Debug, Args)]
+struct AuthCommand {
+    #[command(subcommand)]
+    command: AuthSubcommand,
+}
+
+#[derive(Debug, Subcommand)]
+enum AuthSubcommand {
+    /// Show whether OpenAI environment variables are configured.
+    Status,
+    /// Show safe setup instructions for OpenAI API key auth.
+    Openai,
 }
 
 #[derive(Debug, Args)]
@@ -210,6 +231,18 @@ enum ChatLine {
     Prompt(String),
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum TermColor {
+    Red,
+    Green,
+    Yellow,
+    Blue,
+    Magenta,
+    Cyan,
+    White,
+    Gray,
+}
+
 #[derive(Debug, Deserialize)]
 struct HealthResponse {
     status: String,
@@ -238,7 +271,7 @@ struct DecisionView {
 #[tokio::main]
 async fn main() {
     if let Err(error) = run().await {
-        eprintln!("Error: {error}");
+        eprintln!("{}", style_error(&format!("Error: {error}")));
         std::process::exit(1);
     }
 }
@@ -252,6 +285,10 @@ async fn run() -> Result<(), Box<dyn Error>> {
         Command::Serve => serve()?,
         Command::Chat(args) => chat(&client, &api_url, args).await?,
         Command::Health => health(&client, &api_url).await?,
+        Command::Auth(auth) => match auth.command {
+            AuthSubcommand::Status => auth_status(),
+            AuthSubcommand::Openai => auth_openai_instructions(),
+        },
         Command::Task(task) => match task.command {
             TaskSubcommand::Create(args) => create_task(&client, &api_url, args).await?,
         },
@@ -303,18 +340,15 @@ async fn chat(client: &Client, api_url: &str, args: ChatArgs) -> Result<(), Box<
     let mut provider = args.provider;
     let permissions = normalize_permissions(args.permissions);
 
-    println!("ARPAGONA Agent Core — Alpha Terminal");
-    println!("Connected to {api_url}");
-    println!("Provider: {provider}");
-    println!("Type /help for commands. Nothing is executed directly.\n");
+    print_chat_banner(api_url, &provider, &args.workspace_id, &args.task_id);
 
     loop {
-        print!("You > ");
+        print!("{} ", style_prompt("You >"));
         io::stdout().flush()?;
 
         let mut line = String::new();
         if io::stdin().read_line(&mut line)? == 0 {
-            println!("\nGoodbye.");
+            println!("\n{}", style_dim("Goodbye."));
             break;
         }
 
@@ -322,7 +356,7 @@ async fn chat(client: &Client, api_url: &str, args: ChatArgs) -> Result<(), Box<
             ChatLine::Empty => {}
             ChatLine::Help => print_chat_help(),
             ChatLine::Quit => {
-                println!("Goodbye.");
+                println!("{}", style_dim("Goodbye."));
                 break;
             }
             ChatLine::Audit => list_audit(client, api_url).await?,
@@ -331,19 +365,18 @@ async fn chat(client: &Client, api_url: &str, args: ChatArgs) -> Result<(), Box<
             ChatLine::Evaluate(action_id) => {
                 let response =
                     evaluate_action_request(client, api_url, &action_id, &permissions).await?;
-                println!("Decision: {}", response.decision.status);
-                println!("Audit: {}", response.audit_event.id);
+                print_decision(&response)?;
             }
             ChatLine::Provider(next_provider) => {
                 if matches!(next_provider.as_str(), "mock" | "openai") {
                     provider = next_provider;
-                    println!("Provider: {provider}");
+                    println!("{} {}", style_success("Provider:"), provider);
                 } else {
-                    println!("Unsupported provider. Use mock or openai.");
+                    println!("{}", style_error("Unsupported provider. Use mock or openai."));
                 }
             }
             ChatLine::UnknownCommand(command) => {
-                println!("Unknown command: {command}. Type /help.");
+                println!("{}", style_warning(&format!("Unknown command: {command}. Type /help.")));
             }
             ChatLine::Prompt(prompt) => {
                 match propose_agent_request(
@@ -357,7 +390,7 @@ async fn chat(client: &Client, api_url: &str, args: ChatArgs) -> Result<(), Box<
                 .await
                 {
                     Ok(response) => print_agent_proposal(&response.proposed_action)?,
-                    Err(error) => println!("Agent proposal failed: {error}"),
+                    Err(error) => println!("{}", format_provider_error(&provider, &error.to_string())),
                 }
             }
         }
@@ -366,23 +399,86 @@ async fn chat(client: &Client, api_url: &str, args: ChatArgs) -> Result<(), Box<
     Ok(())
 }
 
+fn auth_status() {
+    println!("{}", rainbow_text("ARPAGONA OpenAI Auth Status"));
+    match env::var("OPENAI_API_KEY") {
+        Ok(key) if !key.trim().is_empty() => {
+            println!("{} {}", style_success("OPENAI_API_KEY:"), mask_openai_key(&key));
+        }
+        _ => {
+            println!("{} not configured", style_warning("OPENAI_API_KEY:"));
+            println!("Run: {}", style_info("arpagona auth openai"));
+        }
+    }
+
+    match env::var("OPENAI_MODEL") {
+        Ok(model) if !model.trim().is_empty() => {
+            println!("{} {}", style_success("OPENAI_MODEL:"), model);
+        }
+        _ => {
+            println!("{} not set, provider default will be used", style_dim("OPENAI_MODEL:"));
+        }
+    }
+}
+
+fn auth_openai_instructions() {
+    println!("{}", rainbow_text("Configure OpenAI for ARPAGONA"));
+    println!("{}", style_dim("Alpha uses API key auth. Full OAuth is post-alpha / provider-dependent."));
+    println!();
+    println!("1. Create a local env file:");
+    println!("   mkdir -p ~/.config/arpagona");
+    println!("   nano ~/.config/arpagona/env");
+    println!();
+    println!("2. Add your key locally. Do not commit it:");
+    println!("   export OPENAI_API_KEY=\"sk-...\"");
+    println!("   export OPENAI_MODEL=\"gpt-4.1-mini\"  # optional");
+    println!();
+    println!("3. Load it:");
+    println!("   source ~/.config/arpagona/env");
+    println!();
+    println!("4. Test:");
+    println!("   arpagona auth status");
+    println!("   arpagona chat --provider openai");
+}
+
+fn print_chat_banner(api_url: &str, provider: &str, workspace_id: &str, task_id: &str) {
+    println!();
+    println!("{}", rainbow_text("╔════════════════════════════════════════════════════════════╗"));
+    println!("{}", rainbow_text("║                 ARPAGONA AGENT CORE                      ║"));
+    println!("{}", rainbow_text("║            Cognitive Runtime Alpha Terminal              ║"));
+    println!("{}", rainbow_text("╚════════════════════════════════════════════════════════════╝"));
+    println!(
+        "{} {} | {} {} | {} {} | {} {}",
+        style_dim("provider:"),
+        style_info(provider),
+        style_dim("api:"),
+        api_url,
+        style_dim("workspace:"),
+        workspace_id,
+        style_dim("task:"),
+        task_id,
+    );
+    println!("{}", style_dim("Type /help for commands. Nothing is executed directly."));
+    println!();
+}
+
 fn print_chat_help() {
-    println!("Commands:");
-    println!("  /help                 Show this help");
-    println!("  /quit | /exit         Leave chat");
-    println!("  /tasks                List tasks");
-    println!("  /actions              List proposed actions");
-    println!("  /evaluate action-1    Evaluate a proposed action");
-    println!("  /audit                List audit events");
-    println!("  /provider mock        Use mock provider");
-    println!("  /provider openai      Use OpenAI provider");
-    println!("\nAny other text is sent to /agent/propose and returns a pending ProposedAction.");
+    println!("{}", style_info("Commands:"));
+    println!("  {}                 Show this help", style_command("/help"));
+    println!("  {} | {}         Leave chat", style_command("/quit"), style_command("/exit"));
+    println!("  {}                List tasks", style_command("/tasks"));
+    println!("  {}              List proposed actions", style_command("/actions"));
+    println!("  {}    Evaluate a proposed action", style_command("/evaluate action-1"));
+    println!("  {}                List audit events", style_command("/audit"));
+    println!("  {}        Use mock provider", style_command("/provider mock"));
+    println!("  {}      Use OpenAI provider", style_command("/provider openai"));
+    println!("\n{}", style_dim("Any other text is sent to /agent/propose and returns a pending ProposedAction."));
 }
 
 async fn health(client: &Client, api_url: &str) -> Result<(), Box<dyn Error>> {
     let response: HealthResponse =
         get_json(client.get(format!("{api_url}/health")).send().await?).await?;
-    println!("ARPAGONA API: {}", response.status);
+    println!("{} {}", style_success("ARPAGONA API:"), response.status);
     Ok(())
 }
 
@@ -404,9 +500,9 @@ async fn create_task(
     )
     .await?;
 
-    println!("Created task: {}", response.id);
-    println!("Title: {}", response.title);
-    println!("Status: {:?}", response.status);
+    println!("{} {}", style_success("Created task:"), response.id);
+    println!("{} {}", style_dim("Title:"), response.title);
+    println!("{} {:?}", style_dim("Status:"), response.status);
     Ok(())
 }
 
@@ -414,14 +510,15 @@ async fn list_tasks(client: &Client, api_url: &str) -> Result<(), Box<dyn Error>
     let tasks: Vec<Task> = get_json(client.get(format!("{api_url}/tasks")).send().await?).await?;
 
     if tasks.is_empty() {
-        println!("No tasks.");
+        println!("{}", style_dim("No tasks."));
         return Ok(());
     }
 
+    println!("{}", style_info("Tasks"));
     for task in tasks {
-        println!("- id: {}", task.id);
-        println!("  title: {}", task.title);
-        println!("  status: {}", to_api_string(&task.status)?);
+        println!("{} {}", style_dim("- id:"), task.id);
+        println!("  {} {}", style_dim("title:"), task.title);
+        println!("  {} {}", style_dim("status:"), to_api_string(&task.status)?);
     }
 
     Ok(())
@@ -452,8 +549,8 @@ async fn propose_action(
     )
     .await?;
 
-    println!("Created proposed action: {}", response.id);
-    println!("Status: {}", to_api_string(&response.status)?);
+    println!("{} {}", style_success("Created proposed action:"), response.id);
+    println!("{} {}", style_dim("Status:"), to_api_string(&response.status)?);
     Ok(())
 }
 
@@ -499,12 +596,13 @@ async fn propose_agent_request(
 }
 
 fn print_agent_proposal(action: &ProposedAction) -> Result<(), Box<dyn Error>> {
-    println!("Proposed action: {}", action.id);
-    println!("Type: {}", to_api_string(&action.action_type)?);
-    println!("Risk: {}", to_api_string(&action.risk_level)?);
-    println!("Status: {}", to_api_string(&action.status)?);
-    println!("Rationale: {}", action.rationale);
-    println!("Next: /evaluate {}", action.id);
+    println!("{}", style_info("ProposedAction"));
+    println!("{} {}", style_dim("id:"), action.id);
+    println!("{} {}", style_dim("type:"), to_api_string(&action.action_type)?);
+    println!("{} {}", style_dim("risk:"), style_risk(&to_api_string(&action.risk_level)?));
+    println!("{} {}", style_dim("status:"), style_status(&to_api_string(&action.status)?));
+    println!("{} {}", style_dim("rationale:"), action.rationale);
+    println!("{} /evaluate {}", style_dim("next:"), action.id);
     Ok(())
 }
 
@@ -521,9 +619,7 @@ async fn evaluate_action(
     )
     .await?;
 
-    println!("Decision: {}", response.decision.status);
-    println!("Audit: {}", response.audit_event.id);
-    Ok(())
+    print_decision(&response)
 }
 
 async fn evaluate_action_request(
@@ -545,6 +641,12 @@ async fn evaluate_action_request(
     .await
 }
 
+fn print_decision(response: &EvaluateResponse) -> Result<(), Box<dyn Error>> {
+    println!("{} {}", style_success("Decision:"), style_status(&response.decision.status));
+    println!("{} {}", style_info("Audit:"), response.audit_event.id);
+    Ok(())
+}
+
 async fn list_actions(client: &Client, api_url: &str) -> Result<(), Box<dyn Error>> {
     let actions: Vec<ProposedAction> = get_json(
         client
@@ -555,15 +657,16 @@ async fn list_actions(client: &Client, api_url: &str) -> Result<(), Box<dyn Erro
     .await?;
 
     if actions.is_empty() {
-        println!("No proposed actions.");
+        println!("{}", style_dim("No proposed actions."));
         return Ok(());
     }
 
+    println!("{}", style_info("Proposed actions"));
     for action in actions {
-        println!("- id: {}", action.id);
-        println!("  action_type: {}", to_api_string(&action.action_type)?);
-        println!("  risk_level: {}", to_api_string(&action.risk_level)?);
-        println!("  status: {}", to_api_string(&action.status)?);
+        println!("{} {}", style_dim("- id:"), action.id);
+        println!("  {} {}", style_dim("action_type:"), to_api_string(&action.action_type)?);
+        println!("  {} {}", style_dim("risk_level:"), style_risk(&to_api_string(&action.risk_level)?));
+        println!("  {} {}", style_dim("status:"), style_status(&to_api_string(&action.status)?));
     }
 
     Ok(())
@@ -574,15 +677,17 @@ async fn list_audit(client: &Client, api_url: &str) -> Result<(), Box<dyn Error>
         get_json(client.get(format!("{api_url}/audit")).send().await?).await?;
 
     if events.is_empty() {
-        println!("No audit events.");
+        println!("{}", style_dim("No audit events."));
         return Ok(());
     }
 
+    println!("{}", style_info("Audit events"));
     for event in events {
-        println!("- id: {}", event.id);
-        println!("  event_type: {}", to_api_string(&event.event_type)?);
+        println!("{} {}", style_dim("- id:"), event.id);
+        println!("  {} {}", style_dim("event_type:"), to_api_string(&event.event_type)?);
         println!(
-            "  proposed_action_id: {}",
+            "  {} {}",
+            style_dim("proposed_action_id:"),
             event
                 .proposed_action_id
                 .as_ref()
@@ -590,7 +695,8 @@ async fn list_audit(client: &Client, api_url: &str) -> Result<(), Box<dyn Error>
                 .unwrap_or_else(|| "-".to_owned())
         );
         println!(
-            "  decision_id: {}",
+            "  {} {}",
+            style_dim("decision_id:"),
             event
                 .decision_id
                 .as_ref()
@@ -676,6 +782,118 @@ fn parse_chat_line(line: &str) -> ChatLine {
     }
 }
 
+fn format_provider_error(provider: &str, error: &str) -> String {
+    let lower = error.to_ascii_lowercase();
+    if provider == "openai" && (lower.contains("openai_api_key") || lower.contains("api key")) {
+        return style_error(
+            "OpenAI provider is not configured. Set OPENAI_API_KEY, then run: arpagona auth openai",
+        );
+    }
+    style_error(&format!("Agent proposal failed: {error}"))
+}
+
+fn mask_openai_key(key: &str) -> String {
+    let trimmed = key.trim();
+    let char_count = trimmed.chars().count();
+    if char_count <= 8 {
+        return "***".to_owned();
+    }
+
+    let prefix: String = trimmed.chars().take(3).collect();
+    let suffix: String = trimmed
+        .chars()
+        .rev()
+        .take(4)
+        .collect::<Vec<_>>()
+        .into_iter()
+        .rev()
+        .collect();
+    format!("{prefix}...{suffix}")
+}
+
+fn style_status(status: &str) -> String {
+    match status {
+        "approved" => style_text(status, TermColor::Green),
+        "needs_human_approval" => style_text(status, TermColor::Yellow),
+        "blocked" | "failed" | "rejected" => style_text(status, TermColor::Red),
+        "pending_decision" => style_text(status, TermColor::Cyan),
+        _ => style_text(status, TermColor::White),
+    }
+}
+
+fn style_risk(risk: &str) -> String {
+    match risk {
+        "informational" | "low" => style_text(risk, TermColor::Green),
+        "medium" => style_text(risk, TermColor::Yellow),
+        "high" | "critical" => style_text(risk, TermColor::Red),
+        _ => style_text(risk, TermColor::White),
+    }
+}
+
+fn style_success(text: &str) -> String {
+    style_text(text, TermColor::Green)
+}
+
+fn style_warning(text: &str) -> String {
+    style_text(text, TermColor::Yellow)
+}
+
+fn style_error(text: &str) -> String {
+    style_text(text, TermColor::Red)
+}
+
+fn style_info(text: &str) -> String {
+    style_text(text, TermColor::Cyan)
+}
+
+fn style_command(text: &str) -> String {
+    format!("{ANSI_BOLD}{}{ANSI_RESET}", style_text(text, TermColor::Magenta))
+}
+
+fn style_prompt(text: &str) -> String {
+    format!("{ANSI_BOLD}{}{ANSI_RESET}", style_text(text, TermColor::Cyan))
+}
+
+fn style_dim(text: &str) -> String {
+    format!("{ANSI_DIM}{}{ANSI_RESET}", style_text(text, TermColor::Gray))
+}
+
+fn style_text(text: &str, color: TermColor) -> String {
+    let code = match color {
+        TermColor::Red => "31",
+        TermColor::Green => "32",
+        TermColor::Yellow => "33",
+        TermColor::Blue => "34",
+        TermColor::Magenta => "35",
+        TermColor::Cyan => "36",
+        TermColor::White => "37",
+        TermColor::Gray => "90",
+    };
+    format!("\x1b[{code}m{text}{ANSI_RESET}")
+}
+
+fn rainbow_text(text: &str) -> String {
+    let colors = [
+        TermColor::Magenta,
+        TermColor::Blue,
+        TermColor::Cyan,
+        TermColor::Green,
+        TermColor::Yellow,
+        TermColor::Red,
+    ];
+    let mut color_index = 0usize;
+    let mut output = String::new();
+    for character in text.chars() {
+        if character.is_whitespace() {
+            output.push(character);
+            continue;
+        }
+        output.push_str(&style_text(&character.to_string(), colors[color_index % colors.len()]));
+        color_index += 1;
+    }
+    output
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -744,6 +962,25 @@ mod tests {
     }
 
     #[test]
+    fn cli_parses_auth_commands() {
+        let status = Cli::parse_from(["arpagona", "auth", "status"]);
+        assert!(matches!(
+            status.command,
+            Command::Auth(AuthCommand {
+                command: AuthSubcommand::Status
+            })
+        ));
+
+        let openai = Cli::parse_from(["arpagona", "auth", "openai"]);
+        assert!(matches!(
+            openai.command,
+            Command::Auth(AuthCommand {
+                command: AuthSubcommand::Openai
+            })
+        ));
+    }
+
+    #[test]
     fn cli_parses_action_evaluate_with_permission() {
         let cli = Cli::parse_from([
             "arpagona",
@@ -785,6 +1022,28 @@ mod tests {
             parse_chat_line("Prépare un brouillon"),
             ChatLine::Prompt("Prépare un brouillon".to_owned())
         );
+    }
+
+    #[test]
+    fn masks_openai_key_without_leaking_secret() {
+        let secret = "sk-proj-1234567890abcdef";
+        let masked = mask_openai_key(secret);
+        assert!(masked.starts_with("sk-"));
+        assert!(masked.ends_with("cdef"));
+        assert!(!masked.contains("1234567890"));
+        assert_ne!(masked, secret);
+    }
+
+    #[test]
+    fn short_openai_key_mask_is_safe() {
+        assert_eq!(mask_openai_key("sk-123"), "***");
+    }
+
+    #[test]
+    fn openai_provider_error_points_to_auth_help_without_secret() {
+        let message = format_provider_error("openai", "OPENAI_API_KEY is missing");
+        assert!(message.contains("arpagona auth openai"));
+        assert!(!message.contains("sk-"));
     }
 
     #[test]
