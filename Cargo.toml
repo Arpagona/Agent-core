@@ -4,7 +4,8 @@ members = [
     "crates/cli",
     "crates/core",
     "crates/graph-memory",
-    "crates/llm"
+    "crates/llm",
+    "crates/runtime"
 ]
 resolver = "2"
 
