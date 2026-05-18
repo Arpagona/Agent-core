@@ -91,7 +91,7 @@ pub fn evaluate_proposed_action(
     };
 
     Decision {
-        id: DecisionId::new(format!("decision:{}", action.id.as_str())),
+        id: DecisionId::new(format!("decision-{}", action.id.as_str())),
         proposed_action_id: action.id.clone(),
         status,
         reason,
@@ -105,7 +105,7 @@ pub fn evaluate_proposed_action(
 /// Create the audit event that records a Decision Gate output.
 pub fn audit_event_for_decision(action: &ProposedAction, decision: &Decision) -> AuditEvent {
     AuditEvent {
-        id: AuditEventId::new(format!("audit:decision:{}", decision.id.as_str())),
+        id: AuditEventId::new(format!("audit-decision-{}", action.id.as_str())),
         event_type: AuditEventType::DecisionCreated,
         actor: ActorRef::System,
         workspace_id: Some(action.workspace_id.clone()),
@@ -197,6 +197,16 @@ mod tests {
         risk_threshold: Option<RiskLevel>,
         requires_human_approval: bool,
     ) -> Policy {
+        policy_with_enabled(id, action_type, risk_threshold, requires_human_approval, true)
+    }
+
+    fn policy_with_enabled(
+        id: &str,
+        action_type: Option<ActionType>,
+        risk_threshold: Option<RiskLevel>,
+        requires_human_approval: bool,
+        enabled: bool,
+    ) -> Policy {
         Policy {
             id: PolicyId::new(id),
             name: id.to_owned(),
@@ -204,7 +214,7 @@ mod tests {
             applies_to_action_type: action_type,
             risk_threshold,
             requires_human_approval,
-            enabled: true,
+            enabled,
         }
     }
 
@@ -216,6 +226,7 @@ mod tests {
             evaluate_proposed_action(&action, &[], &[Permission::ReadDocument]);
 
         assert_eq!(decision.status, DecisionStatus::Approved);
+        assert_eq!(decision.id, DecisionId::new("decision-action-1"));
         assert_eq!(decision.proposed_action_id, action.id);
         assert!(decision.reason.contains("Approved"));
     }
@@ -243,7 +254,8 @@ mod tests {
 
     #[test]
     fn high_risk_handled_by_policy() {
-        let action = proposed_action(ActionType::WriteDocument, RiskLevel::High);
+        let mut action = proposed_action(ActionType::WriteDocument, RiskLevel::High);
+        action.required_permissions = vec![Permission::WriteDocument];
         let policies = vec![policy(
             "block-high-write-document",
             Some(ActionType::WriteDocument),
@@ -252,11 +264,29 @@ mod tests {
         )];
 
         let decision =
-            evaluate_proposed_action(&action, &policies, &[Permission::ReadDocument]);
+            evaluate_proposed_action(&action, &policies, &[Permission::WriteDocument]);
 
         assert_eq!(decision.status, DecisionStatus::Blocked);
         assert_eq!(decision.policies_applied, vec![PolicyId::new("block-high-write-document")]);
         assert!(decision.reason.contains("active policy"));
+    }
+
+    #[test]
+    fn disabled_policy_is_ignored() {
+        let action = proposed_action(ActionType::ReadDocument, RiskLevel::Low);
+        let policies = vec![policy_with_enabled(
+            "disabled-read-document-approval",
+            Some(ActionType::ReadDocument),
+            Some(RiskLevel::Low),
+            true,
+            false,
+        )];
+
+        let decision =
+            evaluate_proposed_action(&action, &policies, &[Permission::ReadDocument]);
+
+        assert_eq!(decision.status, DecisionStatus::Approved);
+        assert!(decision.policies_applied.is_empty());
     }
 
     #[test]
@@ -279,6 +309,7 @@ mod tests {
         let event = audit_event_for_decision(&action, &decision);
 
         assert_eq!(event.event_type, AuditEventType::DecisionCreated);
+        assert_eq!(event.id, AuditEventId::new("audit-decision-action-1"));
         assert_eq!(event.actor, ActorRef::System);
         assert_eq!(event.workspace_id, Some(action.workspace_id));
         assert_eq!(event.task_id, action.task_id);
