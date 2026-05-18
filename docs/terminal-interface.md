@@ -46,6 +46,40 @@ cargo run -p arpagona-cli -- chat --provider openai
 
 La clé n'est jamais affichée par la CLI.
 
+## Rendu terminal
+
+Le mode chat affiche désormais :
+
+- bannière ASCII ARPAGONA ;
+- titre en gradient ANSI façon rainbow glow ;
+- ligne de statut `provider / api / workspace / task` ;
+- couleurs distinctes pour erreurs, succès, commandes, risques, statuts, décisions et audit.
+
+Aucune dépendance TUI lourde n'est utilisée. Le rendu reste une interface ligne par ligne compatible avec un terminal Ubuntu standard.
+
+## Commandes OpenAI
+
+Vérifier la configuration :
+
+```bash
+arpagona auth status
+```
+
+Afficher les instructions de configuration :
+
+```bash
+arpagona auth openai
+```
+
+L'alpha utilise une clé API OpenAI via variable d'environnement :
+
+```bash
+export OPENAI_API_KEY="sk-..."
+export OPENAI_MODEL="gpt-4.1-mini" # optionnel
+```
+
+OAuth complet est considéré post-alpha / provider-dependent. Aucune clé n'est stockée automatiquement dans cette étape.
+
 ## Commandes internes
 
 Dans le chat :
@@ -70,18 +104,21 @@ POST /agent/propose
 ## Exemple
 
 ```text
-ARPAGONA Agent Core — Alpha Terminal
-Connected to http://127.0.0.1:3000
-Provider: mock
+╔════════════════════════════════════════════════════════════╗
+║                 ARPAGONA AGENT CORE                      ║
+║            Cognitive Runtime Alpha Terminal              ║
+╚════════════════════════════════════════════════════════════╝
+provider: mock | api: http://127.0.0.1:3000 | workspace: workspace-alpha | task: task-1
 Type /help for commands. Nothing is executed directly.
 
 You > Prépare un brouillon de réponse client
-Proposed action: action-1
-Type: simulate_email
-Risk: low
-Status: pending_decision
-Rationale: Mock provider returns a draft only; execution remains gated.
-Next: /evaluate action-1
+ProposedAction
+id: action-1
+type: simulate_email
+risk: low
+status: pending_decision
+rationale: Mock provider returns a draft only; execution remains gated.
+next: /evaluate action-1
 
 You > /evaluate action-1
 Decision: approved
@@ -103,10 +140,12 @@ You > /audit
 - Le Decision Gate reste explicite.
 - L'audit est créé uniquement après évaluation.
 - Le provider OpenAI est optionnel.
+- La clé OpenAI n'est jamais affichée en clair.
 
 ## Limites alpha
 
 - Pas de TUI plein écran.
+- Pas de `ratatui` / `crossterm`.
 - Pas de persistance API : stockage in-memory.
 - Pas de validation humaine interactive avancée.
 - Pas de scheduler.
@@ -138,4 +177,13 @@ Dans un autre terminal :
 
 ```bash
 arpagona chat --provider mock
+```
+
+Pour OpenAI :
+
+```bash
+arpagona auth openai
+source ~/.config/arpagona/env
+arpagona auth status
+arpagona chat --provider openai
 ```
