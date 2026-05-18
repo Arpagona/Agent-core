@@ -321,7 +321,8 @@ async fn chat(client: &Client, api_url: &str, args: ChatArgs) -> Result<(), Box<
             ChatLine::Tasks => list_tasks(client, api_url).await?,
             ChatLine::Actions => list_actions(client, api_url).await?,
             ChatLine::Evaluate(action_id) => {
-                let response = evaluate_action_request(client, api_url, &action_id, &permissions).await?;
+                let response =
+                    evaluate_action_request(client, api_url, &action_id, &permissions).await?;
                 println!("Decision: {}", response.decision.status);
                 println!("Audit: {}", response.audit_event.id);
             }
