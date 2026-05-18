@@ -6,6 +6,7 @@
 pub mod action;
 pub mod agent;
 pub mod audit;
+pub mod cognitive;
 pub mod decision;
 pub mod decision_gate;
 pub mod episode;
@@ -25,6 +26,7 @@ pub mod workspace;
 pub use action::*;
 pub use agent::*;
 pub use audit::*;
+pub use cognitive::*;
 pub use decision::*;
 pub use decision_gate::*;
 pub use episode::*;
