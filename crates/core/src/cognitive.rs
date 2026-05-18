@@ -247,7 +247,8 @@ impl CognitiveCyclePlan {
             ],
             safety_invariants: vec![
                 "LLM providers may propose actions but must not execute them.".to_owned(),
-                "Every ProposedAction must remain PendingDecision until Decision Gate evaluation.".to_owned(),
+                "Every ProposedAction must remain PendingDecision until Decision Gate evaluation."
+                    .to_owned(),
                 "ExecutionBoundary is not entered in alpha runtime.".to_owned(),
                 "HumanBoundary is required for sensitive or uncertain actions.".to_owned(),
                 "Audit must record decisions before any future execution layer.".to_owned(),
