@@ -1,13 +1,17 @@
 use arpagona_agent_core::{AuditEvent, ProposedAction, Task};
 use clap::{Args, Parser, Subcommand, ValueEnum};
 use reqwest::Client;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::error::Error;
+use std::process::Command as ProcessCommand;
 
 const DEFAULT_API_URL: &str = "http://127.0.0.1:3000";
 const DEFAULT_WORKSPACE_ID: &str = "workspace-alpha";
 const DEFAULT_AGENT_ID: &str = "agent-alpha";
+const DEFAULT_TASK_ID: &str = "task-1";
+const DEFAULT_TARGET: &str = "client@example.com";
+const DEFAULT_RATIONALE: &str = "Préparer un brouillon sans l’envoyer";
 
 #[derive(Debug, Parser)]
 #[command(name = "arpagona", version, about = "ARPAGONA alpha CLI")]
@@ -22,6 +26,8 @@ struct Cli {
 
 #[derive(Debug, Subcommand)]
 enum Command {
+    /// Run the local API server through cargo.
+    Serve,
     /// Check API health.
     Health,
     /// Manage tasks.
@@ -81,12 +87,12 @@ struct ProposeActionArgs {
     /// Permission required by the action. Repeatable.
     #[arg(long = "permission", default_value = "simulate_email")]
     permissions: Vec<String>,
-    /// Optional target.
-    #[arg(long)]
-    target: Option<String>,
-    /// Optional task id.
-    #[arg(long)]
-    task_id: Option<String>,
+    /// Target of the proposed action.
+    #[arg(long, default_value = DEFAULT_TARGET)]
+    target: String,
+    /// Task id linked to the proposed action.
+    #[arg(long, default_value = DEFAULT_TASK_ID)]
+    task_id: String,
     /// Workspace id.
     #[arg(long, default_value = DEFAULT_WORKSPACE_ID)]
     workspace_id: String,
@@ -94,7 +100,7 @@ struct ProposeActionArgs {
     #[arg(long, default_value = DEFAULT_AGENT_ID)]
     proposed_by: String,
     /// Rationale recorded with the action.
-    #[arg(long, default_value = "Alpha CLI proposed a simulated email action.")]
+    #[arg(long, default_value = DEFAULT_RATIONALE)]
     rationale: String,
 }
 
@@ -143,7 +149,6 @@ enum AuditSubcommand {
 #[derive(Debug, Deserialize)]
 struct HealthResponse {
     status: String,
-    service: String,
 }
 
 #[derive(Debug, Deserialize)]
@@ -175,6 +180,7 @@ async fn run() -> Result<(), Box<dyn Error>> {
     let client = Client::new();
 
     match cli.command {
+        Command::Serve => serve()?,
         Command::Health => health(&client, &api_url).await?,
         Command::Task(task) => match task.command {
             TaskSubcommand::Create(args) => create_task(&client, &api_url, args).await?,
@@ -191,10 +197,21 @@ async fn run() -> Result<(), Box<dyn Error>> {
     Ok(())
 }
 
+fn serve() -> Result<(), Box<dyn Error>> {
+    let status = ProcessCommand::new("cargo")
+        .args(["run", "-p", "arpagona-api-server"])
+        .status()?;
+
+    if !status.success() {
+        return Err(format!("arpagona-api-server exited with {status}").into());
+    }
+
+    Ok(())
+}
+
 async fn health(client: &Client, api_url: &str) -> Result<(), Box<dyn Error>> {
     let response: HealthResponse = get_json(client.get(format!("{api_url}/health")).send().await?).await?;
-    println!("Status: {}", response.status);
-    println!("Service: {}", response.service);
+    println!("ARPAGONA API: {}", response.status);
     Ok(())
 }
 
@@ -239,10 +256,8 @@ async fn propose_action(client: &Client, api_url: &str, args: ProposeActionArgs)
     )
     .await?;
 
-    println!("Proposed action: {}", response.id);
-    println!("Type: {:?}", response.action_type);
-    println!("Risk: {:?}", response.risk_level);
-    println!("Status: {:?}", response.status);
+    println!("Created proposed action: {}", response.id);
+    println!("Status: {}", to_api_string(&response.status)?);
     Ok(())
 }
 
@@ -274,7 +289,7 @@ async fn list_audit(client: &Client, api_url: &str) -> Result<(), Box<dyn Error>
 
     for event in events {
         println!("- id: {}", event.id);
-        println!("  event_type: {:?}", event.event_type);
+        println!("  event_type: {}", to_api_string(&event.event_type)?);
         println!(
             "  proposed_action_id: {}",
             event
@@ -305,6 +320,13 @@ async fn get_json<T: for<'de> Deserialize<'de>>(response: reqwest::Response) -> 
     Ok(serde_json::from_str(&text)?)
 }
 
+fn to_api_string<T: Serialize>(value: &T) -> Result<String, Box<dyn Error>> {
+    match serde_json::to_value(value)? {
+        Value::String(value) => Ok(value),
+        other => Ok(other.to_string()),
+    }
+}
+
 fn normalize_action_type(action_type: &str) -> Value {
     match action_type {
         "read_memory" | "write_memory" | "read_document" | "write_document" | "propose_tool_use"
@@ -325,7 +347,7 @@ fn default_payload(action_type: &str) -> Value {
         json!({
             "to": "client@example.com",
             "subject": "Simulation alpha ARPAGONA",
-            "body": "Ceci est une simulation: aucun email n'est envoyé."
+            "body": "Préparer un brouillon sans l’envoyer"
         })
     } else {
         json!({})
@@ -346,6 +368,9 @@ mod tests {
             }) => {
                 assert_eq!(args.action_type, "simulate_email");
                 assert_eq!(args.permissions, vec!["simulate_email"]);
+                assert_eq!(args.task_id, "task-1");
+                assert_eq!(args.target, "client@example.com");
+                assert_eq!(args.rationale, "Préparer un brouillon sans l’envoyer");
                 assert!(matches!(args.risk, RiskArg::Medium));
             }
             _ => panic!("expected action propose"),

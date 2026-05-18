@@ -14,7 +14,8 @@ Cette alpha expose une vertical slice locale : création de tâche, proposition 
 Terminal 1 :
 
 ```bash
-cargo run -p arpagona-api-server
+cargo run -p arpagona-cli -- serve
+# équivalent alpha direct : cargo run -p arpagona-api-server
 ```
 
 Terminal 2 :
@@ -30,15 +31,13 @@ cargo run -p arpagona-cli -- audit list
 Sorties attendues principales :
 
 ```text
-Status: ok
-Service: arpagona-api-server
+ARPAGONA API: ok
 
 Created task: task-1
 Title: Préparer une réponse client
 
-Proposed action: action-1
-Type: SimulateEmail
-Risk: Medium
+Created proposed action: action-1
+Status: pending_decision
 
 Decision: needs_human_approval
 Audit: audit-decision-action-1
@@ -78,9 +77,10 @@ arpagona --api-url http://127.0.0.1:3000 health
 ## Commandes disponibles
 
 ```bash
+arpagona serve
 arpagona health
 arpagona task create "Titre" [--description "..."] [--workspace-id workspace-alpha]
-arpagona action propose [--type simulate_email] [--risk medium] [--permission simulate_email]
+arpagona action propose [--type simulate_email] [--risk medium] [--task-id task-1] [--target client@example.com] [--rationale "Préparer un brouillon sans l’envoyer"] [--permission simulate_email]
 arpagona action evaluate action-1 [--permission simulate_email]
 arpagona audit list
 ```
@@ -88,6 +88,6 @@ arpagona audit list
 ## Limites alpha
 
 - Données perdues au redémarrage du serveur : stockage in-memory.
-- Pas de `serve` dans la CLI : le serveur reste lancé via `cargo run -p arpagona-api-server`.
+- `serve` délègue à `cargo run -p arpagona-api-server` pour l’alpha.
 - Pas d'exécution réelle d'email : `simulate_email` ne fait que proposer une action.
 - Pas d'authentification/API key dans cette vertical slice locale.

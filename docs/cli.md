@@ -8,6 +8,14 @@ La CLI alpha est fournie par le crate `crates/cli`.
 
 ## Lancer l'API
 
+Via la CLI alpha :
+
+```bash
+cargo run -p arpagona-cli -- serve
+```
+
+Équivalent direct :
+
 ```bash
 cargo run -p arpagona-api-server
 ```
@@ -29,8 +37,7 @@ GET /health
 Affiche :
 
 ```text
-Status: ok
-Service: arpagona-api-server
+ARPAGONA API: ok
 ```
 
 ### Créer une tâche
@@ -72,9 +79,10 @@ Options :
 
 - `--type simulate_email` par défaut.
 - `--risk medium` par défaut.
+- `--rationale "Préparer un brouillon sans l’envoyer"` par défaut.
 - `--permission simulate_email` par défaut, répétable.
-- `--task-id task-1` optionnel.
-- `--target ...` optionnel.
+- `--task-id task-1` par défaut.
+- `--target client@example.com` par défaut.
 
 Appelle :
 
@@ -87,17 +95,17 @@ Payload par défaut :
 ```json
 {
   "workspace_id": "workspace-alpha",
-  "task_id": null,
+  "task_id": "task-1",
   "proposed_by": "agent-alpha",
   "action_type": "simulate_email",
-  "target": null,
+  "target": "client@example.com",
   "risk_level": "medium",
   "required_permissions": ["simulate_email"],
-  "rationale": "Alpha CLI proposed a simulated email action.",
+  "rationale": "Préparer un brouillon sans l’envoyer",
   "payload": {
     "to": "client@example.com",
     "subject": "Simulation alpha ARPAGONA",
-    "body": "Ceci est une simulation: aucun email n'est envoyé."
+    "body": "Préparer un brouillon sans l’envoyer"
   }
 }
 ```
@@ -105,10 +113,8 @@ Payload par défaut :
 Affiche notamment :
 
 ```text
-Proposed action: action-1
-Type: SimulateEmail
-Risk: Medium
-Status: PendingDecision
+Created proposed action: action-1
+Status: pending_decision
 ```
 
 ### Évaluer une action
@@ -159,7 +165,7 @@ Affiche chaque événement de façon lisible :
 
 ```text
 - id: audit-decision-action-1
-  event_type: DecisionCreated
+  event_type: decision_created
   proposed_action_id: action-1
   decision_id: decision-action-1
 ```

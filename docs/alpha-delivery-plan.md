@@ -27,7 +27,8 @@ Livré dans cette alpha :
 Terminal 1 :
 
 ```bash
-cargo run -p arpagona-api-server
+cargo run -p arpagona-cli -- serve
+# équivalent alpha direct : cargo run -p arpagona-api-server
 ```
 
 Terminal 2 :
