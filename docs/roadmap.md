@@ -153,7 +153,7 @@ Inclus :
 - vérification `/health` au démarrage ;
 - affichage lisible des `ProposedAction`, `Decision` et `AuditEvent`.
 
-Contraintes :
+Limites alpha / contraintes :
 
 - pas de ratatui/crossterm ;
 - pas de shell ;

@@ -283,8 +283,16 @@ fn serve() -> Result<(), Box<dyn Error>> {
 }
 
 async fn chat(client: &Client, api_url: &str, args: ChatArgs) -> Result<(), Box<dyn Error>> {
-    let health_result: Result<HealthResponse, Box<dyn Error>> =
-        get_json(client.get(format!("{api_url}/health")).send().await?).await;
+    let health_response = client
+        .get(format!("{api_url}/health"))
+        .send()
+        .await
+        .map_err(|error| {
+            format!(
+                "API unavailable at {api_url}: {error}. Start it with: cargo run -p arpagona-api-server"
+            )
+        })?;
+    let health_result: Result<HealthResponse, Box<dyn Error>> = get_json(health_response).await;
     if let Err(error) = health_result {
         return Err(format!(
             "API unavailable at {api_url}: {error}. Start it with: cargo run -p arpagona-api-server"

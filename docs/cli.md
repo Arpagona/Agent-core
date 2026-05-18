@@ -58,6 +58,13 @@ Commandes internes :
 
 Tout autre texte est envoyé à `/agent/propose`. Le résultat est une `ProposedAction` avec `pending_decision`. Rien n'est exécuté directement.
 
+Limites alpha du mode terminal :
+
+- Interface ligne par ligne uniquement : pas de TUI plein écran, pas de `ratatui`, pas de `crossterm`.
+- Pas de shell, pas de scheduler et pas d'exécution d'outils.
+- Le provider propose uniquement ; le Decision Gate reste explicite via `/evaluate`.
+- Le provider `mock` est recommandé pour tester sans réseau et sans clé OpenAI.
+
 Documentation dédiée : [`terminal-interface.md`](terminal-interface.md).
 
 ## Commandes
