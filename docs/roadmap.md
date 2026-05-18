@@ -33,10 +33,17 @@ Sous-brique suivante :
 
 ## Brique 3 — Decision Gate
 
-- Évaluation des `ProposedAction`.
-- Application des politiques.
-- Production de décisions.
-- Journalisation audit.
+État : implémentation alpha minimale dans `crates/core`.
+
+- Module pur Rust `decision_gate` sans API, LLM, I/O, shell ni exécution d'outils.
+- Fonction `evaluate_proposed_action(action, policies, granted_permissions) -> Decision`.
+- Règles alpha : permissions manquantes bloquées, risques `Informational` / `Low` approuvés sauf politique d'escalade, `Medium` en validation humaine, `High` / `Critical` en validation humaine ou blocage selon policy, `Custom` non explicitement autorisé en validation humaine.
+- Helper `audit_event_for_decision(action, decision) -> AuditEvent` pour matérialiser le flux `ProposedAction -> DecisionGate -> Decision -> AuditEvent`.
+- Documentation dédiée : `docs/decision-gate.md`.
+
+Sous-brique suivante :
+
+- API server minimal : endpoints de création/consultation des `ProposedAction`, évaluation par Decision Gate, consultation des `Decision` et `AuditEvent`, sans exécution d'outils.
 
 ## Brique 4 — Tool Registry
 
