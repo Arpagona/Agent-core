@@ -1,5 +1,34 @@
 # Roadmap
 
+La roadmap reflète à la fois l'avancement réel et l'ordre architectural cible. Certaines briques ont été prototypées hors ordre pour explorer rapidement le système. Elles doivent maintenant rester alpha/expérimentales tant que les couches de gouvernance ne sont pas stabilisées.
+
+Référence canonique : lire `PROJECT_OBJECTIVES.md` pour la vision et `PROJECT_STATUS.md` pour l'état opérationnel courant.
+
+## Recentrage architectural
+
+Priorité immédiate : stop feature expansion.
+
+Le projet doit revenir à l'ordre architectural cible avant toute nouvelle fonctionnalité visible :
+
+1. stabiliser les Core Domain Types ;
+2. extraire le Decision Gate hors de `crates/core` ;
+3. implémenter un Compute Reservoir minimal ;
+4. implémenter un Tool Registry déclaratif ;
+5. stabiliser Graph Memory + SurrealDB ;
+6. stabiliser Audit ;
+7. reprendre ensuite seulement la croissance Runtime / API / CLI.
+
+Consignes de recadrage :
+
+- stop feature expansion ;
+- stabilize governance layers first ;
+- extract Decision Gate ;
+- implement Compute Reservoir minimal ;
+- implement Tool Registry ;
+- then resume runtime/API/CLI growth.
+
+Le Tool Registry doit exister avant toute exécution réelle d'outil. L'API, la CLI et le Runtime doivent rester alpha tant que Decision Gate, Compute Reservoir, Tool Registry, Graph Memory et Audit ne sont pas stabilisés.
+
 ## Brique 1 — Fondation core
 
 Objectif : poser une base saine et compilable.
@@ -12,9 +41,71 @@ Inclus :
 - types fondamentaux sérialisables ;
 - tests unitaires simples.
 
-Exclus : API, UI, base de données, LLM, outils exécutables, scheduler actif.
+Exclus : API stable, UI, exécution d'outils, scheduler actif, autonomie, secrets opérationnels.
 
-## Brique 2 — Graph Memory
+État : fondation stable, mais `crates/core` doit rester un vocabulaire domaine et ne pas devenir un fourre-tout.
+
+## Brique 2 — Decision Gate séparé
+
+État actuel : implémentation alpha minimale dans `crates/core`.
+
+Objectif suivant : extraire proprement le Decision Gate dans `crates/decision-gate`.
+
+État actuel détaillé :
+
+- module pur Rust `decision_gate` sans API, LLM, I/O, shell ni exécution d'outils ;
+- fonction `evaluate_proposed_action(action, policies, granted_permissions) -> Decision` ;
+- règles alpha : permissions manquantes bloquées, risques `Informational` / `Low` approuvés sauf politique d'escalade, `Medium` en validation humaine, `High` / `Critical` en validation humaine ou blocage selon policy, `Custom` non explicitement autorisé en validation humaine ;
+- helper `audit_event_for_decision(action, decision) -> AuditEvent` pour matérialiser le flux `ProposedAction -> DecisionGate -> Decision -> AuditEvent` ;
+- documentation dédiée : `docs/decision-gate.md`.
+
+Contraintes :
+
+- ne pas casser l'API alpha ;
+- ne pas casser la CLI alpha ;
+- ne pas introduire d'exécution ;
+- conserver des tests verts ;
+- si l'extraction n'est pas triviale, la faire dans une mission dédiée.
+
+## Brique 3 — Compute Reservoir minimal
+
+État : pas encore implémenté.
+
+Objectif : créer une brique distincte chargée de choisir comment penser ou traiter une tâche.
+
+Le Compute Reservoir doit gérer à terme :
+
+- inventaire des ressources cognitives et computationnelles ;
+- profils de modèles ;
+- routage local/cloud/workers/GPU/CPU ;
+- contraintes de confidentialité ;
+- estimation coût/latence ;
+- matching capability/tâche ;
+- fallback ;
+- mémoire de performance.
+
+Il ne décide pas si une action peut être exécutée. Cette responsabilité appartient au Decision Gate.
+
+Document de cadrage : `docs/compute-reservoir.md`.
+
+## Brique 4 — Tool Registry
+
+État : pas encore implémenté.
+
+Objectif : décrire déclarativement les outils disponibles sans donner d'accès libre aux agents.
+
+Doit inclure :
+
+- description déclarative des outils ;
+- schémas d'entrée/sortie ;
+- permissions requises ;
+- niveau de risque ;
+- statut activé/désactivé ;
+- simulation en V0 avant exécution réelle.
+
+Contrainte non négociable : aucune exécution réelle d'outil avant Tool Registry + Decision Gate + Audit stabilisés.
+
+## Brique 5 — Graph Memory + SurrealDB stabilisé
 
 État : abstraction domaine pure Rust dans `crates/core` et adapter SurrealDB expérimental dans `crates/graph-memory`.
 
@@ -26,32 +117,38 @@ Exclus : API, UI, base de données, LLM, outils exécutables, scheduler actif.
 - Port async d'adapter nommé `AsyncGraphMemoryStore`, distinct du contrat domaine.
 - Migration `0001_graph_memory.surql` et tests d'adapter avec SurrealDB en mémoire.
 
-Sous-brique suivante :
+Travail restant :
 
-- stabilisation des conventions SurrealDB et relations graphe ;
-- préparation de la Brique 3 — Decision Gate sans exécution directe par les agents.
+- stabiliser les conventions SurrealDB ;
+- stabiliser les relations graphe ;
+- garantir que les décisions importantes sont traçables dans le graphe ;
+- éviter que Graph Memory devienne une couche d'exécution.
 
-## Brique 3 — Decision Gate
+## Brique 6 — Audit System stabilisé
 
-État : implémentation alpha minimale dans `crates/core`.
+État : alpha.
 
-- Module pur Rust `decision_gate` sans API, LLM, I/O, shell ni exécution d'outils.
-- Fonction `evaluate_proposed_action(action, policies, granted_permissions) -> Decision`.
-- Règles alpha : permissions manquantes bloquées, risques `Informational` / `Low` approuvés sauf politique d'escalade, `Medium` en validation humaine, `High` / `Critical` en validation humaine ou blocage selon policy, `Custom` non explicitement autorisé en validation humaine.
-- Helper `audit_event_for_decision(action, decision) -> AuditEvent` pour matérialiser le flux `ProposedAction -> DecisionGate -> Decision -> AuditEvent`.
-- Documentation dédiée : `docs/decision-gate.md`.
+Objectif : garantir une trace causale claire pour :
 
-Sous-brique suivante :
+- action proposée ;
+- contexte utilisé ;
+- décision prise ;
+- approbation humaine ;
+- résultat ;
+- erreur ;
+- invalidation ou changement de politique.
 
-- API server minimal : endpoints de création/consultation des `ProposedAction`, évaluation par Decision Gate, consultation des `Decision` et `AuditEvent`, sans exécution d'outils.
+L'Audit doit être stabilisé avant toute exécution réelle.
 
-## Brique 4 — Tool Registry
+## Brique 7 — Neutral Orchestrator
 
-- Description déclarative des outils.
-- Permissions requises.
-- Simulation en V0 avant exécution réelle.
+État : pas encore implémenté comme brique stable.
 
-## Brique 5 — API Server
+Objectif : coordonner objectifs, tâches, rappel mémoire, allocation Compute Reservoir, propositions d'action, Decision Gate et Audit.
+
+Contrainte : l'orchestrateur ne doit jamais devenir un agent autonome non gouverné.
+
+## Brique 8 — API Server Axum
 
 État : alpha minimale dans `apps/api-server`.
 
@@ -62,7 +159,25 @@ Sous-brique suivante :
 - Provider LLM expérimental limité à la proposition de `ProposedAction`.
 - Documentation dédiée : `docs/api-server.md`.
 
-## Brique 6 — LLM Provider / Agent Proposer
+Contrainte : l'API ne doit pas prendre de responsabilité de gouvernance métier. Elle expose les couches, elle ne les remplace pas.
+
+## Brique 9 — Mission Control Web
+
+État : deferred.
+
+Objectif futur : Next.js + TypeScript pour supervision, validation humaine, visibilité de l'audit et exploration graphe.
+
+Ne pas développer maintenant. Les couches de gouvernance doivent d'abord être stabilisées.
+
+## Brique 10 — Scheduler / controlled autonomous loops
+
+État : deferred.
+
+Objectif futur : déclencher des tâches planifiées ou périodiques.
+
+Contrainte : toute boucle autonome devra passer par Graph Memory, Compute Reservoir, Tool Registry, Decision Gate, Audit et approbation humaine si sensible.
+
+## Brique 11 — LLM Provider abstraction stabilisée
 
 État : V0 expérimentale dans `crates/llm` et endpoint `POST /agent/propose`.
 
@@ -73,11 +188,29 @@ Sous-brique suivante :
 - Aucune exécution, aucun tool OpenAI, aucun appel automatique au Decision Gate.
 - Documentation dédiée : `docs/llm-provider.md`.
 
-## Brique 7 — Cognitive Runtime / Rippletide Layer
+Contrainte : le provider LLM propose, mais ne gouverne pas et n'exécute pas.
+
+## Brique 12 — End-to-end demo
+
+État : deferred.
+
+Objectif futur : démontrer le flux complet contrôlé : objectif -> tâche -> rappel mémoire -> allocation compute -> proposition -> décision -> audit -> observation.
+
+Ne pas faire avant stabilisation des couches de gouvernance.
+
+## Brique 13 — Security hardening
+
+État : deferred.
+
+Objectif futur : durcir authentification, autorisations, secrets, isolation runtime, logs, rate limiting, accès réseau, stockage et déploiement.
+
+La sécurité ne doit pas être ajoutée comme patch tardif pour justifier une autonomie précoce : elle doit consolider une architecture déjà gouvernée.
+
+## Briques expérimentales existantes hors ordre
+
+### Cognitive Runtime / Reservoir Echo
 
 État : primitives domaine ajoutées dans `crates/core/src/cognitive.rs`.
-
-Objectif : reconnecter l'alpha avec la vision initiale d'un mini système agentique Hermes-like amélioré par des couches cognitives explicites.
 
 Inclus :
 
@@ -95,16 +228,15 @@ Contraintes :
 - pas d'appel LLM ;
 - pas de scheduler ;
 - pas d'exécution ;
-- le réservoir n'est pas une mémoire persistante ;
+- Reservoir Echo n'est pas une mémoire persistante ;
+- Reservoir Echo n'est pas le Compute Reservoir ;
 - Graph Memory reste responsable de la mémoire durable.
 
 Documentation dédiée : `docs/cognitive-runtime.md`.
 
-## Brique 8 — Runtime V0
+### Runtime V0
 
 État : crate expérimental `crates/runtime` ajouté.
-
-Objectif : orchestrer une première boucle mini Hermes-like sans exécution directe.
 
 Flux V0 :
 
@@ -115,16 +247,6 @@ CognitiveCycleInput
 -> LlmProvider
 -> ProposedAction
 ```
-
-Inclus :
-
-- `RuntimeConfig` ;
-- `CognitiveRuntimeState` ;
-- `CognitiveRuntime<P: LlmProvider>` ;
-- `propose_once()` ;
-- enrichissement du prompt provider par les échos actifs du réservoir ;
-- `RuntimeCycleOutput` ;
-- tests avec `MockProvider`.
 
 Contraintes :
 
@@ -138,11 +260,9 @@ Contraintes :
 
 Documentation dédiée : `docs/runtime.md`.
 
-## Brique 9 — Terminal Interface
+### Terminal Interface
 
 État : mode interactif alpha ajouté dans `crates/cli` via `arpagona chat`.
-
-Objectif : permettre une installation/test Ubuntu avec une expérience terminal proche de Hermes/OpenClaw, sans TUI plein écran ni exécution directe.
 
 Inclus :
 
@@ -163,25 +283,10 @@ Limites alpha / contraintes :
 
 Documentation dédiée : `docs/terminal-interface.md`.
 
-Sous-brique suivante recommandée :
+## Workers d'ingestion
 
-- valider localement `cargo fmt/check/test/clippy`, puis tester l'installation Ubuntu depuis les sources avec `cargo install --path crates/cli` et `arpagona chat --provider mock`.
+État : placeholder/deferred.
 
-## Brique 10 — Mission Control
+Objectif futur : ingestion documentaire, extraction de sources, observations et faits, raccordement contrôlé à Graph Memory.
 
-- Next.js + TypeScript.
-- Dashboard de supervision.
-- Validation humaine des actions sensibles.
-
-## Brique 11 — Orchestrator
-
-- Coordination des agents.
-- Cycle tâche / objectif / proposition d'action.
-- Abstraction des providers LLM.
-- Raccordement au Cognitive Runtime.
-
-## Brique 12 — Workers d'ingestion
-
-- Ingestion documentaire.
-- Extraction de sources, observations et faits.
-- Raccordement contrôlé à Graph Memory.
+Ne pas développer avant stabilisation de Graph Memory, Audit et gouvernance.
