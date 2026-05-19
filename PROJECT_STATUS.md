@@ -216,35 +216,37 @@ The update must clearly state whether the change is stable, alpha, experimental,
 
 ## 11. Latest Session Update
 
-This session continued the post-Tool-Registry Graph Memory + Audit stabilization path without adding any real tool execution.
+This session corrected OpenAI/chat intent routing without adding real tool execution.
 
 Changed:
 
-- `crates/core::GraphMemoryStore` now exposes alpha audit-event query methods by `ProposedActionId` and `DecisionId`;
-- `crates/core::InMemoryGraphMemoryStore` implements and tests these trace-query methods;
-- `crates/graph-memory::AsyncGraphMemoryStore` and the SurrealDB adapter now expose matching audit-event trace queries;
-- the graph-memory migration now indexes `audit_event.proposed_action_id` and `audit_event.decision_id`;
-- `docs/causal-trace.md` now records that proposed-action and decision audit queries exist as alpha queryability, not execution.
+- `crates/llm` now models agent turns as `DirectReply`, `ProposedAction` or `ClarifyingQuestion`;
+- the OpenAI provider prompt now explicitly routes normal conversation to `DirectReply` and reserves `ProposedAction` for operations, system checks, memory/audit access, external actions or workflows;
+- deterministic alpha routing covers greetings, identity/capability questions, system checks, audit reads and email requests, preventing `simulate_email` from becoming a fallback for non-action prompts;
+- `POST /agent/propose` can now return direct replies or clarifying questions without storing a proposed action, while action turns are still materialized as `PendingDecision`;
+- `arpagona chat` prints the routed turn type and keeps existing `/tasks`, `/actions`, `/evaluate`, `/audit` and `/provider` commands unchanged;
+- `README_ALPHA.md` documents the new routing behavior.
 
 Stability level: alpha.
 
 Limits:
 
-- these APIs only query recorded `AuditEvent` objects;
-- no endpoint, CLI command, runtime behavior or execution path was added;
-- no durable `GraphRelation` is automatically created between audit events, proposed actions and decisions yet.
+- no real tool execution was introduced;
+- no email is sent;
+- direct replies and clarifying questions do not create audit events or proposed actions in the alpha in-memory API;
+- proposed actions remain subject to Decision Gate / human-in-the-loop evaluation.
 
 Architectural risks:
 
-- audit query APIs must remain traceability helpers and must not become an orchestration or authorization path;
-- Graph Memory remains experimental and must not drift into execution responsibility.
+- the `/agent/propose` response shape is broader than the previous proposal-only shape and remains alpha;
+- deterministic routing is intentionally conservative and should not become authorization logic;
+- OpenAI output is still treated as untrusted routing/proposal data, not execution authority.
 
 Not changed:
 
-- no provider was added;
-- no real tool execution was introduced;
-- no shell, scheduler, MCP, browser automation or multi-agent runtime was introduced;
 - Decision Gate behavior was not changed;
-- Compute Reservoir behavior was not changed.
+- Compute Reservoir behavior was not changed;
+- Tool Registry behavior was not changed;
+- Runtime, Mission Control, scheduler, MCP, browser automation and real tools were not expanded.
 
-Next recommended action: decide whether causal trace links should remain embedded in `AuditEvent` fields for alpha or be mirrored as explicit `GraphRelation` objects, before expanding API/CLI/Runtime integration.
+Next recommended action: stabilize the alpha agent-turn API contract and decide whether direct replies/clarifying questions should later receive lightweight audit events before expanding Runtime/API/CLI surfaces.

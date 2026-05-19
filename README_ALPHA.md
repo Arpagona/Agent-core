@@ -18,7 +18,7 @@ Task -> ProposedAction -> DecisionGate -> Decision -> AuditEvent -> Consultation
 - Graph Memory V0 séparée du serveur API alpha.
 - Decision Gate alpha.
 - Stockage alpha en mémoire dans le serveur API.
-- Provider LLM expérimental : `agent propose` transforme un prompt en `ProposedAction` pending.
+- Provider LLM expérimental : `agent propose` et `chat` routent un prompt en `DirectReply`, `ClarifyingQuestion` ou `ProposedAction` pending selon l'intention.
 - Aucun scheduler, aucun envoi email réel, aucune exécution d'outil.
 
 ## Vérification globale
@@ -175,6 +175,14 @@ arpagona audit list
 ## Agent Proposer V0 / provider LLM
 
 `arpagona agent propose "..."` appelle `POST /agent/propose`. Par défaut, le provider est `openai`; pour une démo sans réseau ni clé, utiliser `--provider mock`.
+
+Le provider OpenAI/chat applique désormais un routage d'intention explicite :
+
+- `DirectReply` pour les salutations, questions d'identité et demandes d'explication ne nécessitant aucune action ;
+- `ProposedAction` uniquement si l'utilisateur demande une opération, une décision, une tâche, une vérification système, une lecture mémoire/audit, une écriture mémoire, une action externe ou un workflow ;
+- `ClarifyingQuestion` si l'intention est ambiguë.
+
+Exemples attendus : `salut`, `qui es-tu ?` et `explique-moi ce que tu peux faire` répondent directement sans créer d'action ; `vérifie l’état du système` propose une action gouvernée `system_check`; `lis les journaux d’audit` propose `read_audit`; `envoie un mail` propose une action email simulée ou gouvernée. `simulate_email` ne doit jamais servir de fallback quand aucune action n'est nécessaire.
 
 `arpagona chat` appelle aussi `POST /agent/propose`, mais son provider par défaut est `mock` pour faciliter l'installation Ubuntu et les tests sans clé.
 
