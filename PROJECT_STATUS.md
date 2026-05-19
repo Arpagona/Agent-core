@@ -19,6 +19,7 @@ Current observed state:
 - `docs/architecture.md` now includes explicit architectural re-centering guidance.
 - `docs/compute-reservoir.md` now frames the alpha minimal Compute Reservoir crate and its non-goals.
 - `docs/tool-registry.md` now frames the alpha minimal Tool Registry crate, its declarative role and its explicit non-goals.
+- `docs/causal-trace.md` now documents alpha conventions for linking proposed actions, decisions and audit events.
 - `crates/core` exists and contains the core domain vocabulary: agents, workspaces, tasks, goals, proposed actions, decisions, policies, permissions, risks, graph primitives, audit events, memory concepts and cognitive primitives.
 - `Decision Gate` now exists as alpha governance logic inside `crates/decision-gate`.
 - `crates/compute-reservoir` now exists as an alpha minimal pure Rust crate with compute inventory/allocation types and a deterministic `allocate_compute` function.
@@ -51,6 +52,7 @@ However, the repository must now be re-centered around governance layers before 
 | `docs/architecture.md` | Stable foundation | Target architecture and boundaries | Includes Architectural Re-Centering section. |
 | `docs/compute-reservoir.md` | Stable foundation | Compute Reservoir framing | Documents the alpha minimal crate and the boundary with Decision Gate, Graph Memory and Tool Registry. |
 | `docs/tool-registry.md` | Stable foundation | Tool Registry framing | Documents the declarative registry boundary, explicit non-goals and alpha surface. |
+| `docs/causal-trace.md` | Alpha foundation | Causal trace conventions | Documents current links between proposed actions, decisions and audit events without adding execution. |
 | `crates/core` | Stable foundation | Domain vocabulary and pure types | Must not become a catch-all crate. Governance logic should be extracted when safe. |
 | Core domain types | Stable foundation | Shared typed language | Should remain pure, serializable and dependency-light. |
 | Decision Gate | Alpha | Pre-execution governance | Extracted into `crates/decision-gate`; `crates/core` no longer reexports the Decision Gate logic. |
@@ -137,11 +139,10 @@ Main risks:
 
 Recommended sequence from the current state:
 
-1. Consolidate `crates/tool-registry` as a declarative catalogue only.
-2. Stabilize `crates/compute-reservoir` only as needed for Tool Registry integration.
-3. Stabilize Graph Memory persistence.
-4. Stabilize Audit.
-5. Only then continue API/CLI/Runtime integration.
+1. Keep `crates/tool-registry` as a declarative catalogue only and harden it if gaps appear.
+2. Stabilize Graph Memory persistence and Audit causal trace conventions.
+3. Stabilize `crates/compute-reservoir` only as needed for future governed integration.
+4. Only then continue API/CLI/Runtime integration.
 
 The Decision Gate extraction is complete, the Compute Reservoir exists as alpha minimal, and the Tool Registry now exists as alpha minimal declarative catalogue. Keep `crates/core` limited to domain vocabulary, keep governance logic in `crates/decision-gate`, and do not treat compute allocation or tool lookup as action approval.
 
@@ -215,14 +216,14 @@ The update must clearly state whether the change is stable, alpha, experimental,
 
 ## 11. Latest Session Update
 
-This session consolidated the alpha minimal Tool Registry documentation without adding any real tool execution.
+This session started the post-Tool-Registry Graph Memory + Audit stabilization path without adding any real tool execution.
 
 Changed:
 
-- `docs/tool-registry.md` was added as the dedicated Tool Registry framing document;
-- `README.md` now lists the Tool Registry document in the monorepo structure;
-- `PROJECT_STATUS.md` now records `docs/tool-registry.md` as a stable foundation document;
-- the document states the registry's alpha surface, non-goals and boundary with Decision Gate, Compute Reservoir, Audit and Graph Memory.
+- `docs/causal-trace.md` was added as the alpha convention document for linking proposed actions, decisions and audit events;
+- `README.md` now lists the causal trace document in the monorepo structure;
+- `PROJECT_STATUS.md` now records `docs/causal-trace.md` as an alpha foundation document;
+- `crates/graph-memory` now has a persistence test proving a `DecisionCreated` audit event retains its `proposed_action_id` and `decision_id` links through the SurrealDB adapter.
 
 Not changed:
 
@@ -232,6 +233,6 @@ Not changed:
 - no shell, scheduler, MCP, browser automation or multi-agent runtime was introduced;
 - Decision Gate behavior was not changed;
 - Compute Reservoir behavior was not changed;
-- Graph Memory and Audit persistence were not changed.
+- Graph Memory and Audit persistence behavior was not broadened beyond a bounded traceability test.
 
-Next recommended action: keep hardening Tool Registry declarative semantics and tests, then stabilize Graph Memory persistence and Audit before expanding API/CLI/Runtime integration.
+Next recommended action: continue bounded Graph Memory + Audit stabilization, especially queryability and causal trace conventions, before expanding API/CLI/Runtime integration.
