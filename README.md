@@ -56,6 +56,7 @@ arpagona-agent-core/
     roadmap.md
     compute-reservoir.md
     tool-registry.md
+    causal-trace.md
   crates/
     compute-reservoir/
       Cargo.toml

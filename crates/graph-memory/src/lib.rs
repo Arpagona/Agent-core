@@ -382,8 +382,8 @@ fn _record_id(table: &str, id: &str) -> Thing {
 mod tests {
     use super::*;
     use arpagona_core::{
-        ActorRef, AgentId, AuditEventId, AuditEventType, GraphNodeType, RelationType, SourceType,
-        TaskId,
+        ActorRef, AgentId, AuditEventId, AuditEventType, DecisionId, GraphNodeType,
+        ProposedActionId, RelationType, SourceType, TaskId,
     };
     use chrono::Utc;
     use serde_json::json;
@@ -641,6 +641,49 @@ mod tests {
             .expect("list audit events");
 
         assert_eq!(events, vec![event]);
+    }
+
+    #[tokio::test]
+    async fn persists_decision_created_audit_trace_links() {
+        let store = memory_store().await;
+        let proposed_action_id = ProposedActionId::new("action-1");
+        let decision_id = DecisionId::new("decision-1");
+        let event = AuditEvent {
+            id: AuditEventId::new("audit-decision-1"),
+            event_type: AuditEventType::DecisionCreated,
+            actor: ActorRef::System,
+            workspace_id: Some(WorkspaceId::new("workspace-1")),
+            task_id: Some(TaskId::new("task-1")),
+            proposed_action_id: Some(proposed_action_id.clone()),
+            decision_id: Some(decision_id.clone()),
+            payload: json!({
+                "causal_trace": {
+                    "flow": "proposed_action_to_decision",
+                    "decision_status": "needs_human_approval",
+                    "reason": "medium risk action requires human validation"
+                }
+            }),
+            created_at: Utc::now(),
+        };
+
+        store
+            .record_audit_event(event.clone())
+            .await
+            .expect("record decision audit event");
+
+        let events = store
+            .list_audit_events_for_workspace(WorkspaceId::new("workspace-1"))
+            .await
+            .expect("list audit events");
+
+        assert_eq!(events, vec![event.clone()]);
+        assert_eq!(events[0].event_type, AuditEventType::DecisionCreated);
+        assert_eq!(events[0].proposed_action_id, Some(proposed_action_id));
+        assert_eq!(events[0].decision_id, Some(decision_id));
+        assert_eq!(
+            events[0].payload["causal_trace"]["flow"],
+            json!("proposed_action_to_decision")
+        );
     }
 
     #[test]
