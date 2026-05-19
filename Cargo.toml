@@ -3,6 +3,7 @@ members = [
     "apps/api-server",
     "crates/cli",
     "crates/core",
+    "crates/decision-gate",
     "crates/graph-memory",
     "crates/llm",
     "crates/runtime"
