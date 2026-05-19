@@ -256,7 +256,10 @@ struct EvaluateResponse {
 
 #[derive(Debug, Deserialize)]
 struct AgentProposeResponse {
-    proposed_action: ProposedAction,
+    kind: String,
+    proposed_action: Option<ProposedAction>,
+    message: Option<String>,
+    question: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -395,7 +398,7 @@ async fn chat(client: &Client, api_url: &str, args: ChatArgs) -> Result<(), Box<
                 )
                 .await
                 {
-                    Ok(response) => print_agent_proposal(&response.proposed_action)?,
+                    Ok(response) => print_agent_turn(&response)?,
                     Err(error) => {
                         println!("{}", format_provider_error(&provider, &error.to_string()))
                     }
@@ -529,7 +532,7 @@ fn print_chat_help() {
     );
     println!(
         "\n{}",
-        style_dim("Any other text is sent to /agent/propose and returns a pending ProposedAction.")
+        style_dim("Any other text is routed as DirectReply, ClarifyingQuestion, or pending ProposedAction.")
     );
 }
 
@@ -639,7 +642,7 @@ async fn propose_agent_action(
     )
     .await?;
 
-    print_agent_proposal(&response.proposed_action)
+    print_agent_turn(&response)
 }
 
 async fn propose_agent_request(
@@ -663,6 +666,32 @@ async fn propose_agent_request(
             .await?,
     )
     .await
+}
+
+fn print_agent_turn(response: &AgentProposeResponse) -> Result<(), Box<dyn Error>> {
+    match response.kind.as_str() {
+        "direct_reply" => {
+            println!(
+                "{} {}",
+                style_info("DirectReply:"),
+                response.message.as_deref().unwrap_or("")
+            );
+            Ok(())
+        }
+        "clarifying_question" => {
+            println!(
+                "{} {}",
+                style_warning("ClarifyingQuestion:"),
+                response.question.as_deref().unwrap_or("")
+            );
+            Ok(())
+        }
+        "proposed_action" => match response.proposed_action.as_ref() {
+            Some(action) => print_agent_proposal(action),
+            None => Err("API returned proposed_action without proposed_action payload".into()),
+        },
+        other => Err(format!("unknown agent turn kind: {other}").into()),
+    }
 }
 
 fn print_agent_proposal(action: &ProposedAction) -> Result<(), Box<dyn Error>> {

@@ -7,7 +7,10 @@ use arpagona_agent_core::{
     WorkspaceId,
 };
 use arpagona_decision_gate::{audit_event_for_decision, evaluate_proposed_action};
-use arpagona_llm::{LlmActionRequest, LlmProvider, MockProvider, OpenAiProvider};
+use arpagona_llm::{
+    deterministic_turn_for_prompt, AgentTurnDraft, LlmActionRequest, LlmProvider, MockProvider,
+    OpenAiProvider,
+};
 use axum::extract::State;
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
@@ -79,7 +82,13 @@ struct AgentProposeRequest {
 
 #[derive(Debug, Serialize)]
 struct AgentProposeResponse {
-    proposed_action: ProposedAction,
+    kind: &'static str,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    proposed_action: Option<ProposedAction>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    message: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    question: Option<String>,
 }
 
 #[derive(Serialize)]
@@ -183,21 +192,24 @@ async fn agent_propose(
     State(state): State<AppState>,
     Json(request): Json<AgentProposeRequest>,
 ) -> Result<Json<AgentProposeResponse>, ApiError> {
-    let llm_request = LlmActionRequest {
-        prompt: request.prompt,
-    };
+    let prompt = request.prompt;
+    let deterministic_turn = deterministic_turn_for_prompt(&prompt);
+    let llm_request = LlmActionRequest { prompt };
 
-    let draft = match request.provider.as_str() {
-        "openai" => {
-            OpenAiProvider::from_env()?
+    let turn = match request.provider.as_str() {
+        "openai" => match deterministic_turn {
+            Some(turn) => turn,
+            None => {
+                OpenAiProvider::from_env()?
+                    .propose_turn(llm_request)
+                    .await?
+            }
+        },
+        "mock" => AgentTurnDraft::ProposedAction {
+            action: MockProvider::safe_default()
                 .propose_action(llm_request)
-                .await?
-        }
-        "mock" => {
-            MockProvider::safe_default()
-                .propose_action(llm_request)
-                .await?
-        }
+                .await?,
+        },
         other => {
             return Err(ApiError::bad_request(format!(
                 "unsupported agent proposer provider '{other}' (expected 'openai' or 'mock')"
@@ -205,21 +217,40 @@ async fn agent_propose(
         }
     };
 
-    let mut store = state.lock()?;
-    let generated_action_id =
-        ProposedActionId::new(format!("action-{}", store.proposed_actions.len() + 1));
-    let action = draft.into_proposed_action(
-        WorkspaceId::new(request.workspace_id),
-        request.task_id.map(TaskId::new),
-        AgentId::new("agent-proposer-v0"),
-        generated_action_id,
-    );
+    match turn {
+        AgentTurnDraft::DirectReply { message } => Ok(Json(AgentProposeResponse {
+            kind: "direct_reply",
+            proposed_action: None,
+            message: Some(message),
+            question: None,
+        })),
+        AgentTurnDraft::ClarifyingQuestion { question } => Ok(Json(AgentProposeResponse {
+            kind: "clarifying_question",
+            proposed_action: None,
+            message: None,
+            question: Some(question),
+        })),
+        AgentTurnDraft::ProposedAction { action: draft } => {
+            let mut store = state.lock()?;
+            let generated_action_id =
+                ProposedActionId::new(format!("action-{}", store.proposed_actions.len() + 1));
+            let action = draft.into_proposed_action(
+                WorkspaceId::new(request.workspace_id),
+                request.task_id.map(TaskId::new),
+                AgentId::new("agent-proposer-v0"),
+                generated_action_id,
+            );
 
-    store.proposed_actions.push(action.clone());
+            store.proposed_actions.push(action.clone());
 
-    Ok(Json(AgentProposeResponse {
-        proposed_action: action,
-    }))
+            Ok(Json(AgentProposeResponse {
+                kind: "proposed_action",
+                proposed_action: Some(action),
+                message: None,
+                question: None,
+            }))
+        }
+    }
 }
 
 async fn evaluate_decision_gate(
@@ -375,6 +406,71 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn agent_propose_openai_direct_reply_has_no_side_effects() {
+        std::env::remove_var("OPENAI_API_KEY");
+        let state = AppState::default();
+        let response = agent_propose(
+            State(state.clone()),
+            Json(AgentProposeRequest {
+                workspace_id: "workspace-alpha".to_owned(),
+                task_id: Some("task-1".to_owned()),
+                prompt: "salut".to_owned(),
+                provider: "openai".to_owned(),
+            }),
+        )
+        .await
+        .expect("deterministic direct reply should not need OpenAI auth");
+
+        assert_eq!(response.0.kind, "direct_reply");
+        assert!(response
+            .0
+            .message
+            .as_deref()
+            .unwrap_or("")
+            .contains("ARPAGONA"));
+        assert!(response.0.proposed_action.is_none());
+
+        let store = state.lock().expect("store should lock");
+        assert_eq!(store.proposed_actions.len(), 0);
+        assert_eq!(store.decisions.len(), 0);
+        assert_eq!(store.audit_events.len(), 0);
+    }
+
+    #[tokio::test]
+    async fn agent_propose_openai_system_check_stores_pending_action() {
+        std::env::remove_var("OPENAI_API_KEY");
+        let state = AppState::default();
+        let response = agent_propose(
+            State(state.clone()),
+            Json(AgentProposeRequest {
+                workspace_id: "workspace-alpha".to_owned(),
+                task_id: Some("task-1".to_owned()),
+                prompt: "vérifie l’état du système sans rien exécuter de dangereux".to_owned(),
+                provider: "openai".to_owned(),
+            }),
+        )
+        .await
+        .expect("deterministic system check should not need OpenAI auth");
+
+        assert_eq!(response.0.kind, "proposed_action");
+        let action = response
+            .0
+            .proposed_action
+            .as_ref()
+            .expect("system check should include action");
+        assert_eq!(
+            action.action_type,
+            ActionType::Custom("system_check".to_owned())
+        );
+        assert_eq!(action.status, ProposedActionStatus::PendingDecision);
+
+        let store = state.lock().expect("store should lock");
+        assert_eq!(store.proposed_actions.len(), 1);
+        assert_eq!(store.decisions.len(), 0);
+        assert_eq!(store.audit_events.len(), 0);
+    }
+
+    #[tokio::test]
     async fn agent_propose_with_mock_stores_pending_action_without_decision() {
         let state = AppState::default();
         let response = agent_propose(
@@ -389,14 +485,16 @@ mod tests {
         .await
         .expect("mock proposal should succeed");
 
+        let proposed_action = response
+            .0
+            .proposed_action
+            .as_ref()
+            .expect("mock response should include proposed action");
         assert_eq!(
-            response.0.proposed_action.status,
+            proposed_action.status,
             ProposedActionStatus::PendingDecision
         );
-        assert_eq!(
-            response.0.proposed_action.proposed_by.as_str(),
-            "agent-proposer-v0"
-        );
+        assert_eq!(proposed_action.proposed_by.as_str(), "agent-proposer-v0");
 
         let store = state.lock().expect("store should lock");
         assert_eq!(store.proposed_actions.len(), 1);
