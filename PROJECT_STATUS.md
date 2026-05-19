@@ -18,6 +18,7 @@ Current observed state:
 - `docs/roadmap.md` now distinguishes the target architectural order from experimental work already prototyped out of order.
 - `docs/architecture.md` now includes explicit architectural re-centering guidance.
 - `docs/compute-reservoir.md` now frames the alpha minimal Compute Reservoir crate and its non-goals.
+- `docs/tool-registry.md` now frames the alpha minimal Tool Registry crate, its declarative role and its explicit non-goals.
 - `crates/core` exists and contains the core domain vocabulary: agents, workspaces, tasks, goals, proposed actions, decisions, policies, permissions, risks, graph primitives, audit events, memory concepts and cognitive primitives.
 - `Decision Gate` now exists as alpha governance logic inside `crates/decision-gate`.
 - `crates/compute-reservoir` now exists as an alpha minimal pure Rust crate with compute inventory/allocation types and a deterministic `allocate_compute` function.
@@ -49,6 +50,7 @@ However, the repository must now be re-centered around governance layers before 
 | `docs/roadmap.md` | Stable foundation | Architectural implementation order | Re-centered around governance-first consolidation. |
 | `docs/architecture.md` | Stable foundation | Target architecture and boundaries | Includes Architectural Re-Centering section. |
 | `docs/compute-reservoir.md` | Stable foundation | Compute Reservoir framing | Documents the alpha minimal crate and the boundary with Decision Gate, Graph Memory and Tool Registry. |
+| `docs/tool-registry.md` | Stable foundation | Tool Registry framing | Documents the declarative registry boundary, explicit non-goals and alpha surface. |
 | `crates/core` | Stable foundation | Domain vocabulary and pure types | Must not become a catch-all crate. Governance logic should be extracted when safe. |
 | Core domain types | Stable foundation | Shared typed language | Should remain pure, serializable and dependency-light. |
 | Decision Gate | Alpha | Pre-execution governance | Extracted into `crates/decision-gate`; `crates/core` no longer reexports the Decision Gate logic. |
@@ -213,16 +215,14 @@ The update must clearly state whether the change is stable, alpha, experimental,
 
 ## 11. Latest Session Update
 
-This session created the alpha minimal Tool Registry as a declarative crate without adding any real tool execution.
+This session consolidated the alpha minimal Tool Registry documentation without adding any real tool execution.
 
 Changed:
 
-- `crates/tool-registry` was added to the workspace;
-- the crate exposes serializable declarations for registered tools, capabilities, schemas, governance notes, lookup status and an in-memory registry;
-- duplicate tool identifiers are rejected during registry construction;
-- lookup reports whether a tool declaration is available, disabled, deprecated or missing;
-- declarations can be disabled without executing or calling any provider;
-- `README.md` and this status file now describe Tool Registry as alpha minimal.
+- `docs/tool-registry.md` was added as the dedicated Tool Registry framing document;
+- `README.md` now lists the Tool Registry document in the monorepo structure;
+- `PROJECT_STATUS.md` now records `docs/tool-registry.md` as a stable foundation document;
+- the document states the registry's alpha surface, non-goals and boundary with Decision Gate, Compute Reservoir, Audit and Graph Memory.
 
 Not changed:
 
@@ -234,4 +234,4 @@ Not changed:
 - Compute Reservoir behavior was not changed;
 - Graph Memory and Audit persistence were not changed.
 
-Next recommended action: consolidate Tool Registry semantics only as a declarative catalogue, then stabilize Graph Memory persistence and Audit before expanding API/CLI/Runtime integration.
+Next recommended action: keep hardening Tool Registry declarative semantics and tests, then stabilize Graph Memory persistence and Audit before expanding API/CLI/Runtime integration.

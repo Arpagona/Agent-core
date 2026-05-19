@@ -109,6 +109,8 @@ Doit inclure :
 
 Implémentation actuelle : catalogue déclaratif en mémoire, types sérialisables pour déclarations d'outils, capacités, schémas, permissions, risques, statuts, lookup, désactivation et liste des outils activés.
 
+Document de cadrage : `docs/tool-registry.md`.
+
 Contrainte non négociable : aucune exécution réelle d'outil avant Tool Registry + Decision Gate + Audit stabilisés.
 
 ## Brique 5 — Graph Memory + SurrealDB stabilisé

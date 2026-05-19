@@ -55,6 +55,7 @@ arpagona-agent-core/
     security-model.md
     roadmap.md
     compute-reservoir.md
+    tool-registry.md
   crates/
     compute-reservoir/
       Cargo.toml
