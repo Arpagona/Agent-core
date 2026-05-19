@@ -17,9 +17,10 @@ Current observed state:
 - `README.md` now points contributors and agents to both canonical project files before any modification.
 - `docs/roadmap.md` now distinguishes the target architectural order from experimental work already prototyped out of order.
 - `docs/architecture.md` now includes explicit architectural re-centering guidance.
-- `docs/compute-reservoir.md` now frames the future Compute Reservoir without implementing it.
+- `docs/compute-reservoir.md` now frames the alpha minimal Compute Reservoir crate and its non-goals.
 - `crates/core` exists and contains the core domain vocabulary: agents, workspaces, tasks, goals, proposed actions, decisions, policies, permissions, risks, graph primitives, audit events, memory concepts and cognitive primitives.
 - `Decision Gate` now exists as alpha governance logic inside `crates/decision-gate`.
+- `crates/compute-reservoir` now exists as an alpha minimal pure Rust crate with compute inventory/allocation types and a deterministic `allocate_compute` function.
 - `Reservoir Echo` currently exists inside the Cognitive Runtime primitives as short-term volatile cognitive continuity.
 - `crates/graph-memory` exists as an experimental SurrealDB adapter for Graph Memory persistence.
 - `crates/llm` exists as an experimental provider abstraction that can produce `ProposedAction` objects with `PendingDecision`, without executing tools.
@@ -46,12 +47,12 @@ However, the repository must now be re-centered around governance layers before 
 | `README.md` | Stable foundation | Entry point for contributors | Points to canonical objective/status files and consolidation priority. |
 | `docs/roadmap.md` | Stable foundation | Architectural implementation order | Re-centered around governance-first consolidation. |
 | `docs/architecture.md` | Stable foundation | Target architecture and boundaries | Includes Architectural Re-Centering section. |
-| `docs/compute-reservoir.md` | Stable foundation | Future Compute Reservoir framing | Documentation only; no crate implemented yet. |
+| `docs/compute-reservoir.md` | Stable foundation | Compute Reservoir framing | Documents the alpha minimal crate and the boundary with Decision Gate, Graph Memory and Tool Registry. |
 | `crates/core` | Stable foundation | Domain vocabulary and pure types | Must not become a catch-all crate. Governance logic should be extracted when safe. |
 | Core domain types | Stable foundation | Shared typed language | Should remain pure, serializable and dependency-light. |
 | Decision Gate | Alpha | Pre-execution governance | Extracted into `crates/decision-gate`; `crates/core` no longer reexports the Decision Gate logic. |
 | Reservoir Echo | Alpha | Short-term cognitive continuity | Volatile traces only. Not persistent memory. Not model routing. Not Compute Reservoir. |
-| Compute Reservoir | Not implemented | Compute/model/resource routing | Must come next after Decision Gate extraction. Do not implement in this recentering pass. |
+| Compute Reservoir | Alpha minimal | Compute/model/resource routing | `crates/compute-reservoir` provides serializable types and pure allocation only; no model calls, execution, I/O, persistence or Decision Gate replacement. |
 | Tool Registry | Not implemented | Declarative catalogue of tools and permissions | Must exist before any real tool execution. |
 | `crates/graph-memory` | Experimental | SurrealDB Graph Memory adapter | Needs persistence conventions and graph schema stabilization. |
 | Graph Memory domain port | Alpha | Memory contract | Useful foundation, but persistence and audit coupling are not final. |
@@ -91,8 +92,9 @@ Experimental areas:
 - API shape in `apps/api-server`;
 - terminal UX in `crates/cli`;
 - Reservoir Echo tuning and lifecycle;
+- Compute Reservoir allocation heuristics and telemetry shape;
 - audit persistence and causal trace design;
-- exact crate boundaries for governance layers.
+- exact crate boundaries for remaining governance layers.
 
 Experimental means: useful for learning and integration tests, but not stable enough to justify feature expansion around it.
 
@@ -119,7 +121,7 @@ These capabilities are explicitly blocked until Decision Gate, Compute Reservoir
 Main risks:
 
 - `crates/core` may become a catch-all crate.
-- API, CLI, LLM and runtime layers are advancing before Tool Registry and Compute Reservoir.
+- API, CLI, LLM and runtime layers are advancing before Tool Registry and before Compute Reservoir is stabilized beyond alpha minimal.
 - Decision Gate is now a dedicated crate; downstream imports must keep using `arpagona-decision-gate` instead of reintroducing governance logic into `crates/core`.
 - Reservoir Echo must not be confused with Compute Reservoir.
 - No tool execution must be introduced before Tool Registry + Decision Gate + Audit are stable.
@@ -132,13 +134,13 @@ Main risks:
 
 Recommended sequence from the current state:
 
-1. Create minimal `crates/compute-reservoir`.
-2. Create `crates/tool-registry`.
+1. Create `crates/tool-registry`.
+2. Stabilize `crates/compute-reservoir` only as needed for Tool Registry integration.
 3. Stabilize Graph Memory persistence.
 4. Stabilize Audit.
 5. Only then continue API/CLI/Runtime integration.
 
-The Decision Gate extraction is complete. Keep `crates/core` limited to domain vocabulary and keep governance logic in `crates/decision-gate`.
+The Decision Gate extraction is complete and the Compute Reservoir now exists as alpha minimal. Keep `crates/core` limited to domain vocabulary, keep governance logic in `crates/decision-gate`, and do not treat compute allocation as action approval.
 
 ## 8. Target Architectural Order
 

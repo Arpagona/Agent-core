@@ -47,9 +47,9 @@ Exclus : API stable, UI, exécution d'outils, scheduler actif, autonomie, secret
 
 ## Brique 2 — Decision Gate séparé
 
-État actuel : implémentation alpha minimale dans `crates/core`.
+État actuel : implémentation alpha minimale extraite dans `crates/decision-gate`.
 
-Objectif suivant : extraire proprement le Decision Gate dans `crates/decision-gate`.
+Objectif suivant : conserver la frontière propre entre `crates/core` et `crates/decision-gate`.
 
 État actuel détaillé :
 
@@ -69,9 +69,11 @@ Contraintes :
 
 ## Brique 3 — Compute Reservoir minimal
 
-État : pas encore implémenté.
+État : alpha minimal dans `crates/compute-reservoir`.
 
-Objectif : créer une brique distincte chargée de choisir comment penser ou traiter une tâche.
+Objectif : fournir une brique distincte chargée de choisir comment penser ou traiter une tâche.
+
+Implémentation actuelle : types sérialisables et fonction pure `allocate_compute(request, nodes, policy) -> ComputeAllocation`. La brique couvre l'inventaire de ressources, les capacités, la sensibilité des données, le budget, la latence/coût attendus, la justification, le fallback et une forme minimale de télémétrie future sans persistence.
 
 Le Compute Reservoir doit gérer à terme :
 
@@ -84,9 +86,11 @@ Le Compute Reservoir doit gérer à terme :
 - fallback ;
 - mémoire de performance.
 
-Il ne décide pas si une action peut être exécutée. Cette responsabilité appartient au Decision Gate.
+Il ne fait aucun appel modèle, aucune exécution, aucun réseau, aucune persistence et ne décide pas si une action peut être exécutée. Cette responsabilité appartient au Decision Gate.
 
 Document de cadrage : `docs/compute-reservoir.md`.
+
+Prochaine brique recommandée : `crates/tool-registry`.
 
 ## Brique 4 — Tool Registry
 

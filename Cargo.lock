@@ -211,6 +211,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "arpagona-compute-reservoir"
+version = "0.1.0"
+dependencies = [
+ "arpagona-agent-core",
+ "chrono",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "arpagona-decision-gate"
 version = "0.1.0"
 dependencies = [
