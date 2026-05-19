@@ -42,7 +42,7 @@ Current alpha representation:
 
 `crates/core` owns the pure domain types and the synchronous `GraphMemoryStore` contract.
 
-`crates/graph-memory` is the experimental SurrealDB adapter. It may persist audit events and list them by workspace, but it must not become an execution layer or orchestration layer.
+`crates/graph-memory` is the experimental SurrealDB adapter. It may persist audit events and list them by workspace, proposed action or decision, but it must not become an execution layer or orchestration layer.
 
 Graph Memory and Audit are allowed to stabilize persistence, contracts, queryability and trace semantics. They are not allowed to execute tools or bypass the Decision Gate.
 
@@ -62,13 +62,13 @@ Recommended audit event usage:
 Current limits:
 
 - no stable causal trace schema yet;
-- no dedicated query by proposed action or decision yet;
+- dedicated query by proposed action and decision exists for audit events, but remains alpha;
 - no durable graph relation automatically linking audit events to decisions;
 - no execution events should be produced by runtime/tool code because real execution is still deferred.
 
 Recommended next stabilization steps:
 
 1. Keep tests proving `DecisionCreated` audit events retain `proposed_action_id` and `decision_id` through persistence.
-2. Clarify whether audit event query APIs should include lookup by proposed action and decision.
+2. Keep tests proving audit events can be queried by proposed action and decision without introducing execution.
 3. Decide whether causal trace relations should be represented as `GraphRelation` objects or remain embedded in `AuditEvent` fields for alpha.
 4. Stabilize Audit before expanding Runtime/API/CLI surfaces.

@@ -52,14 +52,14 @@ However, the repository must now be re-centered around governance layers before 
 | `docs/architecture.md` | Stable foundation | Target architecture and boundaries | Includes Architectural Re-Centering section. |
 | `docs/compute-reservoir.md` | Stable foundation | Compute Reservoir framing | Documents the alpha minimal crate and the boundary with Decision Gate, Graph Memory and Tool Registry. |
 | `docs/tool-registry.md` | Stable foundation | Tool Registry framing | Documents the declarative registry boundary, explicit non-goals and alpha surface. |
-| `docs/causal-trace.md` | Alpha foundation | Causal trace conventions | Documents current links between proposed actions, decisions and audit events without adding execution. |
+| `docs/causal-trace.md` | Alpha foundation | Causal trace conventions | Documents current links and alpha audit trace queries for proposed actions, decisions and audit events without adding execution. |
 | `crates/core` | Stable foundation | Domain vocabulary and pure types | Must not become a catch-all crate. Governance logic should be extracted when safe. |
 | Core domain types | Stable foundation | Shared typed language | Should remain pure, serializable and dependency-light. |
 | Decision Gate | Alpha | Pre-execution governance | Extracted into `crates/decision-gate`; `crates/core` no longer reexports the Decision Gate logic. |
 | Reservoir Echo | Alpha | Short-term cognitive continuity | Volatile traces only. Not persistent memory. Not model routing. Not Compute Reservoir. |
 | Compute Reservoir | Alpha minimal | Compute/model/resource routing | `crates/compute-reservoir` provides serializable types and pure allocation only; no model calls, execution, I/O, persistence or Decision Gate replacement. |
 | Tool Registry | Alpha minimal | Declarative catalogue of tools and permissions | `crates/tool-registry` declares tools, capabilities, schemas, governance notes and lookup/status changes only; no execution path. |
-| `crates/graph-memory` | Experimental | SurrealDB Graph Memory adapter | Needs persistence conventions and graph schema stabilization. |
+| `crates/graph-memory` | Experimental | SurrealDB Graph Memory adapter | Adds alpha audit-event queries by proposed action and decision; broader persistence conventions and graph schema still need stabilization. |
 | Graph Memory domain port | Alpha | Memory contract | Useful foundation, but persistence and audit coupling are not final. |
 | Audit System | Alpha | Trace important events and decisions | Needs stabilization before execution layers grow. |
 | `crates/llm` | Experimental | LLM provider abstraction | Must remain limited to proposals. No tool execution by provider. |
@@ -216,23 +216,35 @@ The update must clearly state whether the change is stable, alpha, experimental,
 
 ## 11. Latest Session Update
 
-This session started the post-Tool-Registry Graph Memory + Audit stabilization path without adding any real tool execution.
+This session continued the post-Tool-Registry Graph Memory + Audit stabilization path without adding any real tool execution.
 
 Changed:
 
-- `docs/causal-trace.md` was added as the alpha convention document for linking proposed actions, decisions and audit events;
-- `README.md` now lists the causal trace document in the monorepo structure;
-- `PROJECT_STATUS.md` now records `docs/causal-trace.md` as an alpha foundation document;
-- `crates/graph-memory` now has a persistence test proving a `DecisionCreated` audit event retains its `proposed_action_id` and `decision_id` links through the SurrealDB adapter.
+- `crates/core::GraphMemoryStore` now exposes alpha audit-event query methods by `ProposedActionId` and `DecisionId`;
+- `crates/core::InMemoryGraphMemoryStore` implements and tests these trace-query methods;
+- `crates/graph-memory::AsyncGraphMemoryStore` and the SurrealDB adapter now expose matching audit-event trace queries;
+- the graph-memory migration now indexes `audit_event.proposed_action_id` and `audit_event.decision_id`;
+- `docs/causal-trace.md` now records that proposed-action and decision audit queries exist as alpha queryability, not execution.
+
+Stability level: alpha.
+
+Limits:
+
+- these APIs only query recorded `AuditEvent` objects;
+- no endpoint, CLI command, runtime behavior or execution path was added;
+- no durable `GraphRelation` is automatically created between audit events, proposed actions and decisions yet.
+
+Architectural risks:
+
+- audit query APIs must remain traceability helpers and must not become an orchestration or authorization path;
+- Graph Memory remains experimental and must not drift into execution responsibility.
 
 Not changed:
 
-- no endpoint was added;
 - no provider was added;
 - no real tool execution was introduced;
 - no shell, scheduler, MCP, browser automation or multi-agent runtime was introduced;
 - Decision Gate behavior was not changed;
-- Compute Reservoir behavior was not changed;
-- Graph Memory and Audit persistence behavior was not broadened beyond a bounded traceability test.
+- Compute Reservoir behavior was not changed.
 
-Next recommended action: continue bounded Graph Memory + Audit stabilization, especially queryability and causal trace conventions, before expanding API/CLI/Runtime integration.
+Next recommended action: decide whether causal trace links should remain embedded in `AuditEvent` fields for alpha or be mirrored as explicit `GraphRelation` objects, before expanding API/CLI/Runtime integration.

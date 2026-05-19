@@ -2,7 +2,10 @@ use crate::audit::AuditEvent;
 use crate::episode::{Episode, Observation};
 use crate::errors::CoreError;
 use crate::graph::{GraphNodeType, GraphRef, GraphRelation, RelationType};
-use crate::ids::{AuditEventId, EpisodeId, FactId, ObservationId, SourceId, WorkspaceId};
+use crate::ids::{
+    AuditEventId, DecisionId, EpisodeId, FactId, ObservationId, ProposedActionId, SourceId,
+    WorkspaceId,
+};
 use crate::source::Source;
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
@@ -72,6 +75,14 @@ pub trait GraphMemoryStore {
     fn list_audit_events_for_workspace(
         &self,
         workspace_id: &WorkspaceId,
+    ) -> GraphMemoryResult<Vec<AuditEvent>>;
+    fn list_audit_events_for_proposed_action(
+        &self,
+        proposed_action_id: &ProposedActionId,
+    ) -> GraphMemoryResult<Vec<AuditEvent>>;
+    fn list_audit_events_for_decision(
+        &self,
+        decision_id: &DecisionId,
     ) -> GraphMemoryResult<Vec<AuditEvent>>;
 
     fn add_relation(&mut self, relation: GraphRelation) -> GraphMemoryResult<()>;
@@ -277,6 +288,34 @@ impl GraphMemoryStore for InMemoryGraphMemoryStore {
         Ok(events)
     }
 
+    fn list_audit_events_for_proposed_action(
+        &self,
+        proposed_action_id: &ProposedActionId,
+    ) -> GraphMemoryResult<Vec<AuditEvent>> {
+        let mut events = self
+            .audit_events
+            .values()
+            .filter(|event| event.proposed_action_id.as_ref() == Some(proposed_action_id))
+            .cloned()
+            .collect::<Vec<_>>();
+        events.sort_by_key(|event| event.created_at);
+        Ok(events)
+    }
+
+    fn list_audit_events_for_decision(
+        &self,
+        decision_id: &DecisionId,
+    ) -> GraphMemoryResult<Vec<AuditEvent>> {
+        let mut events = self
+            .audit_events
+            .values()
+            .filter(|event| event.decision_id.as_ref() == Some(decision_id))
+            .cloned()
+            .collect::<Vec<_>>();
+        events.sort_by_key(|event| event.created_at);
+        Ok(events)
+    }
+
     fn add_relation(&mut self, relation: GraphRelation) -> GraphMemoryResult<()> {
         if !self.relations.contains(&relation) {
             self.relations.push(relation);
@@ -302,7 +341,7 @@ impl GraphMemoryStore for InMemoryGraphMemoryStore {
 mod tests {
     use super::*;
     use crate::audit::{ActorRef, AuditEventType};
-    use crate::ids::{AgentId, TaskId};
+    use crate::ids::{AgentId, DecisionId, ProposedActionId, TaskId};
     use crate::source::SourceType;
     use serde_json::json;
 
@@ -522,6 +561,39 @@ mod tests {
             store
                 .list_audit_events_for_workspace(&WorkspaceId::new("workspace-1"))
                 .unwrap(),
+            vec![event]
+        );
+    }
+
+    #[test]
+    fn queries_audit_events_by_trace_links_without_execution() {
+        let mut store = InMemoryGraphMemoryStore::new();
+        let proposed_action_id = ProposedActionId::new("action-1");
+        let decision_id = DecisionId::new("decision-1");
+        let event = AuditEvent {
+            id: AuditEventId::new("audit-decision-1"),
+            event_type: AuditEventType::DecisionCreated,
+            actor: ActorRef::System,
+            workspace_id: Some(WorkspaceId::new("workspace-1")),
+            task_id: Some(TaskId::new("task-1")),
+            proposed_action_id: Some(proposed_action_id.clone()),
+            decision_id: Some(decision_id.clone()),
+            payload: json!({"note": "trace query only"}),
+            created_at: Utc::now(),
+        };
+
+        store
+            .record_audit_event(event.clone())
+            .expect("audit event stored");
+
+        assert_eq!(
+            store
+                .list_audit_events_for_proposed_action(&proposed_action_id)
+                .unwrap(),
+            vec![event.clone()]
+        );
+        assert_eq!(
+            store.list_audit_events_for_decision(&decision_id).unwrap(),
             vec![event]
         );
     }
