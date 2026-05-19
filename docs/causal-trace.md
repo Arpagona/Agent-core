@@ -57,18 +57,48 @@ Recommended audit event usage:
 - `ExecutionStarted` / `ExecutionSucceeded` / `ExecutionFailed`: reserved for future controlled execution after explicit validation. They must not be used to imply current execution capability.
 - `PolicyChanged`: record changes to policy context.
 
+## Alpha decision: embedded audit links first
+
+For the alpha, causal trace links remain embedded in `AuditEvent` fields and are queryable through audit-event lookup methods.
+
+The alpha canonical links are:
+
+- `Decision.proposed_action_id` for the decision-to-proposed-action link;
+- `AuditEvent.proposed_action_id` for the audit-event-to-proposed-action link;
+- `AuditEvent.decision_id` for the audit-event-to-decision link;
+- `AuditEvent.workspace_id` and `AuditEvent.task_id` for scope.
+
+Do not automatically mirror these links as durable `GraphRelation` objects yet.
+
+Rationale:
+
+- the current query need is already covered by dedicated audit-event queries;
+- `GraphRelation` semantics are still broad and should not be overloaded before the graph schema stabilizes;
+- automatic mirroring would create duplicate sources of truth between Audit fields and graph edges;
+- the alpha priority is traceability and governance stabilization, not graph expressiveness;
+- keeping the links embedded avoids accidental orchestration or authorization logic being built on graph edges too early.
+
+A future stabilization pass may introduce explicit `GraphRelation` mirrors only after these questions are answered:
+
+- which relation names are canonical for audit causality;
+- whether graph edges are derived projections or independent durable records;
+- how duplication, deletion, migration and reindexing are handled;
+- which component owns creation of those relations;
+- whether Mission Control needs graph-edge traversal beyond audit-event queries.
+
 ## Alpha limits
 
 Current limits:
 
 - no stable causal trace schema yet;
 - dedicated query by proposed action and decision exists for audit events, but remains alpha;
-- no durable graph relation automatically linking audit events to decisions;
+- no durable graph relation automatically linking audit events to decisions, proposed actions or tasks;
 - no execution events should be produced by runtime/tool code because real execution is still deferred.
 
 Recommended next stabilization steps:
 
 1. Keep tests proving `DecisionCreated` audit events retain `proposed_action_id` and `decision_id` through persistence.
 2. Keep tests proving audit events can be queried by proposed action and decision without introducing execution.
-3. Decide whether causal trace relations should be represented as `GraphRelation` objects or remain embedded in `AuditEvent` fields for alpha.
-4. Stabilize Audit before expanding Runtime/API/CLI surfaces.
+3. Stabilize Audit field semantics and payload conventions while keeping causal trace links embedded for alpha.
+4. Revisit `GraphRelation` mirroring only after the audit schema and graph relation vocabulary are stable.
+5. Stabilize Audit before expanding Runtime/API/CLI surfaces.
