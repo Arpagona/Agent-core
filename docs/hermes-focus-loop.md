@@ -81,7 +81,95 @@ One focus loop may select only one main priority.
 
 The current priority is to create and stabilize `crates/tool-registry` as a minimal declarative Rust crate without real tool execution.
 
-If that work is complete or blocked, GONA must choose the next task from `PROJECT_STATUS.md` or GitHub Issues.
+While PR #3, `Create minimal declarative Tool Registry crate`, is open and mergeable, GONA must not stack new commits on `feat/tool-registry-minimal` unless one of the following is true:
+
+1. a test failure must be fixed;
+2. a clearly necessary correction has been identified;
+3. a human explicitly asks GONA to continue on that branch.
+
+After PR #3 is merged, the next focus loop must start from an up-to-date `main` branch, reread the canonical project state, and choose between Option A and Option B below according to the actual state of `PROJECT_STATUS.md`, GitHub Issues and the repository.
+
+If the Tool Registry work is complete or blocked, GONA must choose the next task from `PROJECT_STATUS.md` or GitHub Issues.
+
+## Post-Tool-Registry Next Options
+
+After PR #3 is merged, the focus loop may choose only one of the following paths unless a human explicitly validates another direction.
+
+### Option A — Tool Registry Consolidation
+
+Objective:
+Consolidate `crates/tool-registry` without adding real tool execution.
+
+Authorized work:
+
+- improve declarative types;
+- strengthen tests;
+- clarify errors;
+- improve documentation;
+- verify conceptual integration with Decision Gate, Compute Reservoir and Audit.
+
+Forbidden work:
+
+- real tool execution;
+- API;
+- CLI;
+- Runtime;
+- MCP;
+- shell;
+- scheduler;
+- browser automation.
+
+### Option B — Roadmap Continuation: Graph Memory + Audit
+
+Objective:
+Start the next roadmap step by consolidating Graph Memory and Audit only at the foundation, persistence, contract, test and traceability levels.
+
+Authorized work:
+
+- reread the current state of `crates/graph-memory`;
+- reread audit-related types in `crates/core`;
+- identify inconsistencies between Graph Memory and Audit;
+- clarify contracts between memory, decisions, proposed actions and audit traces;
+- add or improve persistence or consistency tests if the change remains bounded;
+- document causal trace conventions;
+- propose a small stabilization Pull Request;
+- update `PROJECT_STATUS.md` if a responsibility, stability level or priority changes.
+
+Forbidden work:
+
+- autonomous runtime;
+- scheduler;
+- real tool execution;
+- API/CLI as orchestration surfaces;
+- browser automation;
+- MCP;
+- secrets;
+- self-modification;
+- multi-agent autonomy;
+- Mission Control UI;
+- broad SurrealDB or memory model redesign without human validation.
+
+Option B does not mean developing autonomy. It means stabilizing Graph Memory + Audit as traceability foundations before any Runtime/API/CLI growth.
+
+### Option C — Explicitly Deferred
+
+Avoid for now:
+
+- API Server expansion;
+- CLI expansion;
+- Runtime growth;
+- Scheduler/autonomous loops inside ARPAGONA Agent Core;
+- Mission Control Web;
+- MCP integration;
+- browser automation;
+- real tool execution;
+- shell access.
+
+Selection rule:
+
+1. If `crates/tool-registry` seems incomplete, fragile or under-tested, choose Option A.
+2. If `crates/tool-registry` is sufficiently stable for now, choose Option B.
+3. Never choose Option C without explicit human validation.
 
 ## Authorized Work
 
