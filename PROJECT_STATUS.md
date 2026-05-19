@@ -216,37 +216,37 @@ The update must clearly state whether the change is stable, alpha, experimental,
 
 ## 11. Latest Session Update
 
-This session corrected OpenAI/chat intent routing without adding real tool execution.
+This session stabilized the alpha AgentTurn / `POST /agent/propose` response contract with documentation and regression tests only.
 
 Changed:
 
-- `crates/llm` now models agent turns as `DirectReply`, `ProposedAction` or `ClarifyingQuestion`;
-- the OpenAI provider prompt now explicitly routes normal conversation to `DirectReply` and reserves `ProposedAction` for operations, system checks, memory/audit access, external actions or workflows;
-- deterministic alpha routing covers greetings, identity/capability questions, system checks, audit reads and email requests, preventing `simulate_email` from becoming a fallback for non-action prompts;
-- `POST /agent/propose` can now return direct replies or clarifying questions without storing a proposed action, while action turns are still materialized as `PendingDecision`;
-- `arpagona chat` prints the routed turn type and keeps existing `/tasks`, `/actions`, `/evaluate`, `/audit` and `/provider` commands unchanged;
-- `README_ALPHA.md` documents the new routing behavior.
+- `README_ALPHA.md`, `docs/api-server.md` and `docs/llm-provider.md` now document the three alpha response kinds: `direct_reply`, `clarifying_question` and `proposed_action`;
+- the API documentation now states that `DirectReply` and `ClarifyingQuestion` do not create a `ProposedAction`, `Decision` or `AuditEvent` in the alpha in-memory API;
+- the API and LLM provider documentation now state that deterministic routing is intent classification only, not authorization;
+- regression tests now protect the non-action turn contract and verify that a deterministic `system_check` proposal remains `PendingDecision`.
 
-Stability level: alpha.
+Stability level: alpha contract clarification.
 
 Limits:
 
 - no real tool execution was introduced;
-- no email is sent;
-- direct replies and clarifying questions do not create audit events or proposed actions in the alpha in-memory API;
-- proposed actions remain subject to Decision Gate / human-in-the-loop evaluation.
+- no API endpoint was added;
+- no functional API expansion was introduced beyond documenting and testing the existing alpha response shape;
+- no CLI behavior was expanded;
+- no Decision Gate behavior was changed;
+- no Runtime, scheduler, MCP, browser automation, provider or Mission Control growth was introduced.
 
-Architectural risks:
+Current AgentTurn contract:
 
-- the `/agent/propose` response shape is broader than the previous proposal-only shape and remains alpha;
-- deterministic routing is intentionally conservative and should not become authorization logic;
+- `DirectReply` returns a message only and has no persistence side effects in the alpha API;
+- `ClarifyingQuestion` returns a question only and has no persistence side effects in the alpha API;
+- `ProposedAction` is materialized as a `ProposedAction` with `status: pending_decision`;
+- deterministic routing may choose a response kind or proposal kind, but never authorizes execution.
+
+Previous routing context retained:
+
+- `crates/llm` models agent turns as `DirectReply`, `ProposedAction` or `ClarifyingQuestion`;
+- deterministic alpha routing covers greetings, identity/capability questions, system checks, audit reads and email requests, preventing `simulate_email` from becoming a fallback for non-action prompts;
 - OpenAI output is still treated as untrusted routing/proposal data, not execution authority.
 
-Not changed:
-
-- Decision Gate behavior was not changed;
-- Compute Reservoir behavior was not changed;
-- Tool Registry behavior was not changed;
-- Runtime, Mission Control, scheduler, MCP, browser automation and real tools were not expanded.
-
-Next recommended action: stabilize the alpha agent-turn API contract and decide whether direct replies/clarifying questions should later receive lightweight audit events before expanding Runtime/API/CLI surfaces.
+Next recommended action: keep the alpha AgentTurn contract frozen while stabilizing Graph Memory and Audit causal trace semantics before expanding Runtime/API/CLI surfaces.

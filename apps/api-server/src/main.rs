@@ -471,6 +471,32 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn agent_propose_openai_clarifying_question_has_no_side_effects() {
+        std::env::remove_var("OPENAI_API_KEY");
+        let state = AppState::default();
+        let response = agent_propose(
+            State(state.clone()),
+            Json(AgentProposeRequest {
+                workspace_id: "workspace-alpha".to_owned(),
+                task_id: Some("task-1".to_owned()),
+                prompt: "aide".to_owned(),
+                provider: "openai".to_owned(),
+            }),
+        )
+        .await
+        .expect("deterministic clarifying question should not need OpenAI auth");
+
+        assert_eq!(response.0.kind, "clarifying_question");
+        assert!(response.0.question.is_some());
+        assert!(response.0.proposed_action.is_none());
+
+        let store = state.lock().expect("store should lock");
+        assert_eq!(store.proposed_actions.len(), 0);
+        assert_eq!(store.decisions.len(), 0);
+        assert_eq!(store.audit_events.len(), 0);
+    }
+
+    #[tokio::test]
     async fn agent_propose_with_mock_stores_pending_action_without_decision() {
         let state = AppState::default();
         let response = agent_propose(

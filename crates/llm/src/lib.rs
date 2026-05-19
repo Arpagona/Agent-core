@@ -691,4 +691,42 @@ mod tests {
             }
         );
     }
+
+    #[test]
+    fn non_action_turns_are_not_proposed_action_drafts() {
+        let direct = deterministic_turn_for_prompt("salut")
+            .expect("greeting should route deterministically");
+        assert!(matches!(direct, AgentTurnDraft::DirectReply { .. }));
+
+        let clarifying = deterministic_turn_for_prompt("aide")
+            .expect("ambiguous prompt should route deterministically");
+        assert!(matches!(
+            clarifying,
+            AgentTurnDraft::ClarifyingQuestion { .. }
+        ));
+    }
+
+    #[test]
+    fn deterministic_routing_is_not_action_authorization() {
+        let turn = deterministic_turn_for_prompt("vérifie l’état du système")
+            .expect("system check should route deterministically");
+
+        match turn {
+            AgentTurnDraft::ProposedAction { action } => {
+                let proposed_action = action.into_proposed_action(
+                    WorkspaceId::new("workspace-alpha"),
+                    None,
+                    AgentId::new("agent-proposer-v0"),
+                    ProposedActionId::new("action-system-check"),
+                );
+
+                assert_eq!(
+                    proposed_action.status,
+                    ProposedActionStatus::PendingDecision
+                );
+                assert_ne!(proposed_action.status, ProposedActionStatus::Approved);
+            }
+            other => panic!("expected proposed action, got {other:?}"),
+        }
+    }
 }
