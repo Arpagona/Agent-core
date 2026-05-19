@@ -8,12 +8,12 @@ Le serveur permet uniquement de :
 
 - créer des `Task` ;
 - créer des `ProposedAction` ;
-- demander à un provider agentique expérimental de proposer une `ProposedAction` pending ;
+- demander à un provider agentique expérimental de produire un tour alpha `direct_reply`, `clarifying_question` ou `proposed_action` ;
 - évaluer une `ProposedAction` via le `DecisionGate` pur Rust ;
 - stocker en mémoire les `Decision` et `AuditEvent` produits ;
 - consulter l'état courant.
 
-Il ne fait pas d'exécution réelle. Une action proposée reste une intention structurée jusqu'à décision humaine ou système ultérieure. Le provider LLM expérimental ne peut que générer une proposition JSON, stockée avec le statut `pending_decision`; il n'appelle aucun outil, aucun web search et ne contourne jamais le Decision Gate.
+Il ne fait pas d'exécution réelle. Une action proposée reste une intention structurée jusqu'à décision humaine ou système ultérieure. Le provider LLM expérimental peut répondre directement, demander une clarification ou générer une proposition JSON, stockée avec le statut `pending_decision`; il n'appelle aucun outil, aucun web search et ne contourne jamais le Decision Gate.
 
 ## Lancement
 
@@ -90,10 +90,11 @@ curl -X POST http://127.0.0.1:3000/agent/propose \
 
 Le provider `openai` lit `OPENAI_API_KEY`, accepte `OPENAI_MODEL` et produit uniquement une proposition structurée. Pour les tests locaux sans réseau, `provider":"mock"` retourne une proposition déterministe.
 
-Réponse :
+Réponse `proposed_action` :
 
 ```json
 {
+  "kind": "proposed_action",
   "proposed_action": {
     "id": "action-1",
     "workspace_id": "workspace-alpha",
@@ -112,7 +113,27 @@ Réponse :
 }
 ```
 
-Important : `/agent/propose` ne déclenche pas `/decision-gate/evaluate`. Il ne fait que stocker la `ProposedAction` pending.
+Réponse `direct_reply` :
+
+```json
+{
+  "kind": "direct_reply",
+  "message": "Salut. Je suis ARPAGONA Agent Core, en mode alpha gouverné."
+}
+```
+
+Réponse `clarifying_question` :
+
+```json
+{
+  "kind": "clarifying_question",
+  "question": "Que veux-tu que je prépare exactement : une réponse simple, une tâche, une lecture mémoire/audit, ou une proposition d’action gouvernée ?"
+}
+```
+
+Important : `/agent/propose` ne déclenche pas `/decision-gate/evaluate`. Les réponses `direct_reply` et `clarifying_question` ne stockent aucune `ProposedAction`, ne créent aucune `Decision` et ne créent aucun `AuditEvent` dans l'API alpha in-memory. Seule une réponse `proposed_action` est matérialisée, toujours avec `status: pending_decision`.
+
+Le routage déterministe de l'alpha classe certaines intentions évidentes (`salut`, `qui es-tu ?`, `aide`, `vérifie l’état du système`, `lis l’audit`, `envoie un mail`) pour éviter les fallbacks dangereux. Ce routage n'est pas une autorisation : il sélectionne seulement une forme de réponse ou de proposition. Toute action proposée reste soumise au Decision Gate explicite.
 
 ### Évaluer via Decision Gate
 

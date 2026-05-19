@@ -182,7 +182,14 @@ Le provider OpenAI/chat applique désormais un routage d'intention explicite :
 - `ProposedAction` uniquement si l'utilisateur demande une opération, une décision, une tâche, une vérification système, une lecture mémoire/audit, une écriture mémoire, une action externe ou un workflow ;
 - `ClarifyingQuestion` si l'intention est ambiguë.
 
-Exemples attendus : `salut`, `qui es-tu ?` et `explique-moi ce que tu peux faire` répondent directement sans créer d'action ; `vérifie l’état du système` propose une action gouvernée `system_check`; `lis les journaux d’audit` propose `read_audit`; `envoie un mail` propose une action email simulée ou gouvernée. `simulate_email` ne doit jamais servir de fallback quand aucune action n'est nécessaire.
+Exemples attendus : `salut`, `qui es-tu ?` et `explique-moi ce que tu peux faire` répondent directement sans créer d'action ; `aide` demande une clarification sans créer d'action ; `vérifie l’état du système` propose une action gouvernée `system_check`; `lis les journaux d’audit` propose `read_audit`; `envoie un mail` propose une action email simulée ou gouvernée. `simulate_email` ne doit jamais servir de fallback quand aucune action n'est nécessaire.
+
+Contrat alpha de `POST /agent/propose` :
+
+- `kind: "direct_reply"` retourne un `message` et ne crée ni `ProposedAction`, ni `Decision`, ni `AuditEvent` ;
+- `kind: "clarifying_question"` retourne une `question` et ne crée ni `ProposedAction`, ni `Decision`, ni `AuditEvent` ;
+- `kind: "proposed_action"` retourne une `proposed_action`, matérialisée avec `status: pending_decision` ;
+- le routage déterministe n'est pas une autorisation. Il classe l'intention ; seul le Decision Gate peut évaluer une action proposée.
 
 `arpagona chat` appelle aussi `POST /agent/propose`, mais son provider par défaut est `mock` pour faciliter l'installation Ubuntu et les tests sans clé.
 

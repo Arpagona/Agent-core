@@ -2,14 +2,14 @@
 
 ## Rôle
 
-`crates/llm` ajoute une brique expérimentale de proposition d'action. Elle transforme une demande utilisateur en `ProposedActionDraft`, puis l'API matérialise ce draft en `ProposedAction` avec le statut `pending_decision`.
+`crates/llm` ajoute une brique expérimentale de routage de tour agentique. Elle transforme une demande utilisateur en `AgentTurnDraft` : `DirectReply`, `ClarifyingQuestion` ou `ProposedAction`. Seule la variante `ProposedAction` contient un `ProposedActionDraft`, que l'API matérialise en `ProposedAction` avec le statut `pending_decision`.
 
 Le LLM ne doit jamais exécuter. Il propose uniquement.
 
 Flux :
 
 ```text
-Prompt utilisateur -> LlmProvider -> ProposedActionDraft -> ProposedAction pending_decision -> Decision Gate explicite
+Prompt utilisateur -> AgentTurnDraft -> DirectReply | ClarifyingQuestion | ProposedActionDraft -> ProposedAction pending_decision -> Decision Gate explicite
 ```
 
 ## Providers
@@ -38,7 +38,7 @@ Règles :
 
 Contraintes non négociables :
 
-- le LLM ne peut produire qu'une proposition JSON ;
+- le LLM ne peut produire qu'un tour JSON alpha : réponse directe, question de clarification ou proposition ;
 - aucune exécution d'outil réel ;
 - aucun shell ;
 - aucun envoi email réel ;
@@ -47,6 +47,7 @@ Contraintes non négociables :
 - pas de function calling d'exécution ;
 - pas d'appel automatique au Decision Gate ;
 - pas de création automatique de `Decision` ;
+- une réponse directe ou une question de clarification ne crée aucune `ProposedAction` ;
 - la `ProposedAction` produite reste toujours `pending_decision`.
 
 Le Decision Gate reste obligatoire avant toute suite.
@@ -81,7 +82,13 @@ Pour un test sans réseau :
 }
 ```
 
-La réponse contient uniquement une `proposed_action` stockée avec `status: "pending_decision"`.
+La réponse contient un champ discriminant `kind`. Les valeurs alpha sont :
+
+- `direct_reply` avec `message` : aucune `ProposedAction`, aucune `Decision`, aucun `AuditEvent` ;
+- `clarifying_question` avec `question` : aucune `ProposedAction`, aucune `Decision`, aucun `AuditEvent` ;
+- `proposed_action` avec `proposed_action` : une `ProposedAction` stockée avec `status: "pending_decision"`.
+
+Le routage déterministe utilisé pour certaines intentions évidentes n'est pas une couche d'autorisation. Il ne décide pas qu'une action est permise ; il évite seulement de transformer une conversation ou une clarification en action simulée. La seule autorisation reste le Decision Gate explicite.
 
 ## CLI
 
@@ -140,7 +147,7 @@ Cette commande appelle explicitement le Decision Gate, crée une `Decision`, pui
 ## Limites V0
 
 - Pas de streaming.
-- Pas de schéma JSON strict avancé au-delà du contrat `ProposedActionDraft`.
+- Pas de schéma JSON strict avancé au-delà du contrat alpha `AgentTurnDraft` / `ProposedActionDraft`.
 - Pas de provider local encore branché dans `crates/llm`.
 - Stockage API toujours in-memory.
 - Pas d'authentification HTTP autour de `/agent/propose` dans cette alpha locale.
