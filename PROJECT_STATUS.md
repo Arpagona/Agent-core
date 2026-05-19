@@ -19,13 +19,13 @@ Current observed state:
 - `docs/architecture.md` now includes explicit architectural re-centering guidance.
 - `docs/compute-reservoir.md` now frames the alpha minimal Compute Reservoir crate and its non-goals.
 - `docs/tool-registry.md` now frames the alpha minimal Tool Registry crate, its declarative role and its explicit non-goals.
-- `docs/causal-trace.md` now documents alpha conventions for linking proposed actions, decisions and audit events.
+- `docs/causal-trace.md` now documents alpha conventions for linking proposed actions, tasks, decisions and audit events.
 - `crates/core` exists and contains the core domain vocabulary: agents, workspaces, tasks, goals, proposed actions, decisions, policies, permissions, risks, graph primitives, audit events, memory concepts and cognitive primitives.
 - `Decision Gate` now exists as alpha governance logic inside `crates/decision-gate`.
 - `crates/compute-reservoir` now exists as an alpha minimal pure Rust crate with compute inventory/allocation types and a deterministic `allocate_compute` function.
 - `crates/tool-registry` now exists as an alpha minimal declarative catalogue for tool definitions, capabilities, schemas, permissions, risk levels and enabled/disabled states, without execution.
 - `Reservoir Echo` currently exists inside the Cognitive Runtime primitives as short-term volatile cognitive continuity.
-- `crates/graph-memory` exists as an experimental SurrealDB adapter for Graph Memory persistence.
+- `crates/graph-memory` exists as an experimental SurrealDB adapter for Graph Memory persistence and alpha audit trace lookup by workspace, task, proposed action and decision.
 - `crates/llm` exists as an experimental provider abstraction that can produce `ProposedAction` objects with `PendingDecision`, without executing tools.
 - `crates/runtime` exists as an experimental cognitive runtime loop that stops at action proposal.
 - `apps/api-server` exists as an alpha Axum API server.
@@ -52,14 +52,14 @@ However, the repository must now be re-centered around governance layers before 
 | `docs/architecture.md` | Stable foundation | Target architecture and boundaries | Includes Architectural Re-Centering section. |
 | `docs/compute-reservoir.md` | Stable foundation | Compute Reservoir framing | Documents the alpha minimal crate and the boundary with Decision Gate, Graph Memory and Tool Registry. |
 | `docs/tool-registry.md` | Stable foundation | Tool Registry framing | Documents the declarative registry boundary, explicit non-goals and alpha surface. |
-| `docs/causal-trace.md` | Alpha foundation | Causal trace conventions | Documents current links and alpha audit trace queries for proposed actions, decisions and audit events without adding execution. |
+| `docs/causal-trace.md` | Alpha foundation | Causal trace conventions | Documents current links and alpha audit trace queries for tasks, proposed actions, decisions and audit events without adding execution. |
 | `crates/core` | Stable foundation | Domain vocabulary and pure types | Must not become a catch-all crate. Governance logic should be extracted when safe. |
 | Core domain types | Stable foundation | Shared typed language | Should remain pure, serializable and dependency-light. |
 | Decision Gate | Alpha | Pre-execution governance | Extracted into `crates/decision-gate`; `crates/core` no longer reexports the Decision Gate logic. |
 | Reservoir Echo | Alpha | Short-term cognitive continuity | Volatile traces only. Not persistent memory. Not model routing. Not Compute Reservoir. |
 | Compute Reservoir | Alpha minimal | Compute/model/resource routing | `crates/compute-reservoir` provides serializable types and pure allocation only; no model calls, execution, I/O, persistence or Decision Gate replacement. |
 | Tool Registry | Alpha minimal | Declarative catalogue of tools and permissions | `crates/tool-registry` declares tools, capabilities, schemas, governance notes and lookup/status changes only; no execution path. |
-| `crates/graph-memory` | Experimental | SurrealDB Graph Memory adapter | Adds alpha audit-event queries by proposed action and decision; broader persistence conventions and graph schema still need stabilization. |
+| `crates/graph-memory` | Experimental | SurrealDB Graph Memory adapter | Adds alpha audit-event queries by task, proposed action and decision; broader persistence conventions and graph schema still need stabilization. |
 | Graph Memory domain port | Alpha | Memory contract | Useful foundation, but persistence and audit coupling are not final. |
 | Audit System | Alpha | Trace important events and decisions | Needs stabilization before execution layers grow. |
 | `crates/llm` | Experimental | LLM provider abstraction | Must remain limited to proposals. No tool execution by provider. |
@@ -216,37 +216,28 @@ The update must clearly state whether the change is stable, alpha, experimental,
 
 ## 11. Latest Session Update
 
-This session stabilized the alpha AgentTurn / `POST /agent/propose` response contract with documentation and regression tests only.
+This session added a bounded alpha audit trace lookup by task id, keeping the work inside Graph Memory/Audit queryability only.
 
 Changed:
 
-- `README_ALPHA.md`, `docs/api-server.md` and `docs/llm-provider.md` now document the three alpha response kinds: `direct_reply`, `clarifying_question` and `proposed_action`;
-- the API documentation now states that `DirectReply` and `ClarifyingQuestion` do not create a `ProposedAction`, `Decision` or `AuditEvent` in the alpha in-memory API;
-- the API and LLM provider documentation now state that deterministic routing is intent classification only, not authorization;
-- regression tests now protect the non-action turn contract and verify that a deterministic `system_check` proposal remains `PendingDecision`.
+- `GraphMemoryStore` now exposes `list_audit_events_for_task` in the pure core domain contract;
+- `InMemoryGraphMemoryStore` implements task-scoped audit event lookup and tests it without execution;
+- `crates/graph-memory` now persists `audit_event.task_id`, indexes it in the SurrealDB schema, and exposes task-scoped audit lookup through the async adapter port;
+- `docs/causal-trace.md` now states that alpha audit events are queryable by workspace, task, proposed action and decision.
 
-Stability level: alpha contract clarification.
+Stability level: alpha trace-query stabilization.
 
 Limits:
 
 - no real tool execution was introduced;
 - no API endpoint was added;
-- no functional API expansion was introduced beyond documenting and testing the existing alpha response shape;
 - no CLI behavior was expanded;
 - no Decision Gate behavior was changed;
+- no graph-edge mirroring was introduced;
 - no Runtime, scheduler, MCP, browser automation, provider or Mission Control growth was introduced.
 
-Current AgentTurn contract:
+Architectural risk:
 
-- `DirectReply` returns a message only and has no persistence side effects in the alpha API;
-- `ClarifyingQuestion` returns a question only and has no persistence side effects in the alpha API;
-- `ProposedAction` is materialized as a `ProposedAction` with `status: pending_decision`;
-- deterministic routing may choose a response kind or proposal kind, but never authorizes execution.
+- low, provided task-scoped lookup remains an audit/query feature and is not treated as authorization, orchestration or execution control.
 
-Previous routing context retained:
-
-- `crates/llm` models agent turns as `DirectReply`, `ProposedAction` or `ClarifyingQuestion`;
-- deterministic alpha routing covers greetings, identity/capability questions, system checks, audit reads and email requests, preventing `simulate_email` from becoming a fallback for non-action prompts;
-- OpenAI output is still treated as untrusted routing/proposal data, not execution authority.
-
-Next recommended action: keep the alpha AgentTurn contract frozen while stabilizing Graph Memory and Audit causal trace semantics before expanding Runtime/API/CLI surfaces.
+Recommended next step: continue stabilizing Audit field semantics and Graph Memory persistence conventions before expanding Runtime/API/CLI surfaces.
