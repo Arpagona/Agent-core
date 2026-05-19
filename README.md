@@ -121,6 +121,7 @@ Les premières briques fournissent :
 - des types fondamentaux sérialisables ;
 - un Decision Gate alpha extrait dans `crates/decision-gate` ;
 - un crate alpha minimal `crates/compute-reservoir` pour déclarer des ressources compute et recommander une allocation via une fonction pure ;
+- un crate alpha minimal `crates/tool-registry` pour déclarer un catalogue d'outils, de capacités, de schémas, de permissions, de risques et d'états sans exécution ;
 - des primitives de Cognitive Runtime incluant le Reservoir Echo court terme ;
 - un crate expérimental `crates/graph-memory` pour persister la mémoire graphe dans SurrealDB ;
 - un crate expérimental `crates/llm` pour transformer une demande utilisateur en `ProposedAction` pending, sans exécution ;
@@ -133,6 +134,8 @@ Les premières briques fournissent :
 Le crate `core` doit rester limité au vocabulaire domaine et aux types purs réutilisables. Il ne doit pas devenir un fourre-tout. Le Decision Gate est désormais dans `crates/decision-gate` et le Compute Reservoir minimal dans `crates/compute-reservoir`.
 
 Le crate `compute-reservoir` est alpha minimal : il fournit des types sérialisables et `allocate_compute`, une fonction pure d'allocation de ressources selon capacités, coût, latence, confidentialité et fallback. Il ne fait aucun appel modèle, aucune exécution, aucun I/O, et ne remplace jamais le Decision Gate.
+
+Le crate `tool-registry` est alpha minimal : il fournit un catalogue déclaratif en mémoire pour les définitions d'outils, les capacités, les schémas, les permissions, les risques et les états. Il permet d'enregistrer, chercher, lister et désactiver des déclarations d'outils. Il ne contient aucun runner, hook d'exécution, shell, scheduler, MCP, navigateur ou runtime multi-agent.
 
 Le crate `graph-memory` porte l'adapter SurrealDB séparé du domaine core. La source de vérité domaine est le trait synchrone `GraphMemoryStore` dans `crates/core`; l'adapter persistant expose `SurrealGraphMemoryStore` et un port async expérimental `AsyncGraphMemoryStore`, testés avec SurrealDB en mémoire.
 
@@ -147,7 +150,7 @@ La priorité actuelle est de revenir à l'ordre architectural cible :
 1. stabiliser les Core Domain Types ;
 2. maintenir le Decision Gate dans `crates/decision-gate` ;
 3. consolider le Compute Reservoir minimal ;
-4. créer un Tool Registry déclaratif ;
+4. consolider le Tool Registry déclaratif ;
 5. stabiliser Graph Memory + SurrealDB ;
 6. stabiliser Audit ;
 7. reprendre ensuite seulement la croissance Runtime / API / CLI.

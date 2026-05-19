@@ -90,9 +90,9 @@ Il ne doit pas être confondu avec une mémoire persistante, un routeur de modè
 
 ## Tool Registry
 
-Le Tool Registry décrira les capacités disponibles sans donner un accès libre aux agents. Un agent peut demander une action outillée, mais l'exécution effective reste contrôlée par le Decision Gate et les couches runtime.
+Le Tool Registry décrit les capacités disponibles sans donner un accès libre aux agents. Son état actuel est alpha minimal dans `crates/tool-registry` : catalogue déclaratif en mémoire, schémas, permissions, risques, statuts, lookup et désactivation de déclarations uniquement. Un agent peut demander une action outillée, mais l'exécution effective reste contrôlée par le Decision Gate et les couches runtime.
 
-Le Tool Registry doit exister avant toute exécution réelle d'outil.
+Le Tool Registry doit exister et être stabilisé avant toute exécution réelle d'outil.
 
 ## Audit Store
 

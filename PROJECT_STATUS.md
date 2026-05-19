@@ -21,6 +21,7 @@ Current observed state:
 - `crates/core` exists and contains the core domain vocabulary: agents, workspaces, tasks, goals, proposed actions, decisions, policies, permissions, risks, graph primitives, audit events, memory concepts and cognitive primitives.
 - `Decision Gate` now exists as alpha governance logic inside `crates/decision-gate`.
 - `crates/compute-reservoir` now exists as an alpha minimal pure Rust crate with compute inventory/allocation types and a deterministic `allocate_compute` function.
+- `crates/tool-registry` now exists as an alpha minimal declarative catalogue for tool definitions, capabilities, schemas, permissions, risk levels and enabled/disabled states, without execution.
 - `Reservoir Echo` currently exists inside the Cognitive Runtime primitives as short-term volatile cognitive continuity.
 - `crates/graph-memory` exists as an experimental SurrealDB adapter for Graph Memory persistence.
 - `crates/llm` exists as an experimental provider abstraction that can produce `ProposedAction` objects with `PendingDecision`, without executing tools.
@@ -53,7 +54,7 @@ However, the repository must now be re-centered around governance layers before 
 | Decision Gate | Alpha | Pre-execution governance | Extracted into `crates/decision-gate`; `crates/core` no longer reexports the Decision Gate logic. |
 | Reservoir Echo | Alpha | Short-term cognitive continuity | Volatile traces only. Not persistent memory. Not model routing. Not Compute Reservoir. |
 | Compute Reservoir | Alpha minimal | Compute/model/resource routing | `crates/compute-reservoir` provides serializable types and pure allocation only; no model calls, execution, I/O, persistence or Decision Gate replacement. |
-| Tool Registry | Not implemented | Declarative catalogue of tools and permissions | Must exist before any real tool execution. |
+| Tool Registry | Alpha minimal | Declarative catalogue of tools and permissions | `crates/tool-registry` declares tools, capabilities, schemas, governance notes and lookup/status changes only; no execution path. |
 | `crates/graph-memory` | Experimental | SurrealDB Graph Memory adapter | Needs persistence conventions and graph schema stabilization. |
 | Graph Memory domain port | Alpha | Memory contract | Useful foundation, but persistence and audit coupling are not final. |
 | Audit System | Alpha | Trace important events and decisions | Needs stabilization before execution layers grow. |
@@ -124,7 +125,7 @@ Main risks:
 - API, CLI, LLM and runtime layers are advancing before Tool Registry and before Compute Reservoir is stabilized beyond alpha minimal.
 - Decision Gate is now a dedicated crate; downstream imports must keep using `arpagona-decision-gate` instead of reintroducing governance logic into `crates/core`.
 - Reservoir Echo must not be confused with Compute Reservoir.
-- No tool execution must be introduced before Tool Registry + Decision Gate + Audit are stable.
+- No tool execution must be introduced before Tool Registry + Decision Gate + Audit are stable; the current Tool Registry is declarative only.
 - API server and CLI could accidentally become privileged orchestration layers if responsibilities are not constrained.
 - LLM provider abstraction could drift toward tool-calling unless explicitly kept proposal-only.
 - Runtime loops could drift toward autonomy before human-governed control paths exist.
@@ -134,13 +135,13 @@ Main risks:
 
 Recommended sequence from the current state:
 
-1. Create `crates/tool-registry`.
+1. Consolidate `crates/tool-registry` as a declarative catalogue only.
 2. Stabilize `crates/compute-reservoir` only as needed for Tool Registry integration.
 3. Stabilize Graph Memory persistence.
 4. Stabilize Audit.
 5. Only then continue API/CLI/Runtime integration.
 
-The Decision Gate extraction is complete and the Compute Reservoir now exists as alpha minimal. Keep `crates/core` limited to domain vocabulary, keep governance logic in `crates/decision-gate`, and do not treat compute allocation as action approval.
+The Decision Gate extraction is complete, the Compute Reservoir exists as alpha minimal, and the Tool Registry now exists as alpha minimal declarative catalogue. Keep `crates/core` limited to domain vocabulary, keep governance logic in `crates/decision-gate`, and do not treat compute allocation or tool lookup as action approval.
 
 ## 8. Target Architectural Order
 
@@ -149,7 +150,7 @@ The target consolidation order is:
 1. Core Domain Types
 2. Decision Gate separated
 3. Compute Reservoir minimal
-4. Tool Registry
+4. Tool Registry minimal
 5. Graph Memory + SurrealDB stabilized
 6. Audit System stabilized
 7. Neutral Orchestrator
@@ -212,24 +213,25 @@ The update must clearly state whether the change is stable, alpha, experimental,
 
 ## 11. Latest Session Update
 
-This session finalized the Decision Gate extraction into a dedicated crate without adding feature behavior.
+This session created the alpha minimal Tool Registry as a declarative crate without adding any real tool execution.
 
 Changed:
 
-- Decision Gate was extracted into `crates/decision-gate`;
-- `crates/core` no longer reexports the Decision Gate logic;
-- `crates/core/src/decision_gate.rs` remains only as a migration note;
-- `apps/api-server` now depends on and imports governance functions from `arpagona-decision-gate`;
-- `Cargo.lock` was updated for the new local crate dependency.
+- `crates/tool-registry` was added to the workspace;
+- the crate exposes serializable declarations for registered tools, capabilities, schemas, governance notes, lookup status and an in-memory registry;
+- duplicate tool identifiers are rejected during registry construction;
+- lookup reports whether a tool declaration is available, disabled, deprecated or missing;
+- declarations can be disabled without executing or calling any provider;
+- `README.md` and this status file now describe Tool Registry as alpha minimal.
 
 Not changed:
 
 - no endpoint was added;
 - no provider was added;
-- no tool execution was introduced;
-- no scheduler, Mission Control, Tool Registry, Compute Reservoir or LLM provider work was added;
+- no real tool execution was introduced;
+- no shell, scheduler, MCP, browser automation or multi-agent runtime was introduced;
 - Decision Gate behavior was not changed;
-- Compute Reservoir remains not implemented;
-- Tool Registry remains not implemented.
+- Compute Reservoir behavior was not changed;
+- Graph Memory and Audit persistence were not changed.
 
-Next recommended action remains: create a minimal `crates/compute-reservoir`, then create `crates/tool-registry`, without introducing tool execution.
+Next recommended action: consolidate Tool Registry semantics only as a declarative catalogue, then stabilize Graph Memory persistence and Audit before expanding API/CLI/Runtime integration.

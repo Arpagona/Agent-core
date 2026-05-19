@@ -7,7 +7,8 @@ members = [
     "crates/decision-gate",
     "crates/graph-memory",
     "crates/llm",
-    "crates/runtime"
+    "crates/runtime",
+    "crates/tool-registry"
 ]
 resolver = "2"
 

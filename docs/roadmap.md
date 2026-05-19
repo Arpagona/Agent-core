@@ -94,7 +94,7 @@ Prochaine brique recommandée : `crates/tool-registry`.
 
 ## Brique 4 — Tool Registry
 
-État : pas encore implémenté.
+État : alpha minimal dans `crates/tool-registry`.
 
 Objectif : décrire déclarativement les outils disponibles sans donner d'accès libre aux agents.
 
@@ -106,6 +106,8 @@ Doit inclure :
 - niveau de risque ;
 - statut activé/désactivé ;
 - simulation en V0 avant exécution réelle.
+
+Implémentation actuelle : catalogue déclaratif en mémoire, types sérialisables pour déclarations d'outils, capacités, schémas, permissions, risques, statuts, lookup, désactivation et liste des outils activés.
 
 Contrainte non négociable : aucune exécution réelle d'outil avant Tool Registry + Decision Gate + Audit stabilisés.
 
