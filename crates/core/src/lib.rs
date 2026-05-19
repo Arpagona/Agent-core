@@ -1,14 +1,14 @@
 //! Pure domain types for ARPAGONA Agent Core.
 //!
-//! This crate intentionally contains no LLM, database, API, shell, or tool
-//! execution logic. Agents propose actions; they do not execute them.
+//! This crate intentionally contains no LLM, database, API, shell, tool
+//! execution logic, or Decision Gate governance rules. Agents propose actions;
+//! they do not execute them.
 
 pub mod action;
 pub mod agent;
 pub mod audit;
 pub mod cognitive;
 pub mod decision;
-pub mod decision_gate;
 pub mod episode;
 pub mod errors;
 pub mod goal;
@@ -28,7 +28,6 @@ pub use agent::*;
 pub use audit::*;
 pub use cognitive::*;
 pub use decision::*;
-pub use decision_gate::*;
 pub use episode::*;
 pub use errors::*;
 pub use goal::*;
