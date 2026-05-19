@@ -189,6 +189,7 @@ name = "arpagona-api-server"
 version = "0.1.0"
 dependencies = [
  "arpagona-agent-core",
+ "arpagona-decision-gate",
  "arpagona-llm",
  "axum",
  "chrono",
@@ -207,6 +208,15 @@ dependencies = [
  "serde",
  "serde_json",
  "tokio",
+]
+
+[[package]]
+name = "arpagona-decision-gate"
+version = "0.1.0"
+dependencies = [
+ "arpagona-agent-core",
+ "chrono",
+ "serde_json",
 ]
 
 [[package]]

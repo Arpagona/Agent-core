@@ -9,6 +9,7 @@ description = "Minimal alpha HTTP API server for ARPAGONA Agent Core"
 
 [dependencies]
 arpagona-agent-core = { path = "../../crates/core" }
+arpagona-decision-gate = { path = "../../crates/decision-gate" }
 arpagona-llm = { path = "../../crates/llm" }
 axum.workspace = true
 chrono.workspace = true

@@ -2,10 +2,11 @@ use std::net::SocketAddr;
 use std::sync::{Arc, Mutex};
 
 use arpagona_agent_core::{
-    audit_event_for_decision, evaluate_proposed_action, ActionType, AgentId, AuditEvent, Decision,
-    DecisionStatus, Permission, ProposedAction, ProposedActionId, ProposedActionStatus, RiskLevel,
-    Task, TaskId, TaskPriority, TaskStatus, WorkspaceId,
+    ActionType, AgentId, AuditEvent, Decision, DecisionStatus, Permission, ProposedAction,
+    ProposedActionId, ProposedActionStatus, RiskLevel, Task, TaskId, TaskPriority, TaskStatus,
+    WorkspaceId,
 };
+use arpagona_decision_gate::{audit_event_for_decision, evaluate_proposed_action};
 use arpagona_llm::{LlmActionRequest, LlmProvider, MockProvider, OpenAiProvider};
 use axum::extract::State;
 use axum::http::StatusCode;

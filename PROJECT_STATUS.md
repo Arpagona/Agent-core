@@ -19,7 +19,7 @@ Current observed state:
 - `docs/architecture.md` now includes explicit architectural re-centering guidance.
 - `docs/compute-reservoir.md` now frames the future Compute Reservoir without implementing it.
 - `crates/core` exists and contains the core domain vocabulary: agents, workspaces, tasks, goals, proposed actions, decisions, policies, permissions, risks, graph primitives, audit events, memory concepts and cognitive primitives.
-- `Decision Gate` currently exists as alpha logic inside `crates/core`.
+- `Decision Gate` now exists as alpha governance logic inside `crates/decision-gate`.
 - `Reservoir Echo` currently exists inside the Cognitive Runtime primitives as short-term volatile cognitive continuity.
 - `crates/graph-memory` exists as an experimental SurrealDB adapter for Graph Memory persistence.
 - `crates/llm` exists as an experimental provider abstraction that can produce `ProposedAction` objects with `PendingDecision`, without executing tools.
@@ -49,7 +49,7 @@ However, the repository must now be re-centered around governance layers before 
 | `docs/compute-reservoir.md` | Stable foundation | Future Compute Reservoir framing | Documentation only; no crate implemented yet. |
 | `crates/core` | Stable foundation | Domain vocabulary and pure types | Must not become a catch-all crate. Governance logic should be extracted when safe. |
 | Core domain types | Stable foundation | Shared typed language | Should remain pure, serializable and dependency-light. |
-| Decision Gate | Alpha | Pre-execution governance | Currently inside `crates/core`; should become `crates/decision-gate`. |
+| Decision Gate | Alpha | Pre-execution governance | Extracted into `crates/decision-gate`; `crates/core` no longer reexports the Decision Gate logic. |
 | Reservoir Echo | Alpha | Short-term cognitive continuity | Volatile traces only. Not persistent memory. Not model routing. Not Compute Reservoir. |
 | Compute Reservoir | Not implemented | Compute/model/resource routing | Must come next after Decision Gate extraction. Do not implement in this recentering pass. |
 | Tool Registry | Not implemented | Declarative catalogue of tools and permissions | Must exist before any real tool execution. |
@@ -120,7 +120,7 @@ Main risks:
 
 - `crates/core` may become a catch-all crate.
 - API, CLI, LLM and runtime layers are advancing before Tool Registry and Compute Reservoir.
-- Decision Gate should become a dedicated crate to prevent `core` from taking governance responsibility.
+- Decision Gate is now a dedicated crate; downstream imports must keep using `arpagona-decision-gate` instead of reintroducing governance logic into `crates/core`.
 - Reservoir Echo must not be confused with Compute Reservoir.
 - No tool execution must be introduced before Tool Registry + Decision Gate + Audit are stable.
 - API server and CLI could accidentally become privileged orchestration layers if responsibilities are not constrained.
@@ -132,14 +132,13 @@ Main risks:
 
 Recommended sequence from the current state:
 
-1. Extract Decision Gate into `crates/decision-gate`.
-2. Create minimal `crates/compute-reservoir`.
-3. Create `crates/tool-registry`.
-4. Stabilize Graph Memory persistence.
-5. Stabilize Audit.
-6. Only then continue API/CLI/Runtime integration.
+1. Create minimal `crates/compute-reservoir`.
+2. Create `crates/tool-registry`.
+3. Stabilize Graph Memory persistence.
+4. Stabilize Audit.
+5. Only then continue API/CLI/Runtime integration.
 
-The extraction of Decision Gate should be done carefully and only if tests remain green. If the extraction touches too many imports or breaks downstream crates, first add boundary documentation and migration notes, then extract in a dedicated change.
+The Decision Gate extraction is complete. Keep `crates/core` limited to domain vocabulary and keep governance logic in `crates/decision-gate`.
 
 ## 8. Target Architectural Order
 
@@ -211,26 +210,24 @@ The update must clearly state whether the change is stable, alpha, experimental,
 
 ## 11. Latest Session Update
 
-This session performed a documentation-only architectural re-centering.
+This session finalized the Decision Gate extraction into a dedicated crate without adding feature behavior.
 
 Changed:
 
-- created `PROJECT_STATUS.md` as the canonical operational status file;
-- updated `README.md` to require reading `PROJECT_OBJECTIVES.md` and `PROJECT_STATUS.md` before modifications;
-- updated `README.md` to state that the immediate objective is consolidation, not feature expansion;
-- updated `docs/roadmap.md` to clarify that some bricks were prototyped out of order and must now return to the target architectural sequence;
-- updated `docs/architecture.md` with an `Architectural Re-Centering` section;
-- created `docs/compute-reservoir.md` as a documentation-only framing file.
+- Decision Gate was extracted into `crates/decision-gate`;
+- `crates/core` no longer reexports the Decision Gate logic;
+- `crates/core/src/decision_gate.rs` remains only as a migration note;
+- `apps/api-server` now depends on and imports governance functions from `arpagona-decision-gate`;
+- `Cargo.lock` was updated for the new local crate dependency.
 
 Not changed:
 
-- no new crate was created;
-- no runtime feature was added;
 - no endpoint was added;
 - no provider was added;
 - no tool execution was introduced;
-- Decision Gate was not moved yet;
-- Compute Reservoir was not implemented yet;
-- Tool Registry was not implemented yet.
+- no scheduler, Mission Control, Tool Registry, Compute Reservoir or LLM provider work was added;
+- Decision Gate behavior was not changed;
+- Compute Reservoir remains not implemented;
+- Tool Registry remains not implemented.
 
-Next recommended action remains: extract Decision Gate into `crates/decision-gate` in a dedicated safe change, then create a minimal `crates/compute-reservoir`.
+Next recommended action remains: create a minimal `crates/compute-reservoir`, then create `crates/tool-registry`, without introducing tool execution.
