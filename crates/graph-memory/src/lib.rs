@@ -1,6 +1,6 @@
 use arpagona_core::{
-    AuditEvent, Episode, EpisodeId, Fact, FactId, FactStatus, GraphRef, GraphRelation, Observation,
-    ObservationId, Source, SourceId, WorkspaceId,
+    AuditEvent, DecisionId, Episode, EpisodeId, Fact, FactId, FactStatus, GraphRef, GraphRelation,
+    Observation, ObservationId, ProposedActionId, Source, SourceId, WorkspaceId,
 };
 use async_trait::async_trait;
 use serde::de::DeserializeOwned;
@@ -69,6 +69,14 @@ pub trait AsyncGraphMemoryStore {
     async fn list_audit_events_for_workspace(
         &self,
         workspace_id: WorkspaceId,
+    ) -> Result<Vec<AuditEvent>>;
+    async fn list_audit_events_for_proposed_action(
+        &self,
+        proposed_action_id: ProposedActionId,
+    ) -> Result<Vec<AuditEvent>>;
+    async fn list_audit_events_for_decision(
+        &self,
+        decision_id: DecisionId,
     ) -> Result<Vec<AuditEvent>>;
 
     async fn add_relation(&self, relation: GraphRelation) -> Result<()>;
@@ -251,14 +259,20 @@ where
 
     async fn record_audit_event(&self, event: AuditEvent) -> Result<()> {
         let workspace_id = event.workspace_id.as_ref().map(ToString::to_string);
+        let proposed_action_id = event.proposed_action_id.as_ref().map(ToString::to_string);
+        let decision_id = event.decision_id.as_ref().map(ToString::to_string);
         self.db
             .query(
                 "UPDATE type::thing('audit_event', $id) \
-                 SET data = $data, workspace_id = $workspace_id, created_at = $created_at",
+                 SET data = $data, workspace_id = $workspace_id, \
+                     proposed_action_id = $proposed_action_id, decision_id = $decision_id, \
+                     created_at = $created_at",
             )
             .bind(("id", event.id.to_string()))
             .bind(("data", serde_json::to_value(&event)?))
             .bind(("workspace_id", workspace_id))
+            .bind(("proposed_action_id", proposed_action_id))
+            .bind(("decision_id", decision_id))
             .bind(("created_at", event.created_at.to_rfc3339()))
             .await?
             .check()?;
@@ -277,6 +291,42 @@ where
                  ORDER BY created_at ASC",
             )
             .bind(("workspace_id", workspace_id.to_string()))
+            .await?
+            .take(0)?;
+
+        Ok(rows.into_iter().map(|row| row.data).collect())
+    }
+
+    async fn list_audit_events_for_proposed_action(
+        &self,
+        proposed_action_id: ProposedActionId,
+    ) -> Result<Vec<AuditEvent>> {
+        let rows: Vec<DataRow<AuditEvent>> = self
+            .db
+            .query(
+                "SELECT data, created_at FROM audit_event \
+                 WHERE proposed_action_id = $proposed_action_id \
+                 ORDER BY created_at ASC",
+            )
+            .bind(("proposed_action_id", proposed_action_id.to_string()))
+            .await?
+            .take(0)?;
+
+        Ok(rows.into_iter().map(|row| row.data).collect())
+    }
+
+    async fn list_audit_events_for_decision(
+        &self,
+        decision_id: DecisionId,
+    ) -> Result<Vec<AuditEvent>> {
+        let rows: Vec<DataRow<AuditEvent>> = self
+            .db
+            .query(
+                "SELECT data, created_at FROM audit_event \
+                 WHERE decision_id = $decision_id \
+                 ORDER BY created_at ASC",
+            )
+            .bind(("decision_id", decision_id.to_string()))
             .await?
             .take(0)?;
 
@@ -641,6 +691,44 @@ mod tests {
             .expect("list audit events");
 
         assert_eq!(events, vec![event]);
+    }
+
+    #[tokio::test]
+    async fn queries_audit_events_by_trace_links() {
+        let store = memory_store().await;
+        let proposed_action_id = ProposedActionId::new("action-query-1");
+        let decision_id = DecisionId::new("decision-query-1");
+        let event = AuditEvent {
+            id: AuditEventId::new("audit-query-1"),
+            event_type: AuditEventType::DecisionCreated,
+            actor: ActorRef::System,
+            workspace_id: Some(WorkspaceId::new("workspace-1")),
+            task_id: Some(TaskId::new("task-1")),
+            proposed_action_id: Some(proposed_action_id.clone()),
+            decision_id: Some(decision_id.clone()),
+            payload: json!({"causal_trace": {"flow": "proposed_action_to_decision"}}),
+            created_at: Utc::now(),
+        };
+
+        store
+            .record_audit_event(event.clone())
+            .await
+            .expect("record decision audit event");
+
+        assert_eq!(
+            store
+                .list_audit_events_for_proposed_action(proposed_action_id)
+                .await
+                .expect("list audit events by proposed action"),
+            vec![event.clone()]
+        );
+        assert_eq!(
+            store
+                .list_audit_events_for_decision(decision_id)
+                .await
+                .expect("list audit events by decision"),
+            vec![event]
+        );
     }
 
     #[tokio::test]
