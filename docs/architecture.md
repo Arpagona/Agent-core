@@ -68,9 +68,7 @@ Le Decision Gate évaluera chaque `ProposedAction` selon :
 
 Il produira une `Decision` : autorisation, blocage ou demande de validation humaine.
 
-État actuel : alpha dans `crates/core`.
-
-État cible : crate dédié `crates/decision-gate`, sans I/O direct et sans exécution.
+État actuel : alpha dans le crate dédié `crates/decision-gate`, sans I/O direct et sans exécution. `crates/core` conserve uniquement les types domaine partagés.
 
 ## Compute Reservoir
 

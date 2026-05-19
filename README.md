@@ -61,6 +61,10 @@ arpagona-agent-core/
       Cargo.toml
       src/
         lib.rs
+    decision-gate/
+      Cargo.toml
+      src/
+        lib.rs
     core/
       Cargo.toml
       src/
@@ -93,6 +97,10 @@ arpagona-agent-core/
       src/
         lib.rs
     runtime/
+      Cargo.toml
+      src/
+        lib.rs
+    tool-registry/
       Cargo.toml
       src/
         lib.rs
