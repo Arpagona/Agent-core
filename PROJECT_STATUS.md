@@ -4,7 +4,7 @@ This document is the canonical operational status file for ARPAGONA Agent Core.
 
 It describes the current implementation state, stability level, architectural risks, explicit stop-list, and the recommended next sequence of work.
 
-Every future contributor or agent must read this file together with `PROJECT_OBJECTIVES.md` before modifying the repository.
+Every future contributor or agent must read this file together with `PROJECT_OBJECTIVES.md`, `docs/operating-doctrine.md` and `docs/development-acceleration.md` before modifying the repository.
 
 ## 1. Current State
 
@@ -14,23 +14,25 @@ Current observed state:
 
 - `PROJECT_OBJECTIVES.md` exists and defines the canonical vision of the project.
 - `PROJECT_STATUS.md` exists and defines the canonical operational status of the repository.
-- `README.md` now points contributors and agents to both canonical project files before any modification.
-- `docs/roadmap.md` now distinguishes the target architectural order from experimental work already prototyped out of order.
-- `docs/architecture.md` now includes explicit architectural re-centering guidance.
-- `docs/compute-reservoir.md` now frames the alpha minimal Compute Reservoir crate and its non-goals.
-- `docs/tool-registry.md` now frames the alpha minimal Tool Registry crate, its declarative role and its explicit non-goals.
-- `docs/causal-trace.md` now documents alpha conventions for linking proposed actions, tasks, decisions and audit events.
+- `docs/operating-doctrine.md` defines the current working doctrine: controlled fast iteration, Rust-first development, LOCO/Ollama delegation and CLI supervision first.
+- `docs/development-acceleration.md` defines the current acceleration direction: Hermes-like alpha ergonomics, Rippletide-inspired runtime enforcement and CLI-as-local-Mission-Control.
+- `README.md` points contributors and agents to the canonical project files before any modification.
+- `docs/roadmap.md` distinguishes the target architectural order from experimental work already prototyped out of order.
+- `docs/architecture.md` includes explicit architectural re-centering guidance.
+- `docs/compute-reservoir.md` frames the alpha minimal Compute Reservoir crate and its non-goals.
+- `docs/tool-registry.md` frames the alpha minimal Tool Registry crate, its declarative role and its explicit non-goals.
+- `docs/causal-trace.md` documents alpha conventions for linking proposed actions, tasks, decisions and audit events.
 - `crates/core` exists and contains the core domain vocabulary: agents, workspaces, tasks, goals, proposed actions, decisions, policies, permissions, risks, graph primitives, audit events, memory concepts and cognitive primitives.
-- `Decision Gate` now exists as alpha governance logic inside `crates/decision-gate`.
-- `crates/compute-reservoir` now exists as an alpha minimal pure Rust crate with compute inventory/allocation types and a deterministic `allocate_compute` function.
-- `crates/tool-registry` now exists as an alpha minimal declarative catalogue for tool definitions, capabilities, schemas, permissions, risk levels and enabled/disabled states, without execution.
+- `Decision Gate` exists as alpha governance logic inside `crates/decision-gate`.
+- `crates/compute-reservoir` exists as an alpha minimal pure Rust crate with compute inventory/allocation types and a deterministic `allocate_compute` function.
+- `crates/tool-registry` exists as an alpha minimal declarative catalogue for tool definitions, capabilities, schemas, permissions, risk levels and enabled/disabled states, without execution.
 - `Reservoir Echo` currently exists inside the Cognitive Runtime primitives as short-term volatile cognitive continuity.
 - `crates/graph-memory` exists as an experimental SurrealDB adapter for Graph Memory persistence and alpha audit trace lookup by workspace, task, proposed action and decision.
 - `crates/llm` exists as an experimental provider abstraction that can produce `ProposedAction` objects with `PendingDecision`, without executing tools.
 - `crates/runtime` exists as an experimental cognitive runtime loop that stops at action proposal.
 - `apps/api-server` exists as an alpha Axum API server.
-- `crates/cli` exists as an alpha terminal interface.
-- `apps/mission-control` exists only as a placeholder and must remain deferred.
+- `crates/cli` exists as an alpha terminal interface and now provides the first read-only local supervision surface for decision-scoped audit readback.
+- `apps/mission-control` exists only as a placeholder and must remain deferred until the CLI supervision path proves useful.
 - `workers/python-ingestion` exists only as a placeholder and must remain deferred.
 
 The implementation already demonstrates the founding rule:
@@ -39,7 +41,7 @@ The implementation already demonstrates the founding rule:
 Agent -> ProposedAction -> DecisionGate -> Decision -> Audit
 ```
 
-However, the repository must now be re-centered around governance layers before adding visible features.
+The current product direction is no longer abstract stabilization only. The near-term priority is to move toward a functional Hermes-like alpha through read-only, Rust-first, local supervision surfaces, especially the CLI, while preserving Rippletide-inspired runtime enforcement and the non-negotiable governed action path.
 
 ## 2. Stability Matrix
 
@@ -47,13 +49,15 @@ However, the repository must now be re-centered around governance layers before 
 |---|---|---|---|
 | `PROJECT_OBJECTIVES.md` | Stable foundation | Canonical project vision | Must be read before every significant change. |
 | `PROJECT_STATUS.md` | Stable foundation | Canonical operational status | Must be updated after every significant change. |
-| `README.md` | Stable foundation | Entry point for contributors | Points to canonical objective/status files and consolidation priority. |
-| `docs/roadmap.md` | Stable foundation | Architectural implementation order | Re-centered around governance-first consolidation. |
+| `docs/operating-doctrine.md` | Stable foundation | Current work doctrine | Defines controlled fast iteration, Rust-first work, LOCO/Ollama delegation and CLI supervision first. |
+| `docs/development-acceleration.md` | Stable foundation | Current acceleration direction | Defines Hermes-like alpha ergonomics, CLI supervision first and Rippletide-inspired runtime enforcement. |
+| `README.md` | Stable foundation | Entry point for contributors | Points to canonical objective/status/doctrine/acceleration files. |
+| `docs/roadmap.md` | Stable foundation | Architectural implementation order | Must reflect controlled acceleration without allowing unsafe execution. |
 | `docs/architecture.md` | Stable foundation | Target architecture and boundaries | Includes Architectural Re-Centering section. |
 | `docs/compute-reservoir.md` | Stable foundation | Compute Reservoir framing | Documents the alpha minimal crate and the boundary with Decision Gate, Graph Memory and Tool Registry. |
 | `docs/tool-registry.md` | Stable foundation | Tool Registry framing | Documents the declarative registry boundary, explicit non-goals and alpha surface. |
 | `docs/causal-trace.md` | Alpha foundation | Causal trace conventions | Documents current links and alpha audit trace queries for tasks, proposed actions, decisions and audit events without adding execution. |
-| `crates/core` | Stable foundation | Domain vocabulary and pure types | Must not become a catch-all crate. Governance logic should be extracted when safe. |
+| `crates/core` | Stable foundation | Domain vocabulary and pure types | Must not become a catch-all crate. Governance logic should stay in dedicated crates. |
 | Core domain types | Stable foundation | Shared typed language | Should remain pure, serializable and dependency-light. |
 | Decision Gate | Alpha | Pre-execution governance | Extracted into `crates/decision-gate`; `crates/core` no longer reexports the Decision Gate logic. |
 | Reservoir Echo | Alpha | Short-term cognitive continuity | Volatile traces only. Not persistent memory. Not model routing. Not Compute Reservoir. |
@@ -61,13 +65,13 @@ However, the repository must now be re-centered around governance layers before 
 | Tool Registry | Alpha minimal | Declarative catalogue of tools and permissions | `crates/tool-registry` declares tools, capabilities, schemas, governance notes and lookup/status changes only; no execution path. |
 | `crates/graph-memory` | Experimental | SurrealDB Graph Memory adapter | Adds alpha audit-event queries by task, proposed action and decision; broader persistence conventions and graph schema still need stabilization. |
 | Graph Memory domain port | Alpha | Memory contract | Useful foundation, but persistence and audit coupling are not final. |
-| Audit System | Alpha | Trace important events and decisions | Needs stabilization before execution layers grow. |
+| Audit System | Alpha | Trace important events and decisions | Has usable decision-scoped readback summaries; must remain non-authorizing. |
 | `crates/llm` | Experimental | LLM provider abstraction | Must remain limited to proposals. No tool execution by provider. |
-| `crates/runtime` | Experimental | Cognitive runtime loop | Must remain proposal-only until governance layers are stable. |
+| `crates/runtime` | Experimental | Cognitive runtime loop | Must remain proposal-only until governance layers are ready for controlled integration. |
 | `apps/api-server` | Alpha | REST access to alpha objects | Must not take business governance responsibility. |
-| `crates/cli` | Alpha | Terminal interface | Must remain a control/testing interface, not an execution bypass. |
-| Neutral Orchestrator | Not implemented | Coordination layer | Deferred until governance, compute and tool layers exist. |
-| Mission Control Web | Deferred | Human supervision UI | Do not expand yet. Governance first. |
+| `crates/cli` | Alpha supervision surface | Local Mission Control precursor | Preferred near-term product surface for read-only audit/task/action supervision. Must not become an execution bypass. |
+| Neutral Orchestrator | Not implemented | Coordination layer | Deferred until governance, compute and tool layers are coherent enough for controlled integration. |
+| Mission Control Web | Deferred | Human supervision UI | Do not expand yet. CLI supervision comes first. |
 | Scheduler / autonomous loops | Deferred | Controlled recurring work | Must wait for Decision Gate, Tool Registry, Audit and human approval path. |
 | MCP integration | Deferred | External tool ecosystem | Must wait for Tool Registry and security hardening. |
 | Browser automation | Deferred | Controlled web interaction | Must wait for governance, audit and security hardening. |
@@ -80,12 +84,14 @@ Stable foundations:
 - the founding principle: no direct execution by agents;
 - the canonical objective document;
 - the canonical operational status document;
+- the current operating doctrine and acceleration direction;
 - the monorepo direction;
 - Rust as backend foundation;
 - local-first, graph-native, compute-aware, auditable and human-governed architecture;
 - `ProposedAction -> DecisionGate -> Decision -> Audit` as the mandatory control path;
 - separation between domain vocabulary and adapters as an architectural rule;
-- documentation-level separation between Reservoir Echo and Compute Reservoir.
+- documentation-level separation between Reservoir Echo and Compute Reservoir;
+- the CLI as the preferred near-term local supervision surface.
 
 ## 4. What Is Experimental
 
@@ -101,7 +107,7 @@ Experimental areas:
 - audit persistence and causal trace design;
 - exact crate boundaries for remaining governance layers.
 
-Experimental means: useful for learning and integration tests, but not stable enough to justify feature expansion around it.
+Experimental means: useful for learning, local supervision and integration tests, but not stable enough to justify external-effect execution around it.
 
 ## 5. What Must Not Be Implemented Yet
 
@@ -119,7 +125,9 @@ Do not implement yet:
 - self-modification;
 - secrets access by LLM.
 
-These capabilities are explicitly blocked until Decision Gate, Compute Reservoir, Tool Registry, Graph Memory persistence and Audit are stabilized in the correct order.
+These capabilities are explicitly blocked until Decision Gate, Compute Reservoir, Tool Registry, Graph Memory persistence and Audit are stabilized enough for controlled integration.
+
+Read-only CLI supervision work is allowed and encouraged, provided it does not approve, reject, execute, schedule, mutate external state, bypass the Decision Gate or treat readback as authorization.
 
 ## 6. Current Architectural Risks
 
@@ -134,47 +142,47 @@ Main risks:
 - LLM provider abstraction could drift toward tool-calling unless explicitly kept proposal-only.
 - Runtime loops could drift toward autonomy before human-governed control paths exist.
 - Graph Memory and Audit could diverge unless important decisions produce durable, queryable traces.
+- Development could drift back into endless test-only stabilization instead of shipping small read-only supervision surfaces.
 
 ## 7. Next Recommended Work
 
 Recommended sequence from the current state:
 
-1. Keep `crates/tool-registry` as a declarative catalogue only and harden it if gaps appear.
-2. Stabilize Graph Memory persistence and Audit causal trace conventions.
-3. Stabilize `crates/compute-reservoir` only as needed for future governed integration.
-4. Only then continue API/CLI/Runtime integration.
+1. Prefer read-only CLI supervision increments that make the existing audit/task/action state inspectable.
+2. Add more Graph Memory or Audit guards only when they protect a concrete uncovered regression risk or unblock a supervision feature.
+3. Keep `crates/tool-registry` as a declarative catalogue only and harden it if gaps appear.
+4. Stabilize `crates/compute-reservoir` only as needed for future governed integration and local/cloud delegation.
+5. Expand API/Runtime only when the change remains read-only, clearly governed, or directly supports the CLI supervision path.
 
-The Decision Gate extraction is complete, the Compute Reservoir exists as alpha minimal, and the Tool Registry now exists as alpha minimal declarative catalogue. Keep `crates/core` limited to domain vocabulary, keep governance logic in `crates/decision-gate`, and do not treat compute allocation or tool lookup as action approval.
+The Decision Gate extraction is complete, the Compute Reservoir exists as alpha minimal, and the Tool Registry now exists as alpha minimal declarative catalogue. Keep `crates/core` limited to domain vocabulary, keep governance logic in `crates/decision-gate`, and do not treat compute allocation, readback or tool lookup as action approval.
 
 ## 8. Target Architectural Order
 
-The target consolidation order is:
+The target consolidation order is now interpreted as controlled acceleration, not paralysis:
 
 1. Core Domain Types
 2. Decision Gate separated
 3. Compute Reservoir minimal
 4. Tool Registry minimal
-5. Graph Memory + SurrealDB stabilized
-6. Audit System stabilized
-7. Neutral Orchestrator
-8. API Server Axum
-9. Mission Control Web
-10. Scheduler / controlled autonomous loops
-11. LLM Provider abstraction stabilized
-12. End-to-end demo
-13. Security hardening
+5. Graph Memory + SurrealDB stabilized enough for readback
+6. Audit System stabilized enough for readback
+7. CLI supervision surface
+8. Neutral Orchestrator
+9. API Server Axum
+10. Mission Control Web
+11. Scheduler / controlled autonomous loops
+12. LLM Provider abstraction stabilized
+13. End-to-end demo
+14. Security hardening
 
-Some components already exist experimentally outside this order. They must not be treated as permission to expand features. They should be stabilized or constrained according to this target sequence.
+Some components already exist experimentally outside this order. They must not be treated as permission to expand unsafe features. They may be grown when the growth is read-only, observable, reversible and aligned with CLI supervision or governed integration.
 
-## 9. Explicit Stop-List for Feature Expansion
+## 9. Explicit Stop-List for Unsafe Feature Expansion
 
-Stop feature expansion until the governance layers are stabilized.
+Stop unsafe feature expansion until the governance layers are stabilized.
 
 Do not add:
 
-- new runtime capabilities;
-- new API endpoints;
-- new LLM providers;
 - executable tools;
 - scheduler behavior;
 - autonomous loops;
@@ -185,17 +193,18 @@ Do not add:
 - shell integration;
 - operational secrets management;
 - agent self-modification;
-- multi-agent autonomous execution.
+- multi-agent autonomous execution;
+- any CLI/API path that acts as approval, authorization, orchestration or execution state.
 
-Allowed work during the recentering phase:
+Allowed work during the current acceleration phase:
 
+- read-only CLI supervision;
 - documentation cleanup;
 - crate boundary clarification;
-- tests that protect existing behavior;
-- Decision Gate extraction planning;
-- Compute Reservoir design documentation;
-- Tool Registry design documentation;
-- audit and graph persistence stabilization work that does not introduce execution.
+- tests that protect newly exposed behavior or concrete uncovered risks;
+- Compute Reservoir design and local/cloud delegation improvements;
+- Tool Registry declarative design improvements;
+- audit and graph persistence stabilization work that supports readback and does not introduce execution.
 
 ## 10. Session Update Rule
 
@@ -205,9 +214,9 @@ A significant modification includes:
 
 - adding, removing or renaming a crate;
 - changing the responsibility of a crate;
-- adding a new API surface;
+- adding a new API or CLI surface;
 - changing Decision Gate behavior;
-- changing Graph Memory or Audit persistence;
+- changing Graph Memory or Audit persistence/readback semantics;
 - adding a provider, runtime loop, worker or interface;
 - changing security assumptions;
 - changing the project roadmap or implementation order.
@@ -242,4 +251,4 @@ Architectural risk:
 
 - low for alpha use. The CLI currently reuses the existing `/audit` readback and builds the core `AuditTraceSummary` locally rather than forcing a broader API/store refactor; a future persistence-backed endpoint can use `GraphMemoryStore::audit_trace_summary_for_decision` directly once that exposure is deliberately chosen.
 
-Recommended next step: either add a tiny API/server-side decision-summary readback endpoint backed by the Graph Memory summary path, or continue Graph Memory persistence convention stabilization before widening inspection surfaces.
+Recommended next step: continue CLI supervision first, likely by improving decision-summary usability/errors or adding `arpagona audit task-summary <task-id>` if the data path is clean. Avoid another test-only Audit/Graph Memory guard unless it protects a concrete uncovered risk.
