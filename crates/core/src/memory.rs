@@ -1,4 +1,4 @@
-use crate::audit::AuditEvent;
+use crate::audit::{AuditEvent, AuditTraceSummary};
 use crate::episode::{Episode, Observation};
 use crate::errors::CoreError;
 use crate::graph::{GraphNodeType, GraphRef, GraphRelation, RelationType};
@@ -85,6 +85,13 @@ pub trait GraphMemoryStore {
         &self,
         decision_id: &DecisionId,
     ) -> GraphMemoryResult<Vec<AuditEvent>>;
+    fn audit_trace_summary_for_decision(
+        &self,
+        decision_id: &DecisionId,
+    ) -> GraphMemoryResult<AuditTraceSummary> {
+        let events = self.list_audit_events_for_decision(decision_id)?;
+        Ok(AuditTraceSummary::from_events(&events))
+    }
 
     fn add_relation(&mut self, relation: GraphRelation) -> GraphMemoryResult<()>;
     fn list_relations(&self) -> GraphMemoryResult<Vec<GraphRelation>>;
@@ -675,5 +682,25 @@ mod tests {
             store.list_audit_events_for_decision(&decision_id).unwrap(),
             vec![older_event, newer_event]
         );
+
+        let summary = store
+            .audit_trace_summary_for_decision(&decision_id)
+            .expect("decision audit trace summary");
+        assert_eq!(summary.event_count, 2);
+        assert_eq!(
+            summary.first_event_id,
+            Some(AuditEventId::new("audit-older"))
+        );
+        assert_eq!(
+            summary.last_event_id,
+            Some(AuditEventId::new("audit-newer"))
+        );
+        assert_eq!(summary.workspace_id, Some(workspace_id));
+        assert_eq!(summary.task_id, Some(task_id));
+        assert_eq!(summary.proposed_action_id, Some(proposed_action_id));
+        assert_eq!(summary.decision_id, Some(decision_id));
+        assert!(summary.has_action_proposed);
+        assert!(summary.has_decision_created);
+        assert!(!summary.has_execution_event);
     }
 }

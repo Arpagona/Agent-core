@@ -1,6 +1,7 @@
 use arpagona_core::{
-    AuditEvent, DecisionId, Episode, EpisodeId, Fact, FactId, FactStatus, GraphRef, GraphRelation,
-    Observation, ObservationId, ProposedActionId, Source, SourceId, TaskId, WorkspaceId,
+    AuditEvent, AuditTraceSummary, DecisionId, Episode, EpisodeId, Fact, FactId, FactStatus,
+    GraphRef, GraphRelation, Observation, ObservationId, ProposedActionId, Source, SourceId,
+    TaskId, WorkspaceId,
 };
 use async_trait::async_trait;
 use serde::de::DeserializeOwned;
@@ -79,6 +80,13 @@ pub trait AsyncGraphMemoryStore {
         &self,
         decision_id: DecisionId,
     ) -> Result<Vec<AuditEvent>>;
+    async fn audit_trace_summary_for_decision(
+        &self,
+        decision_id: DecisionId,
+    ) -> Result<AuditTraceSummary> {
+        let events = self.list_audit_events_for_decision(decision_id).await?;
+        Ok(AuditTraceSummary::from_events(&events))
+    }
 
     async fn add_relation(&self, relation: GraphRelation) -> Result<()>;
     async fn list_relations(&self) -> Result<Vec<GraphRelation>>;
@@ -891,6 +899,30 @@ mod tests {
             workspace_events[0].payload["causal_trace"]["policies_applied"][0],
             json!("policy-human-approval")
         );
+
+        let summary = store
+            .audit_trace_summary_for_decision(DecisionId::new("decision-1"))
+            .await
+            .expect("decision audit trace summary");
+        assert_eq!(summary.event_count, 1);
+        assert_eq!(
+            summary.first_event_id,
+            Some(AuditEventId::new("audit-decision-1"))
+        );
+        assert_eq!(
+            summary.last_event_id,
+            Some(AuditEventId::new("audit-decision-1"))
+        );
+        assert_eq!(summary.workspace_id, Some(WorkspaceId::new("workspace-1")));
+        assert_eq!(summary.task_id, Some(TaskId::new("task-1")));
+        assert_eq!(
+            summary.proposed_action_id,
+            Some(ProposedActionId::new("action-1"))
+        );
+        assert_eq!(summary.decision_id, Some(DecisionId::new("decision-1")));
+        assert!(!summary.has_action_proposed);
+        assert!(summary.has_decision_created);
+        assert!(!summary.has_execution_event);
     }
 
     #[test]
