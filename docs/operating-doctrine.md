@@ -184,42 +184,69 @@ If the work requires final judgment, safety reasoning or architectural commitmen
 
 The goal is to reduce cloud-token usage while making the system more distributed, local-first and resilient.
 
-## 7. Contributor / Agent Loop Protocol
+## 7. CLI Supervision First Bias
+
+The current near-term product bias is CLI supervision first.
+
+Recent Audit and Graph Memory guards have already established a useful readback foundation. Future loops should not keep adding test-only audit guards by default. Test-only work remains valid when it protects a newly discovered risk, but it should not become the default next step once a readback invariant is already covered.
+
+The CLI is the first local Mission Control surface. It should become the practical way to inspect what the agent did, why it did it and what evidence exists, before Mission Control Web is expanded.
+
+Preferred next CLI-oriented increments:
+
+1. improve `arpagona audit decision-summary <decision-id>` usability, errors and tests;
+2. add `arpagona audit task-summary <task-id>` when the data path is clean;
+3. add `arpagona audit workspace-summary <workspace-id>` only after task-level readback is useful;
+4. extract audit readback formatting from `main.rs` if the CLI file becomes too large;
+5. add server-side readback endpoints only when client-side filtering becomes a real limitation.
+
+Default selection rule:
+
+```text
+If the next proposed work is another test-only Audit/Graph Memory guard, first ask whether a small read-only CLI supervision increment would be more useful.
+Choose the CLI increment unless the test protects a concrete uncovered regression risk.
+```
+
+CLI supervision remains strictly read-only. It must not approve, reject, execute, schedule, mutate external state, bypass the Decision Gate or treat readback as authorization.
+
+## 8. Contributor / Agent Loop Protocol
 
 Each work loop should follow this protocol:
 
 1. Read `PROJECT_OBJECTIVES.md`, `PROJECT_STATUS.md` and this document.
 2. Sync with `main`.
 3. Select one bounded useful unit of work.
-4. Create a focused branch.
-5. Implement only that unit.
-6. Prefer Rust for all durable backend, governance, persistence, runtime, API and CLI work unless a documented exception applies.
-7. Delegate at least one bounded first-pass analysis step to LOCO/Ollama for non-trivial loops, or report why delegation was not useful.
-8. Run the relevant checks, at minimum:
+4. Prefer CLI supervision increments over additional test-only Audit/Graph Memory guards unless a concrete uncovered regression risk is identified.
+5. Create a focused branch.
+6. Implement only that unit.
+7. Prefer Rust for all durable backend, governance, persistence, runtime, API and CLI work unless a documented exception applies.
+8. Delegate at least one bounded first-pass analysis step to LOCO/Ollama for non-trivial loops, or report why delegation was not useful.
+9. Run the relevant checks, at minimum:
    - `cargo fmt -- --check`
    - `cargo check`
    - `cargo test`
-9. Open a PR with:
+10. Open a PR with:
    - summary;
    - files changed;
    - tests run;
    - risk assessment;
    - explicit statement of what was not changed;
    - language choice note when non-Rust code is added;
-   - LOCO/Ollama delegation note for non-trivial loops.
-10. Update `PROJECT_STATUS.md` only when implementation status, behavior, architecture, roadmap or safety assumptions actually changed.
+   - LOCO/Ollama delegation note for non-trivial loops;
+   - why a CLI supervision increment was or was not chosen.
+11. Update `PROJECT_STATUS.md` only when implementation status, behavior, architecture, roadmap or safety assumptions actually changed.
 
-## 8. Preferred Near-Term Direction
+## 9. Preferred Near-Term Direction
 
 The next useful increments should bias toward making the core usable and inspectable, not merely adding abstract structure.
 
 Preferred sequence:
 
-1. make Audit causal traces practically usable;
-2. stabilize Graph Memory persistence conventions;
-3. expose minimal readback/query paths for human supervision;
-4. improve Decision Gate invariants and tests;
-5. only then expand Runtime/API/CLI surfaces in small Rust-first increments.
+1. keep Audit causal trace semantics coherent;
+2. keep Graph Memory persistence conventions stable;
+3. expand read-only CLI supervision paths for human inspection;
+4. improve Decision Gate invariants only when a concrete uncovered risk is found;
+5. only then expand Runtime/API surfaces in small Rust-first increments.
 
 The system should become easier to ask:
 
@@ -229,7 +256,7 @@ The system should become easier to ask:
 - which decision approved or rejected it?
 - what should be done next?
 
-## 9. Anti-Patterns
+## 10. Anti-Patterns
 
 Avoid:
 
@@ -242,9 +269,10 @@ Avoid:
 - adding autonomy before observability;
 - changing `PROJECT_STATUS.md` for trivial or test-only changes;
 - adding long-lived backend logic in a non-Rust language without documenting the reason;
-- using cloud reasoning for large low-risk reading or summarization tasks that could be delegated locally.
+- using cloud reasoning for large low-risk reading or summarization tasks that could be delegated locally;
+- choosing another test-only Audit/Graph Memory guard when a bounded CLI supervision improvement would deliver more usable value.
 
-## 10. Working Heuristic
+## 11. Working Heuristic
 
 When choosing between two tasks, prefer the one that makes the system more usable while preserving traceability.
 
@@ -253,3 +281,5 @@ A good change should make the next loop easier, safer or more productive.
 When choosing between languages, prefer Rust unless the non-Rust option has a clear tactical advantage.
 
 When choosing between cloud and local analysis, prefer local analysis for high-volume low-risk work and reserve cloud reasoning for final judgment.
+
+When choosing between another readback guard and a read-only supervision surface, prefer the supervision surface unless the guard protects a real uncovered risk.
