@@ -853,13 +853,14 @@ mod tests {
             decided_by: None,
             created_at: Utc::now(),
         };
+        let event_at = Utc::now();
         let event = AuditEvent::decision_created(
             AuditEventId::new("audit-decision-1"),
             ActorRef::System,
             WorkspaceId::new("workspace-1"),
             Some(TaskId::new("task-1")),
             &decision,
-            Utc::now(),
+            event_at,
         );
 
         store
@@ -917,6 +918,8 @@ mod tests {
             summary.last_event_id,
             Some(AuditEventId::new("audit-decision-1"))
         );
+        assert_eq!(summary.first_event_at, Some(event_at));
+        assert_eq!(summary.last_event_at, Some(event_at));
         assert_eq!(summary.workspace_id, Some(WorkspaceId::new("workspace-1")));
         assert_eq!(summary.task_id, Some(TaskId::new("task-1")));
         assert_eq!(
