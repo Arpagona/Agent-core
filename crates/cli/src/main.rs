@@ -1,5 +1,6 @@
 use arpagona_agent_core::{
-    AuditEvent, AuditTraceSummary, DecisionId, ProposedAction, Task, TaskId, WorkspaceId,
+    AuditEvent, AuditTraceSummary, Decision, DecisionId, DecisionStatus, ProposedAction,
+    ProposedActionStatus, Task, TaskId, WorkspaceId,
 };
 use clap::{Args, Parser, Subcommand, ValueEnum};
 use reqwest::Client;
@@ -42,6 +43,8 @@ enum Command {
     Chat(ChatArgs),
     /// Check API health.
     Health,
+    /// Show a read-only local supervision overview.
+    Status,
     /// Show OpenAI auth status and setup guidance.
     Auth(AuthCommand),
     /// Manage tasks.
@@ -276,6 +279,20 @@ struct AuditWorkspaceReadback {
     warning: &'static str,
 }
 
+#[derive(Debug, Serialize)]
+struct StatusReadback {
+    api_health: String,
+    task_count: Option<usize>,
+    proposed_action_count: Option<usize>,
+    decision_count: Option<usize>,
+    audit_event_count: Option<usize>,
+    pending_decision_count: Option<usize>,
+    needs_human_approval_count: Option<usize>,
+    recent_audit_event_count: Option<usize>,
+    last_audit_event_at: Option<String>,
+    warning: &'static str,
+}
+
 const AUDIT_READBACK_WARNING: &str =
     "Readback only: this summary is not approval, authorization, orchestration, or execution state.";
 
@@ -350,6 +367,7 @@ async fn run() -> Result<(), Box<dyn Error>> {
         Command::Serve => serve()?,
         Command::Chat(args) => chat(&client, &api_url, args).await?,
         Command::Health => health(&client, &api_url).await?,
+        Command::Status => status(&client, &api_url).await?,
         Command::Auth(auth) => match auth.command {
             AuthSubcommand::Status => auth_status(),
             AuthSubcommand::Openai => auth_openai_instructions(),
@@ -612,6 +630,158 @@ async fn health(client: &Client, api_url: &str) -> Result<(), Box<dyn Error>> {
         get_json(client.get(format!("{api_url}/health")).send().await?).await?;
     println!("{} {}", style_success("ARPAGONA API:"), response.status);
     Ok(())
+}
+
+async fn status(client: &Client, api_url: &str) -> Result<(), Box<dyn Error>> {
+    let readback = status_readback(client, api_url).await;
+    print_status_readback(&readback);
+    Ok(())
+}
+
+async fn status_readback(client: &Client, api_url: &str) -> StatusReadback {
+    let api_health = match client.get(format!("{api_url}/health")).send().await {
+        Ok(response) => match get_json::<HealthResponse>(response).await {
+            Ok(health) => health.status,
+            Err(error) => format!("unavailable ({error})"),
+        },
+        Err(error) => format!("unavailable ({error})"),
+    };
+
+    if api_health != "ok" {
+        return StatusReadback {
+            api_health,
+            task_count: None,
+            proposed_action_count: None,
+            decision_count: None,
+            audit_event_count: None,
+            pending_decision_count: None,
+            needs_human_approval_count: None,
+            recent_audit_event_count: None,
+            last_audit_event_at: None,
+            warning: AUDIT_READBACK_WARNING,
+        };
+    }
+
+    let tasks = fetch_optional::<Vec<Task>>(client, api_url, "/tasks").await;
+    let actions = fetch_optional::<Vec<ProposedAction>>(client, api_url, "/proposed-actions").await;
+    let decisions = fetch_optional::<Vec<Decision>>(client, api_url, "/decisions").await;
+    let audit_events = fetch_optional::<Vec<AuditEvent>>(client, api_url, "/audit").await;
+
+    let pending_decision_count = actions.as_ref().map(|actions| {
+        actions
+            .iter()
+            .filter(|action| action.status == ProposedActionStatus::PendingDecision)
+            .count()
+    });
+    let action_needs_human_count = actions.as_ref().map(|actions| {
+        actions
+            .iter()
+            .filter(|action| action.status == ProposedActionStatus::NeedsHumanApproval)
+            .count()
+    });
+    let decision_needs_human_count = decisions.as_ref().map(|decisions| {
+        decisions
+            .iter()
+            .filter(|decision| decision.status == DecisionStatus::NeedsHumanApproval)
+            .count()
+    });
+    let needs_human_approval_count = match (action_needs_human_count, decision_needs_human_count) {
+        (Some(actions), Some(decisions)) => Some(actions.max(decisions)),
+        (Some(actions), None) => Some(actions),
+        (None, Some(decisions)) => Some(decisions),
+        (None, None) => None,
+    };
+    let recent_audit_event_count = audit_events
+        .as_ref()
+        .map(|events| events.iter().rev().take(5).count());
+    let last_audit_event_at = audit_events.as_ref().and_then(|events| {
+        events
+            .iter()
+            .max_by_key(|event| event.created_at)
+            .map(|event| event.created_at.to_rfc3339())
+    });
+
+    StatusReadback {
+        api_health,
+        task_count: tasks.as_ref().map(Vec::len),
+        proposed_action_count: actions.as_ref().map(Vec::len),
+        decision_count: decisions.as_ref().map(Vec::len),
+        audit_event_count: audit_events.as_ref().map(Vec::len),
+        pending_decision_count,
+        needs_human_approval_count,
+        recent_audit_event_count,
+        last_audit_event_at,
+        warning: AUDIT_READBACK_WARNING,
+    }
+}
+
+async fn fetch_optional<T: for<'de> Deserialize<'de>>(
+    client: &Client,
+    api_url: &str,
+    path: &str,
+) -> Option<T> {
+    match client.get(format!("{api_url}{path}")).send().await {
+        Ok(response) => get_json(response).await.ok(),
+        Err(_) => None,
+    }
+}
+
+fn print_status_readback(readback: &StatusReadback) {
+    print!("{}", format_status_readback(readback));
+}
+
+fn format_status_readback(readback: &StatusReadback) -> String {
+    let mut output = String::new();
+    push_readback_line(&mut output, &style_info("ARPAGONA status"));
+    push_readback_field(&mut output, "api_health:", &readback.api_health);
+    push_readback_field(
+        &mut output,
+        "task_count:",
+        &format_optional_usize(readback.task_count),
+    );
+    push_readback_field(
+        &mut output,
+        "proposed_action_count:",
+        &format_optional_usize(readback.proposed_action_count),
+    );
+    push_readback_field(
+        &mut output,
+        "decision_count:",
+        &format_optional_usize(readback.decision_count),
+    );
+    push_readback_field(
+        &mut output,
+        "audit_event_count:",
+        &format_optional_usize(readback.audit_event_count),
+    );
+    push_readback_field(
+        &mut output,
+        "pending_decision_count:",
+        &format_optional_usize(readback.pending_decision_count),
+    );
+    push_readback_field(
+        &mut output,
+        "needs_human_approval_count:",
+        &format_optional_usize(readback.needs_human_approval_count),
+    );
+    push_readback_field(
+        &mut output,
+        "recent_audit_event_count:",
+        &format_optional_usize(readback.recent_audit_event_count),
+    );
+    push_readback_field(
+        &mut output,
+        "last_audit_event_at:",
+        readback.last_audit_event_at.as_deref().unwrap_or("-"),
+    );
+    push_readback_line(&mut output, &style_dim(readback.warning));
+    output
+}
+
+fn format_optional_usize(value: Option<usize>) -> String {
+    value
+        .map(|value| value.to_string())
+        .unwrap_or_else(|| "unavailable".to_owned())
 }
 
 async fn create_task(
@@ -1981,6 +2151,60 @@ mod tests {
         assert_eq!(readback.risk_level, None);
         assert!(readback.policies_applied.is_empty());
         assert!(!summary.has_execution_event);
+    }
+
+    #[test]
+    fn cli_parses_status_command() {
+        let cli = Cli::parse_from(["arpagona", "status"]);
+        assert!(matches!(cli.command, Command::Status));
+    }
+
+    #[test]
+    fn status_readback_formats_counts_and_readback_warning() {
+        let readback = StatusReadback {
+            api_health: "ok".to_owned(),
+            task_count: Some(2),
+            proposed_action_count: Some(3),
+            decision_count: Some(1),
+            audit_event_count: Some(4),
+            pending_decision_count: Some(2),
+            needs_human_approval_count: Some(1),
+            recent_audit_event_count: Some(4),
+            last_audit_event_at: Some("2026-01-01T00:00:00+00:00".to_owned()),
+            warning: AUDIT_READBACK_WARNING,
+        };
+
+        let formatted = format_status_readback(&readback);
+
+        assert!(formatted.contains("ARPAGONA status"));
+        assert!(formatted.contains("api_health:"));
+        assert!(formatted.contains("task_count:"));
+        assert!(formatted.contains("pending_decision_count:"));
+        assert!(formatted.contains("needs_human_approval_count:"));
+        assert!(formatted.contains("last_audit_event_at:"));
+        assert!(formatted.contains("Readback only"));
+    }
+
+    #[test]
+    fn status_readback_formats_unavailable_counts() {
+        let readback = StatusReadback {
+            api_health: "unavailable (connection refused)".to_owned(),
+            task_count: None,
+            proposed_action_count: None,
+            decision_count: None,
+            audit_event_count: None,
+            pending_decision_count: None,
+            needs_human_approval_count: None,
+            recent_audit_event_count: None,
+            last_audit_event_at: None,
+            warning: AUDIT_READBACK_WARNING,
+        };
+
+        let formatted = format_status_readback(&readback);
+
+        assert!(formatted.contains("unavailable"));
+        assert!(formatted.contains("last_audit_event_at:"));
+        assert!(formatted.contains("Readback only"));
     }
 
     #[test]

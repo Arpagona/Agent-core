@@ -225,31 +225,30 @@ The update must clearly state whether the change is stable, alpha, experimental,
 
 ## 11. Latest Session Update
 
-This session added a read-only workspace-scoped CLI audit summary, extending the local supervision surface from decision and task readback to workspace-level inspection while preserving the existing governance boundaries.
+This session added a read-only top-level CLI status cockpit, extending the local supervision surface from scoped audit readback to a quick operator overview while preserving the existing governance boundaries.
 
 Changed:
 
-- `arpagona audit workspace-summary <workspace-id>` now fetches existing audit events read-only, filters them by workspace id, orders them chronologically and renders the existing `AuditTraceSummary` fields for human supervision;
-- `arpagona audit workspace-summary <workspace-id> --json` emits the same workspace-scoped readback object as structured JSON;
-- workspace summary construction preserves empty workspace scope by keeping the requested `workspace_id` even when no matching audit events exist;
-- `docs/cli.md` now documents decision, task and workspace audit summaries as readback-only supervision commands;
-- CLI tests now protect workspace-summary parsing, JSON flag handling, workspace filtering, chronological ordering, scope/link preservation, output formatting and the non-authorization/non-execution interpretation of readback.
+- `arpagona status` now calls existing read-only API paths only: `/health`, `/tasks`, `/proposed-actions`, `/decisions` and `/audit`;
+- the status output reports API health, task count, proposed action count, decision count, audit event count, pending decision count, needs-human-approval count, recent audit event count and last audit event timestamp when available;
+- the command degrades safely when the API is unavailable by showing `unavailable` values instead of mutating state or implying authorization;
+- `docs/cli.md` now documents `arpagona status` as a local read-only supervision cockpit;
+- CLI tests now protect command parsing, count formatting, unavailable-state formatting and the readback-only warning.
 
-Stability level: alpha CLI Audit readback inspection.
+Stability level: alpha CLI supervision cockpit.
 
 Limits:
 
 - no real tool execution was introduced;
-- no approval or authorization behavior was added;
+- no approval, rejection or authorization behavior was added;
 - no Decision Gate behavior was changed;
 - no Graph Memory persistence schema or migration was changed;
 - no new API endpoint was added;
-- no graph-edge mirroring was introduced;
-- no Runtime, scheduler, MCP, browser automation, provider, credential or Mission Control growth was introduced;
-- the CLI summaries remain readback only and must not be treated as approval, authorization, orchestration or execution state.
+- no runtime, scheduler, MCP, browser automation, provider, credential or Mission Control Web growth was introduced;
+- the status command remains readback only and must not be treated as approval, authorization, orchestration or execution state.
 
 Architectural risk:
 
-- low for alpha use. The CLI still reuses the existing `/audit` readback and builds `AuditTraceSummary` locally, which keeps the increment reversible and avoids a broader API/store refactor. The main risk is that client-side filtering will become limiting as audit volume grows; a future persistence-backed workspace summary endpoint can be considered once that limitation is real.
+- low for alpha use. The CLI reuses existing read-only API paths and performs small client-side aggregation, which keeps the increment reversible and avoids API/store expansion. The main risk is that status remains only as reliable as the alpha in-memory API and client-side aggregation; a future server-side status endpoint can be considered only when the existing readback paths become a real limitation.
 
-Recommended next step: continue CLI supervision first, likely by improving audit summary usability/errors or adding status/readback commands that help answer what happened, why it happened and what should happen next. Avoid another test-only Audit/Graph Memory guard unless it protects a concrete uncovered risk.
+Recommended next step: continue CLI supervision first by improving operator usefulness around pending decisions, human approval readback or audit trace navigation. Avoid another test-only Audit/Graph Memory guard unless it protects a concrete uncovered risk.

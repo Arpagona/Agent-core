@@ -87,6 +87,42 @@ Affiche :
 ARPAGONA API: ok
 ```
 
+### Status local de supervision
+
+```bash
+cargo run -p arpagona-cli -- status
+```
+
+Appelle les chemins de lecture existants :
+
+```text
+GET /health
+GET /tasks
+GET /proposed-actions
+GET /decisions
+GET /audit
+```
+
+Affiche un cockpit local read-only : santé API, compteurs de tâches, actions proposées, décisions, événements d'audit, décisions en attente, demandes d'approbation humaine, événements d'audit récents et dernier timestamp d'audit connu quand ces données sont disponibles.
+
+Exemple :
+
+```text
+ARPAGONA status
+api_health: ok
+task_count: 1
+proposed_action_count: 2
+decision_count: 1
+audit_event_count: 1
+pending_decision_count: 1
+needs_human_approval_count: 1
+recent_audit_event_count: 1
+last_audit_event_at: 2026-01-01T00:00:00+00:00
+Readback only: this summary is not approval, authorization, orchestration, or execution state.
+```
+
+La commande ne crée aucun endpoint et ne modifie aucun état. Si l'API est indisponible, elle affiche une santé `unavailable` et des compteurs indisponibles sans transformer le readback en autorisation.
+
 ### Créer une tâche
 
 ```bash
