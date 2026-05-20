@@ -5,11 +5,10 @@
 //! decisions according to domain policies and granted permissions.
 
 use arpagona_agent_core::{
-    ActionType, ActorRef, AuditEvent, AuditEventId, AuditEventType, Decision, DecisionActor,
-    DecisionId, DecisionStatus, Permission, Policy, PolicyId, ProposedAction, RiskLevel,
+    ActionType, ActorRef, AuditEvent, AuditEventId, Decision, DecisionActor, DecisionId,
+    DecisionStatus, Permission, Policy, PolicyId, ProposedAction, RiskLevel,
 };
 use chrono::Utc;
-use serde_json::json;
 
 /// Evaluate a proposed action with pure domain rules.
 ///
@@ -107,24 +106,14 @@ pub fn evaluate_proposed_action(
 
 /// Create the audit event that records a Decision Gate output.
 pub fn audit_event_for_decision(action: &ProposedAction, decision: &Decision) -> AuditEvent {
-    AuditEvent {
-        id: AuditEventId::new(format!("audit-decision-{}", action.id.as_str())),
-        event_type: AuditEventType::DecisionCreated,
-        actor: ActorRef::System,
-        workspace_id: Some(action.workspace_id.clone()),
-        task_id: action.task_id.clone(),
-        proposed_action_id: Some(action.id.clone()),
-        decision_id: Some(decision.id.clone()),
-        payload: json!({
-            "action_type": action.action_type.clone(),
-            "target": action.target.clone(),
-            "risk_level": action.risk_level.clone(),
-            "decision_status": decision.status.clone(),
-            "reason": decision.reason.clone(),
-            "policies_applied": decision.policies_applied.clone(),
-        }),
-        created_at: Utc::now(),
-    }
+    AuditEvent::decision_created(
+        AuditEventId::new(format!("audit-decision-{}", action.id.as_str())),
+        ActorRef::System,
+        action.workspace_id.clone(),
+        action.task_id.clone(),
+        decision,
+        Utc::now(),
+    )
 }
 
 fn applicable_policies<'a>(action: &ProposedAction, policies: &'a [Policy]) -> Vec<&'a Policy> {
@@ -173,7 +162,8 @@ fn risk_rank(risk: &RiskLevel) -> u8 {
 mod tests {
     use super::*;
     use arpagona_agent_core::{
-        AgentId, PolicyId, ProposedActionId, ProposedActionStatus, TaskId, WorkspaceId,
+        AgentId, AuditEventType, PolicyId, ProposedActionId, ProposedActionStatus, TaskId,
+        WorkspaceId,
     };
     use serde_json::json;
 
@@ -325,6 +315,9 @@ mod tests {
         assert_eq!(event.task_id, action.task_id);
         assert_eq!(event.proposed_action_id, Some(action.id));
         assert_eq!(event.decision_id, Some(decision.id));
-        assert_eq!(event.payload["decision_status"], json!("approved"));
+        assert_eq!(
+            event.payload["causal_trace"]["decision_status"],
+            json!("approved")
+        );
     }
 }
