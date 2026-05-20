@@ -221,6 +221,7 @@ This session added a bounded alpha Audit causal-trace summary readback capabilit
 Changed:
 
 - `AuditTraceSummary` now summarizes already-queried audit events into a compact human-supervision readback view with event count, first/last audit event ids, workspace/task scope, proposed action id, decision id and key trace markers;
+- decision-scoped `AuditTraceSummary` helpers now preserve the requested `decision_id` even when no audit events exist yet, keeping empty summaries explicitly decision-scoped;
 - `GraphMemoryStore::audit_trace_summary_for_decision` now builds a decision-scoped summary from the existing synchronous decision audit-event query;
 - `AsyncGraphMemoryStore::audit_trace_summary_for_decision` now builds the same summary from the existing SurrealDB adapter decision audit-event query;
 - `docs/causal-trace.md` now documents the summary as an alpha readback convention.
