@@ -218,10 +218,13 @@ enum AuditSubcommand {
     /// List audit events.
     List,
     /// Show a read-only decision-scoped audit summary.
+    /// Includes causal links, decision status, risk level and policies applied.
     DecisionSummary(DecisionSummaryArgs),
     /// Show a read-only task-scoped audit summary.
+    /// Includes causal links, event boundaries and readback-only safety flags.
     TaskSummary(TaskSummaryArgs),
     /// Show a read-only workspace-scoped audit summary.
+    /// Includes causal links, event boundaries and readback-only safety flags.
     WorkspaceSummary(WorkspaceSummaryArgs),
 }
 
