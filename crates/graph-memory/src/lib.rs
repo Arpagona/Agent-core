@@ -450,8 +450,8 @@ fn _record_id(table: &str, id: &str) -> Thing {
 mod tests {
     use super::*;
     use arpagona_core::{
-        ActorRef, AgentId, AuditEventId, AuditEventType, DecisionId, GraphNodeType,
-        ProposedActionId, RelationType, SourceType, TaskId,
+        ActorRef, AgentId, AuditEventId, AuditEventType, Decision, DecisionId, DecisionStatus,
+        GraphNodeType, PolicyId, ProposedActionId, RelationType, RiskLevel, SourceType, TaskId,
     };
     use chrono::{Duration, Utc};
     use serde_json::json;
@@ -829,45 +829,67 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn persists_decision_created_audit_trace_links() {
+    async fn persists_canonical_decision_created_audit_trace_links() {
         let store = memory_store().await;
-        let proposed_action_id = ProposedActionId::new("action-1");
-        let decision_id = DecisionId::new("decision-1");
-        let event = AuditEvent {
-            id: AuditEventId::new("audit-decision-1"),
-            event_type: AuditEventType::DecisionCreated,
-            actor: ActorRef::System,
-            workspace_id: Some(WorkspaceId::new("workspace-1")),
-            task_id: Some(TaskId::new("task-1")),
-            proposed_action_id: Some(proposed_action_id.clone()),
-            decision_id: Some(decision_id.clone()),
-            payload: json!({
-                "causal_trace": {
-                    "flow": "proposed_action_to_decision",
-                    "decision_status": "needs_human_approval",
-                    "reason": "medium risk action requires human validation"
-                }
-            }),
+        let decision = Decision {
+            id: DecisionId::new("decision-1"),
+            proposed_action_id: ProposedActionId::new("action-1"),
+            status: DecisionStatus::NeedsHumanApproval,
+            reason: "medium risk action requires human validation".to_owned(),
+            risk_level: RiskLevel::Medium,
+            policies_applied: vec![PolicyId::new("policy-human-approval")],
+            decided_by: None,
             created_at: Utc::now(),
         };
+        let event = AuditEvent::decision_created(
+            AuditEventId::new("audit-decision-1"),
+            ActorRef::System,
+            WorkspaceId::new("workspace-1"),
+            Some(TaskId::new("task-1")),
+            &decision,
+            Utc::now(),
+        );
 
         store
             .record_audit_event(event.clone())
             .await
-            .expect("record decision audit event");
+            .expect("record canonical decision audit event");
 
-        let events = store
+        let workspace_events = store
             .list_audit_events_for_workspace(WorkspaceId::new("workspace-1"))
             .await
-            .expect("list audit events");
+            .expect("list workspace audit events");
+        let action_events = store
+            .list_audit_events_for_proposed_action(ProposedActionId::new("action-1"))
+            .await
+            .expect("list proposed action audit events");
+        let decision_events = store
+            .list_audit_events_for_decision(DecisionId::new("decision-1"))
+            .await
+            .expect("list decision audit events");
 
-        assert_eq!(events, vec![event.clone()]);
-        assert_eq!(events[0].event_type, AuditEventType::DecisionCreated);
-        assert_eq!(events[0].proposed_action_id, Some(proposed_action_id));
-        assert_eq!(events[0].decision_id, Some(decision_id));
+        assert_eq!(workspace_events, vec![event.clone()]);
+        assert_eq!(action_events, vec![event.clone()]);
+        assert_eq!(decision_events, vec![event.clone()]);
         assert_eq!(
-            events[0].payload["causal_trace"]["flow"],
-            json!("proposed_action_to_decision")
+            workspace_events[0].event_type,
+            AuditEventType::DecisionCreated
+        );
+        assert_eq!(
+            workspace_events[0].proposed_action_id,
+            Some(ProposedActionId::new("action-1"))
+        );
+        assert_eq!(
+            workspace_events[0].decision_id,
+            Some(DecisionId::new("decision-1"))
+        );
+        assert_eq!(
+            workspace_events[0].payload["causal_trace"]["decision_status"],
+            json!("needs_human_approval")
+        );
+        assert_eq!(
+            workspace_events[0].payload["causal_trace"]["policies_applied"][0],
+            json!("policy-human-approval")
         );
     }
 
