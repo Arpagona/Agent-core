@@ -57,6 +57,33 @@ The summary assumes its input events are already chronological. `first_event_id`
 
 The summary is not approval, authorization, orchestration or execution state. In particular, `has_execution_event` only reports whether such an event is present in the readback set; it does not grant or imply execution capability.
 
+## CLI supervision readback
+
+The alpha CLI exposes the first local supervision surface for decision-scoped audit readback:
+
+```text
+arpagona audit decision-summary <decision-id>
+arpagona audit decision-summary <decision-id> --json
+```
+
+This command is read-only. It fetches existing audit events, filters by `decision_id`, orders matching events chronologically and renders a human-oriented decision summary. The JSON mode emits the same readback object for tooling or inspection.
+
+The supervision-oriented output includes:
+
+- `decision_id`;
+- `proposed_action_id`, when present;
+- `workspace_id`, when present;
+- `task_id`, when present;
+- `event_count`;
+- `first_event_id` / `last_event_id`;
+- `first_event_at` / `last_event_at`;
+- `decision_status`, when present in event payload metadata;
+- `risk_level`, when present in event payload metadata;
+- `policies_applied`, when present in event payload metadata;
+- a warning that the command is readback only.
+
+The CLI may read optional alpha metadata either from `AuditEvent.payload.causal_trace` or directly from `AuditEvent.payload`, but those metadata fields are explanatory only. They do not approve, authorize, orchestrate, schedule or execute anything, and they do not bypass the Decision Gate.
+
 ## Current storage boundary
 
 `crates/core` owns the pure domain types and the synchronous `GraphMemoryStore` contract.
