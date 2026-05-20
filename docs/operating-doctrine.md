@@ -125,7 +125,66 @@ The following remain blocked unless explicitly approved in a dedicated issue or 
 
 If a change touches one of these areas, the PR must stop and ask for explicit human approval.
 
-## 6. Contributor / Agent Loop Protocol
+## 6. Local Model Delegation Policy
+
+Cloud orchestration should be conserved for judgment, planning, safety review and final integration.
+
+Local models such as LOCO/Ollama should be used as local subcontractors for high-volume, low-risk repository work.
+
+Default division of work:
+
+- Hermes/cloud: orchestration, final judgment, architectural trade-offs, safety review, patch approval, PR creation and merge recommendations.
+- LOCO/Ollama: reading, summarizing, extracting, comparing, drafting, log summarization and first-pass pattern scanning.
+
+Hermes should delegate to LOCO/Ollama when a task involves:
+
+- reading or comparing more than two files;
+- summarizing repository structure or module responsibilities;
+- extracting Rust types, functions, traits or conventions;
+- finding repeated patterns or possible convention drift;
+- drafting documentation sections;
+- drafting tests;
+- summarizing `cargo` or CI output;
+- producing a first-pass risk checklist;
+- comparing ARPAGONA structure with Hermes-inspired patterns.
+
+Hermes should not delegate final authority for:
+
+- architectural decisions;
+- safety boundary decisions;
+- final patch approval;
+- PR creation or merge decisions;
+- external side-effect decisions;
+- credential-related decisions;
+- destructive operations.
+
+Every non-trivial loop should attempt at least one bounded LOCO/Ollama delegation step unless there is a clear reason not to.
+
+A non-trivial loop includes:
+
+- more than one file inspected;
+- more than one design option considered;
+- production code changed;
+- project-level documentation changed;
+- long logs or CI output interpreted.
+
+Loop reports should include:
+
+- `Delegated to LOCO/Ollama: yes/no`;
+- `If no, why not?`;
+- `Local task summary`;
+- `Hermes final decision`.
+
+Default heuristic:
+
+```text
+If the work is high-volume, local, low-risk and reversible, delegate the first pass locally.
+If the work requires final judgment, safety reasoning or architectural commitment, Hermes decides.
+```
+
+The goal is to reduce cloud-token usage while making the system more distributed, local-first and resilient.
+
+## 7. Contributor / Agent Loop Protocol
 
 Each work loop should follow this protocol:
 
@@ -135,20 +194,22 @@ Each work loop should follow this protocol:
 4. Create a focused branch.
 5. Implement only that unit.
 6. Prefer Rust for all durable backend, governance, persistence, runtime, API and CLI work unless a documented exception applies.
-7. Run the relevant checks, at minimum:
+7. Delegate at least one bounded first-pass analysis step to LOCO/Ollama for non-trivial loops, or report why delegation was not useful.
+8. Run the relevant checks, at minimum:
    - `cargo fmt -- --check`
    - `cargo check`
    - `cargo test`
-8. Open a PR with:
+9. Open a PR with:
    - summary;
    - files changed;
    - tests run;
    - risk assessment;
    - explicit statement of what was not changed;
-   - language choice note when non-Rust code is added.
-9. Update `PROJECT_STATUS.md` only when implementation status, behavior, architecture, roadmap or safety assumptions actually changed.
+   - language choice note when non-Rust code is added;
+   - LOCO/Ollama delegation note for non-trivial loops.
+10. Update `PROJECT_STATUS.md` only when implementation status, behavior, architecture, roadmap or safety assumptions actually changed.
 
-## 7. Preferred Near-Term Direction
+## 8. Preferred Near-Term Direction
 
 The next useful increments should bias toward making the core usable and inspectable, not merely adding abstract structure.
 
@@ -168,7 +229,7 @@ The system should become easier to ask:
 - which decision approved or rejected it?
 - what should be done next?
 
-## 8. Anti-Patterns
+## 9. Anti-Patterns
 
 Avoid:
 
@@ -180,12 +241,15 @@ Avoid:
 - treating Tool Registry lookup as approval;
 - adding autonomy before observability;
 - changing `PROJECT_STATUS.md` for trivial or test-only changes;
-- adding long-lived backend logic in a non-Rust language without documenting the reason.
+- adding long-lived backend logic in a non-Rust language without documenting the reason;
+- using cloud reasoning for large low-risk reading or summarization tasks that could be delegated locally.
 
-## 9. Working Heuristic
+## 10. Working Heuristic
 
 When choosing between two tasks, prefer the one that makes the system more usable while preserving traceability.
 
 A good change should make the next loop easier, safer or more productive.
 
 When choosing between languages, prefer Rust unless the non-Rust option has a clear tactical advantage.
+
+When choosing between cloud and local analysis, prefer local analysis for high-volume low-risk work and reserve cloud reasoning for final judgment.
