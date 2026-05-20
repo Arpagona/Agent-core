@@ -1,33 +1,41 @@
 # Roadmap
 
-La roadmap reflète à la fois l'avancement réel et l'ordre architectural cible. Certaines briques ont été prototypées hors ordre pour explorer rapidement le système. Elles doivent maintenant rester alpha/expérimentales tant que les couches de gouvernance ne sont pas stabilisées.
+La roadmap reflète à la fois l'avancement réel et l'ordre architectural cible. Certaines briques ont été prototypées hors ordre pour explorer rapidement le système. Elles doivent rester alpha/expérimentales tant que les couches de gouvernance ne sont pas stabilisées, mais cela ne doit pas bloquer les incréments read-only utiles.
 
-Référence canonique : lire `PROJECT_OBJECTIVES.md` pour la vision et `PROJECT_STATUS.md` pour l'état opérationnel courant.
+Référence canonique : lire `PROJECT_OBJECTIVES.md` pour la vision, `PROJECT_STATUS.md` pour l'état opérationnel courant, `docs/operating-doctrine.md` pour la doctrine de travail et `docs/development-acceleration.md` pour la direction actuelle d'accélération.
 
-## Recentrage architectural
+## Recentrage architectural et accélération contrôlée
 
-Priorité immédiate : stop feature expansion.
+Priorité immédiate : accélération contrôlée vers une alpha fonctionnelle.
 
-Le projet doit revenir à l'ordre architectural cible avant toute nouvelle fonctionnalité visible :
+Le projet doit avancer vers une ergonomie Hermes-like tout en conservant l'architecture ARPAGONA : Rust-first, local-first, graph-native, compute-aware, auditable et gouvernée.
 
-1. stabiliser les Core Domain Types ;
-2. extraire le Decision Gate hors de `crates/core` ;
-3. implémenter un Compute Reservoir minimal ;
-4. implémenter un Tool Registry déclaratif ;
-5. stabiliser Graph Memory + SurrealDB ;
-6. stabiliser Audit ;
-7. reprendre ensuite seulement la croissance Runtime / API / CLI.
+Le frein principal reste le même : aucune exécution réelle d'outil, autonomie scheduler, navigateur, MCP, shell, envoi email ou accès secrets par LLM ne doit être ajouté avant stabilisation du chemin gouverné.
+
+Mais les surfaces read-only de supervision sont désormais prioritaires. En particulier, la CLI est le premier Mission Control local.
+
+Ordre de développement actuel :
+
+1. conserver les Core Domain Types propres ;
+2. maintenir le Decision Gate séparé ;
+3. maintenir le Compute Reservoir minimal ;
+4. maintenir le Tool Registry déclaratif ;
+5. stabiliser Graph Memory + SurrealDB autant que nécessaire pour le readback ;
+6. stabiliser Audit autant que nécessaire pour le readback ;
+7. développer la CLI de supervision read-only ;
+8. reprendre ensuite Runtime / API / Orchestrator par petits incréments gouvernés ;
+9. différer Mission Control Web tant que la CLI locale n'a pas prouvé les bons patterns.
 
 Consignes de recadrage :
 
-- stop feature expansion ;
-- stabilize governance layers first ;
-- extract Decision Gate ;
-- implement Compute Reservoir minimal ;
-- implement Tool Registry ;
-- then resume runtime/API/CLI growth.
+- controlled fast iteration ;
+- CLI supervision first ;
+- Rust-first implementation ;
+- LOCO/Ollama delegation for local first-pass analysis ;
+- protect governance boundaries ;
+- avoid endless test-only stabilization when a useful read-only supervision increment is available.
 
-Le Tool Registry doit exister avant toute exécution réelle d'outil. L'API, la CLI et le Runtime doivent rester alpha tant que Decision Gate, Compute Reservoir, Tool Registry, Graph Memory et Audit ne sont pas stabilisés.
+Le Tool Registry doit exister avant toute exécution réelle d'outil. L'API, la CLI et le Runtime doivent rester alpha tant que Decision Gate, Compute Reservoir, Tool Registry, Graph Memory et Audit ne sont pas stabilisés. Alpha ne signifie pas gelé : les chemins read-only, observables et réversibles peuvent progresser.
 
 ## Brique 1 — Fondation core
 
@@ -49,7 +57,7 @@ Exclus : API stable, UI, exécution d'outils, scheduler actif, autonomie, secret
 
 État actuel : implémentation alpha minimale extraite dans `crates/decision-gate`.
 
-Objectif suivant : conserver la frontière propre entre `crates/core` et `crates/decision-gate`.
+Objectif suivant : conserver la frontière propre entre `crates/core` et `crates/decision-gate`, tout en rendant les décisions inspectables par Audit et CLI.
 
 État actuel détaillé :
 
@@ -90,7 +98,7 @@ Il ne fait aucun appel modèle, aucune exécution, aucun réseau, aucune persist
 
 Document de cadrage : `docs/compute-reservoir.md`.
 
-Prochaine brique recommandée : `crates/tool-registry`.
+Direction actuelle : relier progressivement cette brique à la délégation locale/cloud observée dans la doctrine LOCO/Ollama, sans encore ajouter d'exécution ni de provider runtime supplémentaire.
 
 ## Brique 4 — Tool Registry
 
@@ -124,17 +132,18 @@ Contrainte non négociable : aucune exécution réelle d'outil avant Tool Regist
 - Adapter `SurrealGraphMemoryStore` séparé du domaine core.
 - Port async d'adapter nommé `AsyncGraphMemoryStore`, distinct du contrat domaine.
 - Migration `0001_graph_memory.surql` et tests d'adapter avec SurrealDB en mémoire.
+- Readback audit alpha pour workspace, task, proposed action, decision et summaries décisionnels.
 
 Travail restant :
 
-- stabiliser les conventions SurrealDB ;
+- stabiliser les conventions SurrealDB utiles au readback ;
 - stabiliser les relations graphe ;
 - garantir que les décisions importantes sont traçables dans le graphe ;
-- éviter que Graph Memory devienne une couche d'exécution.
+- éviter que Graph Memory devienne une couche d'exécution ou d'autorisation.
 
 ## Brique 6 — Audit System stabilisé
 
-État : alpha.
+État : alpha avec readback décisionnel utilisable.
 
 Objectif : garantir une trace causale claire pour :
 
@@ -148,7 +157,35 @@ Objectif : garantir une trace causale claire pour :
 
 L'Audit doit être stabilisé avant toute exécution réelle.
 
-## Brique 7 — Neutral Orchestrator
+Direction actuelle : rendre l'audit inspectable via CLI avant d'élargir l'API ou Mission Control Web.
+
+## Brique 7 — CLI supervision locale
+
+État : alpha, première surface locale de supervision.
+
+Objectif : faire de la CLI le premier Mission Control local.
+
+Commandes existantes ou en cours :
+
+- `arpagona audit decision-summary <decision-id>` ;
+- `arpagona audit decision-summary <decision-id> --json`.
+
+Prochaines commandes souhaitées :
+
+- `arpagona audit task-summary <task-id>` ;
+- `arpagona audit workspace-summary <workspace-id>` ;
+- commandes de status/readback permettant de comprendre tâches, actions proposées, décisions, risques, politiques et événements d'audit.
+
+Contraintes :
+
+- read-only par défaut ;
+- pas d'approbation implicite ;
+- pas d'exécution ;
+- pas de contournement du Decision Gate ;
+- pas de privilège supérieur aux couches métier ;
+- ne pas transformer la CLI en gouvernance cachée.
+
+## Brique 8 — Neutral Orchestrator
 
 État : pas encore implémenté comme brique stable.
 
@@ -156,7 +193,9 @@ Objectif : coordonner objectifs, tâches, rappel mémoire, allocation Compute Re
 
 Contrainte : l'orchestrateur ne doit jamais devenir un agent autonome non gouverné.
 
-## Brique 8 — API Server Axum
+Direction actuelle : différer l'orchestrateur stable jusqu'à ce que la CLI permette d'inspecter clairement les décisions et traces produites par les couches existantes.
+
+## Brique 9 — API Server Axum
 
 État : alpha minimale dans `apps/api-server`.
 
@@ -169,15 +208,17 @@ Contrainte : l'orchestrateur ne doit jamais devenir un agent autonome non gouver
 
 Contrainte : l'API ne doit pas prendre de responsabilité de gouvernance métier. Elle expose les couches, elle ne les remplace pas.
 
-## Brique 9 — Mission Control Web
+Direction actuelle : ne pas élargir l'API avant que le besoin soit démontré par la CLI ou par une limitation claire du filtrage client.
+
+## Brique 10 — Mission Control Web
 
 État : deferred.
 
 Objectif futur : Next.js + TypeScript pour supervision, validation humaine, visibilité de l'audit et exploration graphe.
 
-Ne pas développer maintenant. Les couches de gouvernance doivent d'abord être stabilisées.
+Ne pas développer maintenant. La CLI doit d'abord démontrer les bons patterns de supervision locale.
 
-## Brique 10 — Scheduler / controlled autonomous loops
+## Brique 11 — Scheduler / controlled autonomous loops
 
 État : deferred.
 
@@ -185,7 +226,7 @@ Objectif futur : déclencher des tâches planifiées ou périodiques.
 
 Contrainte : toute boucle autonome devra passer par Graph Memory, Compute Reservoir, Tool Registry, Decision Gate, Audit et approbation humaine si sensible.
 
-## Brique 11 — LLM Provider abstraction stabilisée
+## Brique 12 — LLM Provider abstraction stabilisée
 
 État : V0 expérimentale dans `crates/llm` et endpoint `POST /agent/propose`.
 
@@ -198,15 +239,15 @@ Contrainte : toute boucle autonome devra passer par Graph Memory, Compute Reserv
 
 Contrainte : le provider LLM propose, mais ne gouverne pas et n'exécute pas.
 
-## Brique 12 — End-to-end demo
+## Brique 13 — End-to-end demo
 
 État : deferred.
 
 Objectif futur : démontrer le flux complet contrôlé : objectif -> tâche -> rappel mémoire -> allocation compute -> proposition -> décision -> audit -> observation.
 
-Ne pas faire avant stabilisation des couches de gouvernance.
+Ne pas faire avant stabilisation des couches de gouvernance et avant que les surfaces CLI de supervision puissent expliquer le flux.
 
-## Brique 13 — Security hardening
+## Brique 14 — Security hardening
 
 État : deferred.
 
@@ -270,7 +311,7 @@ Documentation dédiée : `docs/runtime.md`.
 
 ### Terminal Interface
 
-État : mode interactif alpha ajouté dans `crates/cli` via `arpagona chat`.
+État : interface terminal alpha dans `crates/cli`, désormais considérée comme première surface locale de supervision.
 
 Inclus :
 
@@ -279,7 +320,8 @@ Inclus :
 - provider `openai` optionnel ;
 - commandes internes `/help`, `/quit`, `/tasks`, `/actions`, `/evaluate`, `/audit`, `/provider` ;
 - vérification `/health` au démarrage ;
-- affichage lisible des `ProposedAction`, `Decision` et `AuditEvent`.
+- affichage lisible des `ProposedAction`, `Decision` et `AuditEvent` ;
+- readback audit décisionnel via `arpagona audit decision-summary <decision-id>` et `--json`.
 
 Limites alpha / contraintes :
 
@@ -287,9 +329,10 @@ Limites alpha / contraintes :
 - pas de shell ;
 - pas de scheduler ;
 - pas d'exécution d'outils ;
-- le Decision Gate reste déclenché explicitement par `/evaluate`.
+- le Decision Gate reste déclenché explicitement par `/evaluate` ;
+- le readback CLI ne vaut pas approbation, autorisation, orchestration ou exécution.
 
-Documentation dédiée : `docs/terminal-interface.md`.
+Documentation dédiée : `docs/terminal-interface.md` et `docs/causal-trace.md`.
 
 ## Workers d'ingestion
 
@@ -297,4 +340,4 @@ Documentation dédiée : `docs/terminal-interface.md`.
 
 Objectif futur : ingestion documentaire, extraction de sources, observations et faits, raccordement contrôlé à Graph Memory.
 
-Ne pas développer avant stabilisation de Graph Memory, Audit et gouvernance.
+Ne pas développer avant stabilisation de Graph Memory, Audit et gouvernance, sauf cadrage documentaire ou expérimentation explicitement isolée.
