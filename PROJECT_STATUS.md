@@ -225,19 +225,16 @@ The update must clearly state whether the change is stable, alpha, experimental,
 
 ## 11. Latest Session Update
 
-This session tightened the OpenAI/chat router read-only action taxonomy so explicit runtime readback requests produce precise informational `ProposedAction` types instead of generic `read_memory` or `system_check` fallbacks.
+This session exposed the existing local supervision cockpit inside interactive chat through a read-only `/status` command.
 
 Changed:
 
-- added first-class read-only action types for alpha runtime supervision: `read_tasks`, `read_proposed_actions`, `read_pending_actions`, `read_decisions`, `read_audit`, `read_status` and `system_check`;
-- added matching read-only permissions for task/action/decision/audit/status readback while keeping `read_pending_actions` under proposed-action read permission;
-- updated the OpenAI provider system prompt to reserve `read_memory` for long-term/cognitive memory and `system_check` for generic system verification only;
-- updated deterministic chat routing so task, proposed-action, pending-action, decision, audit and runtime-status readback requests route to precise informational actions;
-- kept advice/risk/planning questions such as pre-execution risk checks as `DirectReply`, not `ProposedAction`;
-- documented the read-only provider routing behavior in `docs/cli.md`;
-- added Rust regression tests for the observed routing cases.
+- added `/status` to the interactive chat command parser;
+- wired `/status` to the existing `status` readback path, which calls only existing read endpoints and keeps unavailable counts non-authorizing;
+- added `/status` to chat help output and parser regression coverage;
+- documented `/status` in `docs/cli.md` internal chat commands.
 
-Stability level: alpha provider/chat routing taxonomy.
+Stability level: alpha CLI supervision ergonomics.
 
 Limits:
 
@@ -248,10 +245,10 @@ Limits:
 - no Graph Memory persistence schema or migration was changed;
 - no new API endpoint was added;
 - no runtime, scheduler, MCP, browser automation, credential or Mission Control Web growth was introduced;
-- all routed read-only actions remain proposed actions only and materialize as `pending_decision` before any separate Decision Gate evaluation.
+- `/status` is readback only and is not approval, authorization, orchestration or execution state.
 
 Architectural risk:
 
-- low for alpha use. This is a taxonomy and routing precision increment, but expanding domain enums means downstream consumers must accept the new serialized action and permission values. The change is intentionally bounded to read-only supervision semantics.
+- low for alpha use. The change reuses an existing read-only CLI summary inside chat and preserves the explicit governance boundary that readback is not approval.
 
-Recommended next step: validate the OpenAI chat path manually with `/provider openai` once API and credentials are available, then continue CLI supervision first without adding execution paths.
+Recommended next step: continue CLI supervision first with one small read-only increment, preferably improving operator readback of tasks, proposed actions, decisions or audit without adding execution paths.

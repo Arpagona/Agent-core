@@ -48,6 +48,7 @@ Commandes internes :
 ```text
 /help                 Afficher l'aide
 /quit ou /exit        Quitter
+/status               Afficher le cockpit read-only local
 /tasks                Lister les tâches
 /actions              Lister les actions proposées
 /evaluate action-1    Évaluer une action via Decision Gate

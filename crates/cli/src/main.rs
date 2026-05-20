@@ -301,6 +301,7 @@ enum ChatLine {
     Empty,
     Help,
     Quit,
+    Status,
     Audit,
     Tasks,
     Actions,
@@ -451,6 +452,7 @@ async fn chat(client: &Client, api_url: &str, args: ChatArgs) -> Result<(), Box<
                 println!("{}", style_dim("Goodbye."));
                 break;
             }
+            ChatLine::Status => status(client, api_url).await?,
             ChatLine::Audit => list_audit(client, api_url).await?,
             ChatLine::Tasks => list_tasks(client, api_url).await?,
             ChatLine::Actions => list_actions(client, api_url).await?,
@@ -612,6 +614,10 @@ fn print_chat_help() {
         "  {} | {}         Leave chat",
         style_command("/quit"),
         style_command("/exit")
+    );
+    println!(
+        "  {}               Show read-only supervision status",
+        style_command("/status")
     );
     println!("  {}                List tasks", style_command("/tasks"));
     println!(
@@ -1584,6 +1590,7 @@ fn parse_chat_line(line: &str) -> ChatLine {
     match parts.next().unwrap_or_default() {
         "/help" => ChatLine::Help,
         "/quit" | "/exit" => ChatLine::Quit,
+        "/status" => ChatLine::Status,
         "/audit" => ChatLine::Audit,
         "/tasks" => ChatLine::Tasks,
         "/actions" => ChatLine::Actions,
@@ -2244,6 +2251,7 @@ mod tests {
         assert_eq!(parse_chat_line("/help"), ChatLine::Help);
         assert_eq!(parse_chat_line("/quit"), ChatLine::Quit);
         assert_eq!(parse_chat_line("/exit"), ChatLine::Quit);
+        assert_eq!(parse_chat_line("/status"), ChatLine::Status);
         assert_eq!(parse_chat_line("/audit"), ChatLine::Audit);
         assert_eq!(parse_chat_line("/tasks"), ChatLine::Tasks);
         assert_eq!(parse_chat_line("/actions"), ChatLine::Actions);
