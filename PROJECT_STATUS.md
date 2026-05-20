@@ -225,14 +225,16 @@ The update must clearly state whether the change is stable, alpha, experimental,
 
 ## 11. Latest Session Update
 
-This session strengthened the read-only CLI supervision surface for decision-scoped audit summaries while preserving the existing governance boundaries.
+This session added a read-only task-scoped CLI audit summary, extending the local supervision surface beyond decision-level readback while preserving the existing governance boundaries.
 
 Changed:
 
-- `arpagona audit decision-summary <decision-id>` now renders a supervision-oriented readback with causal scope fields, event count, chronological first/last event ids and timestamps, optional decision status, optional risk level, optional policies applied and an explicit readback-only warning;
-- `arpagona audit decision-summary <decision-id> --json` now emits the same readback object as structured JSON;
-- CLI summary construction preserves empty decision scope by keeping the requested `decision_id` even when no matching audit events exist;
-- CLI tests now protect parsing, JSON flag handling, decision filtering, chronological ordering, scope/link preservation, optional causal metadata readback, output formatting and the non-authorization/non-execution interpretation of summary readback.
+- `arpagona audit task-summary <task-id>` now fetches existing audit events read-only, filters them by task id, orders them chronologically and renders the existing `AuditTraceSummary` fields for human supervision;
+- `arpagona audit task-summary <task-id> --json` emits the same task-scoped readback object as structured JSON;
+- task summary construction preserves empty task scope by keeping the requested `task_id` even when no matching audit events exist;
+- decision and task summary formatting now share common event boundary and flag rendering helpers inside the CLI;
+- `docs/cli.md` now documents decision and task audit summaries as readback-only supervision commands;
+- CLI tests now protect task-summary parsing, JSON flag handling, task filtering, chronological ordering, scope/link preservation, output formatting and the non-authorization/non-execution interpretation of readback.
 
 Stability level: alpha CLI Audit readback inspection.
 
@@ -245,10 +247,10 @@ Limits:
 - no new API endpoint was added;
 - no graph-edge mirroring was introduced;
 - no Runtime, scheduler, MCP, browser automation, provider, credential or Mission Control growth was introduced;
-- the CLI summary remains readback only and must not be treated as approval, authorization, orchestration or execution state.
+- the CLI summaries remain readback only and must not be treated as approval, authorization, orchestration or execution state.
 
 Architectural risk:
 
-- low for alpha use. The CLI currently reuses the existing `/audit` readback and builds the core `AuditTraceSummary` locally rather than forcing a broader API/store refactor; a future persistence-backed endpoint can use `GraphMemoryStore::audit_trace_summary_for_decision` directly once that exposure is deliberately chosen.
+- low for alpha use. The CLI still reuses the existing `/audit` readback and builds `AuditTraceSummary` locally, which keeps the increment reversible and avoids a broader API/store refactor. The main risk is that client-side filtering will become limiting as audit volume grows; a future persistence-backed task summary endpoint can be considered once that limitation is real.
 
-Recommended next step: continue CLI supervision first, likely by improving decision-summary usability/errors or adding `arpagona audit task-summary <task-id>` if the data path is clean. Avoid another test-only Audit/Graph Memory guard unless it protects a concrete uncovered risk.
+Recommended next step: continue CLI supervision first, likely by adding `arpagona audit workspace-summary <workspace-id>` or improving task-summary usability/errors if local operation reveals rough edges. Avoid another test-only Audit/Graph Memory guard unless it protects a concrete uncovered risk.

@@ -246,6 +246,38 @@ Affiche chaque événement de façon lisible :
   decision_id: decision-action-1
 ```
 
+### Résumé d'audit par décision
+
+```bash
+cargo run -p arpagona-cli -- audit decision-summary decision-action-1
+cargo run -p arpagona-cli -- audit decision-summary decision-action-1 --json
+```
+
+Appelle :
+
+```text
+GET /audit
+```
+
+La CLI filtre localement les événements correspondant à `decision_id`, les ordonne chronologiquement et affiche un résumé de supervision en lecture seule : portée causale, nombre d'événements, premier/dernier événement, statut de décision, risque, politiques et indicateurs d'approbation humaine/exécution.
+
+### Résumé d'audit par tâche
+
+```bash
+cargo run -p arpagona-cli -- audit task-summary task-1
+cargo run -p arpagona-cli -- audit task-summary task-1 --json
+```
+
+Appelle :
+
+```text
+GET /audit
+```
+
+La CLI filtre localement les événements correspondant à `task_id`, les ordonne chronologiquement et affiche un résumé de supervision en lecture seule pour la tâche : workspace, première action/décision observée, nombre d'événements, bornes temporelles et indicateurs de proposition, décision, demande humaine et exécution.
+
+Ces résumés sont explicitement du readback : ils ne valent pas approbation, autorisation, orchestration ou état d'exécution.
+
 ## Installation
 
 ```bash
