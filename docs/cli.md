@@ -229,6 +229,8 @@ Status: pending_decision
 
 Cette commande ne déclenche pas le Decision Gate et ne crée aucune `Decision`.
 
+Routage read-only alpha du provider OpenAI : les demandes explicites de lecture d’état runtime sont routées vers des types précis et informationnels (`read_tasks`, `read_proposed_actions`/`read_pending_actions`, `read_decisions`, `read_audit`, `read_status`) plutôt que vers `read_memory` ou `system_check` générique. `read_memory` reste réservé à la mémoire longue durée/cognitive ; `system_check` reste réservé aux vérifications système générales. Les questions de conseil/analyse restent des `DirectReply`.
+
 ### Évaluer une action
 
 ```bash

@@ -4,6 +4,11 @@ use serde::{Deserialize, Serialize};
 #[serde(rename_all = "snake_case")]
 pub enum Permission {
     ReadMemory,
+    ReadTasks,
+    ReadProposedActions,
+    ReadDecisions,
+    ReadAudit,
+    ReadStatus,
     WriteMemory,
     ReadDocument,
     WriteDocument,
