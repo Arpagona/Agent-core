@@ -9,9 +9,11 @@ Ce projet n'est pas un simple chatbot, ni un fork de framework existant, ni un s
 Avant toute modification du dépôt, un contributeur humain ou agentique doit lire :
 
 - `PROJECT_OBJECTIVES.md` : vision canonique du projet, objectifs fondateurs et principes non négociables ;
-- `PROJECT_STATUS.md` : état opérationnel courant, niveau de stabilité des briques, risques architecturaux, stop-list et prochaine séquence recommandée.
+- `PROJECT_STATUS.md` : état opérationnel courant, niveau de stabilité des briques, risques architecturaux, stop-list et prochaine séquence recommandée ;
+- `docs/operating-doctrine.md` : doctrine de travail courante, itération contrôlée, Rust-first, délégation LOCO/Ollama et biais CLI supervision ;
+- `docs/development-acceleration.md` : direction actuelle d'accélération vers une alpha Hermes-like, CLI supervision first et Rippletide-inspired runtime enforcement.
 
-L'objectif immédiat du projet est la consolidation architecturale, pas l'ajout de fonctionnalités visibles. Plusieurs briques existent déjà en alpha ou en expérimentation ; elles ne doivent pas être interprétées comme stables ni comme une autorisation d'étendre l'autonomie du système.
+L'objectif immédiat n'est plus une simple consolidation abstraite. Le projet doit maintenant avancer vers des incréments utiles et inspectables, en particulier la CLI de supervision locale, tout en conservant les garde-fous non négociables : pas d'exécution directe par les agents, pas de contournement du Decision Gate, pas d'autonomie non gouvernée.
 
 ## Principes fondateurs
 
@@ -57,6 +59,8 @@ arpagona-agent-core/
     compute-reservoir.md
     tool-registry.md
     causal-trace.md
+    operating-doctrine.md
+    development-acceleration.md
   crates/
     compute-reservoir/
       Cargo.toml
@@ -137,7 +141,7 @@ Les premières briques fournissent :
 - un crate expérimental `crates/llm` pour transformer une demande utilisateur en `ProposedAction` pending, sans exécution ;
 - un crate expérimental `crates/runtime` pour une boucle cognitive qui s'arrête à la proposition d'action ;
 - une application alpha `apps/api-server` ;
-- une interface terminal alpha `crates/cli` ;
+- une interface terminal alpha `crates/cli` avec une première surface de supervision audit read-only ;
 - une migration SurrealDB initiale pour faits, sources, épisodes, observations, audit, décisions et actions proposées ;
 - quelques tests unitaires de base.
 
@@ -151,19 +155,15 @@ Le crate `graph-memory` porte l'adapter SurrealDB séparé du domaine core. La s
 
 Le crate `llm` porte les providers expérimentaux. Même lorsqu'un provider OpenAI est utilisé, il ne peut produire qu'un `ProposedActionDraft`, ensuite matérialisé en `ProposedAction` avec le statut `pending_decision`. Aucun outil réel n'est exécuté et le Decision Gate reste obligatoire avant toute suite.
 
-Le Runtime, l'API server et la CLI sont alpha. Ils doivent rester des surfaces d'expérimentation et de contrôle, pas des couches de gouvernance métier ni des chemins d'exécution alternatifs.
+Le Runtime, l'API server et la CLI sont alpha. Ils doivent rester des surfaces d'expérimentation, de readback et de contrôle, pas des couches de gouvernance métier ni des chemins d'exécution alternatifs.
 
 ## Priorité immédiate
 
-La priorité actuelle est de revenir à l'ordre architectural cible :
+La priorité actuelle est d'accélérer vers une alpha fonctionnelle, Hermes-like dans son ergonomie mais ARPAGONA dans son architecture : Rust-first, local-first, graph-native, compute-aware, auditée et gouvernée.
 
-1. stabiliser les Core Domain Types ;
-2. maintenir le Decision Gate dans `crates/decision-gate` ;
-3. consolider le Compute Reservoir minimal ;
-4. consolider le Tool Registry déclaratif ;
-5. stabiliser Graph Memory + SurrealDB ;
-6. stabiliser Audit ;
-7. reprendre ensuite seulement la croissance Runtime / API / CLI.
+Priorité produit actuelle : **CLI supervision first**.
+
+Objectif : faire de la CLI le premier Mission Control local, capable de relire tâches, actions proposées, décisions et traces d'audit, avant d'élargir l'API, le runtime ou Mission Control Web.
 
 Aucune exécution réelle d'outil ne doit être ajoutée avant stabilisation du Decision Gate, du Tool Registry et de l'Audit.
 
@@ -190,10 +190,9 @@ La documentation de la mémoire graphe se trouve dans `docs/graph-memory.md`.
 - Pas de registre d'outils exécutable.
 - Pas de scheduler actif.
 - Pas de worker d'ingestion fonctionnel.
-- Pas de CLI complexe.
 - Pas de Mission Control UI.
 - Pas d'intégration MCP.
 - Pas d'autonomie multi-agent.
 - Pas d'accès aux secrets par le LLM.
 
-Cette fondation existe pour stabiliser le modèle conceptuel avant d'ajouter les couches runtime, sécurité, API et UI.
+Cette fondation existe pour stabiliser le modèle conceptuel tout en construisant rapidement des surfaces locales d'inspection, de supervision et de contrôle humain.
