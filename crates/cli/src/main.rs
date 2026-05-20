@@ -1518,8 +1518,20 @@ fn to_api_string<T: Serialize>(value: &T) -> Result<String, Box<dyn Error>> {
 
 fn normalize_action_type(action_type: &str) -> Value {
     match action_type {
-        "read_memory" | "write_memory" | "read_document" | "write_document"
-        | "propose_tool_use" | "simulate_email" | "manage_task" => json!(action_type),
+        "read_memory"
+        | "read_tasks"
+        | "read_proposed_actions"
+        | "read_pending_actions"
+        | "read_decisions"
+        | "read_audit"
+        | "read_status"
+        | "system_check"
+        | "write_memory"
+        | "read_document"
+        | "write_document"
+        | "propose_tool_use"
+        | "simulate_email"
+        | "manage_task" => json!(action_type),
         custom => json!({ "custom": custom }),
     }
 }

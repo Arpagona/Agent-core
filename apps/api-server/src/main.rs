@@ -458,10 +458,7 @@ mod tests {
             .proposed_action
             .as_ref()
             .expect("system check should include action");
-        assert_eq!(
-            action.action_type,
-            ActionType::Custom("system_check".to_owned())
-        );
+        assert_eq!(action.action_type, ActionType::SystemCheck);
         assert_eq!(action.status, ProposedActionStatus::PendingDecision);
 
         let store = state.lock().expect("store should lock");

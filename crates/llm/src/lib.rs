@@ -253,7 +253,7 @@ pub fn provider_system_prompt() -> &'static str {
     r#"You are ARPAGONA Agent Core Chat Router V0.
 Return only one JSON object using exactly one of these shapes:
 
-DirectReply for normal conversation that needs no system action:
+DirectReply for normal conversation, advice, analysis, risk discussion, or planning guidance that needs no runtime readback or system operation:
 {
   "kind": "direct_reply",
   "message": string
@@ -265,26 +265,31 @@ ClarifyingQuestion when the user intent is ambiguous and a safe action cannot be
   "question": string
 }
 
-ProposedAction only when the user asks for an operation, decision, task, system check, memory read/write, audit read, external action, or workflow:
+ProposedAction only when the user explicitly asks to inspect, read, list, display, verify, create, update, send, or otherwise operate on runtime state, memory, documents, tools, email, audit, status, tasks, decisions, proposed actions, or a workflow:
 {
   "kind": "proposed_action",
   "action": {
-    "action_type": "simulate_email" | "read_document" | "read_memory" | "manage_task" | {"custom":"read_audit"} | {"custom":"system_check"} | {"custom":"send_email"} | {"custom":"..."},
+    "action_type": "simulate_email" | "read_document" | "read_memory" | "read_tasks" | "read_proposed_actions" | "read_pending_actions" | "read_decisions" | "read_audit" | "read_status" | "system_check" | "manage_task" | {"custom":"send_email"} | {"custom":"..."},
     "target": string | null,
     "risk_level": "informational" | "low" | "medium" | "high" | "critical",
-    "required_permissions": ["simulate_email" | "read_document" | "read_memory" | "manage_task" | "propose_tool_use"],
+    "required_permissions": ["simulate_email" | "read_document" | "read_memory" | "read_tasks" | "read_proposed_actions" | "read_decisions" | "read_audit" | "read_status" | "manage_task" | "propose_tool_use"],
     "rationale": string,
     "payload": object
   }
 }
 
 Routing rules:
-- Greetings such as "salut", identity questions such as "qui es-tu ?", and capability questions such as "explique-moi ce que tu peux faire" are DirectReply.
-- Requests to verify system state are ProposedAction with custom action_type "system_check" and permission "propose_tool_use".
-- Requests to read audit logs are ProposedAction with custom action_type "read_audit" and permission "read_memory".
+- Greetings such as "salut", identity questions such as "qui es-tu ?", capability questions such as "explique-moi ce que tu peux faire", and advice/risk questions such as "que devrais-je vérifier avant..." or "quels sont les risques avant..." are DirectReply.
+- Runtime task readback requests are ProposedAction with action_type "read_tasks" and permission "read_tasks".
+- Proposed/pending action readback requests are ProposedAction with action_type "read_proposed_actions" or "read_pending_actions" and permission "read_proposed_actions".
+- Decision readback requests are ProposedAction with action_type "read_decisions" and permission "read_decisions".
+- Audit readback requests are ProposedAction with action_type "read_audit" and permission "read_audit".
+- Global runtime status readback requests are ProposedAction with action_type "read_status" and permission "read_status".
+- General system verification requests are ProposedAction with action_type "system_check" and permission "propose_tool_use" only when they are not specifically about tasks, proposed actions, pending actions, decisions, audit, memory, or runtime status.
+- Use "read_memory" only for long-term/cognitive memory readback. Never use it as a fallback for tasks, proposed actions, decisions, audit, status, or generic runtime objects.
 - Requests to send or draft email are ProposedAction using simulate_email unless explicit send_email capability and permissions are available.
-- If no action is needed, never use simulate_email as a fallback.
-Never execute anything. Never claim that an email, document write, tool call, web search, memory write, or system check has been executed.
+- If no action is needed, never use simulate_email, read_memory, or system_check as a fallback.
+Never execute anything. Never claim that an email, document write, tool call, web search, memory write, runtime readback, or system check has been executed.
 Do not use OpenAI tools, web search, function calling, or external side effects.
 Every ProposedAction is only a pending proposal for the Decision Gate and human-in-the-loop approval."#
 }
@@ -319,33 +324,74 @@ pub fn deterministic_turn_for_prompt(prompt: &str) -> Option<AgentTurnDraft> {
         IntentClass::DirectReply if is_capability_prompt(&normalized) => Some(AgentTurnDraft::DirectReply {
             message: "Je peux répondre directement aux questions simples, proposer des actions gouvernées quand une opération est demandée, et demander une clarification si l’intention est ambiguë. Les actions restent toujours pending_decision.".to_owned(),
         }),
+        IntentClass::DirectReply if is_advisory_or_analysis_prompt(&normalized) => Some(AgentTurnDraft::DirectReply {
+            message: "Avant d’ajouter une capacité d’exécution réelle, vérifie surtout les garde-fous: permissions explicites, Decision Gate, audit causal, absence de shell libre, périmètre read-only clair, rollback, et validation humaine pour toute action sensible.".to_owned(),
+        }),
         IntentClass::ClarifyingQuestion => Some(AgentTurnDraft::ClarifyingQuestion {
             question: "Que veux-tu que je prépare exactement : une réponse simple, une tâche, une lecture mémoire/audit, ou une proposition d’action gouvernée ?".to_owned(),
         }),
-        IntentClass::ProposedAction if contains_any(&normalized, &["journal", "journaux", "audit", "audits", "log", "logs"]) => {
-            Some(AgentTurnDraft::ProposedAction {
-                action: ProposedActionDraft {
-                    action_type: ActionType::Custom("read_audit".to_owned()),
-                    target: Some("audit_logs".to_owned()),
-                    risk_level: RiskLevel::Informational,
-                    required_permissions: vec![Permission::ReadMemory],
-                    rationale: "L’utilisateur demande une lecture des journaux d’audit; cela doit rester une action proposée et gouvernée.".to_owned(),
-                    payload: json!({"operation": "read_audit", "llm_executed": false}),
-                },
-            })
-        }
-        IntentClass::ProposedAction if contains_any(&normalized, &["systeme", "system", "etat", "status", "verifie", "verifier", "check"]) => {
-            Some(AgentTurnDraft::ProposedAction {
-                action: ProposedActionDraft {
-                    action_type: ActionType::Custom("system_check".to_owned()),
-                    target: Some("system_state".to_owned()),
-                    risk_level: RiskLevel::Informational,
-                    required_permissions: vec![Permission::ProposeToolUse],
-                    rationale: "L’utilisateur demande une vérification système; seule une proposition gouvernée est créée.".to_owned(),
-                    payload: json!({"operation": "system_check", "dangerous_execution_allowed": false, "llm_executed": false}),
-                },
-            })
-        }
+        IntentClass::ProposedAction if is_proposed_actions_read_prompt(&normalized) => Some(
+            read_only_turn(
+                ActionType::ReadProposedActions,
+                Some("proposed_actions"),
+                Permission::ReadProposedActions,
+                "read_proposed_actions",
+                "L’utilisateur demande une lecture des actions proposées; cela doit rester une action proposée et gouvernée.",
+            ),
+        ),
+        IntentClass::ProposedAction if is_pending_actions_read_prompt(&normalized) => Some(
+            read_only_turn(
+                ActionType::ReadPendingActions,
+                Some("pending_actions"),
+                Permission::ReadProposedActions,
+                "read_pending_actions",
+                "L’utilisateur demande une lecture des actions en attente; cela doit rester une action proposée et gouvernée.",
+            ),
+        ),
+        IntentClass::ProposedAction if is_tasks_read_prompt(&normalized) => Some(read_only_turn(
+            ActionType::ReadTasks,
+            Some("tasks"),
+            Permission::ReadTasks,
+            "read_tasks",
+            "L’utilisateur demande une lecture de l’état des tâches; cela doit rester une action proposée et gouvernée.",
+        )),
+        IntentClass::ProposedAction if is_decisions_read_prompt(&normalized) => Some(
+            read_only_turn(
+                ActionType::ReadDecisions,
+                Some("decisions"),
+                Permission::ReadDecisions,
+                "read_decisions",
+                "L’utilisateur demande une lecture des décisions; cela doit rester une action proposée et gouvernée.",
+            ),
+        ),
+        IntentClass::ProposedAction if is_audit_read_prompt(&normalized) => Some(read_only_turn(
+            ActionType::ReadAudit,
+            Some("audit_logs"),
+            Permission::ReadAudit,
+            "read_audit",
+            "L’utilisateur demande une lecture des journaux d’audit; cela doit rester une action proposée et gouvernée.",
+        )),
+        IntentClass::ProposedAction if is_status_read_prompt(&normalized) => Some(read_only_turn(
+            ActionType::ReadStatus,
+            Some("runtime_status"),
+            Permission::ReadStatus,
+            "read_status",
+            "L’utilisateur demande une lecture du statut global du runtime; cela doit rester une action proposée et gouvernée.",
+        )),
+        IntentClass::ProposedAction if is_memory_read_prompt(&normalized) => Some(read_only_turn(
+            ActionType::ReadMemory,
+            Some("cognitive_memory"),
+            Permission::ReadMemory,
+            "read_memory",
+            "L’utilisateur demande une lecture de la mémoire longue durée/cognitive; cela doit rester une action proposée et gouvernée.",
+        )),
+        IntentClass::ProposedAction if is_system_check_prompt(&normalized) => Some(read_only_turn(
+            ActionType::SystemCheck,
+            Some("system_state"),
+            Permission::ProposeToolUse,
+            "system_check",
+            "L’utilisateur demande une vérification système générale; seule une proposition gouvernée est créée.",
+        )),
         IntentClass::ProposedAction if contains_any(&normalized, &["mail", "email", "e-mail", "courriel"]) => {
             Some(AgentTurnDraft::ProposedAction {
                 action: ProposedActionDraft {
@@ -384,12 +430,19 @@ fn normalize_prompt(prompt: &str) -> String {
         .replace('è', "e")
         .replace('ê', "e")
         .replace('à', "a")
+        .replace('â', "a")
+        .replace('î', "i")
+        .replace('ï', "i")
+        .replace('ô', "o")
         .replace('ù', "u")
         .replace('ç', "c")
 }
 
 fn is_direct_reply_prompt(prompt: &str) -> bool {
-    is_greeting_prompt(prompt) || is_identity_prompt(prompt) || is_capability_prompt(prompt)
+    is_greeting_prompt(prompt)
+        || is_identity_prompt(prompt)
+        || is_capability_prompt(prompt)
+        || is_advisory_or_analysis_prompt(prompt)
 }
 
 fn is_greeting_prompt(prompt: &str) -> bool {
@@ -419,6 +472,106 @@ fn is_capability_prompt(prompt: &str) -> bool {
     )
 }
 
+fn is_advisory_or_analysis_prompt(prompt: &str) -> bool {
+    contains_any(
+        prompt,
+        &[
+            "que devrais-je",
+            "que devrais je",
+            "que dois-je",
+            "que dois je",
+            "quoi verifier avant",
+            "quels sont les risques",
+            "quels risques",
+            "risques avant",
+            "avant d'ajouter",
+            "avant dajouter",
+        ],
+    )
+}
+
+fn read_only_turn(
+    action_type: ActionType,
+    target: Option<&str>,
+    permission: Permission,
+    operation: &str,
+    rationale: &str,
+) -> AgentTurnDraft {
+    AgentTurnDraft::ProposedAction {
+        action: ProposedActionDraft {
+            action_type,
+            target: target.map(str::to_owned),
+            risk_level: RiskLevel::Informational,
+            required_permissions: vec![permission],
+            rationale: rationale.to_owned(),
+            payload: json!({
+                "operation": operation,
+                "read_only": true,
+                "llm_executed": false
+            }),
+        },
+    }
+}
+
+fn is_proposed_actions_read_prompt(prompt: &str) -> bool {
+    contains_any(
+        prompt,
+        &["actions proposees", "action proposee", "proposed actions"],
+    )
+}
+
+fn is_pending_actions_read_prompt(prompt: &str) -> bool {
+    contains_any(
+        prompt,
+        &[
+            "actions en attente",
+            "action en attente",
+            "pending actions",
+            "pending action",
+        ],
+    )
+}
+
+fn is_tasks_read_prompt(prompt: &str) -> bool {
+    contains_any(prompt, &["taches", "tache", "tasks", "task"])
+}
+
+fn is_decisions_read_prompt(prompt: &str) -> bool {
+    contains_any(prompt, &["decisions", "decision"])
+}
+
+fn is_audit_read_prompt(prompt: &str) -> bool {
+    contains_any(
+        prompt,
+        &["journal", "journaux", "audit", "audits", "log", "logs"],
+    )
+}
+
+fn is_status_read_prompt(prompt: &str) -> bool {
+    contains_any(
+        prompt,
+        &[
+            "statut global",
+            "status global",
+            "statut du runtime",
+            "status du runtime",
+            "runtime status",
+        ],
+    ) || (contains_any(prompt, &["etat global"])
+        && contains_any(prompt, &["runtime", "systeme", "system"]))
+}
+
+fn is_memory_read_prompt(prompt: &str) -> bool {
+    contains_any(prompt, &["memoire", "memory"])
+}
+
+fn is_system_check_prompt(prompt: &str) -> bool {
+    contains_any(
+        prompt,
+        &["systeme", "system", "verifie", "verifier", "check"],
+    ) || (contains_any(prompt, &["etat general"]) && contains_any(prompt, &["systeme", "system"]))
+}
+
 fn is_clarifying_prompt(prompt: &str) -> bool {
     matches!(
         prompt.trim(),
@@ -433,7 +586,16 @@ fn is_action_prompt(prompt: &str) -> bool {
             "verifie",
             "verifier",
             "check",
+            "liste",
+            "lister",
+            "affiche",
+            "afficher",
+            "consulte",
+            "consulter",
             "etat",
+            "statut",
+            "status",
+            "runtime",
             "systeme",
             "system",
             "lis",
@@ -637,38 +799,47 @@ mod tests {
     }
 
     #[test]
-    fn routes_system_audit_and_email_requests_to_proposed_actions() {
-        let system = deterministic_turn_for_prompt(
-            "vérifie l’état du système sans rien exécuter de dangereux",
-        )
-        .expect("system check should route deterministically");
-        match system {
-            AgentTurnDraft::ProposedAction { action } => {
-                assert_eq!(
-                    action.action_type,
-                    ActionType::Custom("system_check".to_owned())
-                );
-                assert_eq!(
-                    action.required_permissions,
-                    vec![Permission::ProposeToolUse]
-                );
-            }
-            other => panic!("expected proposed action, got {other:?}"),
-        }
+    fn routes_read_only_runtime_requests_to_precise_action_types() {
+        assert_read_only_route(
+            "Liste les actions en attente sans les modifier.",
+            ActionType::ReadPendingActions,
+            Permission::ReadProposedActions,
+            "read_pending_actions",
+        );
+        assert_read_only_route(
+            "Liste les actions proposées.",
+            ActionType::ReadProposedActions,
+            Permission::ReadProposedActions,
+            "read_proposed_actions",
+        );
+        assert_read_only_route(
+            "Lis l’état des tâches sans rien modifier.",
+            ActionType::ReadTasks,
+            Permission::ReadTasks,
+            "read_tasks",
+        );
+        assert_read_only_route(
+            "Consulte l’audit récent sans rien modifier.",
+            ActionType::ReadAudit,
+            Permission::ReadAudit,
+            "read_audit",
+        );
+        assert_read_only_route(
+            "Affiche le statut global du runtime.",
+            ActionType::ReadStatus,
+            Permission::ReadStatus,
+            "read_status",
+        );
+        assert_read_only_route(
+            "Vérifie l’état général du système sans rien exécuter.",
+            ActionType::SystemCheck,
+            Permission::ProposeToolUse,
+            "system_check",
+        );
+    }
 
-        let audit = deterministic_turn_for_prompt("lis les journaux d’audit")
-            .expect("audit read should route deterministically");
-        match audit {
-            AgentTurnDraft::ProposedAction { action } => {
-                assert_eq!(
-                    action.action_type,
-                    ActionType::Custom("read_audit".to_owned())
-                );
-                assert_eq!(action.required_permissions, vec![Permission::ReadMemory]);
-            }
-            other => panic!("expected proposed action, got {other:?}"),
-        }
-
+    #[test]
+    fn routes_email_requests_to_proposed_actions() {
         let email = deterministic_turn_for_prompt("envoie un mail")
             .expect("email should route deterministically");
         match email {
@@ -677,6 +848,40 @@ mod tests {
                 assert_eq!(action.required_permissions, vec![Permission::SimulateEmail]);
             }
             other => panic!("expected proposed action, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn keeps_advice_and_risk_questions_as_direct_replies() {
+        for prompt in [
+            "Que devrais-je vérifier avant d’ajouter une capacité d’exécution réelle ?",
+            "Quels sont les risques avant d’ajouter une capacité d’exécution réelle ?",
+        ] {
+            assert_eq!(classify_prompt_intent(prompt), IntentClass::DirectReply);
+            assert!(matches!(
+                deterministic_turn_for_prompt(prompt),
+                Some(AgentTurnDraft::DirectReply { .. })
+            ));
+        }
+    }
+
+    fn assert_read_only_route(
+        prompt: &str,
+        expected_action_type: ActionType,
+        expected_permission: Permission,
+        expected_operation: &str,
+    ) {
+        let turn = deterministic_turn_for_prompt(prompt)
+            .unwrap_or_else(|| panic!("{prompt} should route deterministically"));
+        match turn {
+            AgentTurnDraft::ProposedAction { action } => {
+                assert_eq!(action.action_type, expected_action_type);
+                assert_eq!(action.risk_level, RiskLevel::Informational);
+                assert_eq!(action.required_permissions, vec![expected_permission]);
+                assert_eq!(action.payload["operation"], expected_operation);
+                assert_eq!(action.payload["read_only"], true);
+            }
+            other => panic!("expected proposed action for {prompt}, got {other:?}"),
         }
     }
 

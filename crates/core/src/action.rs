@@ -10,6 +10,13 @@ use serde_json::Value;
 #[serde(rename_all = "snake_case")]
 pub enum ActionType {
     ReadMemory,
+    ReadTasks,
+    ReadProposedActions,
+    ReadPendingActions,
+    ReadDecisions,
+    ReadAudit,
+    ReadStatus,
+    SystemCheck,
     WriteMemory,
     ReadDocument,
     WriteDocument,

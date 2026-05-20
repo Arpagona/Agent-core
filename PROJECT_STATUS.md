@@ -225,30 +225,33 @@ The update must clearly state whether the change is stable, alpha, experimental,
 
 ## 11. Latest Session Update
 
-This session added a read-only top-level CLI status cockpit, extending the local supervision surface from scoped audit readback to a quick operator overview while preserving the existing governance boundaries.
+This session tightened the OpenAI/chat router read-only action taxonomy so explicit runtime readback requests produce precise informational `ProposedAction` types instead of generic `read_memory` or `system_check` fallbacks.
 
 Changed:
 
-- `arpagona status` now calls existing read-only API paths only: `/health`, `/tasks`, `/proposed-actions`, `/decisions` and `/audit`;
-- the status output reports API health, task count, proposed action count, decision count, audit event count, pending decision count, needs-human-approval count, recent audit event count and last audit event timestamp when available;
-- the command degrades safely when the API is unavailable by showing `unavailable` values instead of mutating state or implying authorization;
-- `docs/cli.md` now documents `arpagona status` as a local read-only supervision cockpit;
-- CLI tests now protect command parsing, count formatting, unavailable-state formatting and the readback-only warning.
+- added first-class read-only action types for alpha runtime supervision: `read_tasks`, `read_proposed_actions`, `read_pending_actions`, `read_decisions`, `read_audit`, `read_status` and `system_check`;
+- added matching read-only permissions for task/action/decision/audit/status readback while keeping `read_pending_actions` under proposed-action read permission;
+- updated the OpenAI provider system prompt to reserve `read_memory` for long-term/cognitive memory and `system_check` for generic system verification only;
+- updated deterministic chat routing so task, proposed-action, pending-action, decision, audit and runtime-status readback requests route to precise informational actions;
+- kept advice/risk/planning questions such as pre-execution risk checks as `DirectReply`, not `ProposedAction`;
+- documented the read-only provider routing behavior in `docs/cli.md`;
+- added Rust regression tests for the observed routing cases.
 
-Stability level: alpha CLI supervision cockpit.
+Stability level: alpha provider/chat routing taxonomy.
 
 Limits:
 
 - no real tool execution was introduced;
+- no destructive capability was added;
 - no approval, rejection or authorization behavior was added;
 - no Decision Gate behavior was changed;
 - no Graph Memory persistence schema or migration was changed;
 - no new API endpoint was added;
-- no runtime, scheduler, MCP, browser automation, provider, credential or Mission Control Web growth was introduced;
-- the status command remains readback only and must not be treated as approval, authorization, orchestration or execution state.
+- no runtime, scheduler, MCP, browser automation, credential or Mission Control Web growth was introduced;
+- all routed read-only actions remain proposed actions only and materialize as `pending_decision` before any separate Decision Gate evaluation.
 
 Architectural risk:
 
-- low for alpha use. The CLI reuses existing read-only API paths and performs small client-side aggregation, which keeps the increment reversible and avoids API/store expansion. The main risk is that status remains only as reliable as the alpha in-memory API and client-side aggregation; a future server-side status endpoint can be considered only when the existing readback paths become a real limitation.
+- low for alpha use. This is a taxonomy and routing precision increment, but expanding domain enums means downstream consumers must accept the new serialized action and permission values. The change is intentionally bounded to read-only supervision semantics.
 
-Recommended next step: continue CLI supervision first by improving operator usefulness around pending decisions, human approval readback or audit trace navigation. Avoid another test-only Audit/Graph Memory guard unless it protects a concrete uncovered risk.
+Recommended next step: validate the OpenAI chat path manually with `/provider openai` once API and credentials are available, then continue CLI supervision first without adding execution paths.
