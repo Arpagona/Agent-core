@@ -34,7 +34,7 @@ ARPAGONA Agent Core must provide the following core systems:
 
 6. Neutral Orchestrator: general-purpose coordinator able to receive objectives, create tasks, recall context, request compute allocation, propose actions, pass them through the Decision Gate and record outcomes.
 
-7. Audit System: traceability layer for requests, recalled context, compute choices, proposed actions, decisions, approvals, tool calls, observations, memory updates, errors and invalidations.
+7. Audit System: traceability layer for requests, recalled context, compute choices, proposed actions, decisions, approvals, tool calls, observations, memory updates, errors, invalidations and explicit decision reasons.
 
 8. Mission Control: web dashboard that makes the runtime observable and controllable.
 
@@ -56,6 +56,22 @@ The core graph-memory primitives should be:
 - invalidate: expire, supersede, revoke or mark facts as unreliable.
 
 Every important decision must produce a causal audit trace: proposed action, context used, valid facts, applied policies, decision result, approval source and reason.
+
+Decision audit traces must be explanatory, not merely referential. A decision audit event must be sufficient for a human supervisor or later agent to understand why a decision was approved, blocked, escalated, rerouted or left pending without inspecting hidden runtime state. At minimum, decision audit events must include:
+
+- proposed_action_id;
+- decision_id;
+- action_type;
+- risk level;
+- decision outcome;
+- explicit human-readable reason;
+- matched policy rule, fallback rule or `deny_by_default` marker;
+- required permission when relevant;
+- actor/source that triggered the evaluation;
+- timestamp;
+- suggested next action when blocked or incomplete.
+
+A `Decision: blocked` result without an explicit reason in the audit trace is considered an alpha defect. For example, an attempted `read_memory` action that is blocked must explain whether the cause is missing policy, unavailable memory backend, missing permission, deny-by-default behavior or required human confirmation.
 
 ## 5. Compute Reservoir Objective
 
@@ -105,6 +121,8 @@ V0 does not need to be fully autonomous or production-ready. V0 must prove that 
 
 A successful V0 demonstrates that a user can create an objective, the orchestrator creates a task, Graph Memory recalls applicable context, Compute Reservoir selects a resource, an agent proposes an action, Decision Gate evaluates it, the decision is recorded, audit shows the causal trace, and Mission Control makes the chain visible.
 
+The audit proof is not satisfied by IDs alone. V0 must show at least one approved, one blocked and one pending or human-confirmation decision with complete explanatory audit fields, including explicit reasons and matched policy/fallback rules.
+
 V0 must be ambitious but controlled. Governance comes before autonomy.
 
 ## 9. Development Priorities
@@ -127,7 +145,9 @@ Recommended implementation order:
 
 ## 10. Success Criteria
 
-ARPAGONA Agent Core will be considered successful when it can maintain structured and invalidable memory, select the right compute resource for a task, prevent unsafe action execution, expose clear decision traces, keep humans in control of sensitive actions, reduce unnecessary cloud LLM usage, combine local and cloud intelligence intelligently, make agent behavior observable in Mission Control, and support future professional deployments.
+ARPAGONA Agent Core will be considered successful when it can maintain structured and invalidable memory, select the right compute resource for a task, prevent unsafe action execution, expose clear and explanatory decision traces, keep humans in control of sensitive actions, reduce unnecessary cloud LLM usage, combine local and cloud intelligence intelligently, make agent behavior observable in Mission Control, and support future professional deployments.
+
+A clear decision trace means that `/evaluate action-x` followed by `/audit audit-decision-action-x` must expose the decision outcome, reason, policy/fallback rule and next recommended step. Audit entries that only show `decision_created`, `proposed_action_id` and `decision_id` are insufficient for governed alpha use.
 
 ## 11. Long-Term Direction
 
