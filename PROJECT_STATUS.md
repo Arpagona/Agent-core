@@ -216,16 +216,16 @@ The update must clearly state whether the change is stable, alpha, experimental,
 
 ## 11. Latest Session Update
 
-This session added a bounded alpha audit trace lookup by task id, keeping the work inside Graph Memory/Audit queryability only.
+This session added a bounded alpha helper for constructing canonical `DecisionCreated` audit events, keeping the work inside Rust core domain types and Audit causal trace semantics only.
 
 Changed:
 
-- `GraphMemoryStore` now exposes `list_audit_events_for_task` in the pure core domain contract;
-- `InMemoryGraphMemoryStore` implements task-scoped audit event lookup and tests it without execution;
-- `crates/graph-memory` now persists `audit_event.task_id`, indexes it in the SurrealDB schema, and exposes task-scoped audit lookup through the async adapter port;
-- `docs/causal-trace.md` now states that alpha audit events are queryable by workspace, task, proposed action and decision.
+- `AuditEvent::decision_created` now builds `DecisionCreated` audit events from a `Decision` while preserving queryable `proposed_action_id`, `decision_id`, workspace scope and optional task scope;
+- `crates/decision-gate::audit_event_for_decision` now delegates to the core helper instead of hand-building the event payload;
+- the helper writes a structured alpha `payload.causal_trace` containing the proposed action id, decision id, decision status, reason, risk level and applied policies;
+- `docs/causal-trace.md` now documents the helper as the current Rust-first convention for `DecisionCreated` audit events.
 
-Stability level: alpha trace-query stabilization.
+Stability level: alpha audit field semantics stabilization.
 
 Limits:
 
@@ -233,11 +233,12 @@ Limits:
 - no API endpoint was added;
 - no CLI behavior was expanded;
 - no Decision Gate behavior was changed;
+- no Graph Memory persistence schema or migration was changed;
 - no graph-edge mirroring was introduced;
 - no Runtime, scheduler, MCP, browser automation, provider or Mission Control growth was introduced.
 
 Architectural risk:
 
-- low, provided task-scoped lookup remains an audit/query feature and is not treated as authorization, orchestration or execution control.
+- low, provided the helper remains a trace-construction convention and is not treated as authorization, orchestration or execution control.
 
-Recommended next step: continue stabilizing Audit field semantics and Graph Memory persistence conventions before expanding Runtime/API/CLI surfaces.
+Recommended next step: use this helper in future Decision Gate/Audit integration paths, then continue stabilizing Graph Memory persistence conventions before expanding Runtime/API/CLI surfaces.
