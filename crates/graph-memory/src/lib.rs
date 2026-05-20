@@ -760,6 +760,7 @@ mod tests {
     #[tokio::test]
     async fn returns_audit_trace_queries_in_chronological_order() {
         let store = memory_store().await;
+        let workspace_id = WorkspaceId::new("workspace-1");
         let task_id = TaskId::new("task-ordered");
         let proposed_action_id = ProposedActionId::new("action-ordered");
         let decision_id = DecisionId::new("decision-ordered");
@@ -769,7 +770,7 @@ mod tests {
             id: AuditEventId::new("audit-older"),
             event_type: AuditEventType::ActionProposed,
             actor: ActorRef::Agent(AgentId::new("agent-1")),
-            workspace_id: Some(WorkspaceId::new("workspace-1")),
+            workspace_id: Some(workspace_id.clone()),
             task_id: Some(task_id.clone()),
             proposed_action_id: Some(proposed_action_id.clone()),
             decision_id: Some(decision_id.clone()),
@@ -780,7 +781,7 @@ mod tests {
             id: AuditEventId::new("audit-newer"),
             event_type: AuditEventType::DecisionCreated,
             actor: ActorRef::System,
-            workspace_id: Some(WorkspaceId::new("workspace-1")),
+            workspace_id: Some(workspace_id.clone()),
             task_id: Some(task_id.clone()),
             proposed_action_id: Some(proposed_action_id.clone()),
             decision_id: Some(decision_id.clone()),
@@ -797,6 +798,13 @@ mod tests {
             .await
             .expect("record older audit event second");
 
+        assert_eq!(
+            store
+                .list_audit_events_for_workspace(workspace_id)
+                .await
+                .expect("list ordered workspace events"),
+            vec![older_event.clone(), newer_event.clone()]
+        );
         assert_eq!(
             store
                 .list_audit_events_for_task(task_id)
