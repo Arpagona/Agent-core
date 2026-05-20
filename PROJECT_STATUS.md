@@ -23,7 +23,7 @@ Current observed state:
 - `docs/compute-reservoir.md` frames the alpha minimal Compute Reservoir crate and its non-goals.
 - `docs/tool-registry.md` frames the alpha minimal Tool Registry crate, its declarative role and its explicit non-goals.
 - `docs/causal-trace.md` documents alpha conventions for linking proposed actions, tasks, decisions and audit events.
-- `crates/core` exists and contains the core domain vocabulary: agents, workspaces, tasks, goals, proposed actions, decisions, policies, permissions, risks, graph primitives, audit events, memory concepts and cognitive primitives.
+- `crates/core` exists and contains the core domain vocabulary: agents, workspaces, tasks, goals, proposed actions, decisions, policies, permissions, risks, graph primitives, audit events, memory concepts, cognitive primitives and the minimal Failure-to-Insight vocabulary.
 - `Decision Gate` exists as alpha governance logic inside `crates/decision-gate`.
 - `crates/compute-reservoir` exists as an alpha minimal pure Rust crate with compute inventory/allocation types and a deterministic `allocate_compute` function.
 - `crates/tool-registry` exists as an alpha minimal declarative catalogue for tool definitions, capabilities, schemas, permissions, risk levels and enabled/disabled states, without execution.
@@ -60,7 +60,7 @@ The current product direction is no longer abstract stabilization only. The near
 | `docs/tool-registry.md` | Stable foundation | Tool Registry framing | Documents the declarative registry boundary, explicit non-goals and alpha surface. |
 | `docs/causal-trace.md` | Alpha foundation | Causal trace conventions | Documents current links and alpha audit trace queries for tasks, proposed actions, decisions and audit events without adding execution. |
 | `crates/core` | Stable foundation | Domain vocabulary and pure types | Must not become a catch-all crate. Governance logic should stay in dedicated crates. |
-| Core domain types | Stable foundation | Shared typed language | Should remain pure, serializable and dependency-light. |
+| Core domain types | Stable foundation | Shared typed language | Includes minimal Failure-to-Insight vocabulary; remains pure, serializable and dependency-light. |
 | Decision Gate | Alpha | Pre-execution governance | Extracted into `crates/decision-gate`; `crates/core` no longer reexports the Decision Gate logic. |
 | Reservoir Echo | Alpha | Short-term cognitive continuity | Volatile traces only. Not persistent memory. Not model routing. Not Compute Reservoir. |
 | Compute Reservoir | Alpha minimal | Compute/model/resource routing | `crates/compute-reservoir` provides serializable types and pure allocation only; no model calls, execution, I/O, persistence or Decision Gate replacement. |
@@ -94,7 +94,8 @@ Stable foundations:
 - separation between domain vocabulary and adapters as an architectural rule;
 - documentation-level separation between Reservoir Echo and Compute Reservoir;
 - the CLI as the preferred near-term local supervision surface;
-- Failure-to-Insight as a stable documentary doctrine for turning failures and corrections into durable, non-authorizing learning artifacts.
+- Failure-to-Insight as a stable documentary doctrine for turning failures and corrections into durable, non-authorizing learning artifacts;
+- minimal `FailureInsight` domain vocabulary in `crates/core`, limited to pure serializable types and optional trace links.
 
 ## 4. What Is Experimental
 
@@ -108,7 +109,7 @@ Experimental areas:
 - Reservoir Echo tuning and lifecycle;
 - Compute Reservoir allocation heuristics and telemetry shape;
 - audit persistence and causal trace design;
-- future Failure-to-Insight domain vocabulary, audit conventions, CLI readback and Graph Memory integration;
+- future Failure-to-Insight audit conventions, CLI readback and Graph Memory integration;
 - exact crate boundaries for remaining governance layers.
 
 Experimental means: useful for learning, local supervision and integration tests, but not stable enough to justify external-effect execution around it.
@@ -152,8 +153,8 @@ Main risks:
 
 Recommended sequence from the current state:
 
-1. Keep the Failure-to-Insight doctrine visible in canonical contributor and focus-loop context.
-2. In a later bounded implementation PR, add the smallest domain vocabulary and audit conventions needed for `FailureInsight`, without adding execution, autonomy or authorization.
+1. Keep the Failure-to-Insight doctrine and minimal domain vocabulary visible in canonical contributor and focus-loop context.
+2. In a later bounded implementation PR, add the smallest audit conventions needed to extract or reference `FailureInsight`, without adding execution, autonomy or authorization.
 3. Prefer read-only CLI supervision increments that make the existing audit/task/action state inspectable.
 4. Add more Graph Memory or Audit guards only when they protect a concrete uncovered regression risk or unblock a supervision feature.
 5. Keep `crates/tool-registry` as a declarative catalogue only and harden it if gaps appear.
@@ -172,7 +173,7 @@ The target consolidation order is now interpreted as controlled acceleration, no
 4. Tool Registry minimal
 5. Graph Memory + SurrealDB stabilized enough for readback
 6. Audit System stabilized enough for readback
-7. Failure-to-Insight vocabulary and conventions, after documentary doctrine is stable
+7. Failure-to-Insight vocabulary present; next conventions remain bounded and non-executing
 8. CLI supervision surface
 9. Neutral Orchestrator
 10. API Server Axum
@@ -232,31 +233,33 @@ The update must clearly state whether the change is stable, alpha, experimental,
 
 ## 11. Latest Session Update
 
-This session integrated the canonical Failure-to-Insight doctrine into the contributor and focus-loop context through documentation only.
+This session added the minimal `FailureInsight` domain vocabulary to `crates/core`.
 
 Changed:
 
-- referenced `docs/failure-to-insight.md` from canonical read-before-change lists and roadmap/status/objective documents;
-- elevated Failure-to-Insight as a first-order requirement in `PROJECT_OBJECTIVES.md`;
-- added focus-loop reporting fields for observed failures, created insights, correction target and next detection signal;
-- clarified the recommended future sequence: documentary doctrine first, then bounded `FailureInsight` vocabulary, audit conventions, read-only CLI readback, regression tests, Graph Memory integration and later influence on Compute Reservoir and Decision Gate.
+- added pure serializable Failure-to-Insight domain types in `crates/core/src/failure_insight.rs`;
+- added `FailureInsightId` to the existing core ID vocabulary;
+- exported the new vocabulary from `crates/core`;
+- added unit tests for construction, trace links, status handling and serde roundtrip;
+- updated this status document to reflect that the minimal domain vocabulary now exists.
 
-Stability level: stable documentary foundation; no implementation added.
+Stability level: stable core-domain vocabulary; no persistence or runtime behavior added.
 
 Limits:
 
-- no Rust code was changed;
-- no `FailureInsight` type was created;
+- no persistence was added;
+- no CLI command or API endpoint was added;
+- no runtime behavior was added;
 - no real tool execution was introduced;
 - no destructive capability was added;
 - no approval, rejection or authorization behavior was added;
 - no Decision Gate behavior was changed;
-- no Graph Memory persistence schema, migration or runtime behavior was changed;
-- no CLI command, API endpoint, runtime, scheduler, MCP, browser automation, credential or Mission Control Web growth was introduced;
-- Failure-to-Insight remains learning and observability context only, never approval, authorization, orchestration, self-modification or execution state.
+- no Graph Memory integration, schema, migration or runtime behavior was changed;
+- no scheduler, autonomy, MCP, browser automation, credential handling or Mission Control Web growth was introduced;
+- `FailureInsight` remains learning and observability vocabulary only, never approval, authorization, orchestration, self-modification or execution state.
 
 Architectural risk:
 
-- low for alpha use. The change is documentary and reinforces the boundary that learning from failures informs future decisions but does not authorize action.
+- low for alpha use. The change is bounded to pure Rust domain types and optional trace links, preserving the separation between vocabulary, persistence, runtime, governance and execution.
 
-Recommended next step: after this documentary integration is merged, consider a separate bounded implementation PR for the smallest `FailureInsight` domain vocabulary and audit conventions, still without execution, autonomy or implicit authorization.
+Recommended next step: add a separate bounded PR for audit conventions around when a `FailureInsight` should be referenced or extracted, still without Graph Memory persistence, CLI readback, Decision Gate influence or autonomous generation.
