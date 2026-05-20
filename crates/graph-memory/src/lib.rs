@@ -453,7 +453,7 @@ mod tests {
         ActorRef, AgentId, AuditEventId, AuditEventType, DecisionId, GraphNodeType,
         ProposedActionId, RelationType, SourceType, TaskId,
     };
-    use chrono::Utc;
+    use chrono::{Duration, Utc};
     use serde_json::json;
     use surrealdb::engine::local::{Db, Mem};
 
@@ -754,6 +754,69 @@ mod tests {
                 .await
                 .expect("list audit events by decision"),
             vec![event]
+        );
+    }
+
+    #[tokio::test]
+    async fn returns_audit_trace_queries_in_chronological_order() {
+        let store = memory_store().await;
+        let task_id = TaskId::new("task-ordered");
+        let proposed_action_id = ProposedActionId::new("action-ordered");
+        let decision_id = DecisionId::new("decision-ordered");
+        let base_time = Utc::now();
+
+        let older_event = AuditEvent {
+            id: AuditEventId::new("audit-older"),
+            event_type: AuditEventType::ActionProposed,
+            actor: ActorRef::Agent(AgentId::new("agent-1")),
+            workspace_id: Some(WorkspaceId::new("workspace-1")),
+            task_id: Some(task_id.clone()),
+            proposed_action_id: Some(proposed_action_id.clone()),
+            decision_id: Some(decision_id.clone()),
+            payload: json!({"note": "older trace event"}),
+            created_at: base_time,
+        };
+        let newer_event = AuditEvent {
+            id: AuditEventId::new("audit-newer"),
+            event_type: AuditEventType::DecisionCreated,
+            actor: ActorRef::System,
+            workspace_id: Some(WorkspaceId::new("workspace-1")),
+            task_id: Some(task_id.clone()),
+            proposed_action_id: Some(proposed_action_id.clone()),
+            decision_id: Some(decision_id.clone()),
+            payload: json!({"note": "newer trace event"}),
+            created_at: base_time + Duration::seconds(5),
+        };
+
+        store
+            .record_audit_event(newer_event.clone())
+            .await
+            .expect("record newer audit event first");
+        store
+            .record_audit_event(older_event.clone())
+            .await
+            .expect("record older audit event second");
+
+        assert_eq!(
+            store
+                .list_audit_events_for_task(task_id)
+                .await
+                .expect("list ordered task events"),
+            vec![older_event.clone(), newer_event.clone()]
+        );
+        assert_eq!(
+            store
+                .list_audit_events_for_proposed_action(proposed_action_id)
+                .await
+                .expect("list ordered proposed action events"),
+            vec![older_event.clone(), newer_event.clone()]
+        );
+        assert_eq!(
+            store
+                .list_audit_events_for_decision(decision_id)
+                .await
+                .expect("list ordered decision events"),
+            vec![older_event, newer_event]
         );
     }
 
