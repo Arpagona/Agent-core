@@ -42,6 +42,7 @@ id_type!(AuditEventId);
 id_type!(DecisionId);
 id_type!(EpisodeId);
 id_type!(FactId);
+id_type!(FailureInsightId);
 id_type!(GoalId);
 id_type!(ObservationId);
 id_type!(PolicyId);
