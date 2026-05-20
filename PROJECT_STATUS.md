@@ -216,29 +216,29 @@ The update must clearly state whether the change is stable, alpha, experimental,
 
 ## 11. Latest Session Update
 
-This session stabilized the canonical alpha `AuditTraceSummary` shape as a Rust-first human-supervision readback object before exposing it through CLI/API.
+This session added a minimal read-only CLI inspection surface for decision-scoped audit summaries while preserving the existing governance boundaries.
 
 Changed:
 
-- `AuditTraceSummary` now includes `first_event_at` and `last_event_at` alongside first/last audit event ids, preserving chronological boundary timestamps from already-ordered audit-event lists;
-- summary tests now protect causal link preservation, decision scope, event count, chronological boundary ids/timestamps, workspace/task scope, proposed action id and the non-approval/non-execution interpretation of readback markers;
-- `docs/causal-trace.md` now documents the canonical alpha summary shape with temporal boundary fields and reiterates chronological ordering assumptions.
+- `arpagona audit decision-summary <decision-id>` now fetches existing audit events read-only, filters them by decision id, orders them chronologically and renders the existing `AuditTraceSummary` fields for human supervision;
+- CLI summary construction preserves empty decision scope by keeping the requested `decision_id` even when no matching audit events exist;
+- CLI tests now protect parsing, decision filtering, chronological ordering, scope/link preservation and the non-authorization/non-execution interpretation of summary readback.
 
-Stability level: alpha Audit readback shape stabilization.
+Stability level: alpha CLI Audit readback inspection.
 
 Limits:
 
 - no real tool execution was introduced;
-- no API endpoint was added;
-- no CLI behavior was expanded;
+- no approval or authorization behavior was added;
 - no Decision Gate behavior was changed;
 - no Graph Memory persistence schema or migration was changed;
+- no new API endpoint was added;
 - no graph-edge mirroring was introduced;
-- no Runtime, scheduler, MCP, browser automation, provider or Mission Control growth was introduced;
-- the summary remains readback only and must not be treated as approval, authorization, orchestration or execution state.
+- no Runtime, scheduler, MCP, browser automation, provider, credential or Mission Control growth was introduced;
+- the CLI summary remains readback only and must not be treated as approval, authorization, orchestration or execution state.
 
 Architectural risk:
 
-- low, provided downstream consumers treat the summary as a typed supervision readback and keep execution/authorization decisions inside the governed Decision Gate path.
+- low for alpha use. The CLI currently reuses the existing `/audit` readback and builds the core `AuditTraceSummary` locally rather than forcing a broader API/store refactor; a future persistence-backed endpoint can use `GraphMemoryStore::audit_trace_summary_for_decision` directly once that exposure is deliberately chosen.
 
-Recommended next step: expose the summary through a tiny CLI/API inspection path only if explicitly chosen as the next small increment; otherwise continue Graph Memory persistence convention stabilization.
+Recommended next step: either add a tiny API/server-side decision-summary readback endpoint backed by the Graph Memory summary path, or continue Graph Memory persistence convention stabilization before widening inspection surfaces.
