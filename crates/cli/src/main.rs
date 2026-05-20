@@ -223,7 +223,22 @@ enum AuditSubcommand {
 struct DecisionSummaryArgs {
     /// Decision id to summarize.
     decision_id: String,
+    /// Emit a structured JSON readback instead of human-oriented text.
+    #[arg(long)]
+    json: bool,
 }
+
+#[derive(Debug, Serialize)]
+struct AuditDecisionReadback {
+    summary: AuditTraceSummary,
+    decision_status: Option<String>,
+    risk_level: Option<String>,
+    policies_applied: Vec<String>,
+    warning: &'static str,
+}
+
+const AUDIT_READBACK_WARNING: &str =
+    "Readback only: this summary is not approval, authorization, orchestration, or execution state.";
 
 #[derive(Debug, PartialEq, Eq)]
 enum ChatLine {
@@ -857,16 +872,20 @@ async fn audit_decision_summary(
 ) -> Result<(), Box<dyn Error>> {
     let events: Vec<AuditEvent> =
         get_json(client.get(format!("{api_url}/audit")).send().await?).await?;
-    let summary = decision_summary_from_audit_events(events, &args.decision_id);
+    let readback = decision_readback_from_audit_events(events, &args.decision_id);
 
-    print_audit_trace_summary(&summary);
+    if args.json {
+        println!("{}", serde_json::to_string_pretty(&readback)?);
+    } else {
+        print_audit_decision_readback(&readback);
+    }
     Ok(())
 }
 
-fn decision_summary_from_audit_events(
+fn decision_readback_from_audit_events(
     events: Vec<AuditEvent>,
     decision_id: &str,
-) -> AuditTraceSummary {
+) -> AuditDecisionReadback {
     let decision_id = DecisionId::new(decision_id);
     let mut decision_events = events
         .into_iter()
@@ -874,113 +893,215 @@ fn decision_summary_from_audit_events(
         .collect::<Vec<_>>();
     decision_events.sort_by_key(|event| event.created_at);
 
+    let metadata = decision_readback_metadata(&decision_events);
     let mut summary = AuditTraceSummary::from_events(&decision_events);
     summary.decision_id = Some(decision_id);
-    summary
+
+    AuditDecisionReadback {
+        summary,
+        decision_status: metadata.decision_status,
+        risk_level: metadata.risk_level,
+        policies_applied: metadata.policies_applied,
+        warning: AUDIT_READBACK_WARNING,
+    }
 }
 
-fn print_audit_trace_summary(summary: &AuditTraceSummary) {
-    println!("{}", style_info("Audit decision summary"));
-    println!(
-        "{} {}",
-        style_dim("decision_id:"),
-        summary
+#[derive(Debug, Default)]
+struct AuditDecisionMetadata {
+    decision_status: Option<String>,
+    risk_level: Option<String>,
+    policies_applied: Vec<String>,
+}
+
+fn decision_readback_metadata(events: &[AuditEvent]) -> AuditDecisionMetadata {
+    let mut metadata = AuditDecisionMetadata::default();
+
+    for event in events {
+        let trace = event.payload.get("causal_trace").unwrap_or(&event.payload);
+
+        if metadata.decision_status.is_none() {
+            metadata.decision_status = string_field(trace, "decision_status");
+        }
+        if metadata.risk_level.is_none() {
+            metadata.risk_level = string_field(trace, "risk_level");
+        }
+        if metadata.policies_applied.is_empty() {
+            metadata.policies_applied = string_array_field(trace, "policies_applied");
+        }
+    }
+
+    metadata
+}
+
+fn string_field(value: &Value, field: &str) -> Option<String> {
+    value.get(field).and_then(|field_value| match field_value {
+        Value::String(value) => Some(value.clone()),
+        Value::Null => None,
+        other => Some(other.to_string()),
+    })
+}
+
+fn string_array_field(value: &Value, field: &str) -> Vec<String> {
+    value
+        .get(field)
+        .and_then(Value::as_array)
+        .map(|values| {
+            values
+                .iter()
+                .filter_map(|value| match value {
+                    Value::String(value) => Some(value.clone()),
+                    Value::Null => None,
+                    other => Some(other.to_string()),
+                })
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+fn print_audit_decision_readback(readback: &AuditDecisionReadback) {
+    print!("{}", format_audit_decision_readback(readback));
+}
+
+fn format_audit_decision_readback(readback: &AuditDecisionReadback) -> String {
+    let summary = &readback.summary;
+    let mut output = String::new();
+
+    push_readback_line(&mut output, &style_info("Audit decision summary"));
+    push_readback_field(
+        &mut output,
+        "decision_id:",
+        &summary
             .decision_id
             .as_ref()
             .map(ToString::to_string)
-            .unwrap_or_else(|| "-".to_owned())
+            .unwrap_or_else(|| "-".to_owned()),
     );
-    println!("{} {}", style_dim("event_count:"), summary.event_count);
-    println!(
-        "{} {}",
-        style_dim("proposed_action_id:"),
-        summary
+    push_readback_field(
+        &mut output,
+        "proposed_action_id:",
+        &summary
             .proposed_action_id
             .as_ref()
             .map(ToString::to_string)
-            .unwrap_or_else(|| "-".to_owned())
+            .unwrap_or_else(|| "-".to_owned()),
     );
-    println!(
-        "{} {}",
-        style_dim("workspace_id:"),
-        summary
+    push_readback_field(
+        &mut output,
+        "workspace_id:",
+        &summary
             .workspace_id
             .as_ref()
             .map(ToString::to_string)
-            .unwrap_or_else(|| "-".to_owned())
+            .unwrap_or_else(|| "-".to_owned()),
     );
-    println!(
-        "{} {}",
-        style_dim("task_id:"),
-        summary
+    push_readback_field(
+        &mut output,
+        "task_id:",
+        &summary
             .task_id
             .as_ref()
             .map(ToString::to_string)
-            .unwrap_or_else(|| "-".to_owned())
+            .unwrap_or_else(|| "-".to_owned()),
     );
-    println!(
-        "{} {}",
-        style_dim("first_event_id:"),
-        summary
+    push_readback_field(
+        &mut output,
+        "event_count:",
+        &summary.event_count.to_string(),
+    );
+    push_readback_field(
+        &mut output,
+        "first_event_id:",
+        &summary
             .first_event_id
             .as_ref()
             .map(ToString::to_string)
-            .unwrap_or_else(|| "-".to_owned())
+            .unwrap_or_else(|| "-".to_owned()),
     );
-    println!(
-        "{} {}",
-        style_dim("last_event_id:"),
-        summary
+    push_readback_field(
+        &mut output,
+        "last_event_id:",
+        &summary
             .last_event_id
             .as_ref()
             .map(ToString::to_string)
-            .unwrap_or_else(|| "-".to_owned())
+            .unwrap_or_else(|| "-".to_owned()),
     );
-    println!(
-        "{} {}",
-        style_dim("first_event_at:"),
-        summary
+    push_readback_field(
+        &mut output,
+        "first_event_at:",
+        &summary
             .first_event_at
             .map(|timestamp| timestamp.to_rfc3339())
-            .unwrap_or_else(|| "-".to_owned())
+            .unwrap_or_else(|| "-".to_owned()),
     );
-    println!(
-        "{} {}",
-        style_dim("last_event_at:"),
-        summary
+    push_readback_field(
+        &mut output,
+        "last_event_at:",
+        &summary
             .last_event_at
             .map(|timestamp| timestamp.to_rfc3339())
-            .unwrap_or_else(|| "-".to_owned())
+            .unwrap_or_else(|| "-".to_owned()),
     );
-    println!(
-        "{} {}",
-        style_dim("has_action_proposed:"),
-        summary.has_action_proposed
+    push_readback_field(
+        &mut output,
+        "decision_status:",
+        readback.decision_status.as_deref().unwrap_or("-"),
     );
-    println!(
-        "{} {}",
-        style_dim("has_decision_created:"),
-        summary.has_decision_created
+    push_readback_field(
+        &mut output,
+        "risk_level:",
+        readback.risk_level.as_deref().unwrap_or("-"),
     );
-    println!(
-        "{} {}",
-        style_dim("has_human_approval_request:"),
-        summary.has_human_approval_request
+    push_readback_field(
+        &mut output,
+        "policies_applied:",
+        &format_policies(&readback.policies_applied),
     );
-    println!(
-        "{} {}",
-        style_dim("has_human_outcome:"),
-        summary.has_human_outcome
+    push_readback_field(
+        &mut output,
+        "has_action_proposed:",
+        &summary.has_action_proposed.to_string(),
     );
-    println!(
-        "{} {}",
-        style_dim("has_execution_event:"),
-        summary.has_execution_event
+    push_readback_field(
+        &mut output,
+        "has_decision_created:",
+        &summary.has_decision_created.to_string(),
     );
-    println!(
-        "{}",
-        style_dim("Readback only: this summary is not approval, authorization, orchestration, or execution state.")
+    push_readback_field(
+        &mut output,
+        "has_human_approval_request:",
+        &summary.has_human_approval_request.to_string(),
     );
+    push_readback_field(
+        &mut output,
+        "has_human_outcome:",
+        &summary.has_human_outcome.to_string(),
+    );
+    push_readback_field(
+        &mut output,
+        "has_execution_event:",
+        &summary.has_execution_event.to_string(),
+    );
+    push_readback_line(&mut output, &style_dim(readback.warning));
+
+    output
+}
+
+fn push_readback_field(output: &mut String, label: &str, value: &str) {
+    push_readback_line(output, &format!("{} {}", style_dim(label), value));
+}
+
+fn push_readback_line(output: &mut String, line: &str) {
+    output.push_str(line);
+    output.push('\n');
+}
+
+fn format_policies(policies: &[String]) -> String {
+    if policies.is_empty() {
+        "-".to_owned()
+    } else {
+        policies.join(", ")
+    }
 }
 
 async fn get_json<T: for<'de> Deserialize<'de>>(
@@ -1290,11 +1411,20 @@ mod tests {
 
     #[test]
     fn cli_parses_audit_decision_summary_command() {
-        let cli = Cli::parse_from(["arpagona", "audit", "decision-summary", "decision-1"]);
+        let cli = Cli::parse_from([
+            "arpagona",
+            "audit",
+            "decision-summary",
+            "decision-1",
+            "--json",
+        ]);
         match cli.command {
             Command::Audit(AuditCommand {
                 command: AuditSubcommand::DecisionSummary(args),
-            }) => assert_eq!(args.decision_id, "decision-1"),
+            }) => {
+                assert_eq!(args.decision_id, "decision-1");
+                assert!(args.json);
+            }
             _ => panic!("expected audit decision-summary"),
         }
     }
@@ -1312,7 +1442,13 @@ mod tests {
                 "task_id": "task-1",
                 "proposed_action_id": "action-1",
                 "decision_id": "decision-1",
-                "payload": {},
+                "payload": {
+                    "causal_trace": {
+                        "decision_status": "needs_human_approval",
+                        "risk_level": "high",
+                        "policies_applied": ["policy-human-approval"]
+                    }
+                },
                 "created_at": "2026-01-01T00:05:00Z"
             }))
             .unwrap(),
@@ -1344,7 +1480,8 @@ mod tests {
         let first_at = events[2].created_at;
         let last_at = events[0].created_at;
 
-        let summary = decision_summary_from_audit_events(events, "decision-1");
+        let readback = decision_readback_from_audit_events(events, "decision-1");
+        let summary = &readback.summary;
 
         assert_eq!(summary.decision_id, Some(DecisionId::new("decision-1")));
         assert_eq!(summary.event_count, 2);
@@ -1361,11 +1498,33 @@ mod tests {
         assert!(summary.has_action_proposed);
         assert!(summary.has_decision_created);
         assert!(!summary.has_execution_event);
+        assert_eq!(
+            readback.decision_status.as_deref(),
+            Some("needs_human_approval")
+        );
+        assert_eq!(readback.risk_level.as_deref(), Some("high"));
+        assert_eq!(readback.policies_applied, vec!["policy-human-approval"]);
+
+        let formatted = format_audit_decision_readback(&readback);
+        assert!(formatted.contains("decision_status:"));
+        assert!(formatted.contains("needs_human_approval"));
+        assert!(formatted.contains("risk_level:"));
+        assert!(formatted.contains("high"));
+        assert!(formatted.contains("policies_applied:"));
+        assert!(formatted.contains("policy-human-approval"));
+        assert!(formatted.contains("Readback only"));
+
+        let json = serde_json::to_value(&readback).unwrap();
+        assert_eq!(json["decision_status"], "needs_human_approval");
+        assert_eq!(json["risk_level"], "high");
+        assert_eq!(json["policies_applied"], json!(["policy-human-approval"]));
+        assert_eq!(json["summary"]["event_count"], 2);
     }
 
     #[test]
     fn audit_decision_summary_preserves_empty_decision_scope() {
-        let summary = decision_summary_from_audit_events(vec![], "decision-empty");
+        let readback = decision_readback_from_audit_events(vec![], "decision-empty");
+        let summary = &readback.summary;
 
         assert_eq!(summary.decision_id, Some(DecisionId::new("decision-empty")));
         assert_eq!(summary.event_count, 0);
@@ -1373,6 +1532,9 @@ mod tests {
         assert_eq!(summary.last_event_id, None);
         assert_eq!(summary.first_event_at, None);
         assert_eq!(summary.last_event_at, None);
+        assert_eq!(readback.decision_status, None);
+        assert_eq!(readback.risk_level, None);
+        assert!(readback.policies_applied.is_empty());
         assert!(!summary.has_execution_event);
     }
 

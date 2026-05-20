@@ -216,13 +216,14 @@ The update must clearly state whether the change is stable, alpha, experimental,
 
 ## 11. Latest Session Update
 
-This session added a minimal read-only CLI inspection surface for decision-scoped audit summaries while preserving the existing governance boundaries.
+This session strengthened the read-only CLI supervision surface for decision-scoped audit summaries while preserving the existing governance boundaries.
 
 Changed:
 
-- `arpagona audit decision-summary <decision-id>` now fetches existing audit events read-only, filters them by decision id, orders them chronologically and renders the existing `AuditTraceSummary` fields for human supervision;
+- `arpagona audit decision-summary <decision-id>` now renders a supervision-oriented readback with causal scope fields, event count, chronological first/last event ids and timestamps, optional decision status, optional risk level, optional policies applied and an explicit readback-only warning;
+- `arpagona audit decision-summary <decision-id> --json` now emits the same readback object as structured JSON;
 - CLI summary construction preserves empty decision scope by keeping the requested `decision_id` even when no matching audit events exist;
-- CLI tests now protect parsing, decision filtering, chronological ordering, scope/link preservation and the non-authorization/non-execution interpretation of summary readback.
+- CLI tests now protect parsing, JSON flag handling, decision filtering, chronological ordering, scope/link preservation, optional causal metadata readback, output formatting and the non-authorization/non-execution interpretation of summary readback.
 
 Stability level: alpha CLI Audit readback inspection.
 

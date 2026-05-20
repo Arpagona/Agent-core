@@ -933,6 +933,77 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn decision_trace_summary_keeps_human_request_readback_non_authorizing() {
+        let store = memory_store().await;
+        let workspace_id = WorkspaceId::new("workspace-human-request");
+        let task_id = TaskId::new("task-human-request");
+        let proposed_action_id = ProposedActionId::new("action-human-request");
+        let decision_id = DecisionId::new("decision-human-request");
+        let base_time = Utc::now();
+
+        let decision_event = AuditEvent {
+            id: AuditEventId::new("audit-human-request-decision"),
+            event_type: AuditEventType::DecisionCreated,
+            actor: ActorRef::System,
+            workspace_id: Some(workspace_id.clone()),
+            task_id: Some(task_id.clone()),
+            proposed_action_id: Some(proposed_action_id.clone()),
+            decision_id: Some(decision_id.clone()),
+            payload: json!({"causal_trace": {"decision_status": "needs_human_approval"}}),
+            created_at: base_time,
+        };
+        let human_request_event = AuditEvent {
+            id: AuditEventId::new("audit-human-request-sent"),
+            event_type: AuditEventType::HumanApprovalRequested,
+            actor: ActorRef::System,
+            workspace_id: Some(workspace_id.clone()),
+            task_id: Some(task_id.clone()),
+            proposed_action_id: Some(proposed_action_id.clone()),
+            decision_id: Some(decision_id.clone()),
+            payload: json!({"readback_only": true}),
+            created_at: base_time + Duration::seconds(5),
+        };
+
+        store
+            .record_audit_event(human_request_event.clone())
+            .await
+            .expect("record human approval request first");
+        store
+            .record_audit_event(decision_event.clone())
+            .await
+            .expect("record decision audit event second");
+
+        let summary = store
+            .audit_trace_summary_for_decision(decision_id.clone())
+            .await
+            .expect("decision audit trace summary");
+
+        assert_eq!(summary.event_count, 2);
+        assert_eq!(
+            summary.first_event_id,
+            Some(AuditEventId::new("audit-human-request-decision"))
+        );
+        assert_eq!(
+            summary.last_event_id,
+            Some(AuditEventId::new("audit-human-request-sent"))
+        );
+        assert_eq!(summary.first_event_at, Some(base_time));
+        assert_eq!(
+            summary.last_event_at,
+            Some(base_time + Duration::seconds(5))
+        );
+        assert_eq!(summary.workspace_id, Some(workspace_id));
+        assert_eq!(summary.task_id, Some(task_id));
+        assert_eq!(summary.proposed_action_id, Some(proposed_action_id));
+        assert_eq!(summary.decision_id, Some(decision_id));
+        assert!(!summary.has_action_proposed);
+        assert!(summary.has_decision_created);
+        assert!(summary.has_human_approval_request);
+        assert!(!summary.has_human_outcome);
+        assert!(!summary.has_execution_event);
+    }
+
+    #[tokio::test]
     async fn decision_trace_summary_preserves_decision_scope_when_empty() {
         let store = memory_store().await;
         let decision_id = DecisionId::new("decision-empty");
