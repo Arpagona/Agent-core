@@ -44,6 +44,8 @@ pub struct AuditTraceSummary {
     pub event_count: usize,
     pub first_event_id: Option<AuditEventId>,
     pub last_event_id: Option<AuditEventId>,
+    pub first_event_at: Option<DateTime<Utc>>,
+    pub last_event_at: Option<DateTime<Utc>>,
     pub workspace_id: Option<WorkspaceId>,
     pub task_id: Option<TaskId>,
     pub proposed_action_id: Option<ProposedActionId>,
@@ -65,6 +67,8 @@ impl AuditTraceSummary {
             event_count: events.len(),
             first_event_id: events.first().map(|event| event.id.clone()),
             last_event_id: events.last().map(|event| event.id.clone()),
+            first_event_at: events.first().map(|event| event.created_at),
+            last_event_at: events.last().map(|event| event.created_at),
             workspace_id: first_some(events.iter().map(|event| event.workspace_id.clone())),
             task_id: first_some(events.iter().map(|event| event.task_id.clone())),
             proposed_action_id: first_some(
@@ -222,6 +226,9 @@ mod tests {
             Utc::now(),
         );
 
+        let proposed_at = proposed.created_at;
+        let decided_at = decided.created_at;
+
         let summary = AuditTraceSummary::from_events(&[proposed, decided]);
 
         assert_eq!(summary.event_count, 2);
@@ -233,6 +240,8 @@ mod tests {
             summary.last_event_id,
             Some(AuditEventId::new("audit-decision"))
         );
+        assert_eq!(summary.first_event_at, Some(proposed_at));
+        assert_eq!(summary.last_event_at, Some(decided_at));
         assert_eq!(summary.workspace_id, Some(WorkspaceId::new("workspace-1")));
         assert_eq!(summary.task_id, Some(TaskId::new("task-1")));
         assert_eq!(
@@ -242,6 +251,51 @@ mod tests {
         assert_eq!(summary.decision_id, Some(DecisionId::new("decision-1")));
         assert!(summary.has_action_proposed);
         assert!(summary.has_decision_created);
+        assert!(!summary.has_execution_event);
+    }
+
+    #[test]
+    fn audit_trace_summary_preserves_chronological_boundaries_without_approval() {
+        let first_at = "2026-01-01T00:00:00Z".parse::<DateTime<Utc>>().unwrap();
+        let last_at = "2026-01-01T00:05:00Z".parse::<DateTime<Utc>>().unwrap();
+        let proposed = AuditEvent {
+            id: AuditEventId::new("audit-1"),
+            event_type: AuditEventType::ActionProposed,
+            actor: ActorRef::Agent(AgentId::new("agent-1")),
+            workspace_id: Some(WorkspaceId::new("workspace-1")),
+            task_id: Some(TaskId::new("task-1")),
+            proposed_action_id: Some(ProposedActionId::new("action-1")),
+            decision_id: None,
+            payload: json!({}),
+            created_at: first_at,
+        };
+        let decided = AuditEvent {
+            id: AuditEventId::new("audit-2"),
+            event_type: AuditEventType::DecisionCreated,
+            actor: ActorRef::System,
+            workspace_id: Some(WorkspaceId::new("workspace-1")),
+            task_id: Some(TaskId::new("task-1")),
+            proposed_action_id: Some(ProposedActionId::new("action-1")),
+            decision_id: Some(DecisionId::new("decision-1")),
+            payload: json!({}),
+            created_at: last_at,
+        };
+
+        let summary = AuditTraceSummary::from_events(&[proposed, decided]);
+
+        assert_eq!(summary.event_count, 2);
+        assert_eq!(summary.first_event_id, Some(AuditEventId::new("audit-1")));
+        assert_eq!(summary.last_event_id, Some(AuditEventId::new("audit-2")));
+        assert_eq!(summary.first_event_at, Some(first_at));
+        assert_eq!(summary.last_event_at, Some(last_at));
+        assert_eq!(summary.workspace_id, Some(WorkspaceId::new("workspace-1")));
+        assert_eq!(summary.task_id, Some(TaskId::new("task-1")));
+        assert_eq!(
+            summary.proposed_action_id,
+            Some(ProposedActionId::new("action-1"))
+        );
+        assert_eq!(summary.decision_id, Some(DecisionId::new("decision-1")));
+        assert!(!summary.has_human_outcome);
         assert!(!summary.has_execution_event);
     }
 }
