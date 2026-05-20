@@ -553,22 +553,37 @@ fn auth_openai_instructions() {
 
 fn print_chat_banner(api_url: &str, provider: &str, workspace_id: &str, task_id: &str) {
     println!();
+    println!("{}", rainbow_text("                 /\\"));
+    println!("{}", rainbow_text("                /  \\"));
+    println!("{}", rainbow_text("               / /\\ \\"));
+    println!("{}", rainbow_text("              / /__\\ \\"));
+    println!("{}", rainbow_text("             /  ____  \\"));
+    println!("{}", rainbow_text("            /__/    \\__\\"));
+    println!("{}", rainbow_text("              .  /\\  ."));
+    println!("{}", rainbow_text("           .  . /  \\ .  ."));
+    println!();
     println!(
         "{}",
-        rainbow_text("╔════════════════════════════════════════════════════════════╗")
+        style_brand("    ___    ____  ____  ___   ______ ____  _   ______ ")
     );
     println!(
         "{}",
-        rainbow_text("║                 ARPAGONA AGENT CORE                      ║")
+        style_brand("   /   |  / __ \\/ __ \\/   | / ____// __ \\/ | / /   |")
     );
     println!(
         "{}",
-        rainbow_text("║            Cognitive Runtime Alpha Terminal              ║")
+        style_brand("  / /| | / /_/ / /_/ / /| |/ / __ / / / /  |/ / /| |")
     );
     println!(
         "{}",
-        rainbow_text("╚════════════════════════════════════════════════════════════╝")
+        style_brand(" / ___ |/ _, _/ ____/ ___ / /_/ // /_/ / /|  / ___ |")
     );
+    println!(
+        "{}",
+        style_brand("/_/  |_/_/ |_/_/   /_/  |_\\____/ \\____/_/ |_/_/  |_|")
+    );
+    println!("{}", style_dim("        Cognitive Runtime Alpha Terminal"));
+    println!();
     println!(
         "{} {} | {} {} | {} {} | {} {}",
         style_dim("provider:"),
@@ -1646,6 +1661,10 @@ fn style_error(text: &str) -> String {
 
 fn style_info(text: &str) -> String {
     style_text(text, TermColor::Cyan)
+}
+
+fn style_brand(text: &str) -> String {
+    format!("\x1b[38;5;151m{text}{ANSI_RESET}")
 }
 
 fn style_command(text: &str) -> String {
