@@ -1,4 +1,4 @@
-use arpagona_agent_core::{AuditEvent, ProposedAction, Task};
+use arpagona_agent_core::{AuditEvent, AuditTraceSummary, DecisionId, ProposedAction, Task};
 use clap::{Args, Parser, Subcommand, ValueEnum};
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
@@ -215,6 +215,14 @@ struct AuditCommand {
 enum AuditSubcommand {
     /// List audit events.
     List,
+    /// Show a read-only decision-scoped audit summary.
+    DecisionSummary(DecisionSummaryArgs),
+}
+
+#[derive(Debug, Args)]
+struct DecisionSummaryArgs {
+    /// Decision id to summarize.
+    decision_id: String,
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -304,6 +312,9 @@ async fn run() -> Result<(), Box<dyn Error>> {
         },
         Command::Audit(audit) => match audit.command {
             AuditSubcommand::List => list_audit(&client, &api_url).await?,
+            AuditSubcommand::DecisionSummary(args) => {
+                audit_decision_summary(&client, &api_url, args).await?
+            }
         },
     }
 
@@ -839,6 +850,139 @@ async fn list_audit(client: &Client, api_url: &str) -> Result<(), Box<dyn Error>
     Ok(())
 }
 
+async fn audit_decision_summary(
+    client: &Client,
+    api_url: &str,
+    args: DecisionSummaryArgs,
+) -> Result<(), Box<dyn Error>> {
+    let events: Vec<AuditEvent> =
+        get_json(client.get(format!("{api_url}/audit")).send().await?).await?;
+    let summary = decision_summary_from_audit_events(events, &args.decision_id);
+
+    print_audit_trace_summary(&summary);
+    Ok(())
+}
+
+fn decision_summary_from_audit_events(
+    events: Vec<AuditEvent>,
+    decision_id: &str,
+) -> AuditTraceSummary {
+    let decision_id = DecisionId::new(decision_id);
+    let mut decision_events = events
+        .into_iter()
+        .filter(|event| event.decision_id.as_ref() == Some(&decision_id))
+        .collect::<Vec<_>>();
+    decision_events.sort_by_key(|event| event.created_at);
+
+    let mut summary = AuditTraceSummary::from_events(&decision_events);
+    summary.decision_id = Some(decision_id);
+    summary
+}
+
+fn print_audit_trace_summary(summary: &AuditTraceSummary) {
+    println!("{}", style_info("Audit decision summary"));
+    println!(
+        "{} {}",
+        style_dim("decision_id:"),
+        summary
+            .decision_id
+            .as_ref()
+            .map(ToString::to_string)
+            .unwrap_or_else(|| "-".to_owned())
+    );
+    println!("{} {}", style_dim("event_count:"), summary.event_count);
+    println!(
+        "{} {}",
+        style_dim("proposed_action_id:"),
+        summary
+            .proposed_action_id
+            .as_ref()
+            .map(ToString::to_string)
+            .unwrap_or_else(|| "-".to_owned())
+    );
+    println!(
+        "{} {}",
+        style_dim("workspace_id:"),
+        summary
+            .workspace_id
+            .as_ref()
+            .map(ToString::to_string)
+            .unwrap_or_else(|| "-".to_owned())
+    );
+    println!(
+        "{} {}",
+        style_dim("task_id:"),
+        summary
+            .task_id
+            .as_ref()
+            .map(ToString::to_string)
+            .unwrap_or_else(|| "-".to_owned())
+    );
+    println!(
+        "{} {}",
+        style_dim("first_event_id:"),
+        summary
+            .first_event_id
+            .as_ref()
+            .map(ToString::to_string)
+            .unwrap_or_else(|| "-".to_owned())
+    );
+    println!(
+        "{} {}",
+        style_dim("last_event_id:"),
+        summary
+            .last_event_id
+            .as_ref()
+            .map(ToString::to_string)
+            .unwrap_or_else(|| "-".to_owned())
+    );
+    println!(
+        "{} {}",
+        style_dim("first_event_at:"),
+        summary
+            .first_event_at
+            .map(|timestamp| timestamp.to_rfc3339())
+            .unwrap_or_else(|| "-".to_owned())
+    );
+    println!(
+        "{} {}",
+        style_dim("last_event_at:"),
+        summary
+            .last_event_at
+            .map(|timestamp| timestamp.to_rfc3339())
+            .unwrap_or_else(|| "-".to_owned())
+    );
+    println!(
+        "{} {}",
+        style_dim("has_action_proposed:"),
+        summary.has_action_proposed
+    );
+    println!(
+        "{} {}",
+        style_dim("has_decision_created:"),
+        summary.has_decision_created
+    );
+    println!(
+        "{} {}",
+        style_dim("has_human_approval_request:"),
+        summary.has_human_approval_request
+    );
+    println!(
+        "{} {}",
+        style_dim("has_human_outcome:"),
+        summary.has_human_outcome
+    );
+    println!(
+        "{} {}",
+        style_dim("has_execution_event:"),
+        summary.has_execution_event
+    );
+    println!(
+        "{}",
+        style_dim("Readback only: this summary is not approval, authorization, orchestration, or execution state.")
+    );
+}
+
 async fn get_json<T: for<'de> Deserialize<'de>>(
     response: reqwest::Response,
 ) -> Result<T, Box<dyn Error>> {
@@ -1142,6 +1286,94 @@ mod tests {
             }
             _ => panic!("expected action evaluate"),
         }
+    }
+
+    #[test]
+    fn cli_parses_audit_decision_summary_command() {
+        let cli = Cli::parse_from(["arpagona", "audit", "decision-summary", "decision-1"]);
+        match cli.command {
+            Command::Audit(AuditCommand {
+                command: AuditSubcommand::DecisionSummary(args),
+            }) => assert_eq!(args.decision_id, "decision-1"),
+            _ => panic!("expected audit decision-summary"),
+        }
+    }
+
+    #[test]
+    fn audit_decision_summary_filters_and_orders_events_without_authorizing() {
+        use arpagona_agent_core::{AuditEventId, ProposedActionId, TaskId, WorkspaceId};
+
+        let events = vec![
+            serde_json::from_value::<AuditEvent>(json!({
+                "id": "audit-2",
+                "event_type": "decision_created",
+                "actor": "system",
+                "workspace_id": "workspace-1",
+                "task_id": "task-1",
+                "proposed_action_id": "action-1",
+                "decision_id": "decision-1",
+                "payload": {},
+                "created_at": "2026-01-01T00:05:00Z"
+            }))
+            .unwrap(),
+            serde_json::from_value::<AuditEvent>(json!({
+                "id": "audit-unrelated",
+                "event_type": "execution_started",
+                "actor": "system",
+                "workspace_id": "workspace-1",
+                "task_id": "task-2",
+                "proposed_action_id": "action-2",
+                "decision_id": "decision-2",
+                "payload": {},
+                "created_at": "2026-01-01T00:10:00Z"
+            }))
+            .unwrap(),
+            serde_json::from_value::<AuditEvent>(json!({
+                "id": "audit-1",
+                "event_type": "action_proposed",
+                "actor": "system",
+                "workspace_id": "workspace-1",
+                "task_id": "task-1",
+                "proposed_action_id": "action-1",
+                "decision_id": "decision-1",
+                "payload": {},
+                "created_at": "2026-01-01T00:00:00Z"
+            }))
+            .unwrap(),
+        ];
+        let first_at = events[2].created_at;
+        let last_at = events[0].created_at;
+
+        let summary = decision_summary_from_audit_events(events, "decision-1");
+
+        assert_eq!(summary.decision_id, Some(DecisionId::new("decision-1")));
+        assert_eq!(summary.event_count, 2);
+        assert_eq!(summary.first_event_id, Some(AuditEventId::new("audit-1")));
+        assert_eq!(summary.last_event_id, Some(AuditEventId::new("audit-2")));
+        assert_eq!(summary.first_event_at, Some(first_at));
+        assert_eq!(summary.last_event_at, Some(last_at));
+        assert_eq!(summary.workspace_id, Some(WorkspaceId::new("workspace-1")));
+        assert_eq!(summary.task_id, Some(TaskId::new("task-1")));
+        assert_eq!(
+            summary.proposed_action_id,
+            Some(ProposedActionId::new("action-1"))
+        );
+        assert!(summary.has_action_proposed);
+        assert!(summary.has_decision_created);
+        assert!(!summary.has_execution_event);
+    }
+
+    #[test]
+    fn audit_decision_summary_preserves_empty_decision_scope() {
+        let summary = decision_summary_from_audit_events(vec![], "decision-empty");
+
+        assert_eq!(summary.decision_id, Some(DecisionId::new("decision-empty")));
+        assert_eq!(summary.event_count, 0);
+        assert_eq!(summary.first_event_id, None);
+        assert_eq!(summary.last_event_id, None);
+        assert_eq!(summary.first_event_at, None);
+        assert_eq!(summary.last_event_at, None);
+        assert!(!summary.has_execution_event);
     }
 
     #[test]
