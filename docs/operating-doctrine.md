@@ -2,7 +2,7 @@
 
 This document defines the practical operating mode for human and agent contributors working on ARPAGONA Agent Core.
 
-It complements `PROJECT_OBJECTIVES.md` and `PROJECT_STATUS.md`.
+It complements `PROJECT_OBJECTIVES.md`, `PROJECT_STATUS.md`, `docs/development-acceleration.md` and `docs/failure-to-insight.md`.
 
 ## 1. Current Mode: Controlled Fast Iteration
 
@@ -100,7 +100,8 @@ Allowed work includes:
 - Decision Gate hardening;
 - focused bug fixes;
 - small readback/query capabilities that improve human supervision;
-- documentation updates when behavior, implementation status or operating mode changes.
+- documentation updates when behavior, implementation status or operating mode changes;
+- Failure-to-Insight documentation that turns observed failures, blocked work, bad proposals, missing context or human corrections into durable learning without adding execution or authorization.
 
 This replaces the previous expectation that most work should be test-only.
 
@@ -175,6 +176,18 @@ Loop reports should include:
 - `Local task summary`;
 - `Hermes final decision`.
 
+Every non-trivial focus loop must also report whether failures were observed and whether durable learning was created. Absence of failure is not implicit; it must be declared explicitly rather than ignored.
+
+Required Failure-to-Insight report block:
+
+```text
+Failures observed: yes/no
+Failure insights created: yes/no
+If no, why not?
+Correction target: code/test/policy/memory/docs/none
+Next detection signal:
+```
+
 Default heuristic:
 
 ```text
@@ -213,7 +226,7 @@ CLI supervision remains strictly read-only. It must not approve, reject, execute
 
 Each work loop should follow this protocol:
 
-1. Read `PROJECT_OBJECTIVES.md`, `PROJECT_STATUS.md` and this document.
+1. Read `PROJECT_OBJECTIVES.md`, `PROJECT_STATUS.md`, this document, `docs/development-acceleration.md` and `docs/failure-to-insight.md`.
 2. Sync with `main`.
 3. Select one bounded useful unit of work.
 4. Prefer CLI supervision increments over additional test-only Audit/Graph Memory guards unless a concrete uncovered regression risk is identified.
@@ -233,6 +246,7 @@ Each work loop should follow this protocol:
    - explicit statement of what was not changed;
    - language choice note when non-Rust code is added;
    - LOCO/Ollama delegation note for non-trivial loops;
+   - Failure-to-Insight report block;
    - why a CLI supervision increment was or was not chosen.
 11. Update `PROJECT_STATUS.md` only when implementation status, behavior, architecture, roadmap or safety assumptions actually changed.
 

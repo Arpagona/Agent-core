@@ -2,7 +2,7 @@
 
 This document clarifies the current product-building bias for ARPAGONA Agent Core.
 
-It complements `PROJECT_OBJECTIVES.md`, `PROJECT_STATUS.md`, `docs/operating-doctrine.md`, `docs/architecture.md` and `docs/roadmap.md`.
+It complements `PROJECT_OBJECTIVES.md`, `PROJECT_STATUS.md`, `docs/operating-doctrine.md`, `docs/failure-to-insight.md`, `docs/architecture.md` and `docs/roadmap.md`.
 
 ## 1. Current intent
 
@@ -19,7 +19,8 @@ ARPAGONA must remain distinct:
 - Rippletide-inspired runtime enforcement;
 - Decision Gate before any external effect;
 - audit and causal trace by default;
-- human supervision for sensitive actions.
+- human supervision for sensitive actions;
+- Failure-to-Insight as the loop that turns mistakes, blockers and human corrections into durable improvements without treating them as authorization.
 
 ## 2. Product bias: CLI supervision first
 
@@ -45,6 +46,8 @@ The desired mode is aggressive iteration, not reckless expansion.
 
 A good loop should ship one small usable increment, not just one more abstract guard.
 
+Hermes-like ergonomics are not only about speed. They require fast iteration plus a disciplined Failure-to-Insight loop: when a loop exposes a mistake, missing context, poor route, blocked decision, bad proposal or human correction, the result should become durable documentation, tests, policy, memory conventions or readback improvements. This strengthens observability, error recovery and continuous progress while keeping the governed path intact.
+
 Default preference order:
 
 1. useful read-only CLI supervision increment;
@@ -65,6 +68,7 @@ Key requirements:
 - applicable context should come from Graph Memory, not raw context stuffing;
 - the Decision Gate decides approval, rejection, escalation or need for more context;
 - important decisions produce causal audit traces;
+- failures and corrections can be converted into durable Failure-to-Insight artifacts for future improvement;
 - CLI/Mission Control surfaces inspect traces and decisions, but do not replace governance;
 - readback is not approval;
 - Tool Registry lookup is not approval;

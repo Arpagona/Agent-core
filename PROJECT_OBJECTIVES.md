@@ -1,6 +1,6 @@
 # ARPAGONA Agent Core — Project Objectives
 
-This document is the canonical objective file for ARPAGONA Agent Core. It defines what we are building, why we are building it, and the principles that must guide every implementation decision.
+This document is the canonical objective file for ARPAGONA Agent Core. It defines what we are building, why we are building it, and the principles that must guide every implementation decision. It must be read together with `PROJECT_STATUS.md`, `docs/operating-doctrine.md`, `docs/development-acceleration.md` and `docs/failure-to-insight.md` before modifying the repository.
 
 ## 1. Purpose
 
@@ -38,6 +38,8 @@ ARPAGONA Agent Core must provide the following core systems:
 
 8. Mission Control: web dashboard that makes the runtime observable and controllable.
 
+9. Failure-to-Insight: first-order learning layer that turns execution failures, blocked decisions, incorrect proposals, bad routing, missing context, policy gaps and human corrections into durable insights. These insights must improve future documentation, tests, audit conventions, memory, policies and routing decisions. They inform future decisions, but they are never approval, authorization or permission to execute.
+
 ## 4. Rippletide-Inspired Method
 
 ARPAGONA Agent Core is conceptually inspired by the runtime-enforcement approach promoted by systems such as Rippletide, without copying their implementation.
@@ -56,6 +58,8 @@ The core graph-memory primitives should be:
 - invalidate: expire, supersede, revoke or mark facts as unreliable.
 
 Every important decision must produce a causal audit trace: proposed action, context used, valid facts, applied policies, decision result, approval source and reason.
+
+When a decision, proposal, routing choice, recalled context or human correction reveals a failure, the system must preserve enough evidence to transform that failure into a durable Failure-to-Insight artifact. The correction may target code, tests, policy, memory, documentation or operating doctrine, but the insight itself remains informational and non-authorizing.
 
 Decision audit traces must be explanatory, not merely referential. A decision audit event must be sufficient for a human supervisor or later agent to understand why a decision was approved, blocked, escalated, rerouted or left pending without inspecting hidden runtime state. At minimum, decision audit events must include:
 
@@ -119,7 +123,7 @@ Python workers may later be used for ingestion, OCR, document processing, embedd
 
 V0 does not need to be fully autonomous or production-ready. V0 must prove that the architecture works.
 
-A successful V0 demonstrates that a user can create an objective, the orchestrator creates a task, Graph Memory recalls applicable context, Compute Reservoir selects a resource, an agent proposes an action, Decision Gate evaluates it, the decision is recorded, audit shows the causal trace, and Mission Control makes the chain visible.
+A successful V0 demonstrates that a user can create an objective, the orchestrator creates a task, Graph Memory recalls applicable context, Compute Reservoir selects a resource, an agent proposes an action, Decision Gate evaluates it, the decision is recorded, audit shows the causal trace, Failure-to-Insight captures what was learned from non-trivial failures or corrections, and Mission Control makes the chain visible.
 
 The audit proof is not satisfied by IDs alone. V0 must show at least one approved, one blocked and one pending or human-confirmation decision with complete explanatory audit fields, including explicit reasons and matched policy/fallback rules.
 
@@ -135,13 +139,14 @@ Recommended implementation order:
 4. Tool Registry;
 5. Graph Memory with SurrealDB;
 6. Audit System;
-7. Neutral Orchestrator;
-8. API Server Axum;
-9. Mission Control Web;
-10. Scheduler and controlled autonomous loops;
-11. LLM Provider abstraction;
-12. End-to-end demo;
-13. Security hardening.
+7. Failure-to-Insight doctrine and bounded domain vocabulary;
+8. Neutral Orchestrator;
+9. API Server Axum;
+10. Mission Control Web;
+11. Scheduler and controlled autonomous loops;
+12. LLM Provider abstraction;
+13. End-to-end demo;
+14. Security hardening.
 
 ## 10. Success Criteria
 

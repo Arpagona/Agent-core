@@ -2,7 +2,7 @@
 
 La roadmap reflète à la fois l'avancement réel et l'ordre architectural cible. Certaines briques ont été prototypées hors ordre pour explorer rapidement le système. Elles doivent rester alpha/expérimentales tant que les couches de gouvernance ne sont pas stabilisées, mais cela ne doit pas bloquer les incréments read-only utiles.
 
-Référence canonique : lire `PROJECT_OBJECTIVES.md` pour la vision, `PROJECT_STATUS.md` pour l'état opérationnel courant, `docs/operating-doctrine.md` pour la doctrine de travail et `docs/development-acceleration.md` pour la direction actuelle d'accélération.
+Référence canonique : lire `PROJECT_OBJECTIVES.md` pour la vision, `PROJECT_STATUS.md` pour l'état opérationnel courant, `docs/operating-doctrine.md` pour la doctrine de travail, `docs/development-acceleration.md` pour la direction actuelle d'accélération et `docs/failure-to-insight.md` pour la transformation des échecs en apprentissages durables non autorisants.
 
 ## Recentrage architectural et accélération contrôlée
 
@@ -22,9 +22,10 @@ Ordre de développement actuel :
 4. maintenir le Tool Registry déclaratif ;
 5. stabiliser Graph Memory + SurrealDB autant que nécessaire pour le readback ;
 6. stabiliser Audit autant que nécessaire pour le readback ;
-7. développer la CLI de supervision read-only ;
-8. reprendre ensuite Runtime / API / Orchestrator par petits incréments gouvernés ;
-9. différer Mission Control Web tant que la CLI locale n'a pas prouvé les bons patterns.
+7. intégrer Failure-to-Insight par doctrine documentaire, puis vocabulaire borné et conventions d'audit ;
+8. développer la CLI de supervision read-only ;
+9. reprendre ensuite Runtime / API / Orchestrator par petits incréments gouvernés ;
+10. différer Mission Control Web tant que la CLI locale n'a pas prouvé les bons patterns.
 
 Consignes de recadrage :
 
@@ -158,6 +159,25 @@ Objectif : garantir une trace causale claire pour :
 L'Audit doit être stabilisé avant toute exécution réelle.
 
 Direction actuelle : rendre l'audit inspectable via CLI avant d'élargir l'API ou Mission Control Web.
+
+
+## Brique 6bis — Failure-to-Insight
+
+État : doctrine documentaire canonique dans `docs/failure-to-insight.md`; aucune implémentation runtime dans l'alpha actuelle.
+
+Objectif : transformer les échecs, blocages, mauvaises propositions, mauvais routages, contextes manquants, policy gaps et corrections humaines en apprentissages durables. Ces apprentissages peuvent améliorer documentation, tests, conventions d'audit, mémoire, politiques, routage Compute Reservoir et futures décisions, mais ils ne valent jamais autorisation, approbation, exécution ni gouvernance autonome.
+
+Ordre recommandé :
+
+1. doctrine documentaire ;
+2. vocabulaire domaine `FailureInsight` ;
+3. conventions Audit ;
+4. readback CLI ;
+5. tests de régression ;
+6. intégration Graph Memory ;
+7. influence future sur Compute Reservoir et Decision Gate.
+
+Contraintes alpha : ne pas implémenter d'auto-amélioration autonome, de self-modification, de réécriture automatique de policy, de mutation mémoire non revue, de scheduler ou d'exécution réelle. Failure-to-Insight est une couche d'apprentissage et d'observabilité, pas une couche d'exécution ni une autorisation implicite.
 
 ## Brique 7 — CLI supervision locale
 
