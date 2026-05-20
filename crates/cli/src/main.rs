@@ -1,4 +1,6 @@
-use arpagona_agent_core::{AuditEvent, AuditTraceSummary, DecisionId, ProposedAction, Task};
+use arpagona_agent_core::{
+    AuditEvent, AuditTraceSummary, DecisionId, ProposedAction, Task, TaskId,
+};
 use clap::{Args, Parser, Subcommand, ValueEnum};
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
@@ -217,6 +219,8 @@ enum AuditSubcommand {
     List,
     /// Show a read-only decision-scoped audit summary.
     DecisionSummary(DecisionSummaryArgs),
+    /// Show a read-only task-scoped audit summary.
+    TaskSummary(TaskSummaryArgs),
 }
 
 #[derive(Debug, Args)]
@@ -228,12 +232,27 @@ struct DecisionSummaryArgs {
     json: bool,
 }
 
+#[derive(Debug, Args)]
+struct TaskSummaryArgs {
+    /// Task id to summarize.
+    task_id: String,
+    /// Emit a structured JSON readback instead of human-oriented text.
+    #[arg(long)]
+    json: bool,
+}
+
 #[derive(Debug, Serialize)]
 struct AuditDecisionReadback {
     summary: AuditTraceSummary,
     decision_status: Option<String>,
     risk_level: Option<String>,
     policies_applied: Vec<String>,
+    warning: &'static str,
+}
+
+#[derive(Debug, Serialize)]
+struct AuditTaskReadback {
+    summary: AuditTraceSummary,
     warning: &'static str,
 }
 
@@ -329,6 +348,9 @@ async fn run() -> Result<(), Box<dyn Error>> {
             AuditSubcommand::List => list_audit(&client, &api_url).await?,
             AuditSubcommand::DecisionSummary(args) => {
                 audit_decision_summary(&client, &api_url, args).await?
+            }
+            AuditSubcommand::TaskSummary(args) => {
+                audit_task_summary(&client, &api_url, args).await?
             }
         },
     }
@@ -882,6 +904,23 @@ async fn audit_decision_summary(
     Ok(())
 }
 
+async fn audit_task_summary(
+    client: &Client,
+    api_url: &str,
+    args: TaskSummaryArgs,
+) -> Result<(), Box<dyn Error>> {
+    let events: Vec<AuditEvent> =
+        get_json(client.get(format!("{api_url}/audit")).send().await?).await?;
+    let readback = task_readback_from_audit_events(events, &args.task_id);
+
+    if args.json {
+        println!("{}", serde_json::to_string_pretty(&readback)?);
+    } else {
+        print_audit_task_readback(&readback);
+    }
+    Ok(())
+}
+
 fn decision_readback_from_audit_events(
     events: Vec<AuditEvent>,
     decision_id: &str,
@@ -902,6 +941,23 @@ fn decision_readback_from_audit_events(
         decision_status: metadata.decision_status,
         risk_level: metadata.risk_level,
         policies_applied: metadata.policies_applied,
+        warning: AUDIT_READBACK_WARNING,
+    }
+}
+
+fn task_readback_from_audit_events(events: Vec<AuditEvent>, task_id: &str) -> AuditTaskReadback {
+    let task_id = TaskId::new(task_id);
+    let mut task_events = events
+        .into_iter()
+        .filter(|event| event.task_id.as_ref() == Some(&task_id))
+        .collect::<Vec<_>>();
+    task_events.sort_by_key(|event| event.created_at);
+
+    let mut summary = AuditTraceSummary::from_events(&task_events);
+    summary.task_id = Some(task_id);
+
+    AuditTaskReadback {
+        summary,
         warning: AUDIT_READBACK_WARNING,
     }
 }
@@ -962,6 +1018,10 @@ fn print_audit_decision_readback(readback: &AuditDecisionReadback) {
     print!("{}", format_audit_decision_readback(readback));
 }
 
+fn print_audit_task_readback(readback: &AuditTaskReadback) {
+    print!("{}", format_audit_task_readback(readback));
+}
+
 fn format_audit_decision_readback(readback: &AuditDecisionReadback) -> String {
     let summary = &readback.summary;
     let mut output = String::new();
@@ -1003,45 +1063,7 @@ fn format_audit_decision_readback(readback: &AuditDecisionReadback) -> String {
             .map(ToString::to_string)
             .unwrap_or_else(|| "-".to_owned()),
     );
-    push_readback_field(
-        &mut output,
-        "event_count:",
-        &summary.event_count.to_string(),
-    );
-    push_readback_field(
-        &mut output,
-        "first_event_id:",
-        &summary
-            .first_event_id
-            .as_ref()
-            .map(ToString::to_string)
-            .unwrap_or_else(|| "-".to_owned()),
-    );
-    push_readback_field(
-        &mut output,
-        "last_event_id:",
-        &summary
-            .last_event_id
-            .as_ref()
-            .map(ToString::to_string)
-            .unwrap_or_else(|| "-".to_owned()),
-    );
-    push_readback_field(
-        &mut output,
-        "first_event_at:",
-        &summary
-            .first_event_at
-            .map(|timestamp| timestamp.to_rfc3339())
-            .unwrap_or_else(|| "-".to_owned()),
-    );
-    push_readback_field(
-        &mut output,
-        "last_event_at:",
-        &summary
-            .last_event_at
-            .map(|timestamp| timestamp.to_rfc3339())
-            .unwrap_or_else(|| "-".to_owned()),
-    );
+    push_audit_summary_fields(&mut output, summary);
     push_readback_field(
         &mut output,
         "decision_status:",
@@ -1057,34 +1079,124 @@ fn format_audit_decision_readback(readback: &AuditDecisionReadback) -> String {
         "policies_applied:",
         &format_policies(&readback.policies_applied),
     );
+    push_audit_summary_flags(&mut output, summary);
+    push_readback_line(&mut output, &style_dim(readback.warning));
+
+    output
+}
+
+fn format_audit_task_readback(readback: &AuditTaskReadback) -> String {
+    let summary = &readback.summary;
+    let mut output = String::new();
+
+    push_readback_line(&mut output, &style_info("Audit task summary"));
     push_readback_field(
         &mut output,
+        "task_id:",
+        &summary
+            .task_id
+            .as_ref()
+            .map(ToString::to_string)
+            .unwrap_or_else(|| "-".to_owned()),
+    );
+    push_readback_field(
+        &mut output,
+        "workspace_id:",
+        &summary
+            .workspace_id
+            .as_ref()
+            .map(ToString::to_string)
+            .unwrap_or_else(|| "-".to_owned()),
+    );
+    push_readback_field(
+        &mut output,
+        "proposed_action_id:",
+        &summary
+            .proposed_action_id
+            .as_ref()
+            .map(ToString::to_string)
+            .unwrap_or_else(|| "-".to_owned()),
+    );
+    push_readback_field(
+        &mut output,
+        "decision_id:",
+        &summary
+            .decision_id
+            .as_ref()
+            .map(ToString::to_string)
+            .unwrap_or_else(|| "-".to_owned()),
+    );
+    push_audit_summary_fields(&mut output, summary);
+    push_audit_summary_flags(&mut output, summary);
+    push_readback_line(&mut output, &style_dim(readback.warning));
+
+    output
+}
+
+fn push_audit_summary_fields(output: &mut String, summary: &AuditTraceSummary) {
+    push_readback_field(output, "event_count:", &summary.event_count.to_string());
+    push_readback_field(
+        output,
+        "first_event_id:",
+        &summary
+            .first_event_id
+            .as_ref()
+            .map(ToString::to_string)
+            .unwrap_or_else(|| "-".to_owned()),
+    );
+    push_readback_field(
+        output,
+        "last_event_id:",
+        &summary
+            .last_event_id
+            .as_ref()
+            .map(ToString::to_string)
+            .unwrap_or_else(|| "-".to_owned()),
+    );
+    push_readback_field(
+        output,
+        "first_event_at:",
+        &summary
+            .first_event_at
+            .map(|timestamp| timestamp.to_rfc3339())
+            .unwrap_or_else(|| "-".to_owned()),
+    );
+    push_readback_field(
+        output,
+        "last_event_at:",
+        &summary
+            .last_event_at
+            .map(|timestamp| timestamp.to_rfc3339())
+            .unwrap_or_else(|| "-".to_owned()),
+    );
+}
+
+fn push_audit_summary_flags(output: &mut String, summary: &AuditTraceSummary) {
+    push_readback_field(
+        output,
         "has_action_proposed:",
         &summary.has_action_proposed.to_string(),
     );
     push_readback_field(
-        &mut output,
+        output,
         "has_decision_created:",
         &summary.has_decision_created.to_string(),
     );
     push_readback_field(
-        &mut output,
+        output,
         "has_human_approval_request:",
         &summary.has_human_approval_request.to_string(),
     );
     push_readback_field(
-        &mut output,
+        output,
         "has_human_outcome:",
         &summary.has_human_outcome.to_string(),
     );
     push_readback_field(
-        &mut output,
+        output,
         "has_execution_event:",
         &summary.has_execution_event.to_string(),
     );
-    push_readback_line(&mut output, &style_dim(readback.warning));
-
-    output
 }
 
 fn push_readback_field(output: &mut String, label: &str, value: &str) {
@@ -1427,6 +1539,112 @@ mod tests {
             }
             _ => panic!("expected audit decision-summary"),
         }
+    }
+
+    #[test]
+    fn cli_parses_audit_task_summary_command() {
+        let cli = Cli::parse_from(["arpagona", "audit", "task-summary", "task-1", "--json"]);
+        match cli.command {
+            Command::Audit(AuditCommand {
+                command: AuditSubcommand::TaskSummary(args),
+            }) => {
+                assert_eq!(args.task_id, "task-1");
+                assert!(args.json);
+            }
+            _ => panic!("expected audit task-summary"),
+        }
+    }
+
+    #[test]
+    fn audit_task_summary_filters_and_orders_events_without_authorizing() {
+        use arpagona_agent_core::{AuditEventId, DecisionId, ProposedActionId, WorkspaceId};
+
+        let events = vec![
+            serde_json::from_value::<AuditEvent>(json!({
+                "id": "audit-2",
+                "event_type": "decision_created",
+                "actor": "system",
+                "workspace_id": "workspace-1",
+                "task_id": "task-1",
+                "proposed_action_id": "action-1",
+                "decision_id": "decision-1",
+                "payload": {},
+                "created_at": "2026-01-01T00:05:00Z"
+            }))
+            .unwrap(),
+            serde_json::from_value::<AuditEvent>(json!({
+                "id": "audit-unrelated",
+                "event_type": "execution_started",
+                "actor": "system",
+                "workspace_id": "workspace-1",
+                "task_id": "task-2",
+                "proposed_action_id": "action-2",
+                "decision_id": "decision-2",
+                "payload": {},
+                "created_at": "2026-01-01T00:10:00Z"
+            }))
+            .unwrap(),
+            serde_json::from_value::<AuditEvent>(json!({
+                "id": "audit-1",
+                "event_type": "action_proposed",
+                "actor": "system",
+                "workspace_id": "workspace-1",
+                "task_id": "task-1",
+                "proposed_action_id": "action-1",
+                "decision_id": null,
+                "payload": {},
+                "created_at": "2026-01-01T00:00:00Z"
+            }))
+            .unwrap(),
+        ];
+        let first_at = events[2].created_at;
+        let last_at = events[0].created_at;
+
+        let readback = task_readback_from_audit_events(events, "task-1");
+        let summary = &readback.summary;
+
+        assert_eq!(summary.task_id, Some(TaskId::new("task-1")));
+        assert_eq!(summary.event_count, 2);
+        assert_eq!(summary.first_event_id, Some(AuditEventId::new("audit-1")));
+        assert_eq!(summary.last_event_id, Some(AuditEventId::new("audit-2")));
+        assert_eq!(summary.first_event_at, Some(first_at));
+        assert_eq!(summary.last_event_at, Some(last_at));
+        assert_eq!(summary.workspace_id, Some(WorkspaceId::new("workspace-1")));
+        assert_eq!(
+            summary.proposed_action_id,
+            Some(ProposedActionId::new("action-1"))
+        );
+        assert_eq!(summary.decision_id, Some(DecisionId::new("decision-1")));
+        assert!(summary.has_action_proposed);
+        assert!(summary.has_decision_created);
+        assert!(!summary.has_execution_event);
+
+        let formatted = format_audit_task_readback(&readback);
+        assert!(formatted.contains("Audit task summary"));
+        assert!(formatted.contains("task_id:"));
+        assert!(formatted.contains("task-1"));
+        assert!(formatted.contains("event_count:"));
+        assert!(formatted.contains("Readback only"));
+
+        let json = serde_json::to_value(&readback).unwrap();
+        assert_eq!(json["summary"]["task_id"], "task-1");
+        assert_eq!(json["summary"]["event_count"], 2);
+        assert!(json["warning"].as_str().unwrap().contains("Readback only"));
+    }
+
+    #[test]
+    fn audit_task_summary_preserves_empty_task_scope() {
+        let readback = task_readback_from_audit_events(vec![], "task-empty");
+        let summary = &readback.summary;
+
+        assert_eq!(summary.task_id, Some(TaskId::new("task-empty")));
+        assert_eq!(summary.event_count, 0);
+        assert_eq!(summary.first_event_id, None);
+        assert_eq!(summary.last_event_id, None);
+        assert_eq!(summary.first_event_at, None);
+        assert_eq!(summary.last_event_at, None);
+        assert!(!summary.has_decision_created);
+        assert!(!summary.has_execution_event);
     }
 
     #[test]
