@@ -10,8 +10,9 @@ Avant toute modification du dépôt, un contributeur humain ou agentique doit li
 
 - `PROJECT_OBJECTIVES.md` : vision canonique du projet, objectifs fondateurs et principes non négociables ;
 - `PROJECT_STATUS.md` : état opérationnel courant, niveau de stabilité des briques, risques architecturaux, stop-list et prochaine séquence recommandée ;
-- `docs/operating-doctrine.md` : doctrine de travail courante, itération contrôlée, Rust-first, délégation LOCO/Ollama et biais CLI supervision ;
-- `docs/development-acceleration.md` : direction actuelle d'accélération vers une alpha Hermes-like, CLI supervision first et Rippletide-inspired runtime enforcement.
+- `docs/operating-doctrine.md` : doctrine de travail courante, itération contrôlée, Rust-first, délégation LOCO/Ollama, biais CLI supervision et reporting Failure-to-Insight ;
+- `docs/development-acceleration.md` : direction actuelle d'accélération vers une alpha Hermes-like, CLI supervision first et Rippletide-inspired runtime enforcement ;
+- `docs/failure-to-insight.md` : doctrine canonique pour transformer échecs, blocages, mauvaises propositions, contextes manquants, policy gaps et corrections humaines en apprentissages durables non autorisants.
 
 L'objectif immédiat n'est plus une simple consolidation abstraite. Le projet doit maintenant avancer vers des incréments utiles et inspectables, en particulier la CLI de supervision locale, tout en conservant les garde-fous non négociables : pas d'exécution directe par les agents, pas de contournement du Decision Gate, pas d'autonomie non gouvernée.
 
@@ -61,6 +62,7 @@ arpagona-agent-core/
     causal-trace.md
     operating-doctrine.md
     development-acceleration.md
+    failure-to-insight.md
   crates/
     compute-reservoir/
       Cargo.toml

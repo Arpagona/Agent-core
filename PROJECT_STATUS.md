@@ -4,7 +4,7 @@ This document is the canonical operational status file for ARPAGONA Agent Core.
 
 It describes the current implementation state, stability level, architectural risks, explicit stop-list, and the recommended next sequence of work.
 
-Every future contributor or agent must read this file together with `PROJECT_OBJECTIVES.md`, `docs/operating-doctrine.md` and `docs/development-acceleration.md` before modifying the repository.
+Every future contributor or agent must read this file together with `PROJECT_OBJECTIVES.md`, `docs/operating-doctrine.md`, `docs/development-acceleration.md` and `docs/failure-to-insight.md` before modifying the repository.
 
 ## 1. Current State
 
@@ -16,6 +16,7 @@ Current observed state:
 - `PROJECT_STATUS.md` exists and defines the canonical operational status of the repository.
 - `docs/operating-doctrine.md` defines the current working doctrine: controlled fast iteration, Rust-first development, LOCO/Ollama delegation and CLI supervision first.
 - `docs/development-acceleration.md` defines the current acceleration direction: Hermes-like alpha ergonomics, Rippletide-inspired runtime enforcement and CLI-as-local-Mission-Control.
+- `docs/failure-to-insight.md` defines the canonical doctrine for turning failures, blocked decisions, bad proposals, missing context, policy gaps and human corrections into durable, non-authorizing insights.
 - `README.md` points contributors and agents to the canonical project files before any modification.
 - `docs/roadmap.md` distinguishes the target architectural order from experimental work already prototyped out of order.
 - `docs/architecture.md` includes explicit architectural re-centering guidance.
@@ -51,6 +52,7 @@ The current product direction is no longer abstract stabilization only. The near
 | `PROJECT_STATUS.md` | Stable foundation | Canonical operational status | Must be updated after every significant change. |
 | `docs/operating-doctrine.md` | Stable foundation | Current work doctrine | Defines controlled fast iteration, Rust-first work, LOCO/Ollama delegation and CLI supervision first. |
 | `docs/development-acceleration.md` | Stable foundation | Current acceleration direction | Defines Hermes-like alpha ergonomics, CLI supervision first and Rippletide-inspired runtime enforcement. |
+| `docs/failure-to-insight.md` | Stable foundation | Failure-to-Insight doctrine | Defines how failures and corrections become durable learning without becoming authorization, execution or self-modification. |
 | `README.md` | Stable foundation | Entry point for contributors | Points to canonical objective/status/doctrine/acceleration files. |
 | `docs/roadmap.md` | Stable foundation | Architectural implementation order | Must reflect controlled acceleration without allowing unsafe execution. |
 | `docs/architecture.md` | Stable foundation | Target architecture and boundaries | Includes Architectural Re-Centering section. |
@@ -91,7 +93,8 @@ Stable foundations:
 - `ProposedAction -> DecisionGate -> Decision -> Audit` as the mandatory control path;
 - separation between domain vocabulary and adapters as an architectural rule;
 - documentation-level separation between Reservoir Echo and Compute Reservoir;
-- the CLI as the preferred near-term local supervision surface.
+- the CLI as the preferred near-term local supervision surface;
+- Failure-to-Insight as a stable documentary doctrine for turning failures and corrections into durable, non-authorizing learning artifacts.
 
 ## 4. What Is Experimental
 
@@ -105,6 +108,7 @@ Experimental areas:
 - Reservoir Echo tuning and lifecycle;
 - Compute Reservoir allocation heuristics and telemetry shape;
 - audit persistence and causal trace design;
+- future Failure-to-Insight domain vocabulary, audit conventions, CLI readback and Graph Memory integration;
 - exact crate boundaries for remaining governance layers.
 
 Experimental means: useful for learning, local supervision and integration tests, but not stable enough to justify external-effect execution around it.
@@ -148,11 +152,13 @@ Main risks:
 
 Recommended sequence from the current state:
 
-1. Prefer read-only CLI supervision increments that make the existing audit/task/action state inspectable.
-2. Add more Graph Memory or Audit guards only when they protect a concrete uncovered regression risk or unblock a supervision feature.
-3. Keep `crates/tool-registry` as a declarative catalogue only and harden it if gaps appear.
-4. Stabilize `crates/compute-reservoir` only as needed for future governed integration and local/cloud delegation.
-5. Expand API/Runtime only when the change remains read-only, clearly governed, or directly supports the CLI supervision path.
+1. Keep the Failure-to-Insight doctrine visible in canonical contributor and focus-loop context.
+2. In a later bounded implementation PR, add the smallest domain vocabulary and audit conventions needed for `FailureInsight`, without adding execution, autonomy or authorization.
+3. Prefer read-only CLI supervision increments that make the existing audit/task/action state inspectable.
+4. Add more Graph Memory or Audit guards only when they protect a concrete uncovered regression risk or unblock a supervision feature.
+5. Keep `crates/tool-registry` as a declarative catalogue only and harden it if gaps appear.
+6. Stabilize `crates/compute-reservoir` only as needed for future governed integration and local/cloud delegation.
+7. Expand API/Runtime only when the change remains read-only, clearly governed, or directly supports the CLI supervision path.
 
 The Decision Gate extraction is complete, the Compute Reservoir exists as alpha minimal, and the Tool Registry now exists as alpha minimal declarative catalogue. Keep `crates/core` limited to domain vocabulary, keep governance logic in `crates/decision-gate`, and do not treat compute allocation, readback or tool lookup as action approval.
 
@@ -166,14 +172,15 @@ The target consolidation order is now interpreted as controlled acceleration, no
 4. Tool Registry minimal
 5. Graph Memory + SurrealDB stabilized enough for readback
 6. Audit System stabilized enough for readback
-7. CLI supervision surface
-8. Neutral Orchestrator
-9. API Server Axum
-10. Mission Control Web
-11. Scheduler / controlled autonomous loops
-12. LLM Provider abstraction stabilized
-13. End-to-end demo
-14. Security hardening
+7. Failure-to-Insight vocabulary and conventions, after documentary doctrine is stable
+8. CLI supervision surface
+9. Neutral Orchestrator
+10. API Server Axum
+11. Mission Control Web
+12. Scheduler / controlled autonomous loops
+13. LLM Provider abstraction stabilized
+14. End-to-end demo
+15. Security hardening
 
 Some components already exist experimentally outside this order. They must not be treated as permission to expand unsafe features. They may be grown when the growth is read-only, observable, reversible and aligned with CLI supervision or governed integration.
 
@@ -225,30 +232,31 @@ The update must clearly state whether the change is stable, alpha, experimental,
 
 ## 11. Latest Session Update
 
-This session exposed the existing local supervision cockpit inside interactive chat through a read-only `/status` command.
+This session integrated the canonical Failure-to-Insight doctrine into the contributor and focus-loop context through documentation only.
 
 Changed:
 
-- added `/status` to the interactive chat command parser;
-- wired `/status` to the existing `status` readback path, which calls only existing read endpoints and keeps unavailable counts non-authorizing;
-- added `/status` to chat help output and parser regression coverage;
-- documented `/status` in `docs/cli.md` internal chat commands.
+- referenced `docs/failure-to-insight.md` from canonical read-before-change lists and roadmap/status/objective documents;
+- elevated Failure-to-Insight as a first-order requirement in `PROJECT_OBJECTIVES.md`;
+- added focus-loop reporting fields for observed failures, created insights, correction target and next detection signal;
+- clarified the recommended future sequence: documentary doctrine first, then bounded `FailureInsight` vocabulary, audit conventions, read-only CLI readback, regression tests, Graph Memory integration and later influence on Compute Reservoir and Decision Gate.
 
-Stability level: alpha CLI supervision ergonomics.
+Stability level: stable documentary foundation; no implementation added.
 
 Limits:
 
+- no Rust code was changed;
+- no `FailureInsight` type was created;
 - no real tool execution was introduced;
 - no destructive capability was added;
 - no approval, rejection or authorization behavior was added;
 - no Decision Gate behavior was changed;
-- no Graph Memory persistence schema or migration was changed;
-- no new API endpoint was added;
-- no runtime, scheduler, MCP, browser automation, credential or Mission Control Web growth was introduced;
-- `/status` is readback only and is not approval, authorization, orchestration or execution state.
+- no Graph Memory persistence schema, migration or runtime behavior was changed;
+- no CLI command, API endpoint, runtime, scheduler, MCP, browser automation, credential or Mission Control Web growth was introduced;
+- Failure-to-Insight remains learning and observability context only, never approval, authorization, orchestration, self-modification or execution state.
 
 Architectural risk:
 
-- low for alpha use. The change reuses an existing read-only CLI summary inside chat and preserves the explicit governance boundary that readback is not approval.
+- low for alpha use. The change is documentary and reinforces the boundary that learning from failures informs future decisions but does not authorize action.
 
-Recommended next step: continue CLI supervision first with one small read-only increment, preferably improving operator readback of tasks, proposed actions, decisions or audit without adding execution paths.
+Recommended next step: after this documentary integration is merged, consider a separate bounded implementation PR for the smallest `FailureInsight` domain vocabulary and audit conventions, still without execution, autonomy or implicit authorization.
