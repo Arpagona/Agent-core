@@ -355,6 +355,7 @@ mod tests {
     use crate::audit::{ActorRef, AuditEventType};
     use crate::ids::{AgentId, DecisionId, ProposedActionId, TaskId};
     use crate::source::SourceType;
+    use chrono::Duration;
     use serde_json::json;
 
     fn sample_source(id: &str) -> Source {
@@ -612,6 +613,60 @@ mod tests {
         assert_eq!(
             store.list_audit_events_for_decision(&decision_id).unwrap(),
             vec![event]
+        );
+    }
+
+    #[test]
+    fn returns_audit_trace_queries_in_chronological_order() {
+        let mut store = InMemoryGraphMemoryStore::new();
+        let proposed_action_id = ProposedActionId::new("action-ordered");
+        let decision_id = DecisionId::new("decision-ordered");
+        let task_id = TaskId::new("task-ordered");
+        let base_time = Utc::now();
+
+        let older_event = AuditEvent {
+            id: AuditEventId::new("audit-older"),
+            event_type: AuditEventType::ActionProposed,
+            actor: ActorRef::Agent(AgentId::new("agent-1")),
+            workspace_id: Some(WorkspaceId::new("workspace-1")),
+            task_id: Some(task_id.clone()),
+            proposed_action_id: Some(proposed_action_id.clone()),
+            decision_id: Some(decision_id.clone()),
+            payload: json!({"note": "older trace event"}),
+            created_at: base_time,
+        };
+        let newer_event = AuditEvent {
+            id: AuditEventId::new("audit-newer"),
+            event_type: AuditEventType::DecisionCreated,
+            actor: ActorRef::System,
+            workspace_id: Some(WorkspaceId::new("workspace-1")),
+            task_id: Some(task_id.clone()),
+            proposed_action_id: Some(proposed_action_id.clone()),
+            decision_id: Some(decision_id.clone()),
+            payload: json!({"note": "newer trace event"}),
+            created_at: base_time + Duration::seconds(5),
+        };
+
+        store
+            .record_audit_event(newer_event.clone())
+            .expect("newer audit event stored first");
+        store
+            .record_audit_event(older_event.clone())
+            .expect("older audit event stored second");
+
+        assert_eq!(
+            store.list_audit_events_for_task(&task_id).unwrap(),
+            vec![older_event.clone(), newer_event.clone()]
+        );
+        assert_eq!(
+            store
+                .list_audit_events_for_proposed_action(&proposed_action_id)
+                .unwrap(),
+            vec![older_event.clone(), newer_event.clone()]
+        );
+        assert_eq!(
+            store.list_audit_events_for_decision(&decision_id).unwrap(),
+            vec![older_event, newer_event]
         );
     }
 }
