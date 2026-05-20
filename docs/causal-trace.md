@@ -38,6 +38,8 @@ Current alpha representation:
 - `AuditEvent.workspace_id` and `AuditEvent.task_id` preserve workspace/task scope when known.
 - `AuditEvent.payload` may carry structured alpha metadata such as reason, policy ids, context refs or a `causal_trace` object.
 - `AuditEvent::decision_created` is the Rust-first helper for constructing canonical alpha `DecisionCreated` events with queryable `proposed_action_id`, `decision_id`, workspace/task scope and a structured `payload.causal_trace`.
+- `AuditTraceSummary` provides a compact Rust readback view over queried audit events so human supervision can quickly see trace scope, first/last event ids and whether proposal, decision, human approval or execution markers are present.
+- `GraphMemoryStore::audit_trace_summary_for_decision` and `AsyncGraphMemoryStore::audit_trace_summary_for_decision` build that summary from the existing decision-scoped audit-event queries without adding execution.
 
 ## Current storage boundary
 

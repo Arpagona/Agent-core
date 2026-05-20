@@ -216,16 +216,16 @@ The update must clearly state whether the change is stable, alpha, experimental,
 
 ## 11. Latest Session Update
 
-This session added a bounded alpha helper for constructing canonical `DecisionCreated` audit events, keeping the work inside Rust core domain types and Audit causal trace semantics only.
+This session added a bounded alpha Audit causal-trace summary readback capability, keeping the work inside Rust core domain types and Graph Memory/Audit queryability only.
 
 Changed:
 
-- `AuditEvent::decision_created` now builds `DecisionCreated` audit events from a `Decision` while preserving queryable `proposed_action_id`, `decision_id`, workspace scope and optional task scope;
-- `crates/decision-gate::audit_event_for_decision` now delegates to the core helper instead of hand-building the event payload;
-- the helper writes a structured alpha `payload.causal_trace` containing the proposed action id, decision id, decision status, reason, risk level and applied policies;
-- `docs/causal-trace.md` now documents the helper as the current Rust-first convention for `DecisionCreated` audit events.
+- `AuditTraceSummary` now summarizes already-queried audit events into a compact human-supervision readback view with event count, first/last audit event ids, workspace/task scope, proposed action id, decision id and key trace markers;
+- `GraphMemoryStore::audit_trace_summary_for_decision` now builds a decision-scoped summary from the existing synchronous decision audit-event query;
+- `AsyncGraphMemoryStore::audit_trace_summary_for_decision` now builds the same summary from the existing SurrealDB adapter decision audit-event query;
+- `docs/causal-trace.md` now documents the summary as an alpha readback convention.
 
-Stability level: alpha audit field semantics stabilization.
+Stability level: alpha Audit readback/query stabilization.
 
 Limits:
 
@@ -239,6 +239,6 @@ Limits:
 
 Architectural risk:
 
-- low, provided the helper remains a trace-construction convention and is not treated as authorization, orchestration or execution control.
+- low, provided the summary remains a readback aid for human supervision and is not treated as authorization, orchestration or execution control.
 
-Recommended next step: use this helper in future Decision Gate/Audit integration paths, then continue stabilizing Graph Memory persistence conventions before expanding Runtime/API/CLI surfaces.
+Recommended next step: use the readback summary in a tiny CLI/API inspection path only if explicitly chosen as the next small increment; otherwise continue Graph Memory persistence convention stabilization.
