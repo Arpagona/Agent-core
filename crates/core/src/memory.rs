@@ -90,7 +90,9 @@ pub trait GraphMemoryStore {
         decision_id: &DecisionId,
     ) -> GraphMemoryResult<AuditTraceSummary> {
         let events = self.list_audit_events_for_decision(decision_id)?;
-        Ok(AuditTraceSummary::from_events(&events))
+        let mut summary = AuditTraceSummary::from_events(&events);
+        summary.decision_id = Some(decision_id.clone());
+        Ok(summary)
     }
 
     fn add_relation(&mut self, relation: GraphRelation) -> GraphMemoryResult<()>;
@@ -701,6 +703,29 @@ mod tests {
         assert_eq!(summary.decision_id, Some(decision_id));
         assert!(summary.has_action_proposed);
         assert!(summary.has_decision_created);
+        assert!(!summary.has_execution_event);
+    }
+
+    #[test]
+    fn decision_trace_summary_preserves_decision_scope_when_empty() {
+        let store = InMemoryGraphMemoryStore::new();
+        let decision_id = DecisionId::new("decision-empty");
+
+        let summary = store
+            .audit_trace_summary_for_decision(&decision_id)
+            .expect("empty decision audit trace summary");
+
+        assert_eq!(summary.event_count, 0);
+        assert_eq!(summary.first_event_id, None);
+        assert_eq!(summary.last_event_id, None);
+        assert_eq!(summary.workspace_id, None);
+        assert_eq!(summary.task_id, None);
+        assert_eq!(summary.proposed_action_id, None);
+        assert_eq!(summary.decision_id, Some(decision_id));
+        assert!(!summary.has_action_proposed);
+        assert!(!summary.has_decision_created);
+        assert!(!summary.has_human_approval_request);
+        assert!(!summary.has_human_outcome);
         assert!(!summary.has_execution_event);
     }
 }

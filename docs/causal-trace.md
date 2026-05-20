@@ -41,6 +41,21 @@ Current alpha representation:
 - `AuditTraceSummary` provides a compact Rust readback view over queried audit events so human supervision can quickly see trace scope, first/last event ids and whether proposal, decision, human approval or execution markers are present.
 - `GraphMemoryStore::audit_trace_summary_for_decision` and `AsyncGraphMemoryStore::audit_trace_summary_for_decision` build that summary from the existing decision-scoped audit-event queries without adding execution.
 
+## Canonical alpha summary shape
+
+`AuditTraceSummary` is a Rust-first readback object for human supervision. Its canonical alpha shape is:
+
+- `event_count`: number of audit events included in the decision trace readback;
+- `first_event_id` / `last_event_id`: the boundary event ids from the chronological event list;
+- `workspace_id` / `task_id`: first known workspace and task scope from the events, when present;
+- `proposed_action_id`: first known proposed action id from the events, when present;
+- `decision_id`: the decision scope being summarized; decision-scoped summary helpers preserve this id even when the event list is empty;
+- `has_action_proposed`, `has_decision_created`, `has_human_approval_request`, `has_human_outcome`, `has_execution_event`: readback markers derived from event types only.
+
+The summary assumes its input events are already chronological. The Graph Memory decision, proposed-action, task and workspace audit-event queries must return events in ascending `created_at` order before the summary is built.
+
+The summary is not approval, authorization, orchestration or execution state. In particular, `has_execution_event` only reports whether such an event is present in the readback set; it does not grant or imply execution capability.
+
 ## Current storage boundary
 
 `crates/core` owns the pure domain types and the synchronous `GraphMemoryStore` contract.
