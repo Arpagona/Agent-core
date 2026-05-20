@@ -30,10 +30,12 @@ DEFINE INDEX graph_relation_from ON TABLE graph_relation COLUMNS from_node_type,
 DEFINE TABLE audit_event SCHEMALESS;
 DEFINE FIELD data ON TABLE audit_event TYPE object;
 DEFINE FIELD workspace_id ON TABLE audit_event TYPE option<string>;
+DEFINE FIELD task_id ON TABLE audit_event TYPE option<string>;
 DEFINE FIELD proposed_action_id ON TABLE audit_event TYPE option<string>;
 DEFINE FIELD decision_id ON TABLE audit_event TYPE option<string>;
 DEFINE FIELD created_at ON TABLE audit_event TYPE string;
 DEFINE INDEX audit_event_workspace ON TABLE audit_event COLUMNS workspace_id;
+DEFINE INDEX audit_event_task ON TABLE audit_event COLUMNS task_id;
 DEFINE INDEX audit_event_proposed_action ON TABLE audit_event COLUMNS proposed_action_id;
 DEFINE INDEX audit_event_decision ON TABLE audit_event COLUMNS decision_id;
 

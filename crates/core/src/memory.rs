@@ -3,7 +3,7 @@ use crate::episode::{Episode, Observation};
 use crate::errors::CoreError;
 use crate::graph::{GraphNodeType, GraphRef, GraphRelation, RelationType};
 use crate::ids::{
-    AuditEventId, DecisionId, EpisodeId, FactId, ObservationId, ProposedActionId, SourceId,
+    AuditEventId, DecisionId, EpisodeId, FactId, ObservationId, ProposedActionId, SourceId, TaskId,
     WorkspaceId,
 };
 use crate::source::Source;
@@ -76,6 +76,7 @@ pub trait GraphMemoryStore {
         &self,
         workspace_id: &WorkspaceId,
     ) -> GraphMemoryResult<Vec<AuditEvent>>;
+    fn list_audit_events_for_task(&self, task_id: &TaskId) -> GraphMemoryResult<Vec<AuditEvent>>;
     fn list_audit_events_for_proposed_action(
         &self,
         proposed_action_id: &ProposedActionId,
@@ -282,6 +283,17 @@ impl GraphMemoryStore for InMemoryGraphMemoryStore {
             .audit_events
             .values()
             .filter(|event| event.workspace_id.as_ref() == Some(workspace_id))
+            .cloned()
+            .collect::<Vec<_>>();
+        events.sort_by_key(|event| event.created_at);
+        Ok(events)
+    }
+
+    fn list_audit_events_for_task(&self, task_id: &TaskId) -> GraphMemoryResult<Vec<AuditEvent>> {
+        let mut events = self
+            .audit_events
+            .values()
+            .filter(|event| event.task_id.as_ref() == Some(task_id))
             .cloned()
             .collect::<Vec<_>>();
         events.sort_by_key(|event| event.created_at);
@@ -541,12 +553,13 @@ mod tests {
     #[test]
     fn records_audit_events_without_executing_anything() {
         let mut store = InMemoryGraphMemoryStore::new();
+        let task_id = TaskId::new("task-1");
         let event = AuditEvent {
             id: AuditEventId::new("audit-1"),
             event_type: AuditEventType::ActionProposed,
             actor: ActorRef::Agent(AgentId::new("agent-1")),
             workspace_id: Some(WorkspaceId::new("workspace-1")),
-            task_id: None,
+            task_id: Some(task_id.clone()),
             proposed_action_id: None,
             decision_id: None,
             payload: json!({"note": "graph memory storage only"}),
@@ -561,6 +574,10 @@ mod tests {
             store
                 .list_audit_events_for_workspace(&WorkspaceId::new("workspace-1"))
                 .unwrap(),
+            vec![event.clone()]
+        );
+        assert_eq!(
+            store.list_audit_events_for_task(&task_id).unwrap(),
             vec![event]
         );
     }
