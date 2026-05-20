@@ -216,17 +216,15 @@ The update must clearly state whether the change is stable, alpha, experimental,
 
 ## 11. Latest Session Update
 
-This session added a bounded alpha Audit causal-trace summary readback capability, keeping the work inside Rust core domain types and Graph Memory/Audit queryability only.
+This session stabilized the canonical alpha `AuditTraceSummary` shape as a Rust-first human-supervision readback object before exposing it through CLI/API.
 
 Changed:
 
-- `AuditTraceSummary` now summarizes already-queried audit events into a compact human-supervision readback view with event count, first/last audit event ids, workspace/task scope, proposed action id, decision id and key trace markers;
-- decision-scoped `AuditTraceSummary` helpers now preserve the requested `decision_id` even when no audit events exist yet, keeping empty summaries explicitly decision-scoped;
-- `GraphMemoryStore::audit_trace_summary_for_decision` now builds a decision-scoped summary from the existing synchronous decision audit-event query;
-- `AsyncGraphMemoryStore::audit_trace_summary_for_decision` now builds the same summary from the existing SurrealDB adapter decision audit-event query;
-- `docs/causal-trace.md` now documents the summary as an alpha readback convention.
+- `AuditTraceSummary` now includes `first_event_at` and `last_event_at` alongside first/last audit event ids, preserving chronological boundary timestamps from already-ordered audit-event lists;
+- summary tests now protect causal link preservation, decision scope, event count, chronological boundary ids/timestamps, workspace/task scope, proposed action id and the non-approval/non-execution interpretation of readback markers;
+- `docs/causal-trace.md` now documents the canonical alpha summary shape with temporal boundary fields and reiterates chronological ordering assumptions.
 
-Stability level: alpha Audit readback/query stabilization.
+Stability level: alpha Audit readback shape stabilization.
 
 Limits:
 
@@ -236,10 +234,11 @@ Limits:
 - no Decision Gate behavior was changed;
 - no Graph Memory persistence schema or migration was changed;
 - no graph-edge mirroring was introduced;
-- no Runtime, scheduler, MCP, browser automation, provider or Mission Control growth was introduced.
+- no Runtime, scheduler, MCP, browser automation, provider or Mission Control growth was introduced;
+- the summary remains readback only and must not be treated as approval, authorization, orchestration or execution state.
 
 Architectural risk:
 
-- low, provided the summary remains a readback aid for human supervision and is not treated as authorization, orchestration or execution control.
+- low, provided downstream consumers treat the summary as a typed supervision readback and keep execution/authorization decisions inside the governed Decision Gate path.
 
-Recommended next step: use the readback summary in a tiny CLI/API inspection path only if explicitly chosen as the next small increment; otherwise continue Graph Memory persistence convention stabilization.
+Recommended next step: expose the summary through a tiny CLI/API inspection path only if explicitly chosen as the next small increment; otherwise continue Graph Memory persistence convention stabilization.

@@ -47,12 +47,13 @@ Current alpha representation:
 
 - `event_count`: number of audit events included in the decision trace readback;
 - `first_event_id` / `last_event_id`: the boundary event ids from the chronological event list;
+- `first_event_at` / `last_event_at`: the boundary event timestamps from the chronological event list, when present;
 - `workspace_id` / `task_id`: first known workspace and task scope from the events, when present;
 - `proposed_action_id`: first known proposed action id from the events, when present;
 - `decision_id`: the decision scope being summarized; decision-scoped summary helpers preserve this id even when the event list is empty;
 - `has_action_proposed`, `has_decision_created`, `has_human_approval_request`, `has_human_outcome`, `has_execution_event`: readback markers derived from event types only.
 
-The summary assumes its input events are already chronological. The Graph Memory decision, proposed-action, task and workspace audit-event queries must return events in ascending `created_at` order before the summary is built.
+The summary assumes its input events are already chronological. `first_event_id` / `first_event_at` are derived from the first event in that ordered list, and `last_event_id` / `last_event_at` are derived from the last event. The Graph Memory decision, proposed-action, task and workspace audit-event queries must return events in ascending `created_at` order before the summary is built.
 
 The summary is not approval, authorization, orchestration or execution state. In particular, `has_execution_event` only reports whether such an event is present in the readback set; it does not grant or imply execution capability.
 
