@@ -59,27 +59,29 @@ The summary is not approval, authorization, orchestration or execution state. In
 
 ## CLI supervision readback
 
-The alpha CLI exposes the first local supervision surface for decision-scoped audit readback:
+The alpha CLI exposes the first local supervision surface for audit readback:
 
 ```text
 arpagona audit decision-summary <decision-id>
 arpagona audit decision-summary <decision-id> --json
+arpagona audit task-summary <task-id>
+arpagona audit task-summary <task-id> --json
+arpagona audit workspace-summary <workspace-id>
+arpagona audit workspace-summary <workspace-id> --json
 ```
 
-This command is read-only. It fetches existing audit events, filters by `decision_id`, orders matching events chronologically and renders a human-oriented decision summary. The JSON mode emits the same readback object for tooling or inspection.
+These commands are read-only. They fetch existing audit events, filter by `decision_id`, `task_id` or `workspace_id`, order matching events chronologically and render human-oriented summaries. JSON mode emits the same readback objects for tooling or inspection.
 
 The supervision-oriented output includes:
 
-- `decision_id`;
+- the requested scope id (`decision_id`, `task_id` or `workspace_id`);
 - `proposed_action_id`, when present;
-- `workspace_id`, when present;
-- `task_id`, when present;
+- related `workspace_id`, `task_id` or `decision_id`, when present;
 - `event_count`;
 - `first_event_id` / `last_event_id`;
 - `first_event_at` / `last_event_at`;
-- `decision_status`, when present in event payload metadata;
-- `risk_level`, when present in event payload metadata;
-- `policies_applied`, when present in event payload metadata;
+- decision metadata such as `decision_status`, `risk_level` and `policies_applied` for decision-scoped summaries when present in event payload metadata;
+- readback flags for proposed action, decision, human approval request, human outcome and execution-event markers;
 - a warning that the command is readback only.
 
 The CLI may read optional alpha metadata either from `AuditEvent.payload.causal_trace` or directly from `AuditEvent.payload`, but those metadata fields are explanatory only. They do not approve, authorize, orchestrate, schedule or execute anything, and they do not bypass the Decision Gate.
