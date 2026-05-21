@@ -233,26 +233,22 @@ The update must clearly state whether the change is stable, alpha, experimental,
 
 ## 11. Latest Session Update
 
-This session added read-only governed memory-write proposal observability in the CLI without adding Graph Memory mutation.
+This session extended governed memory-write observability from proposal readback into decision/audit readback without adding any memory mutation or authorization behavior.
 
 Changed:
+- preserved `MemoryWriteIntent` details from memory-write `ProposedAction` payloads inside `decision_created` audit event causal traces;
+- kept the additional audit causal-trace data bounded to existing governed memory-write intent metadata: kind, target, provenance, confidence, actor, reason, proposed timestamp and invalidation note;
+- extended read-only CLI decision-scoped audit readback to surface memory-write intent fields in both structured JSON and human-readable output;
+- added tests proving memory-write audit events retain the governed intent in causal traces and CLI decision readback exposes those fields deterministically.
 
-- added `arpagona memory proposals [--json]` to list existing proposed actions filtered to memory-write action types;
-- added `arpagona memory proposal <proposed-action-id> [--json]` to inspect one governed memory-write proposal;
-- reused the existing `GET /proposed-actions` API surface and client-side filtering rather than adding a new backend endpoint;
-- surfaced memory proposal metadata needed for supervision: action type, status, risk, required permission, typed target, provenance/source, confidence, actor, reason for remembering, optional decision/audit linkage, invalidation note and suggested next action;
-- extended CLI action-type parsing/default payload support for `create_memory_fact`, `link_memory_fact`, `invalidate_memory_fact` and `create_failure_insight_memory` proposals;
-- documented the read-only CLI proposal readback surface in `docs/graph-memory.md`;
-- added CLI tests proving the new commands parse and memory proposal readback filters out non-memory proposed actions.
-
-Stability level: alpha CLI supervision/readback. It is intentionally read-only and depends on existing proposed-action records from the API.
+Stability level: alpha audit/CLI supervision readback. It is intentionally read-only and depends on existing `ProposedAction -> DecisionGate -> Decision -> Audit` records.
 
 Limits:
 
 - no database connection was added;
 - no migration runner was added;
 - no Graph Memory write path was added;
-- no memory fact, observation, relation, FailureInsight or audit event creation behavior was added;
+- no memory fact, observation, relation, FailureInsight or audit event creation behavior was added beyond preserving existing proposed-action intent details in audit payloads;
 - no Decision Gate policy change was added;
 - no runtime behavior was added;
 - no approval, rejection, authorization or persistence behavior was added;
@@ -261,10 +257,10 @@ Limits:
 - no real tool execution was introduced;
 - no destructive capability was added;
 - no scheduler, autonomy, MCP, browser automation, credential handling or Mission Control Web growth was introduced;
-- CLI readback remains observability only and must not be treated as approval.
+- CLI and audit readback remain observability only and must not be treated as approval.
 
 Architectural risk:
 
-- low for alpha use. The change exposes existing proposed actions through a read-only CLI filter and keeps governed memory writes behind the existing ProposedAction -> DecisionGate -> Decision -> Audit boundary.
+- low for alpha use. The change makes governed memory-write context more inspectable after Decision Gate evaluation while preserving the non-negotiable ProposedAction -> DecisionGate -> Decision -> Audit boundary.
 
-Recommended next step: add a separate bounded PR for decision/audit summaries that present `MemoryWriteIntent` details consistently, or begin a minimal approved local persistence path only after the proposal, permission, decision, audit and readback path remains fully covered by tests.
+Recommended next step: add a separate bounded PR for a minimal approved local persistence path only after the proposal, permission, decision, audit and readback path remains fully covered by tests, or continue hardening read-only audit/Graph Memory supervision where concrete gaps appear.

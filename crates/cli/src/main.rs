@@ -327,6 +327,18 @@ struct AuditDecisionReadback {
     decision_status: Option<String>,
     explicit_reason: Option<String>,
     action_type: Option<String>,
+    memory_write_kind: Option<String>,
+    memory_target_type: Option<String>,
+    memory_target_id: Option<String>,
+    memory_target_attribute: Option<String>,
+    memory_provenance_source_label: Option<String>,
+    memory_provenance_source_kind: Option<String>,
+    memory_provenance_evidence: Option<String>,
+    memory_confidence: Option<f64>,
+    memory_actor: Option<String>,
+    memory_reason_for_remembering: Option<String>,
+    memory_proposed_at: Option<String>,
+    memory_invalidation_note: Option<String>,
     risk_level: Option<String>,
     matched_policy_or_fallback_rule: Option<String>,
     required_permission: Option<String>,
@@ -1884,6 +1896,18 @@ fn decision_readback_from_audit_events(
         decision_status: metadata.decision_status,
         explicit_reason: metadata.explicit_reason,
         action_type: metadata.action_type,
+        memory_write_kind: metadata.memory_write_kind,
+        memory_target_type: metadata.memory_target_type,
+        memory_target_id: metadata.memory_target_id,
+        memory_target_attribute: metadata.memory_target_attribute,
+        memory_provenance_source_label: metadata.memory_provenance_source_label,
+        memory_provenance_source_kind: metadata.memory_provenance_source_kind,
+        memory_provenance_evidence: metadata.memory_provenance_evidence,
+        memory_confidence: metadata.memory_confidence,
+        memory_actor: metadata.memory_actor,
+        memory_reason_for_remembering: metadata.memory_reason_for_remembering,
+        memory_proposed_at: metadata.memory_proposed_at,
+        memory_invalidation_note: metadata.memory_invalidation_note,
         risk_level: metadata.risk_level,
         matched_policy_or_fallback_rule: metadata.matched_policy_or_fallback_rule,
         required_permission: metadata.required_permission,
@@ -1937,6 +1961,18 @@ struct AuditDecisionMetadata {
     decision_status: Option<String>,
     explicit_reason: Option<String>,
     action_type: Option<String>,
+    memory_write_kind: Option<String>,
+    memory_target_type: Option<String>,
+    memory_target_id: Option<String>,
+    memory_target_attribute: Option<String>,
+    memory_provenance_source_label: Option<String>,
+    memory_provenance_source_kind: Option<String>,
+    memory_provenance_evidence: Option<String>,
+    memory_confidence: Option<f64>,
+    memory_actor: Option<String>,
+    memory_reason_for_remembering: Option<String>,
+    memory_proposed_at: Option<String>,
+    memory_invalidation_note: Option<String>,
     risk_level: Option<String>,
     matched_policy_or_fallback_rule: Option<String>,
     required_permission: Option<String>,
@@ -1963,6 +1999,7 @@ fn decision_readback_metadata(events: &[AuditEvent]) -> AuditDecisionMetadata {
         if metadata.action_type.is_none() {
             metadata.action_type = string_field(trace, "action_type");
         }
+        populate_memory_write_metadata(&mut metadata, trace.get("memory_write_intent"));
         if metadata.risk_level.is_none() {
             metadata.risk_level =
                 string_field(trace, "risk_level").or_else(|| string_field(trace, "risk"));
@@ -1989,6 +2026,51 @@ fn decision_readback_metadata(events: &[AuditEvent]) -> AuditDecisionMetadata {
     }
 
     metadata
+}
+
+fn populate_memory_write_metadata(metadata: &mut AuditDecisionMetadata, intent: Option<&Value>) {
+    let Some(intent) = intent else {
+        return;
+    };
+    let target = intent.get("target").unwrap_or(&Value::Null);
+    let provenance = intent.get("provenance").unwrap_or(&Value::Null);
+
+    if metadata.memory_write_kind.is_none() {
+        metadata.memory_write_kind = string_field(intent, "kind");
+    }
+    if metadata.memory_target_type.is_none() {
+        metadata.memory_target_type = string_field(target, "entity_type");
+    }
+    if metadata.memory_target_id.is_none() {
+        metadata.memory_target_id = string_field(target, "entity_id");
+    }
+    if metadata.memory_target_attribute.is_none() {
+        metadata.memory_target_attribute = string_field(target, "attribute");
+    }
+    if metadata.memory_provenance_source_label.is_none() {
+        metadata.memory_provenance_source_label = string_field(provenance, "source_label");
+    }
+    if metadata.memory_provenance_source_kind.is_none() {
+        metadata.memory_provenance_source_kind = string_field(provenance, "source_kind");
+    }
+    if metadata.memory_provenance_evidence.is_none() {
+        metadata.memory_provenance_evidence = string_field(provenance, "evidence");
+    }
+    if metadata.memory_confidence.is_none() {
+        metadata.memory_confidence = intent.get("confidence").and_then(Value::as_f64);
+    }
+    if metadata.memory_actor.is_none() {
+        metadata.memory_actor = string_field(intent, "actor");
+    }
+    if metadata.memory_reason_for_remembering.is_none() {
+        metadata.memory_reason_for_remembering = string_field(intent, "reason_for_remembering");
+    }
+    if metadata.memory_proposed_at.is_none() {
+        metadata.memory_proposed_at = string_field(intent, "proposed_at");
+    }
+    if metadata.memory_invalidation_note.is_none() {
+        metadata.memory_invalidation_note = string_field(intent, "invalidation_note");
+    }
 }
 
 fn string_field(value: &Value, field: &str) -> Option<String> {
@@ -2084,6 +2166,81 @@ fn format_audit_decision_readback(readback: &AuditDecisionReadback) -> String {
         &mut output,
         "action_type:",
         readback.action_type.as_deref().unwrap_or("-"),
+    );
+    push_readback_field(
+        &mut output,
+        "memory_write_kind:",
+        readback.memory_write_kind.as_deref().unwrap_or("-"),
+    );
+    push_readback_field(
+        &mut output,
+        "memory_target_type:",
+        readback.memory_target_type.as_deref().unwrap_or("-"),
+    );
+    push_readback_field(
+        &mut output,
+        "memory_target_id:",
+        readback.memory_target_id.as_deref().unwrap_or("-"),
+    );
+    push_readback_field(
+        &mut output,
+        "memory_target_attribute:",
+        readback.memory_target_attribute.as_deref().unwrap_or("-"),
+    );
+    push_readback_field(
+        &mut output,
+        "memory_provenance_source_label:",
+        readback
+            .memory_provenance_source_label
+            .as_deref()
+            .unwrap_or("-"),
+    );
+    push_readback_field(
+        &mut output,
+        "memory_provenance_source_kind:",
+        readback
+            .memory_provenance_source_kind
+            .as_deref()
+            .unwrap_or("-"),
+    );
+    push_readback_field(
+        &mut output,
+        "memory_provenance_evidence:",
+        readback
+            .memory_provenance_evidence
+            .as_deref()
+            .unwrap_or("-"),
+    );
+    push_readback_field(
+        &mut output,
+        "memory_confidence:",
+        &readback
+            .memory_confidence
+            .map(|confidence| confidence.to_string())
+            .unwrap_or_else(|| "-".to_owned()),
+    );
+    push_readback_field(
+        &mut output,
+        "memory_actor:",
+        readback.memory_actor.as_deref().unwrap_or("-"),
+    );
+    push_readback_field(
+        &mut output,
+        "memory_reason_for_remembering:",
+        readback
+            .memory_reason_for_remembering
+            .as_deref()
+            .unwrap_or("-"),
+    );
+    push_readback_field(
+        &mut output,
+        "memory_proposed_at:",
+        readback.memory_proposed_at.as_deref().unwrap_or("-"),
+    );
+    push_readback_field(
+        &mut output,
+        "memory_invalidation_note:",
+        readback.memory_invalidation_note.as_deref().unwrap_or("-"),
     );
     push_readback_field(
         &mut output,
@@ -2918,8 +3075,27 @@ mod tests {
                 "payload": {
                     "causal_trace": {
                         "decision_status": "needs_human_approval",
+                        "action_type": "create_memory_fact",
                         "risk_level": "high",
-                        "policies_applied": ["policy-human-approval"]
+                        "policies_applied": ["policy-human-approval"],
+                        "memory_write_intent": {
+                            "kind": "create_memory_fact",
+                            "target": {
+                                "entity_type": "project",
+                                "entity_id": "arpagona-agent-core",
+                                "attribute": "operational_note"
+                            },
+                            "provenance": {
+                                "source_label": "focus loop",
+                                "source_kind": "operational_report",
+                                "evidence": "Issue #47 requires governed memory observability."
+                            },
+                            "confidence": 0.88,
+                            "actor": "agent-alpha",
+                            "reason_for_remembering": "Keep memory-write proposal context visible in audit readback.",
+                            "proposed_at": "2026-05-21T10:00:00Z",
+                            "invalidation_note": "Supersede when priority changes."
+                        }
                     }
                 },
                 "created_at": "2026-01-01T00:05:00Z"
@@ -2977,6 +3153,25 @@ mod tests {
         );
         assert_eq!(readback.risk_level.as_deref(), Some("high"));
         assert_eq!(readback.policies_applied, vec!["policy-human-approval"]);
+        assert_eq!(readback.action_type.as_deref(), Some("create_memory_fact"));
+        assert_eq!(
+            readback.memory_write_kind.as_deref(),
+            Some("create_memory_fact")
+        );
+        assert_eq!(readback.memory_target_type.as_deref(), Some("project"));
+        assert_eq!(
+            readback.memory_target_id.as_deref(),
+            Some("arpagona-agent-core")
+        );
+        assert_eq!(
+            readback.memory_provenance_source_label.as_deref(),
+            Some("focus loop")
+        );
+        assert_eq!(readback.memory_confidence, Some(0.88));
+        assert_eq!(
+            readback.memory_reason_for_remembering.as_deref(),
+            Some("Keep memory-write proposal context visible in audit readback.")
+        );
 
         let formatted = format_audit_decision_readback(&readback);
         assert!(formatted.contains("decision_status:"));
@@ -2985,12 +3180,24 @@ mod tests {
         assert!(formatted.contains("high"));
         assert!(formatted.contains("policies_applied:"));
         assert!(formatted.contains("policy-human-approval"));
+        assert!(formatted.contains("memory_write_kind:"));
+        assert!(formatted.contains("create_memory_fact"));
+        assert!(formatted.contains("memory_target_id:"));
+        assert!(formatted.contains("arpagona-agent-core"));
+        assert!(formatted.contains("memory_reason_for_remembering:"));
+        assert!(formatted.contains("Keep memory-write proposal context visible in audit readback."));
         assert!(formatted.contains("Readback only"));
 
         let json = serde_json::to_value(&readback).unwrap();
         assert_eq!(json["decision_status"], "needs_human_approval");
         assert_eq!(json["risk_level"], "high");
         assert_eq!(json["policies_applied"], json!(["policy-human-approval"]));
+        assert_eq!(json["memory_write_kind"], "create_memory_fact");
+        assert_eq!(json["memory_target_id"], "arpagona-agent-core");
+        assert_eq!(
+            json["memory_reason_for_remembering"],
+            "Keep memory-write proposal context visible in audit readback."
+        );
         assert_eq!(json["summary"]["event_count"], 2);
     }
 
