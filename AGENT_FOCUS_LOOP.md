@@ -157,6 +157,35 @@ Acceptable first persistence targets:
 
 The key proof is not broad autonomy. The key proof is that memory can be proposed, governed, persisted only when approved, and inspected afterward.
 
+### Immediate end-to-end scenario target for the next loop
+
+The next focus loop should prioritize a small but demonstrable safe scenario over another isolated readback improvement.
+
+Preferred scenario:
+
+```text
+observed failure or correction -> proposed FailureInsight memory write -> Decision Gate decision -> audit event -> approved local Graph Memory persistence -> CLI/readback proof that the persisted insight exists and remains linked to the proposal, decision and audit event
+```
+
+The goal is to produce a local alpha proof that ARPAGONA can learn from a failure or correction without bypassing governance.
+
+Acceptance criteria for this scenario:
+
+- create or reuse a bounded test fixture representing a failure, correction or missing-context signal;
+- materialize a governed `create_failure_insight_memory` proposal;
+- pass the proposal through Decision Gate without adding any bypass;
+- record or validate an audit linkage between proposed action, decision and persisted memory artifact;
+- persist only after an approved decision;
+- expose a readback path proving the persisted FailureInsight can be inspected afterward;
+- update `PROJECT_STATUS.md` if implementation status changes;
+- keep the PR bounded to this end-to-end memory-learning proof.
+
+A strong implementation may be mostly tests and CLI/readback glue if that is the safest path. However, avoid another PR that merely adds fields without proving the full governed learning loop.
+
+This scenario must not introduce broad autonomy, hidden prompt injection, direct provider/runtime memory mutation, shell/tool execution, scheduler expansion, browser automation, MCP, secrets handling, destructive operations or Mission Control Web work.
+
+If the full scenario is not yet safe in one PR, implement the most ambitious missing slice that directly unblocks it and explicitly report what remains for the next loop.
+
 ## 5. Secondary useful work
 
 If controlled persistence is not yet safe, choose the most ambitious enabling slice, not a trivial substitute.
