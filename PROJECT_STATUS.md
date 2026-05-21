@@ -28,7 +28,7 @@ Current observed state:
 - `crates/compute-reservoir` exists as an alpha minimal pure Rust crate with compute inventory/allocation types and a deterministic `allocate_compute` function.
 - `crates/tool-registry` exists as an alpha minimal declarative catalogue for tool definitions, capabilities, schemas, permissions, risk levels and enabled/disabled states, without execution.
 - `Reservoir Echo` currently exists inside the Cognitive Runtime primitives as short-term volatile cognitive continuity.
-- `crates/graph-memory` exists as an experimental SurrealDB adapter for Graph Memory persistence, alpha audit trace lookup by workspace, task, proposed action and decision, and schema-backed CLI status readback.
+- `crates/graph-memory` exists as an experimental SurrealDB adapter for Graph Memory persistence, alpha audit trace lookup by workspace, task, proposed action and decision, governed approved memory fact and FailureInsight persistence/readback helpers, and schema-backed CLI status readback.
 - `crates/llm` exists as an experimental provider abstraction that can produce `ProposedAction` objects with `PendingDecision`, without executing tools.
 - `crates/runtime` exists as an experimental cognitive runtime loop that stops at action proposal.
 - `apps/api-server` exists as an alpha Axum API server.
@@ -234,15 +234,16 @@ The update must clearly state whether the change is stable, alpha, experimental,
 
 ## 11. Latest Session Update
 
-This session added the first bounded controlled local Graph Memory persistence helper for governed memory-write proposals.
+This session extended the bounded controlled local Graph Memory persistence helper from approved memory facts to approved FailureInsight memory artifacts.
 
 Changed:
-- added `AsyncGraphMemoryStore::persist_approved_create_memory_fact` as an alpha helper that converts a `MemoryWriteIntent` into a `Fact` only when supplied with a matching `DecisionStatus::Approved` Decision Gate result and linked decision audit event;
-- added explicit `InvalidGovernedMemoryWrite` errors for non-approved decisions, non-`create_memory_fact` intents, missing target attribute/value and mismatched decision/audit linkage;
-- made the helper record the linked audit event, optionally upsert the provenance source, persist the active fact and add readback relations from the fact to the decision and audit event;
-- added SurrealDB in-memory tests proving an approved governed memory fact can be persisted and read back, and a non-approved memory fact proposal writes neither fact nor audit event.
+- added `AsyncGraphMemoryStore::upsert_failure_insight`, `get_failure_insight` and `list_failure_insights_for_workspace` as alpha SurrealDB-backed read/write/readback helpers for `FailureInsight` domain artifacts;
+- added `AsyncGraphMemoryStore::persist_approved_failure_insight_memory` as an alpha helper that converts a `MemoryWriteIntent` into a durable `FailureInsight` only when supplied with a matching `DecisionStatus::Approved` Decision Gate result and linked decision audit event;
+- factored shared approved-memory validation so both `create_memory_fact` and `create_failure_insight_memory` paths reject non-approved decisions and mismatched decision/audit/proposed-action linkage before writing;
+- made the FailureInsight helper record the linked audit event, optionally upsert the provenance source, persist the insight and add readback relations from the insight to the decision and audit event;
+- added SurrealDB in-memory tests proving an approved governed FailureInsight can be persisted and read back by id/workspace/audit/source/relation, and a non-approved FailureInsight memory proposal writes neither insight nor audit event.
 
-Stability level: alpha controlled local Graph Memory persistence helper. It is intentionally limited to `create_memory_fact` and depends on an already completed `ProposedAction -> DecisionGate -> Decision -> Audit` path.
+Stability level: alpha controlled local Graph Memory persistence helper. It is intentionally limited to approved `create_memory_fact` and `create_failure_insight_memory` intents and depends on an already completed `ProposedAction -> DecisionGate -> Decision -> Audit` path.
 
 Limits:
 
@@ -262,6 +263,6 @@ Limits:
 
 Architectural risk:
 
-- medium-low for alpha use. The change introduces a real local persistence helper, but it is bounded to approved `create_memory_fact` intents, validates decision/audit linkage before writing and preserves audit/readback relations.
+- medium-low for alpha use. The change extends real local persistence to FailureInsight artifacts, but only through an approved, audit-linked helper with explicit readback and rejection coverage for non-approved decisions.
 
-Recommended next step: add a separate bounded CLI/API-supervised path only when it keeps approval, persistence and readback explicit, or extend the helper to a similarly guarded FailureInsight memory path with tests.
+Recommended next step: add a bounded supervisor-facing readback path for persisted FailureInsight memory, or add invalidation/supersession semantics for persisted memory artifacts without widening authorization or execution capabilities.
