@@ -234,14 +234,14 @@ The update must clearly state whether the change is stable, alpha, experimental,
 
 ## 11. Latest Session Update
 
-This session aligned the CLI Graph Memory status readback with the existing governed approved persistence helpers.
+This session enriched CLI governed memory-write proposal readback so operators can see the proposed Graph Memory artifact linkage and the governance follow-up needed before persistence.
 
 Changed:
-- extended the `arpagona memory status` readback model with explicit `governed_persistence_helpers` and `required_governance_controls` fields;
-- updated the human-oriented status formatter to show those helpers and controls alongside backend/schema state;
-- removed stale status text that described the approved Graph Memory write path, governed memory-write proposal vocabulary and automatic FailureInsight persistence as not implemented;
-- kept `CLI memory mutation command`, automatic FailureInsight creation from audit events, Decision Gate influence from memory readback, Mission Control Graph Memory UI and scheduler/autonomous memory expansion listed as not implemented;
-- updated CLI unit coverage so JSON and formatted readbacks prove the governed helper visibility while preserving the readback-only/non-authorizing warning.
+- extended governed memory-write proposal summaries with optional `target_fact_id`, `related_fact_id`, `failure_insight_id` and `provenance_source_id` fields;
+- updated human-oriented `arpagona memory proposals` / `arpagona memory proposal` formatting to display those artifact/provenance identifiers;
+- added `persistence_readback_hint` so non-approved proposals remain explicitly non-persistable and approved proposals point operators toward explicit governed Graph Memory persistence plus decision/audit readback checks;
+- added `supersession_hint` so fact, related-fact and FailureInsight proposals include bounded invalidation/supersession guidance;
+- updated CLI unit coverage so JSON and formatted readbacks prove the new artifact-link fields and readback-only/non-authorizing guidance.
 
 Stability level: alpha CLI supervision/readback. This change is observability-only; it does not add a CLI mutation command, API endpoint, authorization path, scheduler path or direct memory-writing behavior.
 
@@ -252,7 +252,7 @@ Limits:
 - no new Graph Memory persistence helper was added;
 - no LLM/provider/runtime direct memory mutation was added;
 - no broad autonomous memory writing was added;
-- no persistence is performed by the CLI status command;
+- no persistence is performed by the CLI memory proposal readback commands;
 - no Decision Gate behavior was changed;
 - no personal or sensitive memory path was added;
 - no database migration runner was added;
@@ -265,6 +265,6 @@ Limits:
 
 Architectural risk:
 
-- low. The change corrects stale readback and makes governance controls more inspectable, but any downstream automation that parsed the previous `not_implemented` strings may need to adapt.
+- low. The change makes existing governed memory-write intent payloads more inspectable and adds operator guidance, but any downstream automation that parses proposal readback JSON or text may need to tolerate the additional fields.
 
-Recommended next step: add a bounded supervisor-facing readback path for persisted FailureInsight memory, or add invalidation/supersession semantics for persisted memory artifacts without widening authorization or execution capabilities.
+Recommended next step: add a bounded supervisor-facing readback path for persisted FailureInsight memory, or implement governed invalidation/supersession readback for persisted memory artifacts without widening authorization or execution capabilities.
