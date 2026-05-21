@@ -52,7 +52,7 @@ Move fast on internal architecture. Gate anything that changes state, memory, to
 
 ## 3. Current strategic priority
 
-Move beyond memory-write vocabulary and make governed memory-write proposals observable and controllable.
+Move beyond memory-write vocabulary and make governed memory-write proposals observable, controllable and suitable for controlled local persistence tests.
 
 Current priority issue:
 
@@ -69,10 +69,12 @@ Graph Memory visibility -> governed memory-write proposal vocabulary
 The next target is now:
 
 ```text
-governed memory-write proposals -> observable/controllable proposal readback -> audit-linked memory facts -> approved memory persistence
+governed memory-write proposals -> observable/controllable proposal readback -> controlled local Graph Memory persistence -> audit-linked memory facts
 ```
 
-The immediate goal is not database persistence. The immediate goal is to let a human or local supervision surface inspect, understand and eventually act on proposed memory writes before any real Graph Memory mutation is introduced.
+Real Graph Memory persistence is allowed at this stage for local alpha testing, provided it is explicit, governed, inspectable, manipulable and reversible enough for development use.
+
+The immediate goal is to let a human or local supervision surface inspect, understand, approve and test proposed memory writes. Persistence is acceptable only when the proposal, permission, audit and readback path is clear.
 
 This must still preserve the founding rule:
 
@@ -87,7 +89,7 @@ Prefer one coherent bounded PR per loop. The PR may be substantial if it advance
 The preferred next milestone is:
 
 ```text
-Observable and controllable governed memory-write proposals
+Observable, controllable and optionally persistable governed memory-write proposals
 ```
 
 A strong next PR should allow a supervisor to answer:
@@ -99,6 +101,8 @@ What would be remembered?
 What provenance/source supports it?
 What confidence does it carry?
 What permission/policy blocked, approved or escalated it?
+Was it persisted, and where?
+How can it be inspected or superseded later?
 What is the next safe human action?
 ```
 
@@ -138,21 +142,35 @@ Improve audit or decision summaries so memory-write proposals expose:
 
 Add structured formatting or serialization helpers for `MemoryWriteIntent` so CLI and audit surfaces can show proposed memory writes consistently.
 
-The key proof is not persistence. The key proof is that proposed memory writes are visible, understandable, non-mutating, and governed.
+### Controlled local persistence path
+
+If the foundations are ready, add a minimal real Graph Memory persistence path for safe internal operational/project memory.
+
+Acceptable first persistence targets:
+
+- approved `create_memory_fact`;
+- approved `create_failure_insight_memory`;
+- audit-linked operational memory facts;
+- local SurrealDB-backed persistence when the adapter is suitable;
+- development/test-only persistence with explicit configuration;
+- CLI readback of persisted facts.
+
+The key proof is not broad autonomy. The key proof is that memory can be proposed, governed, persisted only when approved, and inspected afterward.
 
 ## 5. Secondary useful work
 
-If memory proposal readback is blocked by missing foundations, choose the most ambitious enabling slice, not a trivial substitute.
+If controlled persistence is not yet safe, choose the most ambitious enabling slice, not a trivial substitute.
 
 Good enabling slices include:
 
 - tests proving `create_memory_fact` and `create_failure_insight_memory` appear clearly in decision/audit summaries;
 - serialization/readback improvements for `MemoryWriteIntent`;
-- documentation of the lifecycle from memory-write proposal to later approved persistence;
+- documentation of the lifecycle from memory-write proposal to approved persistence;
 - CLI listing of pending/proposed actions filtered to memory-write action types;
-- improved explanatory audit metadata for memory-write proposals.
+- improved explanatory audit metadata for memory-write proposals;
+- minimal test fixture proving approved memory facts can later be read back.
 
-Do not jump directly to persistence unless the proposal, permission, audit and readback path is already clear and tested.
+Do not jump to broad persistent memory unless the proposal, permission, audit and readback path is clear and tested.
 
 ## 6. Allowed work
 
@@ -163,11 +181,13 @@ Allowed during the current phase:
 - proposal formatting and serialization helpers;
 - tests proving proposed memory writes are inspectable;
 - tests proving blocked and confirmation-required memory-write proposals remain governed;
+- controlled local Graph Memory persistence for safe internal operational/project facts;
+- CLI readback for persisted memory facts;
+- local SurrealDB-backed persistence if explicitly configured and safe;
 - Graph Memory documentation and architecture clarification;
 - Decision Gate support for memory-write permissions and risk classification;
 - explanatory audit for memory-write proposals;
 - narrow operational-memory design around FailureInsight, corrections and project decisions;
-- minimal approved memory persistence only after proposal observability/control is proven;
 - `PROJECT_STATUS.md` updates reflecting each significant change.
 
 ## 7. Forbidden work
@@ -196,9 +216,11 @@ Do not implement yet:
 
 These restrictions are not meant to slow internal architecture. They are meant to prevent uncontrolled external effects or untraceable state mutation.
 
+Important clarification: real Graph Memory persistence is no longer forbidden if it is local, explicit, governed, auditable, inspectable and limited to safe internal operational/project memory.
+
 ## 8. Mandatory safeguards for memory work
 
-Any memory-write proposal or design must include, at minimum:
+Any memory-write proposal, persistence path or design must include, at minimum:
 
 - typed memory target;
 - explicit provenance/source;
@@ -208,6 +230,7 @@ Any memory-write proposal or design must include, at minimum:
 - reason for remembering;
 - Decision Gate result;
 - audit event linkage;
+- CLI readback or another explicit inspection path;
 - future invalidation/supersession path, even if not fully implemented yet.
 
 Sensitive or personal facts must require human confirmation. The first alpha should focus on operational/project memory, not private personal memory.
@@ -221,14 +244,14 @@ A good PR is:
 - architecturally meaningful;
 - bounded;
 - testable;
-- aligned with observable/controllable Graph Memory proposals;
+- aligned with observable/controllable Graph Memory proposals or controlled persistence;
 - safe by construction;
 - documented;
 - accompanied by `PROJECT_STATUS.md` update when significant.
 
-Do not split one coherent architectural slice into tiny PRs solely out of caution. It is acceptable for one PR to touch core, decision-gate, CLI, docs and tests if the change is coherent and governed.
+Do not split one coherent architectural slice into tiny PRs solely out of caution. It is acceptable for one PR to touch core, decision-gate, graph-memory, CLI, docs and tests if the change is coherent and governed.
 
-Avoid PRs that only add generic CLI polish unless they directly support memory proposal observability, governed memory writes, audit explainability or local supervision of the current priority.
+Avoid PRs that only add generic CLI polish unless they directly support memory proposal observability, governed memory writes, controlled persistence, audit explainability or local supervision of the current priority.
 
 ## 10. Controlled auto-merge policy
 
@@ -247,6 +270,7 @@ The focus loop may auto-merge its own PR without waiting for human review only w
 - the PR does not add direct tool execution, shell execution, browser automation, MCP expansion, uncontrolled scheduler/autonomy, secret handling or destructive operations;
 - the PR does not introduce direct Graph Memory mutation by LLM/provider/runtime;
 - any memory state-changing capability remains routed through ProposedAction -> DecisionGate -> Decision -> Audit;
+- any real persistence path is local/test-oriented, explicit, inspectable and documented;
 - `PROJECT_STATUS.md` is updated if the change is significant.
 
 Preferred merge method:
@@ -276,6 +300,8 @@ cargo run -q -p arpagona-cli -- memory proposals --json
 ```
 
 Use the actual implemented command name.
+
+When adding controlled persistence, include at least one local readback verification showing that an approved persisted memory fact can be inspected afterward.
 
 ## 12. LOCO/Ollama delegation rules
 
@@ -331,4 +357,4 @@ Every focus-loop report must include:
 
 ## 15. Current intent in one sentence
 
-Make governed memory-write proposals observable and controllable first, so ARPAGONA can show what it wants to remember, why, under which permission/policy, and what the next safe human action is before any approved Graph Memory persistence path is expanded.
+Make governed memory-write proposals observable, controllable and suitable for controlled local persistence tests, so ARPAGONA can show what it wants to remember, why, under which permission/policy, whether it was persisted, and how to inspect or supersede it afterward.
