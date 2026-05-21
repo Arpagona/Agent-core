@@ -183,6 +183,51 @@ struct ProposeActionArgs {
     /// Rationale recorded with the action.
     #[arg(long, default_value = DEFAULT_RATIONALE)]
     rationale: String,
+    /// Memory proposal target entity type for governed memory-write action types.
+    #[arg(long, default_value = "project")]
+    memory_target_type: String,
+    /// Memory proposal target entity id for governed memory-write action types.
+    #[arg(long, default_value = "arpagona-agent-core")]
+    memory_target_id: String,
+    /// Memory proposal target attribute for governed memory-write action types.
+    #[arg(long, default_value = "operational_note")]
+    memory_target_attribute: String,
+    /// Proposed memory value for governed memory-write action types. Accepts JSON or plain text.
+    #[arg(long)]
+    memory_value: Option<String>,
+    /// Optional proposed Graph Memory fact id for governed memory-write action types.
+    #[arg(long)]
+    memory_fact_id: Option<String>,
+    /// Optional related fact id for link/invalidation governed memory-write action types.
+    #[arg(long)]
+    memory_related_fact_id: Option<String>,
+    /// Optional FailureInsight id for governed FailureInsight memory proposals.
+    #[arg(long)]
+    memory_failure_insight_id: Option<String>,
+    /// Optional provenance source id for governed memory-write action types.
+    #[arg(long)]
+    memory_source_id: Option<String>,
+    /// Provenance source label for governed memory-write action types.
+    #[arg(long, default_value = "arpagona cli proposal")]
+    memory_source_label: String,
+    /// Provenance source kind for governed memory-write action types.
+    #[arg(long, default_value = "local_operator_input")]
+    memory_source_kind: String,
+    /// Provenance evidence for governed memory-write action types.
+    #[arg(
+        long,
+        default_value = "Memory write was proposed through the alpha CLI and still requires Decision Gate review."
+    )]
+    memory_evidence: String,
+    /// Confidence for governed memory-write action types.
+    #[arg(long, default_value_t = 0.5)]
+    memory_confidence: f64,
+    /// Future invalidation/supersession guidance for governed memory-write action types.
+    #[arg(
+        long,
+        default_value = "Supersede or invalidate if the proposed operational note becomes stale."
+    )]
+    memory_invalidation_note: String,
 }
 
 #[derive(Clone, Debug, ValueEnum)]
@@ -1682,7 +1727,8 @@ async fn propose_action(
     api_url: &str,
     args: ProposeActionArgs,
 ) -> Result<(), Box<dyn Error>> {
-    let permissions = normalize_permissions(args.permissions);
+    let permissions = normalize_permissions(args.permissions.clone());
+    let payload = default_payload(&args);
     let response: ProposedAction = get_json(
         client
             .post(format!("{api_url}/proposed-actions"))
@@ -1695,7 +1741,7 @@ async fn propose_action(
                 "risk_level": args.risk.as_api_value(),
                 "required_permissions": permissions,
                 "rationale": args.rationale,
-                "payload": default_payload(&args.action_type),
+                "payload": payload,
             }))
             .send()
             .await?,
@@ -2675,43 +2721,56 @@ fn normalize_permissions(permissions: Vec<String>) -> Vec<String> {
         .collect()
 }
 
-fn default_payload(action_type: &str) -> Value {
-    if action_type == "simulate_email" {
+fn default_payload(args: &ProposeActionArgs) -> Value {
+    if args.action_type == "simulate_email" {
         json!({
             "to": "client@example.com",
             "subject": "Simulation alpha ARPAGONA",
             "body": "Préparer un brouillon sans l’envoyer"
         })
-    } else if is_memory_write_action_type(action_type) {
+    } else if is_memory_write_action_type(&args.action_type) {
+        let target_value = memory_target_value(args);
         json!({
             "memory_write_intent": {
-                "kind": action_type,
+                "kind": args.action_type,
                 "target": {
-                    "entity_type": "project",
-                    "entity_id": "arpagona-agent-core",
-                    "attribute": "operational_note",
-                    "fact_id": null,
-                    "related_fact_id": null,
-                    "failure_insight_id": null
+                    "entity_type": args.memory_target_type,
+                    "entity_id": args.memory_target_id,
+                    "attribute": args.memory_target_attribute,
+                    "value": target_value,
+                    "fact_id": args.memory_fact_id,
+                    "related_fact_id": args.memory_related_fact_id,
+                    "failure_insight_id": args.memory_failure_insight_id
                 },
                 "provenance": {
-                    "source_id": null,
-                    "source_label": "arpagona cli proposal",
-                    "source_kind": "local_operator_input",
-                    "evidence": "Memory write was proposed through the alpha CLI and still requires Decision Gate review."
+                    "source_id": args.memory_source_id,
+                    "source_label": args.memory_source_label,
+                    "source_kind": args.memory_source_kind,
+                    "evidence": args.memory_evidence
                 },
-                "confidence": 0.5,
-                "actor": DEFAULT_AGENT_ID,
-                "reason_for_remembering": "Operator proposed a governed memory write for inspection and Decision Gate review.",
+                "confidence": args.memory_confidence,
+                "actor": args.proposed_by,
+                "reason_for_remembering": args.rationale,
                 "proposed_at": null,
                 "decision_id": null,
                 "audit_event_id": null,
-                "invalidation_note": "Supersede or invalidate if the proposed operational note becomes stale."
+                "invalidation_note": args.memory_invalidation_note
             }
         })
     } else {
         json!({})
     }
+}
+
+fn memory_target_value(args: &ProposeActionArgs) -> Value {
+    args.memory_value
+        .as_deref()
+        .map(parse_memory_value)
+        .unwrap_or_else(|| json!(args.rationale.clone()))
+}
+
+fn parse_memory_value(value: &str) -> Value {
+    serde_json::from_str(value).unwrap_or_else(|_| json!(value))
 }
 
 fn parse_chat_line(line: &str) -> ChatLine {
@@ -2890,6 +2949,124 @@ mod tests {
                 assert_eq!(args.target, "client@example.com");
                 assert_eq!(args.rationale, "Préparer un brouillon sans l’envoyer");
                 assert!(matches!(args.risk, RiskArg::Medium));
+            }
+            _ => panic!("expected action propose"),
+        }
+    }
+
+    #[test]
+    fn cli_parses_memory_action_proposal_controls() {
+        let cli = Cli::parse_from([
+            "arpagona",
+            "action",
+            "propose",
+            "--type",
+            "create_memory_fact",
+            "--permission",
+            "write_memory",
+            "--memory-target-type",
+            "person",
+            "--memory-target-id",
+            "client-1",
+            "--memory-target-attribute",
+            "preference",
+            "--memory-value",
+            "{\"language\":\"fr\"}",
+            "--memory-fact-id",
+            "fact-client-1",
+            "--memory-source-id",
+            "source-note-1",
+            "--memory-source-label",
+            "operator note",
+            "--memory-source-kind",
+            "local_note",
+            "--memory-evidence",
+            "Client explicitly asked for French.",
+            "--memory-confidence",
+            "0.77",
+            "--memory-invalidation-note",
+            "Supersede if preference changes.",
+            "--proposed-by",
+            "agent-alpha",
+            "--rationale",
+            "Remember client language preference.",
+        ]);
+        match cli.command {
+            Command::Action(ActionCommand {
+                command: ActionSubcommand::Propose(args),
+            }) => {
+                assert_eq!(args.action_type, "create_memory_fact");
+                assert_eq!(args.permissions, vec!["write_memory"]);
+                assert_eq!(args.memory_target_type, "person");
+                assert_eq!(args.memory_target_id, "client-1");
+                assert_eq!(args.memory_target_attribute, "preference");
+                assert_eq!(args.memory_value.as_deref(), Some("{\"language\":\"fr\"}"));
+                assert_eq!(args.memory_fact_id.as_deref(), Some("fact-client-1"));
+                assert_eq!(args.memory_source_id.as_deref(), Some("source-note-1"));
+                assert_eq!(args.memory_source_label, "operator note");
+                assert_eq!(args.memory_source_kind, "local_note");
+                assert_eq!(args.memory_evidence, "Client explicitly asked for French.");
+                assert_eq!(args.memory_confidence, 0.77);
+                assert_eq!(
+                    args.memory_invalidation_note,
+                    "Supersede if preference changes."
+                );
+
+                let payload = default_payload(&args);
+                assert_eq!(
+                    payload["memory_write_intent"]["target"]["value"],
+                    json!({"language": "fr"})
+                );
+                assert_eq!(
+                    payload["memory_write_intent"]["target"]["fact_id"],
+                    "fact-client-1"
+                );
+                assert_eq!(
+                    payload["memory_write_intent"]["provenance"]["source_id"],
+                    "source-note-1"
+                );
+                assert_eq!(payload["memory_write_intent"]["actor"], "agent-alpha");
+                assert_eq!(
+                    payload["memory_write_intent"]["reason_for_remembering"],
+                    "Remember client language preference."
+                );
+            }
+            _ => panic!("expected action propose"),
+        }
+    }
+
+    #[test]
+    fn memory_payload_falls_back_to_plain_text_value() {
+        let cli = Cli::parse_from([
+            "arpagona",
+            "action",
+            "propose",
+            "--type",
+            "create_failure_insight_memory",
+            "--permission",
+            "write_memory",
+            "--memory-value",
+            "plain text observation",
+            "--memory-failure-insight-id",
+            "insight-1",
+        ]);
+        match cli.command {
+            Command::Action(ActionCommand {
+                command: ActionSubcommand::Propose(args),
+            }) => {
+                let payload = default_payload(&args);
+                assert_eq!(
+                    payload["memory_write_intent"]["target"]["value"],
+                    "plain text observation"
+                );
+                assert_eq!(
+                    payload["memory_write_intent"]["target"]["failure_insight_id"],
+                    "insight-1"
+                );
+                assert_eq!(
+                    payload["memory_write_intent"]["reason_for_remembering"],
+                    DEFAULT_RATIONALE
+                );
             }
             _ => panic!("expected action propose"),
         }
