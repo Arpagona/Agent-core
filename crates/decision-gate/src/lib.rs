@@ -106,11 +106,10 @@ pub fn evaluate_proposed_action(
 
 /// Create the audit event that records a Decision Gate output.
 pub fn audit_event_for_decision(action: &ProposedAction, decision: &Decision) -> AuditEvent {
-    AuditEvent::decision_created(
+    AuditEvent::decision_created_for_action(
         AuditEventId::new(format!("audit-decision-{}", action.id.as_str())),
         ActorRef::System,
-        action.workspace_id.clone(),
-        action.task_id.clone(),
+        action,
         decision,
         Utc::now(),
     )
@@ -319,5 +318,40 @@ mod tests {
             event.payload["causal_trace"]["decision_status"],
             json!("approved")
         );
+        assert_eq!(
+            event.payload["causal_trace"]["action_type"],
+            json!("read_document")
+        );
+        assert_eq!(
+            event.payload["causal_trace"]["matched_policy_or_fallback_rule"],
+            json!("permission_granted_default_allow")
+        );
+    }
+
+    #[test]
+    fn blocked_read_memory_audit_event_explains_missing_permission() {
+        let mut action = proposed_action(ActionType::ReadMemory, RiskLevel::Low);
+        action.required_permissions = vec![Permission::ReadMemory];
+        let decision = evaluate_proposed_action(&action, &[], &[]);
+
+        let event = audit_event_for_decision(&action, &decision);
+        let trace = &event.payload["causal_trace"];
+
+        assert_eq!(decision.status, DecisionStatus::Blocked);
+        assert_eq!(trace["decision_outcome"], json!("blocked"));
+        assert_eq!(trace["explicit_reason"], json!(decision.reason));
+        assert_eq!(trace["action_type"], json!("read_memory"));
+        assert_eq!(trace["risk"], json!("low"));
+        assert_eq!(
+            trace["matched_policy_or_fallback_rule"],
+            json!("missing_permission")
+        );
+        assert_eq!(trace["block_reason_category"], json!("missing_permission"));
+        assert_eq!(trace["required_permission"], json!("read_memory"));
+        assert!(trace["timestamp"].is_string());
+        assert!(trace["suggested_next_action"]
+            .as_str()
+            .unwrap()
+            .contains("Grant"));
     }
 }

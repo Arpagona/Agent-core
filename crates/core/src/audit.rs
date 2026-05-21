@@ -1,5 +1,7 @@
-use crate::decision::Decision;
+use crate::action::{ActionType, ProposedAction};
+use crate::decision::{Decision, DecisionStatus};
 use crate::ids::{AgentId, AuditEventId, DecisionId, ProposedActionId, TaskId, WorkspaceId};
+use crate::permission::Permission;
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
@@ -139,6 +141,176 @@ impl AuditEvent {
             }),
             created_at,
         }
+    }
+
+    /// Build an explanatory decision audit event from both the proposed action
+    /// and the Decision Gate output.
+    ///
+    /// The alpha CLI/API read this payload back verbatim for supervision. Keep
+    /// it explicit enough that a blocked action explains whether it was caused
+    /// by missing permission, missing policy, deny-by-default, unavailable
+    /// backend, or required confirmation rather than requiring humans to infer
+    /// from ids alone.
+    pub fn decision_created_for_action(
+        id: AuditEventId,
+        actor: ActorRef,
+        action: &ProposedAction,
+        decision: &Decision,
+        created_at: DateTime<Utc>,
+    ) -> Self {
+        let explanation = DecisionAuditExplanation::from_action_and_decision(action, decision);
+
+        Self {
+            id,
+            event_type: AuditEventType::DecisionCreated,
+            actor,
+            workspace_id: Some(action.workspace_id.clone()),
+            task_id: action.task_id.clone(),
+            proposed_action_id: Some(action.id.clone()),
+            decision_id: Some(decision.id.clone()),
+            payload: json!({
+                "causal_trace": {
+                    "proposed_action_id": decision.proposed_action_id,
+                    "decision_id": decision.id,
+                    "decision_status": decision.status,
+                    "decision_outcome": decision.status,
+                    "reason": decision.reason,
+                    "explicit_reason": decision.reason,
+                    "action_type": action.action_type,
+                    "risk_level": decision.risk_level,
+                    "risk": decision.risk_level,
+                    "policies_applied": decision.policies_applied,
+                    "matched_policy_or_fallback_rule": explanation.matched_policy_or_fallback_rule,
+                    "block_reason_category": explanation.block_reason_category,
+                    "required_permissions": action.required_permissions,
+                    "required_permission": explanation.required_permission,
+                    "timestamp": created_at,
+                    "suggested_next_action": explanation.suggested_next_action,
+                }
+            }),
+            created_at,
+        }
+    }
+}
+
+#[derive(Debug)]
+struct DecisionAuditExplanation {
+    matched_policy_or_fallback_rule: String,
+    block_reason_category: Option<&'static str>,
+    required_permission: Option<Permission>,
+    suggested_next_action: String,
+}
+
+impl DecisionAuditExplanation {
+    fn from_action_and_decision(action: &ProposedAction, decision: &Decision) -> Self {
+        let required_permission = action.required_permissions.first().cloned();
+        let matched_policy_or_fallback_rule = if decision.policies_applied.is_empty() {
+            fallback_rule_for_decision(action, decision).to_owned()
+        } else {
+            decision
+                .policies_applied
+                .iter()
+                .map(ToString::to_string)
+                .collect::<Vec<_>>()
+                .join(",")
+        };
+        let block_reason_category = block_reason_category(action, decision);
+        let suggested_next_action = suggested_next_action(action, decision, block_reason_category);
+
+        Self {
+            matched_policy_or_fallback_rule,
+            block_reason_category,
+            required_permission,
+            suggested_next_action,
+        }
+    }
+}
+
+fn fallback_rule_for_decision(action: &ProposedAction, decision: &Decision) -> &'static str {
+    if matches!(decision.status, DecisionStatus::Blocked) {
+        let reason = decision.reason.to_ascii_lowercase();
+        if reason.contains("required permission") {
+            "missing_permission"
+        } else if reason.contains("backend") && reason.contains("unavailable") {
+            "unavailable_backend"
+        } else {
+            "deny_by_default"
+        }
+    } else if matches!(action.action_type, ActionType::Custom(_))
+        && matches!(decision.status, DecisionStatus::NeedsHumanApproval)
+    {
+        "missing_policy"
+    } else if matches!(decision.status, DecisionStatus::NeedsHumanApproval) {
+        "required_confirmation"
+    } else {
+        "permission_granted_default_allow"
+    }
+}
+
+fn block_reason_category(action: &ProposedAction, decision: &Decision) -> Option<&'static str> {
+    match decision.status {
+        DecisionStatus::Blocked => {
+            let reason = decision.reason.to_ascii_lowercase();
+            if reason.contains("required permission") {
+                Some("missing_permission")
+            } else if reason.contains("backend") && reason.contains("unavailable") {
+                Some("unavailable_backend")
+            } else if decision.policies_applied.is_empty() {
+                Some("deny_by_default")
+            } else {
+                Some("matched_policy")
+            }
+        }
+        DecisionStatus::NeedsHumanApproval
+            if matches!(action.action_type, ActionType::Custom(_)) =>
+        {
+            Some("missing_policy")
+        }
+        DecisionStatus::NeedsHumanApproval => Some("required_confirmation"),
+        DecisionStatus::Approved => None,
+    }
+}
+
+fn suggested_next_action(
+    action: &ProposedAction,
+    decision: &Decision,
+    block_reason_category: Option<&'static str>,
+) -> String {
+    match (&decision.status, block_reason_category) {
+        (DecisionStatus::Blocked, Some("missing_permission")) => action
+            .required_permissions
+            .first()
+            .map(|permission| {
+                format!(
+                    "Grant {:?} only if appropriate, then re-evaluate the proposed action.",
+                    permission
+                )
+            })
+            .unwrap_or_else(|| "Review required permissions and re-evaluate.".to_owned()),
+        (DecisionStatus::Blocked, Some("unavailable_backend")) => {
+            "Restore the unavailable backend or retry with an available backend before re-evaluating."
+                .to_owned()
+        }
+        (DecisionStatus::Blocked, Some("deny_by_default")) => {
+            "Create an explicit allow/escalation policy or replace the action with a safer proposal."
+                .to_owned()
+        }
+        (DecisionStatus::Blocked, Some("matched_policy")) => {
+            "Review the matched policy; do not execute unless policy or proposal changes."
+                .to_owned()
+        }
+        (DecisionStatus::NeedsHumanApproval, Some("missing_policy")) => {
+            "Ask a human to confirm or add an explicit active policy for this action type."
+                .to_owned()
+        }
+        (DecisionStatus::NeedsHumanApproval, _) => {
+            "Request human confirmation before any execution.".to_owned()
+        }
+        (DecisionStatus::Approved, _) => {
+            "Proceed only through the normal execution path; audit readback is not execution."
+                .to_owned()
+        }
+        _ => "Review the decision gate output before proceeding.".to_owned(),
     }
 }
 
