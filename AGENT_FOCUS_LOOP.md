@@ -4,7 +4,7 @@ This file is the canonical operational instruction file for the scheduled ARPAGO
 
 The local cron/Hermes job must treat this file as the current source of truth for what to work on, what to avoid, how ambitious to be, and how to report the result.
 
-The local cron should stay minimal: pull the repository, read this file and the canonical project files, perform one coherent bounded PR, then report.
+The local cron should stay minimal: pull the repository, read this file and the canonical project files, perform one coherent bounded PR, optionally auto-merge it if it satisfies the controlled auto-merge policy, then report.
 
 ## 1. Files that must be read at the start of every loop
 
@@ -246,7 +246,36 @@ Do not split one coherent architectural slice into tiny PRs solely out of cautio
 
 Avoid PRs that only add generic CLI polish unless they directly support Graph Memory, governed memory writes, audit explainability or local supervision of the current priority.
 
-## 10. Verification requirements
+## 10. Controlled auto-merge policy
+
+The focus loop may auto-merge its own PR without waiting for human review only when all of the following conditions are true:
+
+- the PR was created by the current focus-loop run;
+- the PR targets `main`;
+- the PR is not a draft;
+- GitHub reports the PR as mergeable;
+- all required GitHub checks are passing;
+- local verification passed before push;
+- the PR body includes a clear risk assessment;
+- the PR body includes a deliberately-not-changed section;
+- the PR changes are bounded and coherent;
+- the PR does not include any forbidden work from section 7;
+- the PR does not add direct tool execution, shell execution, browser automation, MCP expansion, uncontrolled scheduler/autonomy, secret handling or destructive operations;
+- the PR does not introduce direct Graph Memory mutation by LLM/provider/runtime;
+- any memory state-changing capability remains routed through ProposedAction -> DecisionGate -> Decision -> Audit;
+- `PROJECT_STATUS.md` is updated if the change is significant.
+
+Preferred merge method:
+
+```bash
+gh pr merge <PR_NUMBER> --squash --delete-branch
+```
+
+If checks are pending, failed, missing, ambiguous, duplicated in a confusing way, or if the PR includes any state-changing capability whose governance path is unclear, do not auto-merge. Report the PR and wait for human review.
+
+Auto-merge is a speed tool, not an authorization bypass. It may merge safe internal architecture faster, but it must never bypass the project governance principles.
+
+## 11. Verification requirements
 
 Before pushing a PR, run:
 
@@ -264,7 +293,7 @@ cargo run -q -p arpagona-cli -- memory status --json
 
 Use the actual implemented command name.
 
-## 11. LOCO/Ollama delegation rules
+## 12. LOCO/Ollama delegation rules
 
 LOCO/Ollama may be used for bounded analysis or first-pass low-risk review.
 
@@ -278,7 +307,7 @@ If LOCO/Ollama created or modified files without explicit permission, revert or 
 
 Unexpected local file creation should be reported as a failure signal. If it repeats or requires correction beyond simple cleanup, create a FailureInsight or a dedicated issue.
 
-## 12. Issue guidance
+## 13. Issue guidance
 
 Prefer working from open GitHub issues when they exist.
 
@@ -290,7 +319,7 @@ Current priority issue:
 
 If no suitable issue exists, create one only when it clarifies a real architectural or implementation target.
 
-## 13. Report format
+## 14. Report format
 
 Every focus-loop report must include:
 
@@ -308,6 +337,7 @@ Every focus-loop report must include:
 - test result;
 - GitHub push status;
 - PR link if created;
+- auto-merge attempted or skipped, with reason;
 - blockers;
 - risks;
 - deliberately not changed;
@@ -315,6 +345,6 @@ Every focus-loop report must include:
 - whether FailureInsights were created;
 - recommended next loop.
 
-## 14. Current intent in one sentence
+## 15. Current intent in one sentence
 
 Build real Graph Memory integration by trusting Hermes/GONA to choose meaningful governed architectural slices: first memory-write proposals, then audit-linked memory facts, then minimal approved persistence, while every state-changing effect remains gated and auditable.
