@@ -331,6 +331,7 @@ struct AuditDecisionReadback {
     memory_target_type: Option<String>,
     memory_target_id: Option<String>,
     memory_target_attribute: Option<String>,
+    memory_target_value: Option<Value>,
     memory_provenance_source_label: Option<String>,
     memory_provenance_source_kind: Option<String>,
     memory_provenance_evidence: Option<String>,
@@ -430,6 +431,7 @@ struct MemoryProposalSummary {
     target_type: Option<String>,
     target_id: Option<String>,
     target_attribute: Option<String>,
+    target_value: Option<Value>,
     provenance_source_label: Option<String>,
     provenance_source_kind: Option<String>,
     provenance_evidence: Option<String>,
@@ -1057,6 +1059,13 @@ fn format_optional_usize(value: Option<usize>) -> String {
         .unwrap_or_else(|| "unavailable".to_owned())
 }
 
+fn format_optional_json(value: &Option<Value>) -> String {
+    value
+        .as_ref()
+        .map(|value| value.to_string())
+        .unwrap_or_else(|| "-".to_owned())
+}
+
 fn memory_status(args: MemoryStatusArgs) -> Result<(), Box<dyn Error>> {
     let readback = memory_status_readback();
     if args.json {
@@ -1228,6 +1237,7 @@ fn memory_proposal_summary_from_action(action: ProposedAction) -> Option<MemoryP
         target_type: string_field(target, "entity_type"),
         target_id: string_field(target, "entity_id"),
         target_attribute: string_field(target, "attribute"),
+        target_value: target.get("value").cloned(),
         provenance_source_label: string_field(provenance, "source_label"),
         provenance_source_kind: string_field(provenance, "source_kind"),
         provenance_evidence: string_field(provenance, "evidence"),
@@ -1346,6 +1356,11 @@ fn push_memory_proposal_fields(output: &mut String, proposal: &MemoryProposalSum
         output,
         "target_attribute:",
         proposal.target_attribute.as_deref().unwrap_or("-"),
+    );
+    push_readback_field(
+        output,
+        "target_value:",
+        &format_optional_json(&proposal.target_value),
     );
     push_readback_field(
         output,
@@ -1900,6 +1915,7 @@ fn decision_readback_from_audit_events(
         memory_target_type: metadata.memory_target_type,
         memory_target_id: metadata.memory_target_id,
         memory_target_attribute: metadata.memory_target_attribute,
+        memory_target_value: metadata.memory_target_value,
         memory_provenance_source_label: metadata.memory_provenance_source_label,
         memory_provenance_source_kind: metadata.memory_provenance_source_kind,
         memory_provenance_evidence: metadata.memory_provenance_evidence,
@@ -1965,6 +1981,7 @@ struct AuditDecisionMetadata {
     memory_target_type: Option<String>,
     memory_target_id: Option<String>,
     memory_target_attribute: Option<String>,
+    memory_target_value: Option<Value>,
     memory_provenance_source_label: Option<String>,
     memory_provenance_source_kind: Option<String>,
     memory_provenance_evidence: Option<String>,
@@ -2046,6 +2063,9 @@ fn populate_memory_write_metadata(metadata: &mut AuditDecisionMetadata, intent: 
     }
     if metadata.memory_target_attribute.is_none() {
         metadata.memory_target_attribute = string_field(target, "attribute");
+    }
+    if metadata.memory_target_value.is_none() {
+        metadata.memory_target_value = target.get("value").cloned();
     }
     if metadata.memory_provenance_source_label.is_none() {
         metadata.memory_provenance_source_label = string_field(provenance, "source_label");
@@ -2186,6 +2206,11 @@ fn format_audit_decision_readback(readback: &AuditDecisionReadback) -> String {
         &mut output,
         "memory_target_attribute:",
         readback.memory_target_attribute.as_deref().unwrap_or("-"),
+    );
+    push_readback_field(
+        &mut output,
+        "memory_target_value:",
+        &format_optional_json(&readback.memory_target_value),
     );
     push_readback_field(
         &mut output,
@@ -3083,7 +3108,8 @@ mod tests {
                             "target": {
                                 "entity_type": "project",
                                 "entity_id": "arpagona-agent-core",
-                                "attribute": "operational_note"
+                                "attribute": "operational_note",
+                                "value": "governed memory proposals are visible"
                             },
                             "provenance": {
                                 "source_label": "focus loop",
@@ -3159,6 +3185,10 @@ mod tests {
             Some("create_memory_fact")
         );
         assert_eq!(readback.memory_target_type.as_deref(), Some("project"));
+        assert_eq!(
+            readback.memory_target_value,
+            Some(json!("governed memory proposals are visible"))
+        );
         assert_eq!(
             readback.memory_target_id.as_deref(),
             Some("arpagona-agent-core")
@@ -3285,6 +3315,7 @@ mod tests {
                             "entity_type": "project",
                             "entity_id": "arpagona-agent-core",
                             "attribute": "current_priority",
+                            "value": "governed memory priority is inspectable",
                             "fact_id": null,
                             "related_fact_id": null,
                             "failure_insight_id": null
@@ -3341,6 +3372,10 @@ mod tests {
             Some("create_memory_fact")
         );
         assert_eq!(proposal.target_type.as_deref(), Some("project"));
+        assert_eq!(
+            proposal.target_value,
+            Some(json!("governed memory priority is inspectable"))
+        );
         assert_eq!(
             proposal.provenance_source_label.as_deref(),
             Some("focus loop")
