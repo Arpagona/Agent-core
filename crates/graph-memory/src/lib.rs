@@ -1,6 +1,7 @@
 use arpagona_core::{
-    AuditEvent, AuditTraceSummary, DecisionId, Episode, EpisodeId, Fact, FactId, FactStatus,
-    GraphRef, GraphRelation, Observation, ObservationId, ProposedActionId, Source, SourceId,
+    AuditEvent, AuditTraceSummary, Decision, DecisionId, DecisionStatus, Episode, EpisodeId, Fact,
+    FactId, FactStatus, GraphNodeType, GraphRef, GraphRelation, MemoryWriteIntent, MemoryWriteKind,
+    Observation, ObservationId, ProposedActionId, RelationType, Source, SourceId, SourceType,
     TaskId, WorkspaceId,
 };
 use async_trait::async_trait;
@@ -22,6 +23,8 @@ pub enum GraphMemoryError {
     Surreal(Box<surrealdb::Error>),
     #[error("serialization error: {0}")]
     Serialization(#[from] serde_json::Error),
+    #[error("invalid governed memory write: {0}")]
+    InvalidGovernedMemoryWrite(String),
 }
 
 impl From<surrealdb::Error> for GraphMemoryError {
@@ -90,6 +93,49 @@ pub trait AsyncGraphMemoryStore {
         let mut summary = AuditTraceSummary::from_events(&events);
         summary.decision_id = Some(decision_id);
         Ok(summary)
+    }
+
+    /// Persist a governed, approved `create_memory_fact` intent as an alpha local fact.
+    ///
+    /// This is a controlled persistence helper, not an authorization path. It refuses
+    /// to write unless the caller supplies an approved Decision Gate result and the
+    /// matching decision audit event, then records the audit event alongside the fact
+    /// for later readback.
+    async fn persist_approved_create_memory_fact(
+        &self,
+        intent: MemoryWriteIntent,
+        decision: Decision,
+        audit_event: AuditEvent,
+    ) -> Result<Fact> {
+        let fact = fact_from_approved_memory_intent(&intent, &decision, &audit_event)?;
+
+        self.record_audit_event(audit_event.clone()).await?;
+        if let Some(source) = source_from_memory_intent(&intent) {
+            self.upsert_source(source).await?;
+        }
+        self.upsert_fact(fact.clone()).await?;
+        self.add_relation(GraphRelation::new(
+            GraphRef::new(GraphNodeType::Fact, fact.id.to_string()),
+            GraphRef::with_relation(
+                GraphNodeType::Decision,
+                decision.id.to_string(),
+                RelationType::DerivedFrom,
+            ),
+            RelationType::DerivedFrom,
+        ))
+        .await?;
+        self.add_relation(GraphRelation::new(
+            GraphRef::new(GraphNodeType::Fact, fact.id.to_string()),
+            GraphRef::with_relation(
+                GraphNodeType::AuditEvent,
+                audit_event.id.to_string(),
+                RelationType::DerivedFrom,
+            ),
+            RelationType::DerivedFrom,
+        ))
+        .await?;
+
+        Ok(fact)
     }
 
     async fn add_relation(&self, relation: GraphRelation) -> Result<()>;
@@ -410,6 +456,110 @@ where
     }
 }
 
+fn fact_from_approved_memory_intent(
+    intent: &MemoryWriteIntent,
+    decision: &Decision,
+    audit_event: &AuditEvent,
+) -> Result<Fact> {
+    if decision.status != DecisionStatus::Approved {
+        return Err(GraphMemoryError::InvalidGovernedMemoryWrite(format!(
+            "decision {} is {:?}, not approved",
+            decision.id, decision.status
+        )));
+    }
+    if intent.kind != MemoryWriteKind::CreateMemoryFact {
+        return Err(GraphMemoryError::InvalidGovernedMemoryWrite(format!(
+            "intent kind {:?} cannot be persisted as a memory fact",
+            intent.kind
+        )));
+    }
+    if let Some(linked_decision_id) = &intent.decision_id {
+        if linked_decision_id != &decision.id {
+            return Err(GraphMemoryError::InvalidGovernedMemoryWrite(format!(
+                "intent decision link {} does not match supplied decision {}",
+                linked_decision_id, decision.id
+            )));
+        }
+    }
+    if let Some(linked_audit_event_id) = &intent.audit_event_id {
+        if linked_audit_event_id != &audit_event.id {
+            return Err(GraphMemoryError::InvalidGovernedMemoryWrite(format!(
+                "intent audit link {} does not match supplied audit event {}",
+                linked_audit_event_id, audit_event.id
+            )));
+        }
+    }
+    if audit_event.decision_id.as_ref() != Some(&decision.id) {
+        return Err(GraphMemoryError::InvalidGovernedMemoryWrite(format!(
+            "audit event {} is not linked to decision {}",
+            audit_event.id, decision.id
+        )));
+    }
+    if audit_event.proposed_action_id.as_ref() != Some(&decision.proposed_action_id) {
+        return Err(GraphMemoryError::InvalidGovernedMemoryWrite(format!(
+            "audit event {} is not linked to proposed action {}",
+            audit_event.id, decision.proposed_action_id
+        )));
+    }
+
+    let attribute = intent.target.attribute.clone().ok_or_else(|| {
+        GraphMemoryError::InvalidGovernedMemoryWrite(
+            "create_memory_fact intent requires target.attribute".to_owned(),
+        )
+    })?;
+    let value = intent.target.value.clone().ok_or_else(|| {
+        GraphMemoryError::InvalidGovernedMemoryWrite(
+            "create_memory_fact intent requires target.value".to_owned(),
+        )
+    })?;
+    let now = chrono::Utc::now();
+
+    Ok(Fact {
+        id: intent
+            .target
+            .fact_id
+            .clone()
+            .unwrap_or_else(|| FactId::new(format!("fact-{}", decision.id.as_str()))),
+        entity_type: intent.target.entity_type.clone(),
+        entity_id: intent.target.entity_id.clone(),
+        attribute,
+        value,
+        source_id: intent.provenance.source_id.clone(),
+        confidence: intent.confidence,
+        valid_from: Some(intent.proposed_at),
+        valid_to: None,
+        status: FactStatus::Active,
+        created_at: now,
+        updated_at: now,
+    })
+}
+
+fn source_from_memory_intent(intent: &MemoryWriteIntent) -> Option<Source> {
+    intent
+        .provenance
+        .source_id
+        .as_ref()
+        .map(|source_id| Source {
+            id: source_id.clone(),
+            source_type: source_type_from_memory_source_kind(&intent.provenance.source_kind),
+            title: Some(intent.provenance.source_label.clone()),
+            uri: None,
+            content_hash: None,
+            created_at: intent.proposed_at,
+        })
+}
+
+fn source_type_from_memory_source_kind(source_kind: &str) -> SourceType {
+    match source_kind {
+        "user_input" => SourceType::UserInput,
+        "document" => SourceType::Document,
+        "import" => SourceType::Import,
+        "system" | "system_observation" => SourceType::System,
+        "api" => SourceType::Api,
+        other => SourceType::Other(other.to_owned()),
+    }
+}
+
 #[derive(Debug, Deserialize)]
 struct DataRow<T> {
     data: T,
@@ -463,7 +613,8 @@ mod tests {
     use super::*;
     use arpagona_core::{
         ActorRef, AgentId, AuditEventId, AuditEventType, Decision, DecisionId, DecisionStatus,
-        GraphNodeType, PolicyId, ProposedActionId, RelationType, RiskLevel, SourceType, TaskId,
+        GraphNodeType, MemoryWriteIntent, MemoryWriteKind, MemoryWriteProvenance,
+        MemoryWriteTarget, PolicyId, ProposedActionId, RelationType, RiskLevel, SourceType, TaskId,
     };
     use chrono::{Duration, Utc};
     use serde_json::json;
@@ -544,6 +695,62 @@ mod tests {
         }
     }
 
+    fn approved_memory_decision(status: DecisionStatus) -> Decision {
+        Decision {
+            id: DecisionId::new("decision-approved-memory-fact"),
+            proposed_action_id: ProposedActionId::new("action-approved-memory-fact"),
+            status,
+            reason: "Approved local project memory fact after Decision Gate evaluation.".to_owned(),
+            risk_level: RiskLevel::Low,
+            policies_applied: vec![PolicyId::new("policy-local-project-memory")],
+            decided_by: None,
+            created_at: Utc::now(),
+        }
+    }
+
+    fn approved_memory_audit_event(decision: &Decision) -> AuditEvent {
+        AuditEvent {
+            id: AuditEventId::new("audit-approved-memory-fact"),
+            event_type: AuditEventType::DecisionCreated,
+            actor: ActorRef::System,
+            workspace_id: Some(WorkspaceId::new("workspace-1")),
+            task_id: Some(TaskId::new("task-1")),
+            proposed_action_id: Some(decision.proposed_action_id.clone()),
+            decision_id: Some(decision.id.clone()),
+            payload: json!({
+                "causal_trace": {
+                    "decision_status": decision.status,
+                    "action_type": "create_memory_fact",
+                    "fact_id": "fact-approved-memory-fact"
+                }
+            }),
+            created_at: Utc::now(),
+        }
+    }
+
+    fn approved_memory_intent(decision: &Decision, audit_event: &AuditEvent) -> MemoryWriteIntent {
+        MemoryWriteIntent::new(
+            MemoryWriteKind::CreateMemoryFact,
+            MemoryWriteTarget::fact_with_value(
+                "project",
+                "arpagona-agent-core",
+                "current_priority",
+                json!("controlled local Graph Memory persistence"),
+            ),
+            MemoryWriteProvenance::new(
+                Some(SourceId::new("source-approved-memory-fact")),
+                "focus loop approved memory proposal",
+                "system_observation",
+                "Decision Gate approved a safe local project memory fact.",
+            ),
+            0.91,
+            AgentId::new("agent-1"),
+            "Remember approved operational project memory for later inspection.",
+            Utc::now(),
+        )
+        .with_audit_linkage(Some(decision.id.clone()), Some(audit_event.id.clone()))
+    }
+
     #[tokio::test]
     async fn initializes_schema_in_memory() {
         let _store = memory_store().await;
@@ -622,6 +829,89 @@ mod tests {
             .await
             .expect("active facts");
         assert!(active.is_empty());
+    }
+
+    #[tokio::test]
+    async fn persists_approved_create_memory_fact_with_audit_readback() {
+        let store = memory_store().await;
+        let decision = approved_memory_decision(DecisionStatus::Approved);
+        let audit_event = approved_memory_audit_event(&decision);
+        let intent = approved_memory_intent(&decision, &audit_event);
+
+        let fact = store
+            .persist_approved_create_memory_fact(
+                intent.clone(),
+                decision.clone(),
+                audit_event.clone(),
+            )
+            .await
+            .expect("approved create_memory_fact intent should persist");
+
+        assert_eq!(fact.entity_type, "project");
+        assert_eq!(fact.entity_id, "arpagona-agent-core");
+        assert_eq!(fact.attribute, "current_priority");
+        assert_eq!(
+            fact.value,
+            json!("controlled local Graph Memory persistence")
+        );
+        assert_eq!(fact.source_id, intent.provenance.source_id);
+        assert_eq!(fact.status, FactStatus::Active);
+
+        let stored_fact = store
+            .get_fact(fact.id.clone())
+            .await
+            .expect("fact readback succeeds")
+            .expect("fact was persisted");
+        assert_eq!(stored_fact, fact.clone());
+
+        let decision_events = store
+            .list_audit_events_for_decision(decision.id.clone())
+            .await
+            .expect("decision audit readback succeeds");
+        assert_eq!(decision_events, vec![audit_event.clone()]);
+        assert_eq!(
+            store
+                .get_source(SourceId::new("source-approved-memory-fact"))
+                .await
+                .expect("source readback succeeds")
+                .expect("source exists")
+                .source_type,
+            SourceType::System
+        );
+        assert!(store
+            .list_relations_from(GraphRef::new(GraphNodeType::Fact, fact.id.to_string()))
+            .await
+            .expect("fact relation readback succeeds")
+            .iter()
+            .any(|relation| relation.to.node_type == GraphNodeType::AuditEvent));
+    }
+
+    #[tokio::test]
+    async fn rejects_non_approved_create_memory_fact_without_persisting() {
+        let store = memory_store().await;
+        let decision = approved_memory_decision(DecisionStatus::NeedsHumanApproval);
+        let audit_event = approved_memory_audit_event(&decision);
+        let intent = approved_memory_intent(&decision, &audit_event);
+
+        let error = store
+            .persist_approved_create_memory_fact(intent, decision.clone(), audit_event)
+            .await
+            .expect_err("non-approved decision must not persist memory facts");
+
+        assert!(matches!(
+            error,
+            GraphMemoryError::InvalidGovernedMemoryWrite(_)
+        ));
+        assert!(store
+            .list_active_facts_for_entity("project", "arpagona-agent-core")
+            .await
+            .expect("active fact readback succeeds")
+            .is_empty());
+        assert!(store
+            .list_audit_events_for_decision(decision.id)
+            .await
+            .expect("audit readback succeeds")
+            .is_empty());
     }
 
     #[tokio::test]

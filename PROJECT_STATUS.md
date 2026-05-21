@@ -234,34 +234,34 @@ The update must clearly state whether the change is stable, alpha, experimental,
 
 ## 11. Latest Session Update
 
-This session extended governed memory-write observability from proposal readback into decision/audit readback without adding any memory mutation or authorization behavior.
+This session added the first bounded controlled local Graph Memory persistence helper for governed memory-write proposals.
 
 Changed:
-- preserved `MemoryWriteIntent` details from memory-write `ProposedAction` payloads inside `decision_created` audit event causal traces;
-- kept the additional audit causal-trace data bounded to existing governed memory-write intent metadata: kind, target, provenance, confidence, actor, reason, proposed timestamp and invalidation note;
-- extended read-only CLI decision-scoped audit readback to surface memory-write intent fields in both structured JSON and human-readable output;
-- added tests proving memory-write audit events retain the governed intent in causal traces and CLI decision readback exposes those fields deterministically.
+- added `AsyncGraphMemoryStore::persist_approved_create_memory_fact` as an alpha helper that converts a `MemoryWriteIntent` into a `Fact` only when supplied with a matching `DecisionStatus::Approved` Decision Gate result and linked decision audit event;
+- added explicit `InvalidGovernedMemoryWrite` errors for non-approved decisions, non-`create_memory_fact` intents, missing target attribute/value and mismatched decision/audit linkage;
+- made the helper record the linked audit event, optionally upsert the provenance source, persist the active fact and add readback relations from the fact to the decision and audit event;
+- added SurrealDB in-memory tests proving an approved governed memory fact can be persisted and read back, and a non-approved memory fact proposal writes neither fact nor audit event.
 
-Stability level: alpha audit/CLI supervision readback. It is intentionally read-only and depends on existing `ProposedAction -> DecisionGate -> Decision -> Audit` records.
+Stability level: alpha controlled local Graph Memory persistence helper. It is intentionally limited to `create_memory_fact` and depends on an already completed `ProposedAction -> DecisionGate -> Decision -> Audit` path.
 
 Limits:
 
-- no database connection was added;
-- no migration runner was added;
-- no Graph Memory write path was added;
-- no memory fact, observation, relation, FailureInsight or audit event creation behavior was added beyond preserving existing proposed-action intent details in audit payloads;
-- no Decision Gate policy change was added;
-- no runtime behavior was added;
-- no approval, rejection, authorization or persistence behavior was added;
+- no API endpoint was added;
+- no CLI mutation command was added;
+- no LLM/provider/runtime direct memory mutation was added;
+- no broad autonomous memory writing was added;
+- no persistence is performed without an approved Decision Gate result and matching audit linkage;
+- no personal or sensitive memory path was added;
+- no database migration runner was added;
 - no broad semantic search or embeddings pipeline was added;
 - no hidden context injection into LLM prompts was added;
 - no real tool execution was introduced;
 - no destructive capability was added;
 - no scheduler, autonomy, MCP, browser automation, credential handling or Mission Control Web growth was introduced;
-- CLI and audit readback remain observability only and must not be treated as approval.
+- Graph Memory persistence remains a governed local alpha capability and must not be treated as authorization.
 
 Architectural risk:
 
-- low for alpha use. The change makes governed memory-write context more inspectable after Decision Gate evaluation while preserving the non-negotiable ProposedAction -> DecisionGate -> Decision -> Audit boundary.
+- medium-low for alpha use. The change introduces a real local persistence helper, but it is bounded to approved `create_memory_fact` intents, validates decision/audit linkage before writing and preserves audit/readback relations.
 
-Recommended next step: add a separate bounded PR for a minimal approved local persistence path only after the proposal, permission, decision, audit and readback path remains fully covered by tests, or continue hardening read-only audit/Graph Memory supervision where concrete gaps appear.
+Recommended next step: add a separate bounded CLI/API-supervised path only when it keeps approval, persistence and readback explicit, or extend the helper to a similarly guarded FailureInsight memory path with tests.
