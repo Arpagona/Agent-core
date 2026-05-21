@@ -283,7 +283,14 @@ struct WorkspaceSummaryArgs {
 struct AuditDecisionReadback {
     summary: AuditTraceSummary,
     decision_status: Option<String>,
+    explicit_reason: Option<String>,
+    action_type: Option<String>,
     risk_level: Option<String>,
+    matched_policy_or_fallback_rule: Option<String>,
+    required_permission: Option<String>,
+    timestamp: Option<String>,
+    suggested_next_action: Option<String>,
+    block_reason_category: Option<String>,
     policies_applied: Vec<String>,
     warning: &'static str,
 }
@@ -1281,6 +1288,55 @@ async fn list_audit(client: &Client, api_url: &str) -> Result<(), Box<dyn Error>
                 .map(ToString::to_string)
                 .unwrap_or_else(|| "-".to_owned())
         );
+        let metadata = decision_readback_metadata(std::slice::from_ref(&event));
+        if metadata.decision_status.is_some()
+            || metadata.explicit_reason.is_some()
+            || metadata.action_type.is_some()
+        {
+            println!(
+                "  {} {}",
+                style_dim("decision_status:"),
+                metadata.decision_status.as_deref().unwrap_or("-")
+            );
+            println!(
+                "  {} {}",
+                style_dim("explicit_reason:"),
+                metadata.explicit_reason.as_deref().unwrap_or("-")
+            );
+            println!(
+                "  {} {}",
+                style_dim("action_type:"),
+                metadata.action_type.as_deref().unwrap_or("-")
+            );
+            println!(
+                "  {} {}",
+                style_dim("risk:"),
+                metadata.risk_level.as_deref().unwrap_or("-")
+            );
+            println!(
+                "  {} {}",
+                style_dim("matched_policy_or_fallback_rule:"),
+                metadata
+                    .matched_policy_or_fallback_rule
+                    .as_deref()
+                    .unwrap_or("-")
+            );
+            println!(
+                "  {} {}",
+                style_dim("required_permission:"),
+                metadata.required_permission.as_deref().unwrap_or("-")
+            );
+            println!(
+                "  {} {}",
+                style_dim("timestamp:"),
+                metadata.timestamp.as_deref().unwrap_or("-")
+            );
+            println!(
+                "  {} {}",
+                style_dim("suggested_next_action:"),
+                metadata.suggested_next_action.as_deref().unwrap_or("-")
+            );
+        }
     }
 
     Ok(())
@@ -1355,7 +1411,14 @@ fn decision_readback_from_audit_events(
     AuditDecisionReadback {
         summary,
         decision_status: metadata.decision_status,
+        explicit_reason: metadata.explicit_reason,
+        action_type: metadata.action_type,
         risk_level: metadata.risk_level,
+        matched_policy_or_fallback_rule: metadata.matched_policy_or_fallback_rule,
+        required_permission: metadata.required_permission,
+        timestamp: metadata.timestamp,
+        suggested_next_action: metadata.suggested_next_action,
+        block_reason_category: metadata.block_reason_category,
         policies_applied: metadata.policies_applied,
         warning: AUDIT_READBACK_WARNING,
     }
@@ -1401,7 +1464,14 @@ fn workspace_readback_from_audit_events(
 #[derive(Debug, Default)]
 struct AuditDecisionMetadata {
     decision_status: Option<String>,
+    explicit_reason: Option<String>,
+    action_type: Option<String>,
     risk_level: Option<String>,
+    matched_policy_or_fallback_rule: Option<String>,
+    required_permission: Option<String>,
+    timestamp: Option<String>,
+    suggested_next_action: Option<String>,
+    block_reason_category: Option<String>,
     policies_applied: Vec<String>,
 }
 
@@ -1412,10 +1482,35 @@ fn decision_readback_metadata(events: &[AuditEvent]) -> AuditDecisionMetadata {
         let trace = event.payload.get("causal_trace").unwrap_or(&event.payload);
 
         if metadata.decision_status.is_none() {
-            metadata.decision_status = string_field(trace, "decision_status");
+            metadata.decision_status = string_field(trace, "decision_status")
+                .or_else(|| string_field(trace, "decision_outcome"));
+        }
+        if metadata.explicit_reason.is_none() {
+            metadata.explicit_reason =
+                string_field(trace, "explicit_reason").or_else(|| string_field(trace, "reason"));
+        }
+        if metadata.action_type.is_none() {
+            metadata.action_type = string_field(trace, "action_type");
         }
         if metadata.risk_level.is_none() {
-            metadata.risk_level = string_field(trace, "risk_level");
+            metadata.risk_level =
+                string_field(trace, "risk_level").or_else(|| string_field(trace, "risk"));
+        }
+        if metadata.matched_policy_or_fallback_rule.is_none() {
+            metadata.matched_policy_or_fallback_rule =
+                string_field(trace, "matched_policy_or_fallback_rule");
+        }
+        if metadata.required_permission.is_none() {
+            metadata.required_permission = string_field(trace, "required_permission");
+        }
+        if metadata.timestamp.is_none() {
+            metadata.timestamp = string_field(trace, "timestamp");
+        }
+        if metadata.suggested_next_action.is_none() {
+            metadata.suggested_next_action = string_field(trace, "suggested_next_action");
+        }
+        if metadata.block_reason_category.is_none() {
+            metadata.block_reason_category = string_field(trace, "block_reason_category");
         }
         if metadata.policies_applied.is_empty() {
             metadata.policies_applied = string_array_field(trace, "policies_applied");
@@ -1511,8 +1606,46 @@ fn format_audit_decision_readback(readback: &AuditDecisionReadback) -> String {
     );
     push_readback_field(
         &mut output,
+        "explicit_reason:",
+        readback.explicit_reason.as_deref().unwrap_or("-"),
+    );
+    push_readback_field(
+        &mut output,
+        "action_type:",
+        readback.action_type.as_deref().unwrap_or("-"),
+    );
+    push_readback_field(
+        &mut output,
         "risk_level:",
         readback.risk_level.as_deref().unwrap_or("-"),
+    );
+    push_readback_field(
+        &mut output,
+        "matched_policy_or_fallback_rule:",
+        readback
+            .matched_policy_or_fallback_rule
+            .as_deref()
+            .unwrap_or("-"),
+    );
+    push_readback_field(
+        &mut output,
+        "required_permission:",
+        readback.required_permission.as_deref().unwrap_or("-"),
+    );
+    push_readback_field(
+        &mut output,
+        "block_reason_category:",
+        readback.block_reason_category.as_deref().unwrap_or("-"),
+    );
+    push_readback_field(
+        &mut output,
+        "timestamp:",
+        readback.timestamp.as_deref().unwrap_or("-"),
+    );
+    push_readback_field(
+        &mut output,
+        "suggested_next_action:",
+        readback.suggested_next_action.as_deref().unwrap_or("-"),
     );
     push_readback_field(
         &mut output,
