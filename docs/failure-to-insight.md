@@ -126,6 +126,15 @@ Tool mismatch should update tool metadata, required permissions, risk levels, en
 
 Human supervision surfaces should expose not only what failed, but what was learned and what changed afterward.
 
+The alpha CLI now exposes a read-only schema/taxonomy helper:
+
+```text
+arpagona insight schema
+arpagona insight schema --json
+```
+
+This command describes the current `FailureInsight` fields, failure classes, correction targets, statuses, severities, detection signal types and alpha limits. It does not create, persist, approve, authorize, self-modify or execute anything.
+
 ### Focus Loop
 
 Every non-trivial focus loop report should include:

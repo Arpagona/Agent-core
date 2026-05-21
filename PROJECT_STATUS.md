@@ -233,33 +233,32 @@ The update must clearly state whether the change is stable, alpha, experimental,
 
 ## 11. Latest Session Update
 
-This session added the minimal `FailureInsight` domain vocabulary to `crates/core`.
+This session added a read-only Failure-to-Insight schema helper to the alpha CLI.
 
 Changed:
 
-- added pure serializable Failure-to-Insight domain types in `crates/core/src/failure_insight.rs`;
-- added `FailureInsightId` to the existing core ID vocabulary;
-- exported the new vocabulary from `crates/core`;
-- added unit tests for construction, trace links, status handling and serde roundtrip;
-- updated this status document to reflect that the minimal domain vocabulary now exists.
+- added `arpagona insight schema` and `arpagona insight schema --json` in `crates/cli`;
+- exposed the current Failure-to-Insight minimum fields, failure classes, correction targets, statuses, severities, detection signal types and alpha limits as read-only CLI output;
+- added CLI/unit coverage for parsing the command and proving the output remains non-authorizing;
+- updated `docs/failure-to-insight.md` to document the new local supervision helper.
 
-Stability level: stable core-domain vocabulary; no persistence or runtime behavior added.
+Stability level: alpha CLI supervision surface; stable core-domain vocabulary remains unchanged.
 
 Limits:
 
 - no persistence was added;
-- no CLI command or API endpoint was added;
+- no Graph Memory schema, query or mutation was added;
+- no audit event creation or extraction behavior was added;
 - no runtime behavior was added;
 - no real tool execution was introduced;
 - no destructive capability was added;
 - no approval, rejection or authorization behavior was added;
 - no Decision Gate behavior was changed;
-- no Graph Memory integration, schema, migration or runtime behavior was changed;
 - no scheduler, autonomy, MCP, browser automation, credential handling or Mission Control Web growth was introduced;
-- `FailureInsight` remains learning and observability vocabulary only, never approval, authorization, orchestration, self-modification or execution state.
+- `arpagona insight schema` is readback-only vocabulary inspection, not approval, authorization, orchestration, self-modification or execution state.
 
 Architectural risk:
 
-- low for alpha use. The change is bounded to pure Rust domain types and optional trace links, preserving the separation between vocabulary, persistence, runtime, governance and execution.
+- low for alpha use. The change is bounded to read-only CLI schema readback and documentation, preserving the separation between vocabulary, persistence, runtime, governance and execution.
 
-Recommended next step: add a separate bounded PR for audit conventions around when a `FailureInsight` should be referenced or extracted, still without Graph Memory persistence, CLI readback, Decision Gate influence or autonomous generation.
+Recommended next step: add a separate bounded PR for audit conventions around when a `FailureInsight` should be referenced or extracted, still without Graph Memory persistence, Decision Gate influence or autonomous generation.
