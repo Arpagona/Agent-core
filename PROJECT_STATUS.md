@@ -233,36 +233,37 @@ The update must clearly state whether the change is stable, alpha, experimental,
 
 ## 11. Latest Session Update
 
-This session added a read-only Graph Memory alpha status helper to the alpha CLI.
+This session added the first governed memory-write proposal vocabulary without adding Graph Memory mutation.
 
 Changed:
 
-- added `arpagona memory status` and `arpagona memory status --json` in `crates/cli`;
-- exposed whether Graph Memory support is compiled, the expected alpha backend, optional backend-name configuration via `ARPAGONA_GRAPH_MEMORY_BACKEND`, SurrealDB adapter availability, schema availability and schema byte size;
-- exposed alpha limits and explicitly not-implemented capabilities as read-only CLI output;
-- added CLI/unit coverage for parsing the command and proving the output remains non-authorizing;
-- updated `docs/graph-memory.md` to document the new local supervision helper and its read-only boundary.
+- added explicit memory-write `ActionType` variants in `crates/core`: `create_memory_fact`, `link_memory_fact`, `invalidate_memory_fact` and `create_failure_insight_memory`;
+- added pure `MemoryWriteKind`, `MemoryWriteIntent`, `MemoryWriteTarget` and `MemoryWriteProvenance` domain vocabulary for proposed memory writes;
+- captured the minimum governance metadata for future memory writes: typed target, provenance/source, confidence, actor, reason for remembering, proposal timestamp, optional decision/audit linkage and invalidation/supersession note;
+- kept `write_memory` as a legacy coarse action type while steering new work toward specific proposed-action variants;
+- added Decision Gate tests proving a memory-write proposal is blocked when `WriteMemory` permission is missing and requires human confirmation at medium risk even when permission is granted;
+- documented the proposal-only memory-write path in `docs/graph-memory.md`.
 
-Stability level: alpha CLI supervision surface; Graph Memory persistence semantics remain experimental.
+Stability level: alpha domain vocabulary and Decision Gate coverage; Graph Memory persistence semantics remain experimental.
 
 Limits:
 
 - no database connection was added;
 - no migration runner was added;
 - no Graph Memory write path was added;
-- no memory fact, observation, relation or audit event creation behavior was added;
+- no memory fact, observation, relation, FailureInsight or audit event creation behavior was added beyond existing pure audit helper tests;
 - no runtime behavior was added;
+- no CLI command was added in this slice;
 - no broad semantic search or embeddings pipeline was added;
 - no hidden context injection into LLM prompts was added;
 - no real tool execution was introduced;
 - no destructive capability was added;
-- no approval, rejection or authorization behavior was added;
-- no Decision Gate behavior was changed;
+- no approval, rejection or authorization behavior was added outside the existing Decision Gate evaluation result;
 - no scheduler, autonomy, MCP, browser automation, credential handling or Mission Control Web growth was introduced;
-- `arpagona memory status` is readback-only alpha state inspection, not approval, authorization, orchestration, memory mutation or execution state.
+- `MemoryWriteIntent` is proposal vocabulary only, not memory mutation or authorization.
 
 Architectural risk:
 
-- low for alpha use. The change is bounded to read-only Graph Memory status readback and documentation, preserving the separation between visibility, persistence, runtime, governance and execution.
+- low to moderate for alpha use. The change introduces new vocabulary in the core domain, but keeps it pure, serializable, non-mutating and governed by the existing Decision Gate permission/risk behavior.
 
-Recommended next step: add a separate bounded PR for governed memory-write proposal vocabulary as `ProposedAction`-level intent only, still without Graph Memory mutation, Decision Gate bypass or runtime execution.
+Recommended next step: add a separate bounded PR that exposes read-only CLI or audit readback for proposed memory writes, still without Graph Memory mutation, or begin the minimal approved persistence design only after the proposal/audit path remains covered.

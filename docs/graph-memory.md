@@ -76,6 +76,31 @@ L'adapter SurrealDB est maintenant aligné sur les grandes entités du contrat c
 - il n'y a pas de Decision Gate ;
 - il n'y a pas d'API Axum, de Mission Control, de LLM ou d'exécution d'outils.
 
+## Governed memory-write proposal vocabulary
+
+The first alpha memory-write integration step is proposal vocabulary, not persistence. New memory-changing intents should be represented as specific `ProposedAction` action types before any state is changed:
+
+```text
+create_memory_fact
+link_memory_fact
+invalidate_memory_fact
+create_failure_insight_memory
+```
+
+These variants refine the legacy coarse `write_memory` action type. They still require `Permission::WriteMemory`, and they still pass through:
+
+```text
+ProposedAction -> DecisionGate -> Decision -> Audit
+```
+
+`MemoryWriteIntent` carries the minimum metadata required for governed future writes: typed target, provenance/source, confidence, proposing actor, reason for remembering, proposal timestamp, optional decision/audit linkage and an invalidation/supersession note. Creating this intent is non-mutating. It does not insert a fact, create a relation, persist a FailureInsight, approve a write or authorize future recall.
+
+The intended first-alpha behavior is conservative:
+
+- missing `WriteMemory` permission blocks the proposal with explanatory audit;
+- medium or higher memory-write risk requires human confirmation unless future explicit policy says otherwise;
+- Graph Memory persistence may only be added later after the proposal, permission, decision and audit path remains covered by tests.
+
 ## Read-only CLI status
 
 The alpha CLI exposes a bounded Graph Memory status readback:
