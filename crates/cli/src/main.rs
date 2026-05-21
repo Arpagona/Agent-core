@@ -44,7 +44,7 @@ enum Command {
     /// Check API health.
     Health,
     /// Show a read-only local supervision overview.
-    Status,
+    Status(StatusArgs),
     /// Show OpenAI auth status and setup guidance.
     Auth(AuthCommand),
     /// Manage tasks.
@@ -73,6 +73,13 @@ struct ChatArgs {
     /// Permission granted when evaluating actions. Repeatable.
     #[arg(long = "permission", default_value = "simulate_email")]
     permissions: Vec<String>,
+}
+
+#[derive(Debug, Args)]
+struct StatusArgs {
+    /// Emit a structured JSON readback instead of human-oriented text.
+    #[arg(long)]
+    json: bool,
 }
 
 #[derive(Debug, Args)]
@@ -482,7 +489,7 @@ async fn run() -> Result<(), Box<dyn Error>> {
         Command::Serve => serve()?,
         Command::Chat(args) => chat(&client, &api_url, args).await?,
         Command::Health => health(&client, &api_url).await?,
-        Command::Status => status(&client, &api_url).await?,
+        Command::Status(args) => status(&client, &api_url, args).await?,
         Command::Auth(auth) => match auth.command {
             AuthSubcommand::Status => auth_status(),
             AuthSubcommand::Openai => auth_openai_instructions(),
@@ -569,7 +576,7 @@ async fn chat(client: &Client, api_url: &str, args: ChatArgs) -> Result<(), Box<
                 println!("{}", style_dim("Goodbye."));
                 break;
             }
-            ChatLine::Status => status(client, api_url).await?,
+            ChatLine::Status => status(client, api_url, StatusArgs { json: false }).await?,
             ChatLine::Audit => list_audit(client, api_url).await?,
             ChatLine::Tasks => list_tasks(client, api_url).await?,
             ChatLine::Actions => list_actions(client, api_url).await?,
@@ -770,9 +777,13 @@ async fn health(client: &Client, api_url: &str) -> Result<(), Box<dyn Error>> {
     Ok(())
 }
 
-async fn status(client: &Client, api_url: &str) -> Result<(), Box<dyn Error>> {
+async fn status(client: &Client, api_url: &str, args: StatusArgs) -> Result<(), Box<dyn Error>> {
     let readback = status_readback(client, api_url).await;
-    print_status_readback(&readback);
+    if args.json {
+        println!("{}", serde_json::to_string_pretty(&readback)?);
+    } else {
+        print_status_readback(&readback);
+    }
     Ok(())
 }
 
@@ -2511,8 +2522,11 @@ mod tests {
 
     #[test]
     fn cli_parses_status_command() {
-        let cli = Cli::parse_from(["arpagona", "status"]);
-        assert!(matches!(cli.command, Command::Status));
+        let cli = Cli::parse_from(["arpagona", "status", "--json"]);
+        match cli.command {
+            Command::Status(args) => assert!(args.json),
+            _ => panic!("expected status"),
+        }
     }
 
     #[test]

@@ -92,7 +92,10 @@ ARPAGONA API: ok
 
 ```bash
 cargo run -p arpagona-cli -- status
+cargo run -p arpagona-cli -- status --json
 ```
+
+`--json` émet le même readback sous forme structurée pour scripts locaux, rapports et futures surfaces Mission Control, sans ajouter d'endpoint ni modifier l'état.
 
 Appelle les chemins de lecture existants :
 

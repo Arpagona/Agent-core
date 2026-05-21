@@ -233,20 +233,21 @@ The update must clearly state whether the change is stable, alpha, experimental,
 
 ## 11. Latest Session Update
 
-This session added a read-only Failure-to-Insight schema helper to the alpha CLI.
+This session added structured JSON output to the read-only local supervision status CLI.
 
 Changed:
 
-- added `arpagona insight schema` and `arpagona insight schema --json` in `crates/cli`;
-- exposed the current Failure-to-Insight minimum fields, failure classes, correction targets, statuses, severities, detection signal types and alpha limits as read-only CLI output;
-- added CLI/unit coverage for parsing the command and proving the output remains non-authorizing;
-- updated `docs/failure-to-insight.md` to document the new local supervision helper.
+- changed `arpagona status` to accept `--json` in `crates/cli`;
+- reused the existing `StatusReadback` shape for human and JSON output;
+- documented `arpagona status --json` in `docs/cli.md`;
+- added CLI parser coverage for the new flag.
 
-Stability level: alpha CLI supervision surface; stable core-domain vocabulary remains unchanged.
+Stability level: alpha CLI supervision surface.
 
 Limits:
 
-- no persistence was added;
+- no endpoint was added;
+- no server-side state was modified;
 - no Graph Memory schema, query or mutation was added;
 - no audit event creation or extraction behavior was added;
 - no runtime behavior was added;
@@ -255,10 +256,10 @@ Limits:
 - no approval, rejection or authorization behavior was added;
 - no Decision Gate behavior was changed;
 - no scheduler, autonomy, MCP, browser automation, credential handling or Mission Control Web growth was introduced;
-- `arpagona insight schema` is readback-only vocabulary inspection, not approval, authorization, orchestration, self-modification or execution state.
+- `arpagona status --json` is readback-only local supervision output, not approval, authorization, orchestration, self-modification or execution state.
 
 Architectural risk:
 
-- low for alpha use. The change is bounded to read-only CLI schema readback and documentation, preserving the separation between vocabulary, persistence, runtime, governance and execution.
+- low for alpha use. The change is bounded to read-only CLI status readback formatting and documentation, preserving the separation between supervision output, governance and execution.
 
-Recommended next step: add a separate bounded PR for audit conventions around when a `FailureInsight` should be referenced or extracted, still without Graph Memory persistence, Decision Gate influence or autonomous generation.
+Recommended next step: add the next small read-only CLI supervision increment that helps operators inspect pending actions, decisions or failure insights without expanding API/runtime execution.
