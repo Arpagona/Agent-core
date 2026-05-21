@@ -434,6 +434,10 @@ struct MemoryProposalSummary {
     target_id: Option<String>,
     target_attribute: Option<String>,
     target_value: Option<Value>,
+    target_fact_id: Option<String>,
+    related_fact_id: Option<String>,
+    failure_insight_id: Option<String>,
+    provenance_source_id: Option<String>,
     provenance_source_label: Option<String>,
     provenance_source_kind: Option<String>,
     provenance_evidence: Option<String>,
@@ -444,6 +448,8 @@ struct MemoryProposalSummary {
     decision_id: Option<String>,
     audit_event_id: Option<String>,
     invalidation_note: Option<String>,
+    persistence_readback_hint: String,
+    supersession_hint: String,
     suggested_next_action: String,
 }
 
@@ -1265,6 +1271,10 @@ fn memory_proposal_summary_from_action(action: ProposedAction) -> Option<MemoryP
         target_id: string_field(target, "entity_id"),
         target_attribute: string_field(target, "attribute"),
         target_value: target.get("value").cloned(),
+        target_fact_id: string_field(target, "fact_id"),
+        related_fact_id: string_field(target, "related_fact_id"),
+        failure_insight_id: string_field(target, "failure_insight_id"),
+        provenance_source_id: string_field(provenance, "source_id"),
         provenance_source_label: string_field(provenance, "source_label"),
         provenance_source_kind: string_field(provenance, "source_kind"),
         provenance_evidence: string_field(provenance, "evidence"),
@@ -1275,6 +1285,19 @@ fn memory_proposal_summary_from_action(action: ProposedAction) -> Option<MemoryP
         decision_id: string_field(intent, "decision_id"),
         audit_event_id: string_field(intent, "audit_event_id"),
         invalidation_note: string_field(intent, "invalidation_note"),
+        persistence_readback_hint: memory_proposal_persistence_readback_hint(
+            &action.status,
+            &string_field(target, "fact_id"),
+            &string_field(target, "failure_insight_id"),
+            &string_field(intent, "decision_id"),
+            &string_field(intent, "audit_event_id"),
+        ),
+        supersession_hint: memory_proposal_supersession_hint(
+            &string_field(target, "fact_id"),
+            &string_field(target, "related_fact_id"),
+            &string_field(target, "failure_insight_id"),
+            &string_field(intent, "invalidation_note"),
+        ),
         suggested_next_action: memory_proposal_next_action(&action.status),
     })
 }
@@ -1309,6 +1332,66 @@ fn memory_proposal_next_action(status: &ProposedActionStatus) -> String {
         }
         ProposedActionStatus::Cancelled => "No action; proposal was cancelled.".to_owned(),
     }
+}
+
+fn memory_proposal_persistence_readback_hint(
+    status: &ProposedActionStatus,
+    fact_id: &Option<String>,
+    failure_insight_id: &Option<String>,
+    decision_id: &Option<String>,
+    audit_event_id: &Option<String>,
+) -> String {
+    if status != &ProposedActionStatus::Approved {
+        return "Not persistable yet: inspect Decision Gate status before using Graph Memory helpers."
+            .to_owned();
+    }
+
+    let artifact = fact_id
+        .as_deref()
+        .map(|id| format!("fact {id}"))
+        .or_else(|| {
+            failure_insight_id
+                .as_deref()
+                .map(|id| format!("FailureInsight {id}"))
+        })
+        .unwrap_or_else(|| "the generated Graph Memory artifact".to_owned());
+    let decision = decision_id.as_deref().unwrap_or("the approved decision");
+    let audit = audit_event_id
+        .as_deref()
+        .unwrap_or("the matching decision audit event");
+
+    format!(
+        "After explicit governed persistence, inspect {artifact}; verify it remains linked to decision {decision} and audit event {audit}."
+    )
+}
+
+fn memory_proposal_supersession_hint(
+    fact_id: &Option<String>,
+    related_fact_id: &Option<String>,
+    failure_insight_id: &Option<String>,
+    invalidation_note: &Option<String>,
+) -> String {
+    if let Some(note) = invalidation_note {
+        return format!("Future invalidation/supersession note: {note}");
+    }
+    if let Some(related_fact_id) = related_fact_id {
+        return format!(
+            "If this relationship becomes stale, propose invalidate_memory_fact or link supersession for related fact {related_fact_id}."
+        );
+    }
+    if let Some(fact_id) = fact_id {
+        return format!(
+            "If this fact becomes stale, propose invalidate_memory_fact for {fact_id} before replacing it."
+        );
+    }
+    if let Some(failure_insight_id) = failure_insight_id {
+        return format!(
+            "If this FailureInsight is superseded, create a later insight that references {failure_insight_id} and preserves audit linkage."
+        );
+    }
+
+    "Future invalidation/supersession path must be proposed through governed memory-write intent before mutation."
+        .to_owned()
 }
 
 fn format_memory_proposals_readback(readback: &MemoryProposalsReadback) -> String {
@@ -1391,6 +1474,26 @@ fn push_memory_proposal_fields(output: &mut String, proposal: &MemoryProposalSum
     );
     push_readback_field(
         output,
+        "target_fact_id:",
+        proposal.target_fact_id.as_deref().unwrap_or("-"),
+    );
+    push_readback_field(
+        output,
+        "related_fact_id:",
+        proposal.related_fact_id.as_deref().unwrap_or("-"),
+    );
+    push_readback_field(
+        output,
+        "failure_insight_id:",
+        proposal.failure_insight_id.as_deref().unwrap_or("-"),
+    );
+    push_readback_field(
+        output,
+        "provenance_source_id:",
+        proposal.provenance_source_id.as_deref().unwrap_or("-"),
+    );
+    push_readback_field(
+        output,
         "provenance_source_label:",
         proposal.provenance_source_label.as_deref().unwrap_or("-"),
     );
@@ -1438,6 +1541,12 @@ fn push_memory_proposal_fields(output: &mut String, proposal: &MemoryProposalSum
         "invalidation_note:",
         proposal.invalidation_note.as_deref().unwrap_or("-"),
     );
+    push_readback_field(
+        output,
+        "persistence_readback_hint:",
+        &proposal.persistence_readback_hint,
+    );
+    push_readback_field(output, "supersession_hint:", &proposal.supersession_hint);
     push_readback_field(output, "created_at:", &proposal.created_at);
     push_readback_field(output, "rationale:", &proposal.rationale);
     push_readback_field(
@@ -3343,7 +3452,7 @@ mod tests {
                             "entity_id": "arpagona-agent-core",
                             "attribute": "current_priority",
                             "value": "governed memory priority is inspectable",
-                            "fact_id": null,
+                            "fact_id": "fact-memory-1",
                             "related_fact_id": null,
                             "failure_insight_id": null
                         },
@@ -3407,6 +3516,17 @@ mod tests {
             proposal.provenance_source_label.as_deref(),
             Some("focus loop")
         );
+        assert_eq!(proposal.target_fact_id.as_deref(), Some("fact-memory-1"));
+        assert_eq!(
+            proposal.provenance_source_id.as_deref(),
+            Some("source-focus-loop")
+        );
+        assert!(proposal
+            .persistence_readback_hint
+            .contains("Not persistable yet"));
+        assert!(proposal
+            .supersession_hint
+            .contains("Supersede when focus loop priority changes"));
         assert_eq!(proposal.required_permissions, vec!["write_memory"]);
         assert!(proposal
             .suggested_next_action
@@ -3417,6 +3537,9 @@ mod tests {
         assert!(formatted.contains("Memory write proposals"));
         assert!(formatted.contains("action-memory-1"));
         assert!(formatted.contains("reason_for_remembering:"));
+        assert!(formatted.contains("target_fact_id:"));
+        assert!(formatted.contains("persistence_readback_hint:"));
+        assert!(formatted.contains("supersession_hint:"));
         assert!(formatted.contains("Readback only"));
 
         let json = serde_json::to_value(&readback).unwrap();
