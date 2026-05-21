@@ -243,6 +243,10 @@ enum InsightSubcommand {
 enum MemorySubcommand {
     /// Show read-only Graph Memory alpha status.
     Status(MemoryStatusArgs),
+    /// List read-only governed memory-write proposals from proposed actions.
+    Proposals(MemoryProposalsArgs),
+    /// Show one read-only governed memory-write proposal from proposed actions.
+    Proposal(MemoryProposalArgs),
 }
 
 #[derive(Debug, Args)]
@@ -254,6 +258,22 @@ struct InsightSchemaArgs {
 
 #[derive(Debug, Args)]
 struct MemoryStatusArgs {
+    /// Emit structured JSON instead of human-oriented text.
+    #[arg(long)]
+    json: bool,
+}
+
+#[derive(Debug, Args)]
+struct MemoryProposalsArgs {
+    /// Emit structured JSON instead of human-oriented text.
+    #[arg(long)]
+    json: bool,
+}
+
+#[derive(Debug, Args)]
+struct MemoryProposalArgs {
+    /// Proposed action id to inspect.
+    proposal_id: String,
     /// Emit structured JSON instead of human-oriented text.
     #[arg(long)]
     json: bool,
@@ -367,6 +387,48 @@ struct MemoryStatusReadback {
     alpha_limits: &'static [&'static str],
     not_implemented: &'static [&'static str],
     warning: &'static str,
+}
+
+#[derive(Debug, Serialize)]
+struct MemoryProposalsReadback {
+    proposals: Vec<MemoryProposalSummary>,
+    warning: &'static str,
+}
+
+#[derive(Debug, Serialize)]
+struct MemoryProposalDetailReadback {
+    proposal: Option<MemoryProposalSummary>,
+    warning: &'static str,
+}
+
+#[derive(Debug, Serialize)]
+struct MemoryProposalSummary {
+    id: String,
+    workspace_id: String,
+    task_id: Option<String>,
+    proposed_by: String,
+    action_type: String,
+    status: String,
+    risk_level: String,
+    required_permissions: Vec<String>,
+    target: Option<String>,
+    rationale: String,
+    created_at: String,
+    memory_write_kind: Option<String>,
+    target_type: Option<String>,
+    target_id: Option<String>,
+    target_attribute: Option<String>,
+    provenance_source_label: Option<String>,
+    provenance_source_kind: Option<String>,
+    provenance_evidence: Option<String>,
+    confidence: Option<f64>,
+    actor: Option<String>,
+    reason_for_remembering: Option<String>,
+    proposed_at: Option<String>,
+    decision_id: Option<String>,
+    audit_event_id: Option<String>,
+    invalidation_note: Option<String>,
+    suggested_next_action: String,
 }
 
 const AUDIT_READBACK_WARNING: &str =
@@ -570,6 +632,8 @@ async fn run() -> Result<(), Box<dyn Error>> {
         },
         Command::Memory(memory) => match memory.command {
             MemorySubcommand::Status(args) => memory_status(args)?,
+            MemorySubcommand::Proposals(args) => memory_proposals(&client, &api_url, args).await?,
+            MemorySubcommand::Proposal(args) => memory_proposal(&client, &api_url, args).await?,
         },
     }
 
@@ -1054,6 +1118,279 @@ fn format_memory_status_readback(readback: &MemoryStatusReadback) -> String {
     );
     push_readback_line(&mut output, &style_dim(readback.warning));
     output
+}
+
+async fn memory_proposals(
+    client: &Client,
+    api_url: &str,
+    args: MemoryProposalsArgs,
+) -> Result<(), Box<dyn Error>> {
+    let actions: Vec<ProposedAction> = get_json(
+        client
+            .get(format!("{api_url}/proposed-actions"))
+            .send()
+            .await?,
+    )
+    .await?;
+    let readback = memory_proposals_readback_from_actions(actions);
+
+    if args.json {
+        println!("{}", serde_json::to_string_pretty(&readback)?);
+    } else {
+        print!("{}", format_memory_proposals_readback(&readback));
+    }
+    Ok(())
+}
+
+async fn memory_proposal(
+    client: &Client,
+    api_url: &str,
+    args: MemoryProposalArgs,
+) -> Result<(), Box<dyn Error>> {
+    let actions: Vec<ProposedAction> = get_json(
+        client
+            .get(format!("{api_url}/proposed-actions"))
+            .send()
+            .await?,
+    )
+    .await?;
+    let proposal = memory_proposals_readback_from_actions(actions)
+        .proposals
+        .into_iter()
+        .find(|proposal| proposal.id == args.proposal_id);
+    let readback = MemoryProposalDetailReadback {
+        proposal,
+        warning: MEMORY_READBACK_WARNING,
+    };
+
+    if args.json {
+        println!("{}", serde_json::to_string_pretty(&readback)?);
+    } else {
+        print!("{}", format_memory_proposal_detail_readback(&readback));
+    }
+    Ok(())
+}
+
+fn memory_proposals_readback_from_actions(actions: Vec<ProposedAction>) -> MemoryProposalsReadback {
+    let proposals = actions
+        .into_iter()
+        .filter_map(memory_proposal_summary_from_action)
+        .collect();
+
+    MemoryProposalsReadback {
+        proposals,
+        warning: MEMORY_READBACK_WARNING,
+    }
+}
+
+fn memory_proposal_summary_from_action(action: ProposedAction) -> Option<MemoryProposalSummary> {
+    let action_type = to_api_string(&action.action_type).ok()?;
+    if !is_memory_write_action_type(&action_type) {
+        return None;
+    }
+
+    let intent = action
+        .payload
+        .get("memory_write_intent")
+        .unwrap_or(&action.payload);
+    let target = intent.get("target").unwrap_or(&Value::Null);
+    let provenance = intent.get("provenance").unwrap_or(&Value::Null);
+
+    Some(MemoryProposalSummary {
+        id: action.id.to_string(),
+        workspace_id: action.workspace_id.to_string(),
+        task_id: action.task_id.map(|task_id| task_id.to_string()),
+        proposed_by: action.proposed_by.to_string(),
+        action_type,
+        status: to_api_string(&action.status).unwrap_or_else(|_| "unknown".to_owned()),
+        risk_level: to_api_string(&action.risk_level).unwrap_or_else(|_| "unknown".to_owned()),
+        required_permissions: action
+            .required_permissions
+            .iter()
+            .filter_map(|permission| to_api_string(permission).ok())
+            .collect(),
+        target: action.target,
+        rationale: action.rationale,
+        created_at: action.created_at.to_rfc3339(),
+        memory_write_kind: string_field(intent, "kind"),
+        target_type: string_field(target, "entity_type"),
+        target_id: string_field(target, "entity_id"),
+        target_attribute: string_field(target, "attribute"),
+        provenance_source_label: string_field(provenance, "source_label"),
+        provenance_source_kind: string_field(provenance, "source_kind"),
+        provenance_evidence: string_field(provenance, "evidence"),
+        confidence: intent.get("confidence").and_then(Value::as_f64),
+        actor: string_field(intent, "actor"),
+        reason_for_remembering: string_field(intent, "reason_for_remembering"),
+        proposed_at: string_field(intent, "proposed_at"),
+        decision_id: string_field(intent, "decision_id"),
+        audit_event_id: string_field(intent, "audit_event_id"),
+        invalidation_note: string_field(intent, "invalidation_note"),
+        suggested_next_action: memory_proposal_next_action(&action.status),
+    })
+}
+
+fn is_memory_write_action_type(action_type: &str) -> bool {
+    matches!(
+        action_type,
+        "write_memory"
+            | "create_memory_fact"
+            | "link_memory_fact"
+            | "invalidate_memory_fact"
+            | "create_failure_insight_memory"
+    )
+}
+
+fn memory_proposal_next_action(status: &ProposedActionStatus) -> String {
+    match status {
+        ProposedActionStatus::PendingDecision => {
+            "Evaluate through Decision Gate before any memory persistence.".to_owned()
+        }
+        ProposedActionStatus::NeedsHumanApproval => {
+            "Review Decision Gate result and obtain explicit human confirmation before persistence."
+                .to_owned()
+        }
+        ProposedActionStatus::Approved => {
+            "Persist only through an explicit governed Graph Memory path, then inspect readback."
+                .to_owned()
+        }
+        ProposedActionStatus::Blocked => {
+            "Do not persist; inspect explicit reason and correct proposal, policy, or evidence."
+                .to_owned()
+        }
+        ProposedActionStatus::Cancelled => "No action; proposal was cancelled.".to_owned(),
+    }
+}
+
+fn format_memory_proposals_readback(readback: &MemoryProposalsReadback) -> String {
+    let mut output = String::new();
+    push_readback_line(&mut output, &style_info("Memory write proposals"));
+    push_readback_field(
+        &mut output,
+        "proposal_count:",
+        &readback.proposals.len().to_string(),
+    );
+    if readback.proposals.is_empty() {
+        push_readback_line(
+            &mut output,
+            &style_dim("No governed memory-write proposals found."),
+        );
+    }
+    for proposal in &readback.proposals {
+        push_memory_proposal_fields(&mut output, proposal);
+    }
+    push_readback_line(&mut output, &style_dim(readback.warning));
+    output
+}
+
+fn format_memory_proposal_detail_readback(readback: &MemoryProposalDetailReadback) -> String {
+    let mut output = String::new();
+    push_readback_line(&mut output, &style_info("Memory write proposal"));
+    match &readback.proposal {
+        Some(proposal) => push_memory_proposal_fields(&mut output, proposal),
+        None => push_readback_line(
+            &mut output,
+            &style_dim("No governed memory-write proposal found for that id."),
+        ),
+    }
+    push_readback_line(&mut output, &style_dim(readback.warning));
+    output
+}
+
+fn push_memory_proposal_fields(output: &mut String, proposal: &MemoryProposalSummary) {
+    push_readback_field(output, "id:", &proposal.id);
+    push_readback_field(output, "action_type:", &proposal.action_type);
+    push_readback_field(output, "status:", &proposal.status);
+    push_readback_field(output, "risk_level:", &proposal.risk_level);
+    push_readback_field(
+        output,
+        "required_permissions:",
+        &format_policies(&proposal.required_permissions),
+    );
+    push_readback_field(output, "workspace_id:", &proposal.workspace_id);
+    push_readback_field(
+        output,
+        "task_id:",
+        proposal.task_id.as_deref().unwrap_or("-"),
+    );
+    push_readback_field(output, "proposed_by:", &proposal.proposed_by);
+    push_readback_field(output, "target:", proposal.target.as_deref().unwrap_or("-"));
+    push_readback_field(
+        output,
+        "memory_write_kind:",
+        proposal.memory_write_kind.as_deref().unwrap_or("-"),
+    );
+    push_readback_field(
+        output,
+        "target_type:",
+        proposal.target_type.as_deref().unwrap_or("-"),
+    );
+    push_readback_field(
+        output,
+        "target_id:",
+        proposal.target_id.as_deref().unwrap_or("-"),
+    );
+    push_readback_field(
+        output,
+        "target_attribute:",
+        proposal.target_attribute.as_deref().unwrap_or("-"),
+    );
+    push_readback_field(
+        output,
+        "provenance_source_label:",
+        proposal.provenance_source_label.as_deref().unwrap_or("-"),
+    );
+    push_readback_field(
+        output,
+        "provenance_source_kind:",
+        proposal.provenance_source_kind.as_deref().unwrap_or("-"),
+    );
+    push_readback_field(
+        output,
+        "provenance_evidence:",
+        proposal.provenance_evidence.as_deref().unwrap_or("-"),
+    );
+    push_readback_field(
+        output,
+        "confidence:",
+        &proposal
+            .confidence
+            .map(|confidence| confidence.to_string())
+            .unwrap_or_else(|| "-".to_owned()),
+    );
+    push_readback_field(output, "actor:", proposal.actor.as_deref().unwrap_or("-"));
+    push_readback_field(
+        output,
+        "reason_for_remembering:",
+        proposal.reason_for_remembering.as_deref().unwrap_or("-"),
+    );
+    push_readback_field(
+        output,
+        "proposed_at:",
+        proposal.proposed_at.as_deref().unwrap_or("-"),
+    );
+    push_readback_field(
+        output,
+        "decision_id:",
+        proposal.decision_id.as_deref().unwrap_or("-"),
+    );
+    push_readback_field(
+        output,
+        "audit_event_id:",
+        proposal.audit_event_id.as_deref().unwrap_or("-"),
+    );
+    push_readback_field(
+        output,
+        "invalidation_note:",
+        proposal.invalidation_note.as_deref().unwrap_or("-"),
+    );
+    push_readback_field(output, "created_at:", &proposal.created_at);
+    push_readback_field(output, "rationale:", &proposal.rationale);
+    push_readback_field(
+        output,
+        "suggested_next_action:",
+        &proposal.suggested_next_action,
+    );
 }
 
 fn insight_schema(args: InsightSchemaArgs) -> Result<(), Box<dyn Error>> {
@@ -2000,6 +2337,10 @@ fn normalize_action_type(action_type: &str) -> Value {
         | "read_status"
         | "system_check"
         | "write_memory"
+        | "create_memory_fact"
+        | "link_memory_fact"
+        | "invalidate_memory_fact"
+        | "create_failure_insight_memory"
         | "read_document"
         | "write_document"
         | "propose_tool_use"
@@ -2022,6 +2363,33 @@ fn default_payload(action_type: &str) -> Value {
             "to": "client@example.com",
             "subject": "Simulation alpha ARPAGONA",
             "body": "Préparer un brouillon sans l’envoyer"
+        })
+    } else if is_memory_write_action_type(action_type) {
+        json!({
+            "memory_write_intent": {
+                "kind": action_type,
+                "target": {
+                    "entity_type": "project",
+                    "entity_id": "arpagona-agent-core",
+                    "attribute": "operational_note",
+                    "fact_id": null,
+                    "related_fact_id": null,
+                    "failure_insight_id": null
+                },
+                "provenance": {
+                    "source_id": null,
+                    "source_label": "arpagona cli proposal",
+                    "source_kind": "local_operator_input",
+                    "evidence": "Memory write was proposed through the alpha CLI and still requires Decision Gate review."
+                },
+                "confidence": 0.5,
+                "actor": DEFAULT_AGENT_ID,
+                "reason_for_remembering": "Operator proposed a governed memory write for inspection and Decision Gate review.",
+                "proposed_at": null,
+                "decision_id": null,
+                "audit_event_id": null,
+                "invalidation_note": "Supersede or invalidate if the proposed operational note becomes stale."
+            }
         })
     } else {
         json!({})
@@ -2669,6 +3037,125 @@ mod tests {
             }) => assert!(args.json),
             _ => panic!("expected memory status"),
         }
+    }
+
+    #[test]
+    fn cli_parses_memory_proposals_commands() {
+        let list = Cli::parse_from(["arpagona", "memory", "proposals", "--json"]);
+        match list.command {
+            Command::Memory(MemoryCommand {
+                command: MemorySubcommand::Proposals(args),
+            }) => assert!(args.json),
+            _ => panic!("expected memory proposals"),
+        }
+
+        let detail = Cli::parse_from(["arpagona", "memory", "proposal", "action-1", "--json"]);
+        match detail.command {
+            Command::Memory(MemoryCommand {
+                command: MemorySubcommand::Proposal(args),
+            }) => {
+                assert_eq!(args.proposal_id, "action-1");
+                assert!(args.json);
+            }
+            _ => panic!("expected memory proposal detail"),
+        }
+    }
+
+    #[test]
+    fn memory_proposal_readback_filters_and_explains_memory_write_intent() {
+        let actions = vec![
+            serde_json::from_value::<ProposedAction>(json!({
+                "id": "action-memory-1",
+                "workspace_id": "workspace-1",
+                "task_id": "task-1",
+                "proposed_by": "agent-alpha",
+                "action_type": "create_memory_fact",
+                "target": "project:arpagona-agent-core",
+                "payload": {
+                    "memory_write_intent": {
+                        "kind": "create_memory_fact",
+                        "target": {
+                            "entity_type": "project",
+                            "entity_id": "arpagona-agent-core",
+                            "attribute": "current_priority",
+                            "fact_id": null,
+                            "related_fact_id": null,
+                            "failure_insight_id": null
+                        },
+                        "provenance": {
+                            "source_id": "source-focus-loop",
+                            "source_label": "focus loop",
+                            "source_kind": "operational_report",
+                            "evidence": "Issue #47 asks for memory proposal observability."
+                        },
+                        "confidence": 0.91,
+                        "actor": "agent-alpha",
+                        "reason_for_remembering": "Keep the current governed memory priority visible.",
+                        "proposed_at": "2026-05-21T10:00:00Z",
+                        "decision_id": "decision-memory-1",
+                        "audit_event_id": "audit-memory-1",
+                        "invalidation_note": "Supersede when focus loop priority changes."
+                    }
+                },
+                "risk_level": "medium",
+                "required_permissions": ["write_memory"],
+                "rationale": "Remember project priority only after governance.",
+                "context_refs": [],
+                "status": "needs_human_approval",
+                "created_at": "2026-05-21T10:00:00Z"
+            }))
+            .unwrap(),
+            serde_json::from_value::<ProposedAction>(json!({
+                "id": "action-email-1",
+                "workspace_id": "workspace-1",
+                "task_id": "task-1",
+                "proposed_by": "agent-alpha",
+                "action_type": "simulate_email",
+                "target": "client@example.com",
+                "payload": {},
+                "risk_level": "medium",
+                "required_permissions": ["simulate_email"],
+                "rationale": "Draft an email.",
+                "context_refs": [],
+                "status": "pending_decision",
+                "created_at": "2026-05-21T10:01:00Z"
+            }))
+            .unwrap(),
+        ];
+
+        let readback = memory_proposals_readback_from_actions(actions);
+
+        assert_eq!(readback.proposals.len(), 1);
+        let proposal = &readback.proposals[0];
+        assert_eq!(proposal.id, "action-memory-1");
+        assert_eq!(proposal.action_type, "create_memory_fact");
+        assert_eq!(
+            proposal.memory_write_kind.as_deref(),
+            Some("create_memory_fact")
+        );
+        assert_eq!(proposal.target_type.as_deref(), Some("project"));
+        assert_eq!(
+            proposal.provenance_source_label.as_deref(),
+            Some("focus loop")
+        );
+        assert_eq!(proposal.required_permissions, vec!["write_memory"]);
+        assert!(proposal
+            .suggested_next_action
+            .contains("Review Decision Gate result"));
+        assert!(readback.warning.contains("not approval"));
+
+        let formatted = format_memory_proposals_readback(&readback);
+        assert!(formatted.contains("Memory write proposals"));
+        assert!(formatted.contains("action-memory-1"));
+        assert!(formatted.contains("reason_for_remembering:"));
+        assert!(formatted.contains("Readback only"));
+
+        let json = serde_json::to_value(&readback).unwrap();
+        assert_eq!(
+            json["proposals"][0]["memory_write_kind"],
+            "create_memory_fact"
+        );
+        assert_eq!(json["proposals"][0]["confidence"], 0.91);
     }
 
     #[test]

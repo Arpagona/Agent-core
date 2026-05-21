@@ -101,7 +101,7 @@ The intended first-alpha behavior is conservative:
 - medium or higher memory-write risk requires human confirmation unless future explicit policy says otherwise;
 - Graph Memory persistence may only be added later after the proposal, permission, decision and audit path remains covered by tests.
 
-## Read-only CLI status
+## Read-only CLI status and proposal readback
 
 The alpha CLI exposes a bounded Graph Memory status readback:
 
@@ -112,7 +112,18 @@ arpagona memory status --json
 
 This command reports whether Graph Memory support is compiled into the CLI, the expected alpha backend (`surrealdb`), whether a backend name was configured through `ARPAGONA_GRAPH_MEMORY_BACKEND`, whether the SurrealDB adapter and schema are available, alpha limitations and intentionally missing capabilities.
 
-It is strictly read-only. It does not initialize a database, run migrations, create facts, persist observations, approve actions, authorize memory writes, inject context into LLM prompts or execute tools.
+The alpha CLI also exposes governed memory-write proposal readback from existing proposed actions:
+
+```bash
+arpagona memory proposals
+arpagona memory proposals --json
+arpagona memory proposal <proposed-action-id>
+arpagona memory proposal <proposed-action-id> --json
+```
+
+These commands fetch `GET /proposed-actions`, filter memory-write action types (`write_memory`, `create_memory_fact`, `link_memory_fact`, `invalidate_memory_fact`, `create_failure_insight_memory`) and display the proposal metadata needed for human supervision: action type, status, risk, required permission, target, provenance, confidence, actor, reason for remembering, optional decision/audit linkage, invalidation note and suggested next safe action.
+
+They are strictly read-only. They do not initialize a database, run migrations, create facts, persist observations, approve actions, authorize memory writes, inject context into LLM prompts, execute tools or treat readback as approval.
 
 ## Tests
 

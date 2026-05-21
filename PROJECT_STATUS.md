@@ -32,7 +32,7 @@ Current observed state:
 - `crates/llm` exists as an experimental provider abstraction that can produce `ProposedAction` objects with `PendingDecision`, without executing tools.
 - `crates/runtime` exists as an experimental cognitive runtime loop that stops at action proposal.
 - `apps/api-server` exists as an alpha Axum API server.
-- `crates/cli` exists as an alpha terminal interface and provides read-only local supervision surfaces for decision-scoped audit readback, Failure-to-Insight vocabulary and Graph Memory alpha status.
+- `crates/cli` exists as an alpha terminal interface and provides read-only local supervision surfaces for decision-scoped audit readback, Failure-to-Insight vocabulary, Graph Memory alpha status and governed memory-write proposal readback.
 - `apps/mission-control` exists only as a placeholder and must remain deferred until the CLI supervision path proves useful.
 - `workers/python-ingestion` exists only as a placeholder and must remain deferred.
 
@@ -71,7 +71,7 @@ The current product direction is no longer abstract stabilization only. The near
 | `crates/llm` | Experimental | LLM provider abstraction | Must remain limited to proposals. No tool execution by provider. |
 | `crates/runtime` | Experimental | Cognitive runtime loop | Must remain proposal-only until governance layers are ready for controlled integration. |
 | `apps/api-server` | Alpha | REST access to alpha objects | Must not take business governance responsibility. |
-| `crates/cli` | Alpha supervision surface | Local Mission Control precursor | Provides read-only audit, Failure-to-Insight and Graph Memory status supervision. Must not become an execution bypass. |
+| `crates/cli` | Alpha supervision surface | Local Mission Control precursor | Provides read-only audit, Failure-to-Insight, Graph Memory status and governed memory-write proposal supervision. Must not become an execution bypass. |
 | Neutral Orchestrator | Not implemented | Coordination layer | Deferred until governance, compute and tool layers are coherent enough for controlled integration. |
 | Mission Control Web | Deferred | Human supervision UI | Do not expand yet. CLI supervision comes first. |
 | Scheduler / autonomous loops | Deferred | Controlled recurring work | Must wait for Decision Gate, Tool Registry, Audit and human approval path. |
@@ -233,37 +233,38 @@ The update must clearly state whether the change is stable, alpha, experimental,
 
 ## 11. Latest Session Update
 
-This session added the first governed memory-write proposal vocabulary without adding Graph Memory mutation.
+This session added read-only governed memory-write proposal observability in the CLI without adding Graph Memory mutation.
 
 Changed:
 
-- added explicit memory-write `ActionType` variants in `crates/core`: `create_memory_fact`, `link_memory_fact`, `invalidate_memory_fact` and `create_failure_insight_memory`;
-- added pure `MemoryWriteKind`, `MemoryWriteIntent`, `MemoryWriteTarget` and `MemoryWriteProvenance` domain vocabulary for proposed memory writes;
-- captured the minimum governance metadata for future memory writes: typed target, provenance/source, confidence, actor, reason for remembering, proposal timestamp, optional decision/audit linkage and invalidation/supersession note;
-- kept `write_memory` as a legacy coarse action type while steering new work toward specific proposed-action variants;
-- added Decision Gate tests proving a memory-write proposal is blocked when `WriteMemory` permission is missing and requires human confirmation at medium risk even when permission is granted;
-- documented the proposal-only memory-write path in `docs/graph-memory.md`.
+- added `arpagona memory proposals [--json]` to list existing proposed actions filtered to memory-write action types;
+- added `arpagona memory proposal <proposed-action-id> [--json]` to inspect one governed memory-write proposal;
+- reused the existing `GET /proposed-actions` API surface and client-side filtering rather than adding a new backend endpoint;
+- surfaced memory proposal metadata needed for supervision: action type, status, risk, required permission, typed target, provenance/source, confidence, actor, reason for remembering, optional decision/audit linkage, invalidation note and suggested next action;
+- extended CLI action-type parsing/default payload support for `create_memory_fact`, `link_memory_fact`, `invalidate_memory_fact` and `create_failure_insight_memory` proposals;
+- documented the read-only CLI proposal readback surface in `docs/graph-memory.md`;
+- added CLI tests proving the new commands parse and memory proposal readback filters out non-memory proposed actions.
 
-Stability level: alpha domain vocabulary and Decision Gate coverage; Graph Memory persistence semantics remain experimental.
+Stability level: alpha CLI supervision/readback. It is intentionally read-only and depends on existing proposed-action records from the API.
 
 Limits:
 
 - no database connection was added;
 - no migration runner was added;
 - no Graph Memory write path was added;
-- no memory fact, observation, relation, FailureInsight or audit event creation behavior was added beyond existing pure audit helper tests;
+- no memory fact, observation, relation, FailureInsight or audit event creation behavior was added;
+- no Decision Gate policy change was added;
 - no runtime behavior was added;
-- no CLI command was added in this slice;
+- no approval, rejection, authorization or persistence behavior was added;
 - no broad semantic search or embeddings pipeline was added;
 - no hidden context injection into LLM prompts was added;
 - no real tool execution was introduced;
 - no destructive capability was added;
-- no approval, rejection or authorization behavior was added outside the existing Decision Gate evaluation result;
 - no scheduler, autonomy, MCP, browser automation, credential handling or Mission Control Web growth was introduced;
-- `MemoryWriteIntent` is proposal vocabulary only, not memory mutation or authorization.
+- CLI readback remains observability only and must not be treated as approval.
 
 Architectural risk:
 
-- low to moderate for alpha use. The change introduces new vocabulary in the core domain, but keeps it pure, serializable, non-mutating and governed by the existing Decision Gate permission/risk behavior.
+- low for alpha use. The change exposes existing proposed actions through a read-only CLI filter and keeps governed memory writes behind the existing ProposedAction -> DecisionGate -> Decision -> Audit boundary.
 
-Recommended next step: add a separate bounded PR that exposes read-only CLI or audit readback for proposed memory writes, still without Graph Memory mutation, or begin the minimal approved persistence design only after the proposal/audit path remains covered.
+Recommended next step: add a separate bounded PR for decision/audit summaries that present `MemoryWriteIntent` details consistently, or begin a minimal approved local persistence path only after the proposal, permission, decision, audit and readback path remains fully covered by tests.
