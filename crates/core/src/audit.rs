@@ -159,6 +159,28 @@ impl AuditEvent {
         created_at: DateTime<Utc>,
     ) -> Self {
         let explanation = DecisionAuditExplanation::from_action_and_decision(action, decision);
+        let mut causal_trace = json!({
+            "proposed_action_id": decision.proposed_action_id,
+            "decision_id": decision.id,
+            "decision_status": decision.status,
+            "decision_outcome": decision.status,
+            "reason": decision.reason,
+            "explicit_reason": decision.reason,
+            "action_type": action.action_type,
+            "risk_level": decision.risk_level,
+            "risk": decision.risk_level,
+            "policies_applied": decision.policies_applied,
+            "matched_policy_or_fallback_rule": explanation.matched_policy_or_fallback_rule,
+            "block_reason_category": explanation.block_reason_category,
+            "required_permissions": action.required_permissions,
+            "required_permission": explanation.required_permission,
+            "timestamp": created_at,
+            "suggested_next_action": explanation.suggested_next_action,
+        });
+
+        if let Some(memory_write_intent) = memory_write_intent_for_audit(action) {
+            causal_trace["memory_write_intent"] = memory_write_intent;
+        }
 
         Self {
             id,
@@ -168,29 +190,38 @@ impl AuditEvent {
             task_id: action.task_id.clone(),
             proposed_action_id: Some(action.id.clone()),
             decision_id: Some(decision.id.clone()),
-            payload: json!({
-                "causal_trace": {
-                    "proposed_action_id": decision.proposed_action_id,
-                    "decision_id": decision.id,
-                    "decision_status": decision.status,
-                    "decision_outcome": decision.status,
-                    "reason": decision.reason,
-                    "explicit_reason": decision.reason,
-                    "action_type": action.action_type,
-                    "risk_level": decision.risk_level,
-                    "risk": decision.risk_level,
-                    "policies_applied": decision.policies_applied,
-                    "matched_policy_or_fallback_rule": explanation.matched_policy_or_fallback_rule,
-                    "block_reason_category": explanation.block_reason_category,
-                    "required_permissions": action.required_permissions,
-                    "required_permission": explanation.required_permission,
-                    "timestamp": created_at,
-                    "suggested_next_action": explanation.suggested_next_action,
-                }
-            }),
+            payload: json!({ "causal_trace": causal_trace }),
             created_at,
         }
     }
+}
+
+fn memory_write_intent_for_audit(action: &ProposedAction) -> Option<Value> {
+    if !matches!(
+        action.action_type,
+        ActionType::WriteMemory
+            | ActionType::CreateMemoryFact
+            | ActionType::LinkMemoryFact
+            | ActionType::InvalidateMemoryFact
+            | ActionType::CreateFailureInsightMemory
+    ) {
+        return None;
+    }
+
+    action
+        .payload
+        .get("memory_write_intent")
+        .cloned()
+        .or_else(|| {
+            if action.payload.get("kind").is_some()
+                && action.payload.get("target").is_some()
+                && action.payload.get("provenance").is_some()
+            {
+                Some(action.payload.clone())
+            } else {
+                None
+            }
+        })
 }
 
 #[derive(Debug)]
@@ -317,8 +348,13 @@ fn suggested_next_action(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::action::{
+        ActionType, MemoryWriteIntent, MemoryWriteKind, MemoryWriteProvenance, MemoryWriteTarget,
+        ProposedAction, ProposedActionStatus,
+    };
     use crate::decision::{Decision, DecisionStatus};
     use crate::ids::PolicyId;
+    use crate::permission::Permission;
     use crate::risk::RiskLevel;
 
     #[test]
@@ -424,6 +460,122 @@ mod tests {
         assert!(summary.has_action_proposed);
         assert!(summary.has_decision_created);
         assert!(!summary.has_execution_event);
+    }
+
+    #[test]
+    fn decision_created_for_memory_write_action_preserves_intent_in_causal_trace() {
+        let proposed_at = "2026-05-21T10:00:00Z".parse::<DateTime<Utc>>().unwrap();
+        let intent = MemoryWriteIntent::new(
+            MemoryWriteKind::CreateMemoryFact,
+            MemoryWriteTarget::fact("project", "arpagona-agent-core", "operational_note"),
+            MemoryWriteProvenance::new(
+                None,
+                "focus loop",
+                "operational_report",
+                "The focus loop selected governed memory observability.",
+            ),
+            0.86,
+            AgentId::new("agent-alpha"),
+            "Keep governed memory proposal context inspectable.",
+            proposed_at,
+        )
+        .with_invalidation_note("Supersede when the memory priority changes.");
+        let decision = Decision {
+            id: DecisionId::new("decision-memory-1"),
+            proposed_action_id: ProposedActionId::new("action-memory-1"),
+            status: DecisionStatus::NeedsHumanApproval,
+            reason: "Memory writes require explicit human confirmation.".to_owned(),
+            risk_level: RiskLevel::High,
+            policies_applied: vec![PolicyId::new("policy-memory-human-confirmation")],
+            decided_by: None,
+            created_at: proposed_at,
+        };
+        let action = ProposedAction {
+            id: ProposedActionId::new("action-memory-1"),
+            workspace_id: WorkspaceId::new("workspace-1"),
+            task_id: Some(TaskId::new("task-1")),
+            proposed_by: AgentId::new("agent-alpha"),
+            action_type: ActionType::CreateMemoryFact,
+            target: Some("project:arpagona-agent-core".to_owned()),
+            payload: json!({ "memory_write_intent": intent }),
+            risk_level: RiskLevel::High,
+            required_permissions: vec![Permission::WriteMemory],
+            rationale: "Remember an operational project fact only after governance.".to_owned(),
+            context_refs: vec![],
+            status: ProposedActionStatus::PendingDecision,
+            created_at: proposed_at,
+        };
+
+        let event = AuditEvent::decision_created_for_action(
+            AuditEventId::new("audit-memory-1"),
+            ActorRef::System,
+            &action,
+            &decision,
+            proposed_at,
+        );
+        let trace = &event.payload["causal_trace"];
+
+        assert_eq!(trace["action_type"], "create_memory_fact");
+        assert_eq!(trace["required_permission"], "write_memory");
+        assert_eq!(trace["memory_write_intent"]["kind"], "create_memory_fact");
+        assert_eq!(
+            trace["memory_write_intent"]["target"]["entity_type"],
+            "project"
+        );
+        assert_eq!(
+            trace["memory_write_intent"]["provenance"]["source_label"],
+            "focus loop"
+        );
+        assert_eq!(
+            trace["memory_write_intent"]["reason_for_remembering"],
+            "Keep governed memory proposal context inspectable."
+        );
+    }
+
+    #[test]
+    fn decision_created_for_non_memory_action_does_not_classify_payload_as_memory_intent() {
+        let created_at = "2026-05-21T10:10:00Z".parse::<DateTime<Utc>>().unwrap();
+        let decision = Decision {
+            id: DecisionId::new("decision-read-1"),
+            proposed_action_id: ProposedActionId::new("action-read-1"),
+            status: DecisionStatus::NeedsHumanApproval,
+            reason: "Document reads remain governed separately.".to_owned(),
+            risk_level: RiskLevel::Medium,
+            policies_applied: vec![],
+            decided_by: None,
+            created_at,
+        };
+        let action = ProposedAction {
+            id: ProposedActionId::new("action-read-1"),
+            workspace_id: WorkspaceId::new("workspace-1"),
+            task_id: Some(TaskId::new("task-1")),
+            proposed_by: AgentId::new("agent-alpha"),
+            action_type: ActionType::ReadDocument,
+            target: Some("doc:operating-doctrine".to_owned()),
+            payload: json!({
+                "kind": "document_read",
+                "target": { "entity_type": "document", "entity_id": "operating-doctrine" },
+                "provenance": { "source_label": "cli", "source_kind": "request" }
+            }),
+            risk_level: RiskLevel::Medium,
+            required_permissions: vec![Permission::ReadDocument],
+            rationale: "Inspect operating doctrine.".to_owned(),
+            context_refs: vec![],
+            status: ProposedActionStatus::PendingDecision,
+            created_at,
+        };
+
+        let event = AuditEvent::decision_created_for_action(
+            AuditEventId::new("audit-read-1"),
+            ActorRef::System,
+            &action,
+            &decision,
+            created_at,
+        );
+
+        assert!(event.payload["causal_trace"]
+            .get("memory_write_intent")
+            .is_none());
     }
 
     #[test]
