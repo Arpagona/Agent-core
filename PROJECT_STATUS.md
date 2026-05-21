@@ -234,26 +234,25 @@ The update must clearly state whether the change is stable, alpha, experimental,
 
 ## 11. Latest Session Update
 
-This session enriched CLI governed memory-write proposal readback so operators can see the proposed Graph Memory artifact linkage and the governance follow-up needed before persistence.
+This session added CLI controls for proposing governed memory-write intent payloads through the existing `arpagona action propose` path, keeping the action in `PendingDecision` and preserving the `ProposedAction -> DecisionGate -> Decision -> Audit` flow.
 
 Changed:
-- extended governed memory-write proposal summaries with optional `target_fact_id`, `related_fact_id`, `failure_insight_id` and `provenance_source_id` fields;
-- updated human-oriented `arpagona memory proposals` / `arpagona memory proposal` formatting to display those artifact/provenance identifiers;
-- added `persistence_readback_hint` so non-approved proposals remain explicitly non-persistable and approved proposals point operators toward explicit governed Graph Memory persistence plus decision/audit readback checks;
-- added `supersession_hint` so fact, related-fact and FailureInsight proposals include bounded invalidation/supersession guidance;
-- updated CLI unit coverage so JSON and formatted readbacks prove the new artifact-link fields and readback-only/non-authorizing guidance.
+- added `arpagona action propose` options for memory target entity type, entity id, attribute, proposed value, fact id, related fact id and FailureInsight id;
+- added provenance controls for memory proposal source id, source label, source kind and evidence;
+- added memory proposal confidence and invalidation/supersession note controls;
+- changed the default governed memory-write payload builder to populate `memory_write_intent.target.value` from JSON or plain text and to derive actor/reason metadata from the proposed action arguments;
+- added CLI unit coverage for governed memory proposal controls, JSON value parsing and plain-text fallback behavior;
+- manually checked the updated CLI help surface with `cargo run --bin arpagona -- action propose --help`.
 
-Stability level: alpha CLI supervision/readback. This change is observability-only; it does not add a CLI mutation command, API endpoint, authorization path, scheduler path or direct memory-writing behavior.
+Stability level: alpha CLI supervision/proposal control. This change makes governed memory-write proposals more controllable before Decision Gate review; it does not approve, persist, execute, schedule or authorize any memory write.
 
 Limits:
-
 - no API endpoint was added;
-- no CLI mutation command was added;
+- no CLI memory mutation or persistence command was added;
 - no new Graph Memory persistence helper was added;
+- no Decision Gate behavior was changed;
 - no LLM/provider/runtime direct memory mutation was added;
 - no broad autonomous memory writing was added;
-- no persistence is performed by the CLI memory proposal readback commands;
-- no Decision Gate behavior was changed;
 - no personal or sensitive memory path was added;
 - no database migration runner was added;
 - no broad semantic search or embeddings pipeline was added;
@@ -265,6 +264,6 @@ Limits:
 
 Architectural risk:
 
-- low. The change makes existing governed memory-write intent payloads more inspectable and adds operator guidance, but any downstream automation that parses proposal readback JSON or text may need to tolerate the additional fields.
+- low to medium. The change adds more CLI input knobs to an existing proposal command, which improves operator control but requires downstream users to understand that CLI-created memory proposals are still only pending proposals until Decision Gate/audit/persistence steps occur.
 
 Recommended next step: add a bounded supervisor-facing readback path for persisted FailureInsight memory, or implement governed invalidation/supersession readback for persisted memory artifacts without widening authorization or execution capabilities.
