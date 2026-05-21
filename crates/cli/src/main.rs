@@ -55,6 +55,8 @@ enum Command {
     Agent(AgentCommand),
     /// Read audit events.
     Audit(AuditCommand),
+    /// Inspect Failure-to-Insight vocabulary and readback conventions.
+    Insight(InsightCommand),
 }
 
 #[derive(Debug, Args)]
@@ -216,6 +218,25 @@ struct AuditCommand {
     command: AuditSubcommand,
 }
 
+#[derive(Debug, Args)]
+struct InsightCommand {
+    #[command(subcommand)]
+    command: InsightSubcommand,
+}
+
+#[derive(Debug, Subcommand)]
+enum InsightSubcommand {
+    /// Show the read-only Failure-to-Insight schema and taxonomy.
+    Schema(InsightSchemaArgs),
+}
+
+#[derive(Debug, Args)]
+struct InsightSchemaArgs {
+    /// Emit structured JSON instead of human-oriented text.
+    #[arg(long)]
+    json: bool,
+}
+
 #[derive(Debug, Subcommand)]
 enum AuditSubcommand {
     /// List audit events.
@@ -293,8 +314,94 @@ struct StatusReadback {
     warning: &'static str,
 }
 
+#[derive(Debug, Serialize)]
+struct InsightSchemaReadback {
+    purpose: &'static str,
+    minimum_fields: &'static [&'static str],
+    failure_classes: &'static [&'static str],
+    correction_targets: &'static [&'static str],
+    statuses: &'static [&'static str],
+    severities: &'static [&'static str],
+    detection_signal_types: &'static [&'static str],
+    alpha_limits: &'static [&'static str],
+    warning: &'static str,
+}
+
 const AUDIT_READBACK_WARNING: &str =
     "Readback only: this summary is not approval, authorization, orchestration, or execution state.";
+
+const INSIGHT_READBACK_WARNING: &str =
+    "Readback only: FailureInsight vocabulary informs learning and supervision; it is not approval, authorization, self-modification, or execution state.";
+
+const INSIGHT_MINIMUM_FIELDS: &[&str] = &[
+    "id",
+    "failure_class",
+    "severity",
+    "status",
+    "correction_target",
+    "summary",
+    "root_cause",
+    "impact",
+    "corrective_action",
+    "owner_layer",
+    "detection_signal",
+    "confidence",
+    "workspace_id",
+    "task_id",
+    "proposed_action_id",
+    "decision_id",
+    "audit_event_id",
+    "linked_pr",
+    "linked_test",
+    "linked_doc",
+    "created_at",
+];
+
+const INSIGHT_FAILURE_CLASSES: &[&str] = &[
+    "missing_context",
+    "stale_context",
+    "bad_action_type",
+    "policy_gap",
+    "blocked_without_explanation",
+    "wrong_compute_choice",
+    "tool_mismatch",
+    "unsafe_drift",
+    "insufficient_observability",
+    "test_gap",
+    "documentation_gap",
+];
+
+const INSIGHT_CORRECTION_TARGETS: &[&str] = &["code", "test", "policy", "memory", "docs", "none"];
+
+const INSIGHT_STATUSES: &[&str] = &[
+    "proposed",
+    "accepted",
+    "applied",
+    "superseded",
+    "rejected",
+    "no_change",
+];
+
+const INSIGHT_SEVERITIES: &[&str] = &["informational", "low", "medium", "high", "critical"];
+
+const INSIGHT_DETECTION_SIGNAL_TYPES: &[&str] = &[
+    "human_correction",
+    "audit_event",
+    "test_failure",
+    "review_finding",
+    "runtime_observation",
+    "policy_review",
+    "documentation_review",
+];
+
+const INSIGHT_ALPHA_LIMITS: &[&str] = &[
+    "no automatic creation from audit events",
+    "no persistence or Graph Memory mutation",
+    "no Decision Gate influence",
+    "no provider routing influence",
+    "no self-modification",
+    "no execution or external side effects",
+];
 
 #[derive(Debug, PartialEq, Eq)]
 enum ChatLine {
@@ -394,6 +501,9 @@ async fn run() -> Result<(), Box<dyn Error>> {
             AuditSubcommand::WorkspaceSummary(args) => {
                 audit_workspace_summary(&client, &api_url, args).await?
             }
+        },
+        Command::Insight(insight) => match insight.command {
+            InsightSubcommand::Schema(args) => insight_schema(args)?,
         },
     }
 
@@ -803,6 +913,81 @@ fn format_optional_usize(value: Option<usize>) -> String {
     value
         .map(|value| value.to_string())
         .unwrap_or_else(|| "unavailable".to_owned())
+}
+
+fn insight_schema(args: InsightSchemaArgs) -> Result<(), Box<dyn Error>> {
+    let readback = insight_schema_readback();
+    if args.json {
+        println!("{}", serde_json::to_string_pretty(&readback)?);
+    } else {
+        print!("{}", format_insight_schema_readback(&readback));
+    }
+    Ok(())
+}
+
+fn insight_schema_readback() -> InsightSchemaReadback {
+    InsightSchemaReadback {
+        purpose: "Classify failures and corrections into durable, traceable learning artifacts for human supervision.",
+        minimum_fields: INSIGHT_MINIMUM_FIELDS,
+        failure_classes: INSIGHT_FAILURE_CLASSES,
+        correction_targets: INSIGHT_CORRECTION_TARGETS,
+        statuses: INSIGHT_STATUSES,
+        severities: INSIGHT_SEVERITIES,
+        detection_signal_types: INSIGHT_DETECTION_SIGNAL_TYPES,
+        alpha_limits: INSIGHT_ALPHA_LIMITS,
+        warning: INSIGHT_READBACK_WARNING,
+    }
+}
+
+fn format_insight_schema_readback(readback: &InsightSchemaReadback) -> String {
+    let mut output = String::new();
+    push_readback_line(&mut output, &style_info("Failure-to-Insight schema"));
+    push_readback_field(&mut output, "purpose:", readback.purpose);
+    push_readback_field(
+        &mut output,
+        "minimum_fields:",
+        &format_static_list(readback.minimum_fields),
+    );
+    push_readback_field(
+        &mut output,
+        "failure_classes:",
+        &format_static_list(readback.failure_classes),
+    );
+    push_readback_field(
+        &mut output,
+        "correction_targets:",
+        &format_static_list(readback.correction_targets),
+    );
+    push_readback_field(
+        &mut output,
+        "statuses:",
+        &format_static_list(readback.statuses),
+    );
+    push_readback_field(
+        &mut output,
+        "severities:",
+        &format_static_list(readback.severities),
+    );
+    push_readback_field(
+        &mut output,
+        "detection_signal_types:",
+        &format_static_list(readback.detection_signal_types),
+    );
+    push_readback_field(
+        &mut output,
+        "alpha_limits:",
+        &format_static_list(readback.alpha_limits),
+    );
+    push_readback_line(&mut output, &style_dim(readback.warning));
+    output
+}
+
+fn format_static_list(values: &[&str]) -> String {
+    if values.is_empty() {
+        "-".to_owned()
+    } else {
+        values.join(", ")
+    }
 }
 
 async fn create_task(
@@ -2195,6 +2380,42 @@ mod tests {
     fn cli_parses_status_command() {
         let cli = Cli::parse_from(["arpagona", "status"]);
         assert!(matches!(cli.command, Command::Status));
+    }
+
+    #[test]
+    fn cli_parses_insight_schema_command() {
+        let cli = Cli::parse_from(["arpagona", "insight", "schema", "--json"]);
+        match cli.command {
+            Command::Insight(InsightCommand {
+                command: InsightSubcommand::Schema(args),
+            }) => assert!(args.json),
+            _ => panic!("expected insight schema"),
+        }
+    }
+
+    #[test]
+    fn insight_schema_readback_lists_taxonomy_without_authorizing() {
+        let readback = insight_schema_readback();
+
+        assert!(readback.failure_classes.contains(&"missing_context"));
+        assert!(readback
+            .failure_classes
+            .contains(&"insufficient_observability"));
+        assert!(readback.correction_targets.contains(&"docs"));
+        assert!(readback.minimum_fields.contains(&"audit_event_id"));
+        assert!(readback
+            .alpha_limits
+            .contains(&"no execution or external side effects"));
+
+        let formatted = format_insight_schema_readback(&readback);
+        assert!(formatted.contains("Failure-to-Insight schema"));
+        assert!(formatted.contains("failure_classes:"));
+        assert!(formatted.contains("Readback only"));
+        assert!(formatted.contains("not approval"));
+
+        let json = serde_json::to_value(&readback).unwrap();
+        assert_eq!(json["failure_classes"][0], "missing_context");
+        assert!(json["warning"].as_str().unwrap().contains("not approval"));
     }
 
     #[test]
