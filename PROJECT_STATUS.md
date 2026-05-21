@@ -28,7 +28,7 @@ Current observed state:
 - `crates/compute-reservoir` exists as an alpha minimal pure Rust crate with compute inventory/allocation types and a deterministic `allocate_compute` function.
 - `crates/tool-registry` exists as an alpha minimal declarative catalogue for tool definitions, capabilities, schemas, permissions, risk levels and enabled/disabled states, without execution.
 - `Reservoir Echo` currently exists inside the Cognitive Runtime primitives as short-term volatile cognitive continuity.
-- `crates/graph-memory` exists as an experimental SurrealDB adapter for Graph Memory persistence, alpha audit trace lookup by workspace, task, proposed action and decision, governed approved memory fact and FailureInsight persistence/readback helpers, and schema-backed CLI status readback.
+- `crates/graph-memory` exists as an experimental SurrealDB adapter for Graph Memory persistence, alpha audit trace lookup by workspace, task, proposed action and decision, governed approved memory fact and FailureInsight persistence/readback helpers with non-authorizing trace proof readback, and schema-backed CLI status readback.
 - `crates/llm` exists as an experimental provider abstraction that can produce `ProposedAction` objects with `PendingDecision`, without executing tools.
 - `crates/runtime` exists as an experimental cognitive runtime loop that stops at action proposal.
 - `apps/api-server` exists as an alpha Axum API server.
@@ -66,7 +66,7 @@ The current product direction is no longer abstract stabilization only. The near
 | Reservoir Echo | Alpha | Short-term cognitive continuity | Volatile traces only. Not persistent memory. Not model routing. Not Compute Reservoir. |
 | Compute Reservoir | Alpha minimal | Compute/model/resource routing | `crates/compute-reservoir` provides serializable types and pure allocation only; no model calls, execution, I/O, persistence or Decision Gate replacement. |
 | Tool Registry | Alpha minimal | Declarative catalogue of tools and permissions | `crates/tool-registry` declares tools, capabilities, schemas, governance notes and lookup/status changes only; no execution path. |
-| `crates/graph-memory` | Experimental | SurrealDB Graph Memory adapter | Adds alpha audit-event queries by task, proposed action and decision plus schema-backed CLI status readback; broader persistence conventions and graph schema still need stabilization. |
+| `crates/graph-memory` | Experimental | SurrealDB Graph Memory adapter | Adds alpha audit-event queries by task, proposed action and decision plus governed FailureInsight memory trace proof readback and schema-backed CLI status readback; broader persistence conventions and graph schema still need stabilization. |
 | Graph Memory domain port | Alpha | Memory contract | Useful foundation, but persistence and audit coupling are not final. |
 | Audit System | Alpha | Trace important events and decisions | Has usable decision-scoped readback summaries; must remain non-authorizing. |
 | `crates/llm` | Experimental | LLM provider abstraction | Must remain limited to proposals. No tool execution by provider. |
@@ -110,7 +110,7 @@ Experimental areas:
 - Reservoir Echo tuning and lifecycle;
 - Compute Reservoir allocation heuristics and telemetry shape;
 - audit persistence and causal trace design;
-- future Failure-to-Insight audit conventions, CLI readback and Graph Memory integration;
+- future Failure-to-Insight audit conventions, CLI readback and broader Graph Memory integration;
 - exact crate boundaries for remaining governance layers.
 
 Experimental means: useful for learning, local supervision and integration tests, but not stable enough to justify external-effect execution around it.
