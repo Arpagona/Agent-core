@@ -2,6 +2,7 @@ use arpagona_agent_core::{
     AuditEvent, AuditTraceSummary, Decision, DecisionId, DecisionStatus, ProposedAction,
     ProposedActionStatus, Task, TaskId, WorkspaceId,
 };
+use arpagona_graph_memory::GRAPH_MEMORY_SCHEMA;
 use clap::{Args, Parser, Subcommand, ValueEnum};
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
@@ -57,6 +58,8 @@ enum Command {
     Audit(AuditCommand),
     /// Inspect Failure-to-Insight vocabulary and readback conventions.
     Insight(InsightCommand),
+    /// Inspect Graph Memory alpha status and readback conventions.
+    Memory(MemoryCommand),
 }
 
 #[derive(Debug, Args)]
@@ -224,14 +227,33 @@ struct InsightCommand {
     command: InsightSubcommand,
 }
 
+#[derive(Debug, Args)]
+struct MemoryCommand {
+    #[command(subcommand)]
+    command: MemorySubcommand,
+}
+
 #[derive(Debug, Subcommand)]
 enum InsightSubcommand {
     /// Show the read-only Failure-to-Insight schema and taxonomy.
     Schema(InsightSchemaArgs),
 }
 
+#[derive(Debug, Subcommand)]
+enum MemorySubcommand {
+    /// Show read-only Graph Memory alpha status.
+    Status(MemoryStatusArgs),
+}
+
 #[derive(Debug, Args)]
 struct InsightSchemaArgs {
+    /// Emit structured JSON instead of human-oriented text.
+    #[arg(long)]
+    json: bool,
+}
+
+#[derive(Debug, Args)]
+struct MemoryStatusArgs {
     /// Emit structured JSON instead of human-oriented text.
     #[arg(long)]
     json: bool,
@@ -334,11 +356,27 @@ struct InsightSchemaReadback {
     warning: &'static str,
 }
 
+#[derive(Debug, Serialize)]
+struct MemoryStatusReadback {
+    graph_memory_support_compiled: bool,
+    expected_backend: &'static str,
+    configured_backend: Option<String>,
+    surrealdb_adapter_available: bool,
+    schema_available: bool,
+    schema_bytes: usize,
+    alpha_limits: &'static [&'static str],
+    not_implemented: &'static [&'static str],
+    warning: &'static str,
+}
+
 const AUDIT_READBACK_WARNING: &str =
     "Readback only: this summary is not approval, authorization, orchestration, or execution state.";
 
 const INSIGHT_READBACK_WARNING: &str =
     "Readback only: FailureInsight vocabulary informs learning and supervision; it is not approval, authorization, self-modification, or execution state.";
+
+const MEMORY_READBACK_WARNING: &str =
+    "Readback only: Graph Memory status is not approval, authorization, orchestration, memory mutation, or execution state.";
 
 const INSIGHT_MINIMUM_FIELDS: &[&str] = &[
     "id",
@@ -408,6 +446,24 @@ const INSIGHT_ALPHA_LIMITS: &[&str] = &[
     "no provider routing influence",
     "no self-modification",
     "no execution or external side effects",
+];
+
+const MEMORY_ALPHA_LIMITS: &[&str] = &[
+    "read-only status/readback only",
+    "SurrealDB adapter remains experimental",
+    "no migration runner exposed through the CLI",
+    "no broad semantic search or embeddings pipeline",
+    "no hidden context injection into LLM prompts",
+    "no personal or sensitive memory writes",
+];
+
+const MEMORY_NOT_IMPLEMENTED: &[&str] = &[
+    "approved Graph Memory write path",
+    "governed memory-write proposal vocabulary",
+    "automatic FailureInsight persistence",
+    "Decision Gate influence from memory readback",
+    "Mission Control Graph Memory UI",
+    "scheduler or autonomous memory expansion",
 ];
 
 #[derive(Debug, PartialEq, Eq)]
@@ -511,6 +567,9 @@ async fn run() -> Result<(), Box<dyn Error>> {
         },
         Command::Insight(insight) => match insight.command {
             InsightSubcommand::Schema(args) => insight_schema(args)?,
+        },
+        Command::Memory(memory) => match memory.command {
+            MemorySubcommand::Status(args) => memory_status(args)?,
         },
     }
 
@@ -920,6 +979,81 @@ fn format_optional_usize(value: Option<usize>) -> String {
     value
         .map(|value| value.to_string())
         .unwrap_or_else(|| "unavailable".to_owned())
+}
+
+fn memory_status(args: MemoryStatusArgs) -> Result<(), Box<dyn Error>> {
+    let readback = memory_status_readback();
+    if args.json {
+        println!("{}", serde_json::to_string_pretty(&readback)?);
+    } else {
+        print!("{}", format_memory_status_readback(&readback));
+    }
+    Ok(())
+}
+
+fn memory_status_readback() -> MemoryStatusReadback {
+    let configured_backend = env::var("ARPAGONA_GRAPH_MEMORY_BACKEND")
+        .ok()
+        .map(|value| value.trim().to_ascii_lowercase())
+        .filter(|value| !value.is_empty());
+
+    MemoryStatusReadback {
+        graph_memory_support_compiled: true,
+        expected_backend: "surrealdb",
+        configured_backend,
+        surrealdb_adapter_available: true,
+        schema_available: !GRAPH_MEMORY_SCHEMA.trim().is_empty(),
+        schema_bytes: GRAPH_MEMORY_SCHEMA.len(),
+        alpha_limits: MEMORY_ALPHA_LIMITS,
+        not_implemented: MEMORY_NOT_IMPLEMENTED,
+        warning: MEMORY_READBACK_WARNING,
+    }
+}
+
+fn format_memory_status_readback(readback: &MemoryStatusReadback) -> String {
+    let mut output = String::new();
+    push_readback_line(&mut output, &style_info("Graph Memory status"));
+    push_readback_field(
+        &mut output,
+        "graph_memory_support_compiled:",
+        &readback.graph_memory_support_compiled.to_string(),
+    );
+    push_readback_field(&mut output, "expected_backend:", readback.expected_backend);
+    push_readback_field(
+        &mut output,
+        "configured_backend:",
+        readback
+            .configured_backend
+            .as_deref()
+            .unwrap_or("not configured"),
+    );
+    push_readback_field(
+        &mut output,
+        "surrealdb_adapter_available:",
+        &readback.surrealdb_adapter_available.to_string(),
+    );
+    push_readback_field(
+        &mut output,
+        "schema_available:",
+        &readback.schema_available.to_string(),
+    );
+    push_readback_field(
+        &mut output,
+        "schema_bytes:",
+        &readback.schema_bytes.to_string(),
+    );
+    push_readback_field(
+        &mut output,
+        "alpha_limits:",
+        &format_static_list(readback.alpha_limits),
+    );
+    push_readback_field(
+        &mut output,
+        "not_implemented:",
+        &format_static_list(readback.not_implemented),
+    );
+    push_readback_line(&mut output, &style_dim(readback.warning));
+    output
 }
 
 fn insight_schema(args: InsightSchemaArgs) -> Result<(), Box<dyn Error>> {
@@ -2524,6 +2658,44 @@ mod tests {
             }) => assert!(args.json),
             _ => panic!("expected insight schema"),
         }
+    }
+
+    #[test]
+    fn cli_parses_memory_status_command() {
+        let cli = Cli::parse_from(["arpagona", "memory", "status", "--json"]);
+        match cli.command {
+            Command::Memory(MemoryCommand {
+                command: MemorySubcommand::Status(args),
+            }) => assert!(args.json),
+            _ => panic!("expected memory status"),
+        }
+    }
+
+    #[test]
+    fn memory_status_readback_describes_alpha_state_without_authorizing() {
+        let readback = memory_status_readback();
+
+        assert!(readback.graph_memory_support_compiled);
+        assert_eq!(readback.expected_backend, "surrealdb");
+        assert!(readback.surrealdb_adapter_available);
+        assert!(readback
+            .alpha_limits
+            .contains(&"read-only status/readback only"));
+        assert!(readback
+            .not_implemented
+            .contains(&"approved Graph Memory write path"));
+
+        let formatted = format_memory_status_readback(&readback);
+        assert!(formatted.contains("Graph Memory status"));
+        assert!(formatted.contains("graph_memory_support_compiled:"));
+        assert!(formatted.contains("surrealdb_adapter_available:"));
+        assert!(formatted.contains("read-only"));
+        assert!(formatted.contains("not approval"));
+
+        let json = serde_json::to_value(&readback).unwrap();
+        assert_eq!(json["expected_backend"], "surrealdb");
+        assert_eq!(json["surrealdb_adapter_available"], true);
+        assert!(json["warning"].as_str().unwrap().contains("not approval"));
     }
 
     #[test]

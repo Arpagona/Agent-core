@@ -13,6 +13,7 @@ path = "src/main.rs"
 
 [dependencies]
 arpagona-agent-core = { path = "../core" }
+arpagona-graph-memory = { path = "../graph-memory" }
 clap.workspace = true
 reqwest.workspace = true
 serde.workspace = true

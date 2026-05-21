@@ -28,11 +28,11 @@ Current observed state:
 - `crates/compute-reservoir` exists as an alpha minimal pure Rust crate with compute inventory/allocation types and a deterministic `allocate_compute` function.
 - `crates/tool-registry` exists as an alpha minimal declarative catalogue for tool definitions, capabilities, schemas, permissions, risk levels and enabled/disabled states, without execution.
 - `Reservoir Echo` currently exists inside the Cognitive Runtime primitives as short-term volatile cognitive continuity.
-- `crates/graph-memory` exists as an experimental SurrealDB adapter for Graph Memory persistence and alpha audit trace lookup by workspace, task, proposed action and decision.
+- `crates/graph-memory` exists as an experimental SurrealDB adapter for Graph Memory persistence, alpha audit trace lookup by workspace, task, proposed action and decision, and schema-backed CLI status readback.
 - `crates/llm` exists as an experimental provider abstraction that can produce `ProposedAction` objects with `PendingDecision`, without executing tools.
 - `crates/runtime` exists as an experimental cognitive runtime loop that stops at action proposal.
 - `apps/api-server` exists as an alpha Axum API server.
-- `crates/cli` exists as an alpha terminal interface and now provides the first read-only local supervision surface for decision-scoped audit readback.
+- `crates/cli` exists as an alpha terminal interface and provides read-only local supervision surfaces for decision-scoped audit readback, Failure-to-Insight vocabulary and Graph Memory alpha status.
 - `apps/mission-control` exists only as a placeholder and must remain deferred until the CLI supervision path proves useful.
 - `workers/python-ingestion` exists only as a placeholder and must remain deferred.
 
@@ -65,13 +65,13 @@ The current product direction is no longer abstract stabilization only. The near
 | Reservoir Echo | Alpha | Short-term cognitive continuity | Volatile traces only. Not persistent memory. Not model routing. Not Compute Reservoir. |
 | Compute Reservoir | Alpha minimal | Compute/model/resource routing | `crates/compute-reservoir` provides serializable types and pure allocation only; no model calls, execution, I/O, persistence or Decision Gate replacement. |
 | Tool Registry | Alpha minimal | Declarative catalogue of tools and permissions | `crates/tool-registry` declares tools, capabilities, schemas, governance notes and lookup/status changes only; no execution path. |
-| `crates/graph-memory` | Experimental | SurrealDB Graph Memory adapter | Adds alpha audit-event queries by task, proposed action and decision; broader persistence conventions and graph schema still need stabilization. |
+| `crates/graph-memory` | Experimental | SurrealDB Graph Memory adapter | Adds alpha audit-event queries by task, proposed action and decision plus schema-backed CLI status readback; broader persistence conventions and graph schema still need stabilization. |
 | Graph Memory domain port | Alpha | Memory contract | Useful foundation, but persistence and audit coupling are not final. |
 | Audit System | Alpha | Trace important events and decisions | Has usable decision-scoped readback summaries; must remain non-authorizing. |
 | `crates/llm` | Experimental | LLM provider abstraction | Must remain limited to proposals. No tool execution by provider. |
 | `crates/runtime` | Experimental | Cognitive runtime loop | Must remain proposal-only until governance layers are ready for controlled integration. |
 | `apps/api-server` | Alpha | REST access to alpha objects | Must not take business governance responsibility. |
-| `crates/cli` | Alpha supervision surface | Local Mission Control precursor | Preferred near-term product surface for read-only audit/task/action supervision. Must not become an execution bypass. |
+| `crates/cli` | Alpha supervision surface | Local Mission Control precursor | Provides read-only audit, Failure-to-Insight and Graph Memory status supervision. Must not become an execution bypass. |
 | Neutral Orchestrator | Not implemented | Coordination layer | Deferred until governance, compute and tool layers are coherent enough for controlled integration. |
 | Mission Control Web | Deferred | Human supervision UI | Do not expand yet. CLI supervision comes first. |
 | Scheduler / autonomous loops | Deferred | Controlled recurring work | Must wait for Decision Gate, Tool Registry, Audit and human approval path. |
@@ -233,32 +233,36 @@ The update must clearly state whether the change is stable, alpha, experimental,
 
 ## 11. Latest Session Update
 
-This session added a read-only Failure-to-Insight schema helper to the alpha CLI.
+This session added a read-only Graph Memory alpha status helper to the alpha CLI.
 
 Changed:
 
-- added `arpagona insight schema` and `arpagona insight schema --json` in `crates/cli`;
-- exposed the current Failure-to-Insight minimum fields, failure classes, correction targets, statuses, severities, detection signal types and alpha limits as read-only CLI output;
+- added `arpagona memory status` and `arpagona memory status --json` in `crates/cli`;
+- exposed whether Graph Memory support is compiled, the expected alpha backend, optional backend-name configuration via `ARPAGONA_GRAPH_MEMORY_BACKEND`, SurrealDB adapter availability, schema availability and schema byte size;
+- exposed alpha limits and explicitly not-implemented capabilities as read-only CLI output;
 - added CLI/unit coverage for parsing the command and proving the output remains non-authorizing;
-- updated `docs/failure-to-insight.md` to document the new local supervision helper.
+- updated `docs/graph-memory.md` to document the new local supervision helper and its read-only boundary.
 
-Stability level: alpha CLI supervision surface; stable core-domain vocabulary remains unchanged.
+Stability level: alpha CLI supervision surface; Graph Memory persistence semantics remain experimental.
 
 Limits:
 
-- no persistence was added;
-- no Graph Memory schema, query or mutation was added;
-- no audit event creation or extraction behavior was added;
+- no database connection was added;
+- no migration runner was added;
+- no Graph Memory write path was added;
+- no memory fact, observation, relation or audit event creation behavior was added;
 - no runtime behavior was added;
+- no broad semantic search or embeddings pipeline was added;
+- no hidden context injection into LLM prompts was added;
 - no real tool execution was introduced;
 - no destructive capability was added;
 - no approval, rejection or authorization behavior was added;
 - no Decision Gate behavior was changed;
 - no scheduler, autonomy, MCP, browser automation, credential handling or Mission Control Web growth was introduced;
-- `arpagona insight schema` is readback-only vocabulary inspection, not approval, authorization, orchestration, self-modification or execution state.
+- `arpagona memory status` is readback-only alpha state inspection, not approval, authorization, orchestration, memory mutation or execution state.
 
 Architectural risk:
 
-- low for alpha use. The change is bounded to read-only CLI schema readback and documentation, preserving the separation between vocabulary, persistence, runtime, governance and execution.
+- low for alpha use. The change is bounded to read-only Graph Memory status readback and documentation, preserving the separation between visibility, persistence, runtime, governance and execution.
 
-Recommended next step: add a separate bounded PR for audit conventions around when a `FailureInsight` should be referenced or extracted, still without Graph Memory persistence, Decision Gate influence or autonomous generation.
+Recommended next step: add a separate bounded PR for governed memory-write proposal vocabulary as `ProposedAction`-level intent only, still without Graph Memory mutation, Decision Gate bypass or runtime execution.

@@ -76,6 +76,19 @@ L'adapter SurrealDB est maintenant aligné sur les grandes entités du contrat c
 - il n'y a pas de Decision Gate ;
 - il n'y a pas d'API Axum, de Mission Control, de LLM ou d'exécution d'outils.
 
+## Read-only CLI status
+
+The alpha CLI exposes a bounded Graph Memory status readback:
+
+```bash
+arpagona memory status
+arpagona memory status --json
+```
+
+This command reports whether Graph Memory support is compiled into the CLI, the expected alpha backend (`surrealdb`), whether a backend name was configured through `ARPAGONA_GRAPH_MEMORY_BACKEND`, whether the SurrealDB adapter and schema are available, alpha limitations and intentionally missing capabilities.
+
+It is strictly read-only. It does not initialize a database, run migrations, create facts, persist observations, approve actions, authorize memory writes, inject context into LLM prompts or execute tools.
+
 ## Tests
 
 Les tests du core restent indépendants de SurrealDB.

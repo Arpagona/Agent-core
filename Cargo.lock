@@ -203,6 +203,7 @@ name = "arpagona-cli"
 version = "0.1.0"
 dependencies = [
  "arpagona-agent-core",
+ "arpagona-graph-memory",
  "clap",
  "reqwest 0.12.28",
  "serde",
