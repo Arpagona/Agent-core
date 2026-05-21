@@ -35,6 +35,28 @@ impl From<surrealdb::Error> for GraphMemoryError {
 
 pub type Result<T> = std::result::Result<T, GraphMemoryError>;
 
+const FAILURE_INSIGHT_MEMORY_READBACK_WARNING: &str =
+    "Readback only: persisted FailureInsight memory is evidence for supervision, not approval, authorization, policy, or execution state.";
+
+#[derive(Clone, Debug, PartialEq, serde::Serialize)]
+pub struct FailureInsightMemoryReadback {
+    pub insight: Option<FailureInsight>,
+    pub decision_audit_events: Vec<AuditEvent>,
+    pub insight_relations: Vec<GraphRelation>,
+    pub warning: &'static str,
+}
+
+impl FailureInsightMemoryReadback {
+    pub fn missing() -> Self {
+        Self {
+            insight: None,
+            decision_audit_events: Vec::new(),
+            insight_relations: Vec::new(),
+            warning: FAILURE_INSIGHT_MEMORY_READBACK_WARNING,
+        }
+    }
+}
+
 /// Experimental async SurrealDB adapter port.
 ///
 /// The canonical domain contract is `arpagona_core::GraphMemoryStore`.
@@ -65,6 +87,31 @@ pub trait AsyncGraphMemoryStore {
         &self,
         workspace_id: WorkspaceId,
     ) -> Result<Vec<FailureInsight>>;
+    async fn failure_insight_memory_readback(
+        &self,
+        id: FailureInsightId,
+    ) -> Result<FailureInsightMemoryReadback> {
+        let Some(insight) = self.get_failure_insight(id.clone()).await? else {
+            return Ok(FailureInsightMemoryReadback::missing());
+        };
+        let decision_audit_events = match insight.decision_id.clone() {
+            Some(decision_id) => self.list_audit_events_for_decision(decision_id).await?,
+            None => Vec::new(),
+        };
+        let insight_relations = self
+            .list_relations_from(GraphRef::new(
+                GraphNodeType::Other("failure_insight".to_owned()),
+                id.to_string(),
+            ))
+            .await?;
+
+        Ok(FailureInsightMemoryReadback {
+            insight: Some(insight),
+            decision_audit_events,
+            insight_relations,
+            warning: FAILURE_INSIGHT_MEMORY_READBACK_WARNING,
+        })
+    }
 
     async fn upsert_episode(&self, episode: Episode) -> Result<()>;
     async fn get_episode(&self, id: EpisodeId) -> Result<Option<Episode>>;
@@ -1216,6 +1263,58 @@ mod tests {
                 .source_type,
             SourceType::System
         );
+    }
+
+    #[tokio::test]
+    async fn reads_back_persisted_failure_insight_memory_with_trace_proof() {
+        let store = memory_store().await;
+        let decision = Decision {
+            id: DecisionId::new("decision-readback-failure-insight"),
+            proposed_action_id: ProposedActionId::new("action-readback-failure-insight"),
+            status: DecisionStatus::Approved,
+            reason: "Approved local FailureInsight memory for readback proof.".to_owned(),
+            risk_level: RiskLevel::Low,
+            policies_applied: vec![PolicyId::new("policy-local-project-memory")],
+            decided_by: None,
+            created_at: Utc::now(),
+        };
+        let audit_event = approved_memory_audit_event(&decision);
+        let insight = sample_failure_insight(&decision, &audit_event);
+        let intent = approved_failure_insight_intent(&decision, &audit_event, &insight);
+
+        store
+            .persist_approved_failure_insight_memory(intent, decision.clone(), audit_event.clone())
+            .await
+            .expect("approved failure insight memory persists");
+
+        let readback = store
+            .failure_insight_memory_readback(insight.id.clone())
+            .await
+            .expect("failure insight memory readback succeeds");
+
+        assert_eq!(readback.insight, Some(insight.clone()));
+        assert_eq!(readback.decision_audit_events, vec![audit_event.clone()]);
+        assert_eq!(readback.warning, FAILURE_INSIGHT_MEMORY_READBACK_WARNING);
+        assert!(readback
+            .insight_relations
+            .iter()
+            .any(|relation| relation.to.node_type == GraphNodeType::Decision));
+        assert!(readback
+            .insight_relations
+            .iter()
+            .any(|relation| relation.to.node_type == GraphNodeType::AuditEvent));
+    }
+
+    #[tokio::test]
+    async fn missing_failure_insight_memory_readback_is_non_authorizing_empty_proof() {
+        let store = memory_store().await;
+
+        let readback = store
+            .failure_insight_memory_readback(FailureInsightId::new("missing-insight"))
+            .await
+            .expect("missing failure insight readback succeeds");
+
+        assert_eq!(readback, FailureInsightMemoryReadback::missing());
     }
 
     #[tokio::test]
