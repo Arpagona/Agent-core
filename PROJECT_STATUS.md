@@ -234,24 +234,26 @@ The update must clearly state whether the change is stable, alpha, experimental,
 
 ## 11. Latest Session Update
 
-This session extended the bounded controlled local Graph Memory persistence helper from approved memory facts to approved FailureInsight memory artifacts.
+This session aligned the CLI Graph Memory status readback with the existing governed approved persistence helpers.
 
 Changed:
-- added `AsyncGraphMemoryStore::upsert_failure_insight`, `get_failure_insight` and `list_failure_insights_for_workspace` as alpha SurrealDB-backed read/write/readback helpers for `FailureInsight` domain artifacts;
-- added `AsyncGraphMemoryStore::persist_approved_failure_insight_memory` as an alpha helper that converts a `MemoryWriteIntent` into a durable `FailureInsight` only when supplied with a matching `DecisionStatus::Approved` Decision Gate result and linked decision audit event;
-- factored shared approved-memory validation so both `create_memory_fact` and `create_failure_insight_memory` paths reject non-approved decisions and mismatched decision/audit/proposed-action linkage before writing;
-- made the FailureInsight helper record the linked audit event, optionally upsert the provenance source, persist the insight and add readback relations from the insight to the decision and audit event;
-- added SurrealDB in-memory tests proving an approved governed FailureInsight can be persisted and read back by id/workspace/audit/source/relation, and a non-approved FailureInsight memory proposal writes neither insight nor audit event.
+- extended the `arpagona memory status` readback model with explicit `governed_persistence_helpers` and `required_governance_controls` fields;
+- updated the human-oriented status formatter to show those helpers and controls alongside backend/schema state;
+- removed stale status text that described the approved Graph Memory write path, governed memory-write proposal vocabulary and automatic FailureInsight persistence as not implemented;
+- kept `CLI memory mutation command`, automatic FailureInsight creation from audit events, Decision Gate influence from memory readback, Mission Control Graph Memory UI and scheduler/autonomous memory expansion listed as not implemented;
+- updated CLI unit coverage so JSON and formatted readbacks prove the governed helper visibility while preserving the readback-only/non-authorizing warning.
 
-Stability level: alpha controlled local Graph Memory persistence helper. It is intentionally limited to approved `create_memory_fact` and `create_failure_insight_memory` intents and depends on an already completed `ProposedAction -> DecisionGate -> Decision -> Audit` path.
+Stability level: alpha CLI supervision/readback. This change is observability-only; it does not add a CLI mutation command, API endpoint, authorization path, scheduler path or direct memory-writing behavior.
 
 Limits:
 
 - no API endpoint was added;
 - no CLI mutation command was added;
+- no new Graph Memory persistence helper was added;
 - no LLM/provider/runtime direct memory mutation was added;
 - no broad autonomous memory writing was added;
-- no persistence is performed without an approved Decision Gate result and matching audit linkage;
+- no persistence is performed by the CLI status command;
+- no Decision Gate behavior was changed;
 - no personal or sensitive memory path was added;
 - no database migration runner was added;
 - no broad semantic search or embeddings pipeline was added;
@@ -263,6 +265,6 @@ Limits:
 
 Architectural risk:
 
-- medium-low for alpha use. The change extends real local persistence to FailureInsight artifacts, but only through an approved, audit-linked helper with explicit readback and rejection coverage for non-approved decisions.
+- low. The change corrects stale readback and makes governance controls more inspectable, but any downstream automation that parsed the previous `not_implemented` strings may need to adapt.
 
 Recommended next step: add a bounded supervisor-facing readback path for persisted FailureInsight memory, or add invalidation/supersession semantics for persisted memory artifacts without widening authorization or execution capabilities.

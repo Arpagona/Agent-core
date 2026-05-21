@@ -397,6 +397,8 @@ struct MemoryStatusReadback {
     surrealdb_adapter_available: bool,
     schema_available: bool,
     schema_bytes: usize,
+    governed_persistence_helpers: &'static [&'static str],
+    required_governance_controls: &'static [&'static str],
     alpha_limits: &'static [&'static str],
     not_implemented: &'static [&'static str],
     warning: &'static str,
@@ -525,7 +527,8 @@ const INSIGHT_ALPHA_LIMITS: &[&str] = &[
 ];
 
 const MEMORY_ALPHA_LIMITS: &[&str] = &[
-    "read-only status/readback only",
+    "read-only CLI status/proposal readback only",
+    "approved persistence helpers are local alpha Graph Memory adapter capabilities, not CLI mutation commands",
     "SurrealDB adapter remains experimental",
     "no migration runner exposed through the CLI",
     "no broad semantic search or embeddings pipeline",
@@ -533,10 +536,22 @@ const MEMORY_ALPHA_LIMITS: &[&str] = &[
     "no personal or sensitive memory writes",
 ];
 
+const MEMORY_GOVERNED_PERSISTENCE_HELPERS: &[&str] = &[
+    "persist_approved_create_memory_fact",
+    "persist_approved_failure_insight_memory",
+];
+
+const MEMORY_REQUIRED_GOVERNANCE_CONTROLS: &[&str] = &[
+    "ProposedAction memory-write intent",
+    "approved Decision Gate result",
+    "matching decision audit event",
+    "source/provenance readback when provided",
+    "post-persistence fact or FailureInsight inspection path",
+];
+
 const MEMORY_NOT_IMPLEMENTED: &[&str] = &[
-    "approved Graph Memory write path",
-    "governed memory-write proposal vocabulary",
-    "automatic FailureInsight persistence",
+    "CLI memory mutation command",
+    "automatic FailureInsight creation from audit events",
     "Decision Gate influence from memory readback",
     "Mission Control Graph Memory UI",
     "scheduler or autonomous memory expansion",
@@ -1089,6 +1104,8 @@ fn memory_status_readback() -> MemoryStatusReadback {
         surrealdb_adapter_available: true,
         schema_available: !GRAPH_MEMORY_SCHEMA.trim().is_empty(),
         schema_bytes: GRAPH_MEMORY_SCHEMA.len(),
+        governed_persistence_helpers: MEMORY_GOVERNED_PERSISTENCE_HELPERS,
+        required_governance_controls: MEMORY_REQUIRED_GOVERNANCE_CONTROLS,
         alpha_limits: MEMORY_ALPHA_LIMITS,
         not_implemented: MEMORY_NOT_IMPLEMENTED,
         warning: MEMORY_READBACK_WARNING,
@@ -1126,6 +1143,16 @@ fn format_memory_status_readback(readback: &MemoryStatusReadback) -> String {
         &mut output,
         "schema_bytes:",
         &readback.schema_bytes.to_string(),
+    );
+    push_readback_field(
+        &mut output,
+        "governed_persistence_helpers:",
+        &format_static_list(readback.governed_persistence_helpers),
+    );
+    push_readback_field(
+        &mut output,
+        "required_governance_controls:",
+        &format_static_list(readback.required_governance_controls),
     );
     push_readback_field(
         &mut output,
@@ -3409,21 +3436,45 @@ mod tests {
         assert!(readback.surrealdb_adapter_available);
         assert!(readback
             .alpha_limits
-            .contains(&"read-only status/readback only"));
+            .contains(&"read-only CLI status/proposal readback only"));
         assert!(readback
+            .governed_persistence_helpers
+            .contains(&"persist_approved_create_memory_fact"));
+        assert!(readback
+            .governed_persistence_helpers
+            .contains(&"persist_approved_failure_insight_memory"));
+        assert!(readback
+            .required_governance_controls
+            .contains(&"approved Decision Gate result"));
+        assert!(!readback
             .not_implemented
             .contains(&"approved Graph Memory write path"));
+        assert!(readback
+            .not_implemented
+            .contains(&"CLI memory mutation command"));
 
         let formatted = format_memory_status_readback(&readback);
         assert!(formatted.contains("Graph Memory status"));
         assert!(formatted.contains("graph_memory_support_compiled:"));
         assert!(formatted.contains("surrealdb_adapter_available:"));
+        assert!(formatted.contains("governed_persistence_helpers:"));
+        assert!(formatted.contains("persist_approved_create_memory_fact"));
+        assert!(formatted.contains("required_governance_controls:"));
         assert!(formatted.contains("read-only"));
         assert!(formatted.contains("not approval"));
 
         let json = serde_json::to_value(&readback).unwrap();
         assert_eq!(json["expected_backend"], "surrealdb");
         assert_eq!(json["surrealdb_adapter_available"], true);
+        assert_eq!(
+            json["governed_persistence_helpers"][0],
+            "persist_approved_create_memory_fact"
+        );
+        assert!(json["required_governance_controls"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|value| value == "approved Decision Gate result"));
         assert!(json["warning"].as_str().unwrap().contains("not approval"));
     }
 
