@@ -377,6 +377,10 @@ struct AuditDecisionReadback {
     memory_target_id: Option<String>,
     memory_target_attribute: Option<String>,
     memory_target_value: Option<Value>,
+    memory_target_fact_id: Option<String>,
+    memory_related_fact_id: Option<String>,
+    memory_failure_insight_id: Option<String>,
+    memory_provenance_source_id: Option<String>,
     memory_provenance_source_label: Option<String>,
     memory_provenance_source_kind: Option<String>,
     memory_provenance_evidence: Option<String>,
@@ -385,6 +389,10 @@ struct AuditDecisionReadback {
     memory_reason_for_remembering: Option<String>,
     memory_proposed_at: Option<String>,
     memory_invalidation_note: Option<String>,
+    memory_decision_id: Option<String>,
+    memory_audit_event_id: Option<String>,
+    memory_persistence_readback_hint: Option<String>,
+    memory_supersession_hint: Option<String>,
     risk_level: Option<String>,
     matched_policy_or_fallback_rule: Option<String>,
     required_permission: Option<String>,
@@ -2098,6 +2106,10 @@ fn decision_readback_from_audit_events(
         memory_target_id: metadata.memory_target_id,
         memory_target_attribute: metadata.memory_target_attribute,
         memory_target_value: metadata.memory_target_value,
+        memory_target_fact_id: metadata.memory_target_fact_id,
+        memory_related_fact_id: metadata.memory_related_fact_id,
+        memory_failure_insight_id: metadata.memory_failure_insight_id,
+        memory_provenance_source_id: metadata.memory_provenance_source_id,
         memory_provenance_source_label: metadata.memory_provenance_source_label,
         memory_provenance_source_kind: metadata.memory_provenance_source_kind,
         memory_provenance_evidence: metadata.memory_provenance_evidence,
@@ -2106,6 +2118,10 @@ fn decision_readback_from_audit_events(
         memory_reason_for_remembering: metadata.memory_reason_for_remembering,
         memory_proposed_at: metadata.memory_proposed_at,
         memory_invalidation_note: metadata.memory_invalidation_note,
+        memory_decision_id: metadata.memory_decision_id,
+        memory_audit_event_id: metadata.memory_audit_event_id,
+        memory_persistence_readback_hint: metadata.memory_persistence_readback_hint,
+        memory_supersession_hint: metadata.memory_supersession_hint,
         risk_level: metadata.risk_level,
         matched_policy_or_fallback_rule: metadata.matched_policy_or_fallback_rule,
         required_permission: metadata.required_permission,
@@ -2164,6 +2180,10 @@ struct AuditDecisionMetadata {
     memory_target_id: Option<String>,
     memory_target_attribute: Option<String>,
     memory_target_value: Option<Value>,
+    memory_target_fact_id: Option<String>,
+    memory_related_fact_id: Option<String>,
+    memory_failure_insight_id: Option<String>,
+    memory_provenance_source_id: Option<String>,
     memory_provenance_source_label: Option<String>,
     memory_provenance_source_kind: Option<String>,
     memory_provenance_evidence: Option<String>,
@@ -2172,6 +2192,10 @@ struct AuditDecisionMetadata {
     memory_reason_for_remembering: Option<String>,
     memory_proposed_at: Option<String>,
     memory_invalidation_note: Option<String>,
+    memory_decision_id: Option<String>,
+    memory_audit_event_id: Option<String>,
+    memory_persistence_readback_hint: Option<String>,
+    memory_supersession_hint: Option<String>,
     risk_level: Option<String>,
     matched_policy_or_fallback_rule: Option<String>,
     required_permission: Option<String>,
@@ -2249,6 +2273,18 @@ fn populate_memory_write_metadata(metadata: &mut AuditDecisionMetadata, intent: 
     if metadata.memory_target_value.is_none() {
         metadata.memory_target_value = target.get("value").cloned();
     }
+    if metadata.memory_target_fact_id.is_none() {
+        metadata.memory_target_fact_id = string_field(target, "fact_id");
+    }
+    if metadata.memory_related_fact_id.is_none() {
+        metadata.memory_related_fact_id = string_field(target, "related_fact_id");
+    }
+    if metadata.memory_failure_insight_id.is_none() {
+        metadata.memory_failure_insight_id = string_field(target, "failure_insight_id");
+    }
+    if metadata.memory_provenance_source_id.is_none() {
+        metadata.memory_provenance_source_id = string_field(provenance, "source_id");
+    }
     if metadata.memory_provenance_source_label.is_none() {
         metadata.memory_provenance_source_label = string_field(provenance, "source_label");
     }
@@ -2273,6 +2309,82 @@ fn populate_memory_write_metadata(metadata: &mut AuditDecisionMetadata, intent: 
     if metadata.memory_invalidation_note.is_none() {
         metadata.memory_invalidation_note = string_field(intent, "invalidation_note");
     }
+    if metadata.memory_decision_id.is_none() {
+        metadata.memory_decision_id = string_field(intent, "decision_id");
+    }
+    if metadata.memory_audit_event_id.is_none() {
+        metadata.memory_audit_event_id = string_field(intent, "audit_event_id");
+    }
+    if metadata.memory_persistence_readback_hint.is_none() {
+        metadata.memory_persistence_readback_hint = Some(memory_audit_persistence_readback_hint(
+            metadata.decision_status.as_deref(),
+            metadata.memory_target_fact_id.as_deref(),
+            metadata.memory_failure_insight_id.as_deref(),
+            metadata.memory_decision_id.as_deref(),
+            metadata.memory_audit_event_id.as_deref(),
+        ));
+    }
+    if metadata.memory_supersession_hint.is_none() {
+        metadata.memory_supersession_hint = Some(memory_audit_supersession_hint(
+            metadata.memory_target_fact_id.as_deref(),
+            metadata.memory_related_fact_id.as_deref(),
+            metadata.memory_failure_insight_id.as_deref(),
+            metadata.memory_invalidation_note.as_deref(),
+        ));
+    }
+}
+
+fn memory_audit_persistence_readback_hint(
+    decision_status: Option<&str>,
+    fact_id: Option<&str>,
+    failure_insight_id: Option<&str>,
+    decision_id: Option<&str>,
+    audit_event_id: Option<&str>,
+) -> String {
+    if decision_status != Some("approved") {
+        return "Not persistable yet: inspect Decision Gate status before using Graph Memory helpers."
+            .to_owned();
+    }
+
+    let artifact = fact_id
+        .map(|id| format!("fact {id}"))
+        .or_else(|| failure_insight_id.map(|id| format!("FailureInsight {id}")))
+        .unwrap_or_else(|| "the generated Graph Memory artifact".to_owned());
+    let decision = decision_id.unwrap_or("the approved decision");
+    let audit = audit_event_id.unwrap_or("the matching decision audit event");
+
+    format!(
+        "After explicit governed persistence, inspect {artifact}; verify it remains linked to decision {decision} and audit event {audit}."
+    )
+}
+
+fn memory_audit_supersession_hint(
+    fact_id: Option<&str>,
+    related_fact_id: Option<&str>,
+    failure_insight_id: Option<&str>,
+    invalidation_note: Option<&str>,
+) -> String {
+    if let Some(note) = invalidation_note {
+        return format!("Future invalidation/supersession note: {note}");
+    }
+    if let Some(related_fact_id) = related_fact_id {
+        return format!(
+            "If this relationship becomes stale, propose invalidate_memory_fact or link supersession for related fact {related_fact_id}."
+        );
+    }
+    if let Some(fact_id) = fact_id {
+        return format!(
+            "If this fact becomes stale, propose invalidate_memory_fact for {fact_id} before replacing it."
+        );
+    }
+    if let Some(failure_insight_id) = failure_insight_id {
+        return format!(
+            "If this FailureInsight is superseded, create a later insight that references {failure_insight_id} and preserves audit linkage."
+        );
+    }
+
+    "Future invalidation/supersession path must be proposed through governed memory-write intent before mutation."
+        .to_owned()
 }
 
 fn string_field(value: &Value, field: &str) -> Option<String> {
@@ -2396,6 +2508,29 @@ fn format_audit_decision_readback(readback: &AuditDecisionReadback) -> String {
     );
     push_readback_field(
         &mut output,
+        "memory_target_fact_id:",
+        readback.memory_target_fact_id.as_deref().unwrap_or("-"),
+    );
+    push_readback_field(
+        &mut output,
+        "memory_related_fact_id:",
+        readback.memory_related_fact_id.as_deref().unwrap_or("-"),
+    );
+    push_readback_field(
+        &mut output,
+        "memory_failure_insight_id:",
+        readback.memory_failure_insight_id.as_deref().unwrap_or("-"),
+    );
+    push_readback_field(
+        &mut output,
+        "memory_provenance_source_id:",
+        readback
+            .memory_provenance_source_id
+            .as_deref()
+            .unwrap_or("-"),
+    );
+    push_readback_field(
+        &mut output,
         "memory_provenance_source_label:",
         readback
             .memory_provenance_source_label
@@ -2448,6 +2583,29 @@ fn format_audit_decision_readback(readback: &AuditDecisionReadback) -> String {
         &mut output,
         "memory_invalidation_note:",
         readback.memory_invalidation_note.as_deref().unwrap_or("-"),
+    );
+    push_readback_field(
+        &mut output,
+        "memory_decision_id:",
+        readback.memory_decision_id.as_deref().unwrap_or("-"),
+    );
+    push_readback_field(
+        &mut output,
+        "memory_audit_event_id:",
+        readback.memory_audit_event_id.as_deref().unwrap_or("-"),
+    );
+    push_readback_field(
+        &mut output,
+        "memory_persistence_readback_hint:",
+        readback
+            .memory_persistence_readback_hint
+            .as_deref()
+            .unwrap_or("-"),
+    );
+    push_readback_field(
+        &mut output,
+        "memory_supersession_hint:",
+        readback.memory_supersession_hint.as_deref().unwrap_or("-"),
     );
     push_readback_field(
         &mut output,
@@ -3422,9 +3580,13 @@ mod tests {
                                 "entity_type": "project",
                                 "entity_id": "arpagona-agent-core",
                                 "attribute": "operational_note",
-                                "value": "governed memory proposals are visible"
+                                "value": "governed memory proposals are visible",
+                                "fact_id": "fact-audit-memory-1",
+                                "related_fact_id": "fact-audit-memory-prior",
+                                "failure_insight_id": null
                             },
                             "provenance": {
+                                "source_id": "source-audit-memory",
                                 "source_label": "focus loop",
                                 "source_kind": "operational_report",
                                 "evidence": "Issue #47 requires governed memory observability."
@@ -3433,6 +3595,8 @@ mod tests {
                             "actor": "agent-alpha",
                             "reason_for_remembering": "Keep memory-write proposal context visible in audit readback.",
                             "proposed_at": "2026-05-21T10:00:00Z",
+                            "decision_id": "decision-1",
+                            "audit_event_id": "audit-2",
                             "invalidation_note": "Supersede when priority changes."
                         }
                     }
@@ -3507,10 +3671,34 @@ mod tests {
             Some("arpagona-agent-core")
         );
         assert_eq!(
+            readback.memory_target_fact_id.as_deref(),
+            Some("fact-audit-memory-1")
+        );
+        assert_eq!(
+            readback.memory_related_fact_id.as_deref(),
+            Some("fact-audit-memory-prior")
+        );
+        assert_eq!(
+            readback.memory_provenance_source_id.as_deref(),
+            Some("source-audit-memory")
+        );
+        assert_eq!(
             readback.memory_provenance_source_label.as_deref(),
             Some("focus loop")
         );
         assert_eq!(readback.memory_confidence, Some(0.88));
+        assert_eq!(readback.memory_decision_id.as_deref(), Some("decision-1"));
+        assert_eq!(readback.memory_audit_event_id.as_deref(), Some("audit-2"));
+        assert!(readback
+            .memory_persistence_readback_hint
+            .as_deref()
+            .unwrap()
+            .contains("Not persistable yet"));
+        assert!(readback
+            .memory_supersession_hint
+            .as_deref()
+            .unwrap()
+            .contains("Supersede when priority changes"));
         assert_eq!(
             readback.memory_reason_for_remembering.as_deref(),
             Some("Keep memory-write proposal context visible in audit readback.")
@@ -3527,6 +3715,12 @@ mod tests {
         assert!(formatted.contains("create_memory_fact"));
         assert!(formatted.contains("memory_target_id:"));
         assert!(formatted.contains("arpagona-agent-core"));
+        assert!(formatted.contains("memory_target_fact_id:"));
+        assert!(formatted.contains("fact-audit-memory-1"));
+        assert!(formatted.contains("memory_provenance_source_id:"));
+        assert!(formatted.contains("source-audit-memory"));
+        assert!(formatted.contains("memory_persistence_readback_hint:"));
+        assert!(formatted.contains("memory_supersession_hint:"));
         assert!(formatted.contains("memory_reason_for_remembering:"));
         assert!(formatted.contains("Keep memory-write proposal context visible in audit readback."));
         assert!(formatted.contains("Readback only"));
@@ -3537,6 +3731,15 @@ mod tests {
         assert_eq!(json["policies_applied"], json!(["policy-human-approval"]));
         assert_eq!(json["memory_write_kind"], "create_memory_fact");
         assert_eq!(json["memory_target_id"], "arpagona-agent-core");
+        assert_eq!(json["memory_target_fact_id"], "fact-audit-memory-1");
+        assert_eq!(json["memory_related_fact_id"], "fact-audit-memory-prior");
+        assert_eq!(json["memory_provenance_source_id"], "source-audit-memory");
+        assert_eq!(json["memory_decision_id"], "decision-1");
+        assert_eq!(json["memory_audit_event_id"], "audit-2");
+        assert!(json["memory_persistence_readback_hint"]
+            .as_str()
+            .unwrap()
+            .contains("Not persistable yet"));
         assert_eq!(
             json["memory_reason_for_remembering"],
             "Keep memory-write proposal context visible in audit readback."

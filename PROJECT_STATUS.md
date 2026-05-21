@@ -234,17 +234,16 @@ The update must clearly state whether the change is stable, alpha, experimental,
 
 ## 11. Latest Session Update
 
-This session added CLI controls for proposing governed memory-write intent payloads through the existing `arpagona action propose` path, keeping the action in `PendingDecision` and preserving the `ProposedAction -> DecisionGate -> Decision -> Audit` flow.
+This session extended the read-only `arpagona audit decision-summary` surface so decision-scoped audit readback exposes the same governed memory-write proposal identifiers and supervision hints already available through memory proposal readback.
 
 Changed:
-- added `arpagona action propose` options for memory target entity type, entity id, attribute, proposed value, fact id, related fact id and FailureInsight id;
-- added provenance controls for memory proposal source id, source label, source kind and evidence;
-- added memory proposal confidence and invalidation/supersession note controls;
-- changed the default governed memory-write payload builder to populate `memory_write_intent.target.value` from JSON or plain text and to derive actor/reason metadata from the proposed action arguments;
-- added CLI unit coverage for governed memory proposal controls, JSON value parsing and plain-text fallback behavior;
-- manually checked the updated CLI help surface with `cargo run --bin arpagona -- action propose --help`.
+- added audit decision readback fields for memory proposal target fact id, related fact id and FailureInsight id;
+- added audit decision readback for memory proposal provenance source id;
+- added audit decision readback for memory intent decision id and audit event id linkage;
+- added read-only persistence and supersession guidance to audit decision summaries for memory-write intents;
+- expanded CLI unit coverage to prove the additional memory proposal fields appear in formatted and JSON audit decision readback.
 
-Stability level: alpha CLI supervision/proposal control. This change makes governed memory-write proposals more controllable before Decision Gate review; it does not approve, persist, execute, schedule or authorize any memory write.
+Stability level: alpha CLI supervision/readback. This change improves governed memory-write observability after Decision Gate/audit evaluation; it does not approve, persist, execute, schedule or authorize any memory write.
 
 Limits:
 - no API endpoint was added;
@@ -264,6 +263,6 @@ Limits:
 
 Architectural risk:
 
-- low to medium. The change adds more CLI input knobs to an existing proposal command, which improves operator control but requires downstream users to understand that CLI-created memory proposals are still only pending proposals until Decision Gate/audit/persistence steps occur.
+- low. The change only exposes existing memory-write intent metadata through read-only CLI audit formatting/JSON. The main risk is operator confusion if readback hints are mistaken for approval; the readback warning and hints explicitly preserve the Decision Gate boundary.
 
 Recommended next step: add a bounded supervisor-facing readback path for persisted FailureInsight memory, or implement governed invalidation/supersession readback for persisted memory artifacts without widening authorization or execution capabilities.
