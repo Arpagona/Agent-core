@@ -131,6 +131,14 @@ pub struct MemoryWriteTarget {
     pub entity_type: String,
     pub entity_id: String,
     pub attribute: Option<String>,
+    /// Optional value proposed for fact creation.
+    ///
+    /// This makes the proposed memory write inspectable before persistence: a
+    /// supervisor can see not only which entity/attribute would be touched, but
+    /// the concrete value that would become a Graph Memory fact. Older proposal
+    /// payloads may omit this while the alpha readback path remains compatible.
+    #[serde(default)]
+    pub value: Option<Value>,
     pub fact_id: Option<FactId>,
     pub related_fact_id: Option<FactId>,
     pub failure_insight_id: Option<FailureInsightId>,
@@ -146,6 +154,24 @@ impl MemoryWriteTarget {
             entity_type: entity_type.into(),
             entity_id: entity_id.into(),
             attribute: Some(attribute.into()),
+            value: None,
+            fact_id: None,
+            related_fact_id: None,
+            failure_insight_id: None,
+        }
+    }
+
+    pub fn fact_with_value(
+        entity_type: impl Into<String>,
+        entity_id: impl Into<String>,
+        attribute: impl Into<String>,
+        value: Value,
+    ) -> Self {
+        Self {
+            entity_type: entity_type.into(),
+            entity_id: entity_id.into(),
+            attribute: Some(attribute.into()),
+            value: Some(value),
             fact_id: None,
             related_fact_id: None,
             failure_insight_id: None,
@@ -216,7 +242,12 @@ mod tests {
         let proposed_at = "2026-05-21T10:00:00Z".parse::<DateTime<Utc>>().unwrap();
         let intent = MemoryWriteIntent::new(
             MemoryWriteKind::CreateMemoryFact,
-            MemoryWriteTarget::fact("project", "arpagona-agent-core", "current_priority"),
+            MemoryWriteTarget::fact_with_value(
+                "project",
+                "arpagona-agent-core",
+                "current_priority",
+                json!("governed_memory_write_observability"),
+            ),
             MemoryWriteProvenance::new(
                 Some(SourceId::new("source-focus-loop")),
                 "focus loop report",
@@ -238,6 +269,10 @@ mod tests {
 
         assert_eq!(encoded["kind"], json!("create_memory_fact"));
         assert_eq!(encoded["target"]["entity_type"], json!("project"));
+        assert_eq!(
+            encoded["target"]["value"],
+            json!("governed_memory_write_observability")
+        );
         assert_eq!(
             encoded["provenance"]["source_id"],
             json!("source-focus-loop")

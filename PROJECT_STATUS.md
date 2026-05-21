@@ -33,6 +33,7 @@ Current observed state:
 - `crates/runtime` exists as an experimental cognitive runtime loop that stops at action proposal.
 - `apps/api-server` exists as an alpha Axum API server.
 - `crates/cli` exists as an alpha terminal interface and provides read-only local supervision surfaces for decision-scoped audit readback, Failure-to-Insight vocabulary, Graph Memory alpha status and governed memory-write proposal readback.
+- Governed memory-write readbacks now expose the optional proposed target value in both memory proposal summaries and decision/audit readbacks, while preserving compatibility with older payloads that omit the value.
 - `apps/mission-control` exists only as a placeholder and must remain deferred until the CLI supervision path proves useful.
 - `workers/python-ingestion` exists only as a placeholder and must remain deferred.
 
