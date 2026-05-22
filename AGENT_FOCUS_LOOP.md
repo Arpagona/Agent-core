@@ -16,7 +16,8 @@ Every focus-loop run must read, in this order:
 4. `AGENT_FOCUS_LOOP.md`
 5. `docs/operating-doctrine.md`
 6. `docs/development-acceleration.md`
-7. Any docs, issues or source files directly relevant to the chosen task
+7. `FOCUS_LOOP_NEXT.md`
+8. Any docs, issues or source files directly relevant to the chosen task
 
 If these files conflict, prioritize safety and governance first, then `AGENT_FOCUS_LOOP.md` for current operational priority, then `PROJECT_OBJECTIVES.md` for long-term architecture.
 
@@ -419,7 +420,34 @@ Deliver repeatable governed FailureInsight learning demo
 
 Do not create vague roadmap issues when a direct implementation PR is possible.
 
-## 14. Report format
+## 14. Next-pass handoff rule
+
+Every focus-loop run must leave a concrete instruction for the next run by updating `FOCUS_LOOP_NEXT.md` before it finishes.
+
+The handoff must be short, operational and immediately actionable. It is not a roadmap and not a long report. It should capture the best next move discovered during the run.
+
+At the end of every run, replace the current handoff with this shape:
+
+```text
+Next pass should: <one concrete action>.
+Why: <one sentence explaining the blocker or opportunity>.
+Proof to seek: <exact command, test, readback or file that should confirm progress>.
+Do not: <specific unsafe or distracting thing to avoid next time>.
+```
+
+Rules:
+
+- write one next step, not a list of ten possibilities;
+- prefer the next action that most directly advances the functional-alpha chain;
+- include the exact test, command or readback the next run should try first;
+- mention any known blocker that the next run should not rediscover from scratch;
+- do not use the handoff to bypass `AGENT_FOCUS_LOOP.md`, safety, Decision Gate or project status;
+- if the run fully completed the previous handoff, write the next natural continuation;
+- if the run failed, write the smallest correction or diagnostic the next run should perform.
+
+The next run must read `FOCUS_LOOP_NEXT.md`, compare it with the current strategic priority, and either follow it or explicitly explain why another action is more coherent or safer.
+
+## 15. Report format
 
 Every focus-loop report must include:
 
@@ -445,8 +473,9 @@ Every focus-loop report must include:
 - deliberately not changed;
 - failures observed;
 - whether FailureInsights were created;
-- recommended next loop.
+- recommended next loop;
+- `FOCUS_LOOP_NEXT.md` updated, with a one-line summary of the next-pass instruction.
 
-## 15. Current intent in one sentence
+## 16. Current intent in one sentence
 
 Make governed memory-write proposals observable, controllable and suitable for controlled local persistence tests, then turn that into a repeatable local functional-alpha demo where ARPAGONA learns from a safe correction through ProposedAction, Decision Gate, Audit, approved Graph Memory persistence and readback.
