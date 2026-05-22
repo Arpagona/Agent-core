@@ -350,6 +350,9 @@ struct MemoryDemoFailureInsightArgs {
     /// Emit structured JSON instead of human-oriented text.
     #[arg(long)]
     json: bool,
+    /// Inspect a specific FailureInsight id after the local governed demo persists it.
+    #[arg(long = "inspect-id")]
+    inspect_id: Option<String>,
 }
 
 #[derive(Debug, Serialize)]
@@ -362,6 +365,7 @@ struct MemoryDemoFailureInsightReadback {
     decision_reason: String,
     audit_event_id: String,
     persisted_failure_insight_id: Option<String>,
+    inspected_failure_insight: Option<MemoryDemoFailureInsightInspectionReadback>,
     readback_found: bool,
     readback_audit_event_count: usize,
     readback_relation_count: usize,
@@ -379,6 +383,20 @@ struct MemoryDemoSignalReadback {
     summary: &'static str,
     correction_target: &'static str,
     provenance: &'static str,
+}
+
+#[derive(Debug, Serialize)]
+struct MemoryDemoFailureInsightInspectionReadback {
+    requested_failure_insight_id: String,
+    found: bool,
+    inspected_failure_insight_id: Option<String>,
+    summary: Option<String>,
+    correction_target: Option<String>,
+    decision_id: Option<String>,
+    audit_event_id: Option<String>,
+    audit_event_count: usize,
+    relation_count: usize,
+    warning: &'static str,
 }
 
 #[derive(Debug, Subcommand)]
@@ -587,10 +605,14 @@ const FAILURE_INSIGHT_DEMO_CHAIN: &[&str] = &[
 const FAILURE_INSIGHT_DEMO_COMMAND: &str =
     "cargo run -q --bin arpagona -- memory demo failure-insight --json";
 
+const FAILURE_INSIGHT_DEMO_INSPECT_COMMAND: &str =
+    "cargo run -q --bin arpagona -- memory demo failure-insight --json --inspect-id insight-demo-governed-learning-loop";
+
 const FAILURE_INSIGHT_DEMO_RECIPE: &[&str] = &[
     "run the exact_local_command from the repository root",
     "verify decision_status is approved before treating persistence as expected demo behavior",
     "verify readback_found is true and readback_audit_event_count is at least 1",
+    "optionally rerun with --inspect-id insight-demo-governed-learning-loop to inspect the persisted artifact by id",
     "treat all output as local evidence only, not authorization or durable user memory",
 ];
 
@@ -1365,7 +1387,7 @@ async fn memory_proposal(
 async fn memory_demo_failure_insight(
     args: MemoryDemoFailureInsightArgs,
 ) -> Result<(), Box<dyn Error>> {
-    let readback = memory_demo_failure_insight_readback().await?;
+    let readback = memory_demo_failure_insight_readback(args.inspect_id.clone()).await?;
     if args.json {
         println!("{}", serde_json::to_string_pretty(&readback)?);
     } else {
@@ -1375,6 +1397,7 @@ async fn memory_demo_failure_insight(
 }
 
 async fn memory_demo_failure_insight_readback(
+    inspect_id: Option<String>,
 ) -> Result<MemoryDemoFailureInsightReadback, Box<dyn Error>> {
     let workspace_id = WorkspaceId::new("workspace-demo-failure-insight");
     let task_id = TaskId::new("task-demo-failure-insight");
@@ -1455,6 +1478,18 @@ async fn memory_demo_failure_insight_readback(
     let readback = store
         .failure_insight_memory_readback(persisted.id.clone())
         .await?;
+    let inspected_failure_insight = match inspect_id {
+        Some(id) => {
+            let requested_readback = store
+                .failure_insight_memory_readback(FailureInsightId::new(id.clone()))
+                .await?;
+            Some(memory_demo_failure_insight_inspection_from_readback(
+                id,
+                requested_readback,
+            ))
+        }
+        None => None,
+    };
 
     Ok(MemoryDemoFailureInsightReadback {
         signal: MemoryDemoSignalReadback {
@@ -1470,6 +1505,7 @@ async fn memory_demo_failure_insight_readback(
         decision_reason: decision.reason,
         audit_event_id: audit_event.id.to_string(),
         persisted_failure_insight_id: readback.insight.map(|insight| insight.id.to_string()),
+        inspected_failure_insight,
         readback_found: persisted.id == failure_insight_id,
         readback_audit_event_count: readback.decision_audit_events.len(),
         readback_relation_count: readback.insight_relations.len(),
@@ -1480,6 +1516,31 @@ async fn memory_demo_failure_insight_readback(
         next_safe_human_action: "Inspect the JSON/text readback and treat it as evidence only; do not treat it as approval, authorization, execution, or durable user memory.",
         warning: MEMORY_DEMO_WARNING,
     })
+}
+
+fn memory_demo_failure_insight_inspection_from_readback(
+    requested_id: String,
+    readback: arpagona_graph_memory::FailureInsightMemoryReadback,
+) -> MemoryDemoFailureInsightInspectionReadback {
+    let insight = readback.insight;
+    MemoryDemoFailureInsightInspectionReadback {
+        requested_failure_insight_id: requested_id,
+        found: insight.is_some(),
+        inspected_failure_insight_id: insight.as_ref().map(|insight| insight.id.to_string()),
+        summary: insight.as_ref().map(|insight| insight.summary.clone()),
+        correction_target: insight
+            .as_ref()
+            .and_then(|insight| to_api_string(&insight.correction_target).ok()),
+        decision_id: insight
+            .as_ref()
+            .and_then(|insight| insight.decision_id.as_ref().map(ToString::to_string)),
+        audit_event_id: insight
+            .as_ref()
+            .and_then(|insight| insight.audit_event_id.as_ref().map(ToString::to_string)),
+        audit_event_count: readback.decision_audit_events.len(),
+        relation_count: readback.insight_relations.len(),
+        warning: readback.warning,
+    }
 }
 
 fn failure_insight_demo_intent(
@@ -1549,6 +1610,31 @@ fn format_memory_demo_failure_insight_readback(
             .as_deref()
             .unwrap_or("none"),
     );
+    if let Some(inspection) = &readback.inspected_failure_insight {
+        push_readback_field(
+            &mut output,
+            "inspected_failure_insight_id:",
+            inspection
+                .inspected_failure_insight_id
+                .as_deref()
+                .unwrap_or("none"),
+        );
+        push_readback_field(
+            &mut output,
+            "inspected_failure_insight_found:",
+            &inspection.found.to_string(),
+        );
+        push_readback_field(
+            &mut output,
+            "inspected_failure_insight_summary:",
+            inspection.summary.as_deref().unwrap_or("none"),
+        );
+        push_readback_field(
+            &mut output,
+            "inspect_command:",
+            FAILURE_INSIGHT_DEMO_INSPECT_COMMAND,
+        );
+    }
     push_readback_field(
         &mut output,
         "readback_found:",
@@ -3550,14 +3636,45 @@ mod tests {
                     MemorySubcommand::Demo(MemoryDemoCommand {
                         command: MemoryDemoSubcommand::FailureInsight(args),
                     }),
-            }) => assert!(args.json),
+            }) => {
+                assert!(args.json);
+                assert!(args.inspect_id.is_none());
+            }
             _ => panic!("expected memory demo failure-insight"),
+        }
+    }
+
+    #[test]
+    fn cli_parses_memory_demo_failure_insight_inspect_id() {
+        let cli = Cli::parse_from([
+            "arpagona",
+            "memory",
+            "demo",
+            "failure-insight",
+            "--json",
+            "--inspect-id",
+            "insight-demo-governed-learning-loop",
+        ]);
+        match cli.command {
+            Command::Memory(MemoryCommand {
+                command:
+                    MemorySubcommand::Demo(MemoryDemoCommand {
+                        command: MemoryDemoSubcommand::FailureInsight(args),
+                    }),
+            }) => {
+                assert!(args.json);
+                assert_eq!(
+                    args.inspect_id.as_deref(),
+                    Some("insight-demo-governed-learning-loop")
+                );
+            }
+            _ => panic!("expected memory demo failure-insight inspect id"),
         }
     }
 
     #[tokio::test]
     async fn memory_demo_failure_insight_readback_proves_governed_loop_without_authorizing() {
-        let readback = memory_demo_failure_insight_readback()
+        let readback = memory_demo_failure_insight_readback(None)
             .await
             .expect("demo readback succeeds");
 
@@ -3570,8 +3687,12 @@ mod tests {
             Some("insight-demo-governed-learning-loop")
         );
         assert_eq!(readback.exact_local_command, FAILURE_INSIGHT_DEMO_COMMAND);
+        assert!(readback.inspected_failure_insight.is_none());
         assert!(readback.repeatable_demo_recipe.contains(
             &"verify readback_found is true and readback_audit_event_count is at least 1"
+        ));
+        assert!(readback.repeatable_demo_recipe.contains(
+            &"optionally rerun with --inspect-id insight-demo-governed-learning-loop to inspect the persisted artifact by id"
         ));
         assert_eq!(readback.readback_audit_event_count, 1);
         assert_eq!(readback.readback_relation_count, 2);
@@ -3584,6 +3705,58 @@ mod tests {
         assert!(formatted.contains(FAILURE_INSIGHT_DEMO_COMMAND));
         assert!(formatted.contains("repeatable_demo_recipe"));
         assert!(formatted.contains("Readback only"));
+    }
+
+    #[tokio::test]
+    async fn memory_demo_failure_insight_inspect_id_proves_persisted_artifact_readback() {
+        let readback = memory_demo_failure_insight_readback(Some(
+            "insight-demo-governed-learning-loop".to_owned(),
+        ))
+        .await
+        .expect("demo inspection readback succeeds");
+
+        let inspection = readback
+            .inspected_failure_insight
+            .as_ref()
+            .expect("requested inspection is included");
+        assert!(inspection.found);
+        assert_eq!(
+            inspection.inspected_failure_insight_id.as_deref(),
+            Some("insight-demo-governed-learning-loop")
+        );
+        assert_eq!(inspection.audit_event_count, 1);
+        assert_eq!(inspection.relation_count, 2);
+        assert!(inspection.summary.as_deref().unwrap_or_default().contains(
+            "Governed FailureInsight learning loop needs repeatable local readback proof"
+        ));
+        assert!(inspection.warning.contains("Readback only"));
+
+        let formatted = format_memory_demo_failure_insight_readback(&readback);
+        assert!(formatted.contains("inspected_failure_insight_id"));
+        assert!(formatted.contains("inspected_failure_insight_found"));
+        assert!(formatted.contains(FAILURE_INSIGHT_DEMO_INSPECT_COMMAND));
+    }
+
+    #[tokio::test]
+    async fn memory_demo_failure_insight_inspect_id_reports_missing_artifact_without_authorizing() {
+        let readback =
+            memory_demo_failure_insight_readback(Some("insight-demo-missing".to_owned()))
+                .await
+                .expect("demo missing inspection readback succeeds");
+
+        let inspection = readback
+            .inspected_failure_insight
+            .as_ref()
+            .expect("requested inspection is included");
+        assert_eq!(
+            inspection.requested_failure_insight_id,
+            "insight-demo-missing"
+        );
+        assert!(!inspection.found);
+        assert!(inspection.inspected_failure_insight_id.is_none());
+        assert_eq!(inspection.audit_event_count, 0);
+        assert_eq!(inspection.relation_count, 0);
+        assert!(inspection.warning.contains("Readback only"));
     }
 
     #[test]

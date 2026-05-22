@@ -234,20 +234,23 @@ The update must clearly state whether the change is stable, alpha, experimental,
 
 ## 11. Latest Session Update
 
-This session made the local governed FailureInsight learning demo more operator-friendly by adding repeatability guidance directly to its CLI readback output.
+This session added a bounded artifact-by-id inspection follow-up to the local governed FailureInsight learning demo.
 
 Changed:
-- extended `arpagona memory demo failure-insight` readback with the exact local command for rerunning the demo;
-- added a short repeatable demo recipe to both JSON and formatted readback;
-- expanded CLI unit coverage to prove the command and recipe are exposed with the governed FailureInsight readback proof.
+- extended `arpagona memory demo failure-insight` with an optional `--inspect-id <failure-insight-id>` readback flag;
+- when `--inspect-id` is supplied, the demo performs the same governed local signal -> proposal -> Decision Gate -> audit -> approved in-memory Graph Memory persistence path, then reads the requested FailureInsight id back from the local demo store;
+- added JSON/text readback fields that show whether the requested FailureInsight id was found, its summary, correction target, decision/audit linkage counts and the readback-only warning;
+- updated the repeatable demo recipe with the exact inspect command;
+- expanded CLI and async demo coverage for successful and missing FailureInsight id inspection.
 
-Stability level: alpha CLI supervision/readback. This change improves the operator-facing repeatability of the existing local signal -> proposal -> decision -> audit -> approved in-memory persistence -> readback proof; it does not approve, persist outside the local demo, execute tools, schedule work, authorize memory writes or create any external side effect.
+Stability level: alpha CLI supervision/readback. This change improves operator inspection of the existing local demo artifact by id. It remains a simulated/internal in-memory Graph Memory proof and does not add durable user memory, approval, authorization, execution or external side effects.
 
 Limits:
-- no new CLI mutation command was added;
+- no broad CLI mutation command was added;
 - no API endpoint was added;
 - no new Graph Memory persistence helper was added;
 - no Decision Gate behavior was changed;
+- no durable/file-backed Graph Memory configuration was added;
 - no LLM/provider/runtime direct memory mutation was added;
 - no broad autonomous memory writing was added;
 - no personal or sensitive memory path was added;
@@ -261,6 +264,6 @@ Limits:
 
 Architectural risk:
 
-- low. The change only adds operator-facing guidance to an existing local demo readback. The main risk is operator confusion if the recipe is mistaken for approval; the readback warning and recipe explicitly preserve the evidence-only boundary.
+- low. The change adds read-only artifact inspection inside an already bounded local demo path. The main risk is operator confusion if in-memory demo readback is mistaken for durable memory; the readback warnings and handoff explicitly preserve the evidence-only, local-demo boundary.
 
-Recommended next step: add the smallest persisted-memory inspection follow-up that lets an operator inspect an approved FailureInsight artifact by id after a configured local persistence run, without adding broad mutation or authorization paths.
+Recommended next step: replace the in-memory-only FailureInsight demo inspection with an explicitly configured local SurrealDB persistence/readback path if the adapter can support a safe file-backed configuration, without adding broad mutation or authorization paths.

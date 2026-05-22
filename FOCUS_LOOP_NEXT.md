@@ -8,13 +8,13 @@ This file does not override safety, governance, `PROJECT_OBJECTIVES.md`, `PROJEC
 
 ## Current next-pass instruction
 
-Next pass should: add the smallest persisted-memory inspection follow-up that lets an operator inspect an approved FailureInsight artifact by id after a configured local persistence run.
+Next pass should: replace the in-memory-only FailureInsight demo inspection with an explicitly configured local SurrealDB persistence/readback path if the adapter can support a safe file-backed configuration.
 
-Why: the demo now proves and documents how to rerun the governed learning loop, but operator inspection still stops at the self-contained demo output rather than a reusable persisted-artifact readback command.
+Why: `--inspect-id` now proves artifact-by-id inspection inside the governed local demo, but persistence remains scoped to the in-memory demo store rather than a reusable configured local database.
 
-Proof to seek: `cargo run -q --bin arpagona -- memory demo failure-insight --json` plus a new readback command or test proving the approved FailureInsight id can be inspected without broad mutation.
+Proof to seek: `cargo run -q --bin arpagona -- memory demo failure-insight --json --inspect-id insight-demo-governed-learning-loop` plus a new configured local persistence command or test showing the same id can be inspected after a separate readback step.
 
-Do not: add broad autonomous memory writing, provider/runtime direct memory mutation, external effects, scheduler expansion, Mission Control Web, MCP/browser automation, or readback-as-authorization behavior.
+Do not: add broad autonomous memory writing, provider/runtime direct memory mutation, external effects, scheduler expansion, Mission Control Web, MCP/browser automation, personal/sensitive memory, or readback-as-authorization behavior.
 
 ## Required update at the end of every run
 
