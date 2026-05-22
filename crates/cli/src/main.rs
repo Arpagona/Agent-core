@@ -367,6 +367,8 @@ struct MemoryDemoFailureInsightReadback {
     readback_relation_count: usize,
     readback_warning: &'static str,
     functional_alpha_chain: &'static [&'static str],
+    exact_local_command: &'static str,
+    repeatable_demo_recipe: &'static [&'static str],
     next_safe_human_action: &'static str,
     warning: &'static str,
 }
@@ -580,6 +582,16 @@ const FAILURE_INSIGHT_DEMO_CHAIN: &[&str] = &[
     "decision audit event",
     "approved local Graph Memory persistence",
     "FailureInsight readback with decision/audit trace proof",
+];
+
+const FAILURE_INSIGHT_DEMO_COMMAND: &str =
+    "cargo run -q --bin arpagona -- memory demo failure-insight --json";
+
+const FAILURE_INSIGHT_DEMO_RECIPE: &[&str] = &[
+    "run the exact_local_command from the repository root",
+    "verify decision_status is approved before treating persistence as expected demo behavior",
+    "verify readback_found is true and readback_audit_event_count is at least 1",
+    "treat all output as local evidence only, not authorization or durable user memory",
 ];
 
 const INSIGHT_MINIMUM_FIELDS: &[&str] = &[
@@ -1463,6 +1475,8 @@ async fn memory_demo_failure_insight_readback(
         readback_relation_count: readback.insight_relations.len(),
         readback_warning: readback.warning,
         functional_alpha_chain: FAILURE_INSIGHT_DEMO_CHAIN,
+        exact_local_command: FAILURE_INSIGHT_DEMO_COMMAND,
+        repeatable_demo_recipe: FAILURE_INSIGHT_DEMO_RECIPE,
         next_safe_human_action: "Inspect the JSON/text readback and treat it as evidence only; do not treat it as approval, authorization, execution, or durable user memory.",
         warning: MEMORY_DEMO_WARNING,
     })
@@ -1554,6 +1568,16 @@ fn format_memory_demo_failure_insight_readback(
         &mut output,
         "functional_alpha_chain:",
         &format_static_list(readback.functional_alpha_chain),
+    );
+    push_readback_field(
+        &mut output,
+        "exact_local_command:",
+        readback.exact_local_command,
+    );
+    push_readback_field(
+        &mut output,
+        "repeatable_demo_recipe:",
+        &format_static_list(readback.repeatable_demo_recipe),
     );
     push_readback_field(
         &mut output,
@@ -3545,6 +3569,10 @@ mod tests {
             readback.persisted_failure_insight_id.as_deref(),
             Some("insight-demo-governed-learning-loop")
         );
+        assert_eq!(readback.exact_local_command, FAILURE_INSIGHT_DEMO_COMMAND);
+        assert!(readback.repeatable_demo_recipe.contains(
+            &"verify readback_found is true and readback_audit_event_count is at least 1"
+        ));
         assert_eq!(readback.readback_audit_event_count, 1);
         assert_eq!(readback.readback_relation_count, 2);
         assert!(readback.readback_warning.contains("Readback only"));
@@ -3553,6 +3581,8 @@ mod tests {
         let formatted = format_memory_demo_failure_insight_readback(&readback);
         assert!(formatted.contains("FailureInsight memory demo"));
         assert!(formatted.contains("create_failure_insight_memory"));
+        assert!(formatted.contains(FAILURE_INSIGHT_DEMO_COMMAND));
+        assert!(formatted.contains("repeatable_demo_recipe"));
         assert!(formatted.contains("Readback only"));
     }
 

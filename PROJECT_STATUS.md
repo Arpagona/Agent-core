@@ -234,20 +234,18 @@ The update must clearly state whether the change is stable, alpha, experimental,
 
 ## 11. Latest Session Update
 
-This session extended the read-only `arpagona audit decision-summary` surface so decision-scoped audit readback exposes the same governed memory-write proposal identifiers and supervision hints already available through memory proposal readback.
+This session made the local governed FailureInsight learning demo more operator-friendly by adding repeatability guidance directly to its CLI readback output.
 
 Changed:
-- added audit decision readback fields for memory proposal target fact id, related fact id and FailureInsight id;
-- added audit decision readback for memory proposal provenance source id;
-- added audit decision readback for memory intent decision id and audit event id linkage;
-- added read-only persistence and supersession guidance to audit decision summaries for memory-write intents;
-- expanded CLI unit coverage to prove the additional memory proposal fields appear in formatted and JSON audit decision readback.
+- extended `arpagona memory demo failure-insight` readback with the exact local command for rerunning the demo;
+- added a short repeatable demo recipe to both JSON and formatted readback;
+- expanded CLI unit coverage to prove the command and recipe are exposed with the governed FailureInsight readback proof.
 
-Stability level: alpha CLI supervision/readback. This change improves governed memory-write observability after Decision Gate/audit evaluation; it does not approve, persist, execute, schedule or authorize any memory write.
+Stability level: alpha CLI supervision/readback. This change improves the operator-facing repeatability of the existing local signal -> proposal -> decision -> audit -> approved in-memory persistence -> readback proof; it does not approve, persist outside the local demo, execute tools, schedule work, authorize memory writes or create any external side effect.
 
 Limits:
+- no new CLI mutation command was added;
 - no API endpoint was added;
-- no CLI memory mutation or persistence command was added;
 - no new Graph Memory persistence helper was added;
 - no Decision Gate behavior was changed;
 - no LLM/provider/runtime direct memory mutation was added;
@@ -259,10 +257,10 @@ Limits:
 - no real tool execution was introduced;
 - no destructive capability was added;
 - no scheduler, autonomy, MCP, browser automation, credential handling or Mission Control Web growth was introduced;
-- Graph Memory persistence remains a governed local alpha capability and must not be treated as authorization.
+- readback remains evidence only and must not be treated as authorization.
 
 Architectural risk:
 
-- low. The change only exposes existing memory-write intent metadata through read-only CLI audit formatting/JSON. The main risk is operator confusion if readback hints are mistaken for approval; the readback warning and hints explicitly preserve the Decision Gate boundary.
+- low. The change only adds operator-facing guidance to an existing local demo readback. The main risk is operator confusion if the recipe is mistaken for approval; the readback warning and recipe explicitly preserve the evidence-only boundary.
 
-Recommended next step: add a bounded supervisor-facing readback path for persisted FailureInsight memory, or implement governed invalidation/supersession readback for persisted memory artifacts without widening authorization or execution capabilities.
+Recommended next step: add the smallest persisted-memory inspection follow-up that lets an operator inspect an approved FailureInsight artifact by id after a configured local persistence run, without adding broad mutation or authorization paths.
