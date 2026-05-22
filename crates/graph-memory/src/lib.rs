@@ -11,6 +11,7 @@ use serde_json::Value;
 use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
 use surrealdb::engine::any::Any;
+use surrealdb::engine::local::{Db, Mem};
 use surrealdb::sql::Thing;
 use surrealdb::{Connection, Surreal};
 use thiserror::Error;
@@ -34,6 +35,21 @@ impl From<surrealdb::Error> for GraphMemoryError {
 }
 
 pub type Result<T> = std::result::Result<T, GraphMemoryError>;
+
+/// Create an initialized in-memory SurrealDB-backed Graph Memory store.
+///
+/// This is intended for repeatable local demos and tests. It does not connect
+/// to a durable user database and should not be treated as production memory.
+pub async fn in_memory_graph_memory_store(
+    namespace: &str,
+    database: &str,
+) -> Result<SurrealGraphMemoryStore<Db>> {
+    let db = Surreal::new::<Mem>(()).await?;
+    db.use_ns(namespace).use_db(database).await?;
+    let store = SurrealGraphMemoryStore::new(db);
+    store.init_schema().await?;
+    Ok(store)
+}
 
 const FAILURE_INSIGHT_MEMORY_READBACK_WARNING: &str =
     "Readback only: persisted FailureInsight memory is evidence for supervision, not approval, authorization, policy, or execution state.";

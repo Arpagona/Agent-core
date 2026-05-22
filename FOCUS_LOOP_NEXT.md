@@ -8,13 +8,13 @@ This file does not override safety, governance, `PROJECT_OBJECTIVES.md`, `PROJEC
 
 ## Current next-pass instruction
 
-Next pass should: recover the completed local work on branch `feat/failure-insight-memory-demo`, push it, create a PR to `main`, and only then continue implementation.
+Next pass should: review the merged or open `feat/failure-insight-memory-demo` PR, then add the smallest operator-facing follow-up that makes the governed FailureInsight learning demo easier to rerun or inspect locally.
 
-Why: the previous cron completed and locally committed the repeatable governed FailureInsight memory demo, but hit the tool-call limit before GitHub push/PR creation.
+Why: the recovered branch now proves the signal -> proposal -> decision -> audit -> approved persistence -> readback chain, but the next product step is making that proof more operator-friendly without widening mutation or authorization.
 
-Proof to seek: `git status --short --branch`, `git log -1 --oneline`, `git push -u origin feat/failure-insight-memory-demo`, a PR URL, and the demo command `cargo run -q --bin arpagona -- memory demo failure-insight --json` passing.
+Proof to seek: `cargo run -q --bin arpagona -- memory demo failure-insight --json` plus the PR status for `feat/failure-insight-memory-demo`.
 
-Do not: reimplement the same demo from scratch, discard the local commit, or start a new feature before preserving the completed branch.
+Do not: add broad autonomous memory writing, provider/runtime direct memory mutation, external effects, scheduler expansion, Mission Control Web, or another unrelated schema-only field.
 
 ## Required update at the end of every run
 
