@@ -1,8 +1,15 @@
 use arpagona_agent_core::{
-    AuditEvent, AuditTraceSummary, Decision, DecisionId, DecisionStatus, ProposedAction,
-    ProposedActionStatus, Task, TaskId, WorkspaceId,
+    ActionType, AgentId, AuditEvent, AuditEventId, AuditTraceSummary, CorrectionTarget, Decision,
+    DecisionId, DecisionStatus, DetectionSignal, DetectionSignalType, FailureClass, FailureInsight,
+    FailureInsightId, InsightSeverity, MemoryWriteIntent, MemoryWriteKind, MemoryWriteProvenance,
+    MemoryWriteTarget, Permission, ProposedAction, ProposedActionId, ProposedActionStatus,
+    RiskLevel, SourceId, Task, TaskId, WorkspaceId,
 };
-use arpagona_graph_memory::GRAPH_MEMORY_SCHEMA;
+use arpagona_decision_gate::{audit_event_for_decision, evaluate_proposed_action};
+use arpagona_graph_memory::{
+    in_memory_graph_memory_store, AsyncGraphMemoryStore, GRAPH_MEMORY_SCHEMA,
+};
+use chrono::Utc;
 use clap::{Args, Parser, Subcommand, ValueEnum};
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
@@ -292,6 +299,20 @@ enum MemorySubcommand {
     Proposals(MemoryProposalsArgs),
     /// Show one read-only governed memory-write proposal from proposed actions.
     Proposal(MemoryProposalArgs),
+    /// Run local Graph Memory demos that exercise governed alpha paths.
+    Demo(MemoryDemoCommand),
+}
+
+#[derive(Debug, Args)]
+struct MemoryDemoCommand {
+    #[command(subcommand)]
+    command: MemoryDemoSubcommand,
+}
+
+#[derive(Debug, Subcommand)]
+enum MemoryDemoSubcommand {
+    /// Simulate a governed FailureInsight learning loop with in-memory persistence and readback.
+    FailureInsight(MemoryDemoFailureInsightArgs),
 }
 
 #[derive(Debug, Args)]
@@ -322,6 +343,40 @@ struct MemoryProposalArgs {
     /// Emit structured JSON instead of human-oriented text.
     #[arg(long)]
     json: bool,
+}
+
+#[derive(Debug, Args)]
+struct MemoryDemoFailureInsightArgs {
+    /// Emit structured JSON instead of human-oriented text.
+    #[arg(long)]
+    json: bool,
+}
+
+#[derive(Debug, Serialize)]
+struct MemoryDemoFailureInsightReadback {
+    signal: MemoryDemoSignalReadback,
+    proposed_action_id: String,
+    memory_write_kind: String,
+    decision_id: String,
+    decision_status: String,
+    decision_reason: String,
+    audit_event_id: String,
+    persisted_failure_insight_id: Option<String>,
+    readback_found: bool,
+    readback_audit_event_count: usize,
+    readback_relation_count: usize,
+    readback_warning: &'static str,
+    functional_alpha_chain: &'static [&'static str],
+    next_safe_human_action: &'static str,
+    warning: &'static str,
+}
+
+#[derive(Debug, Serialize)]
+struct MemoryDemoSignalReadback {
+    signal_type: &'static str,
+    summary: &'static str,
+    correction_target: &'static str,
+    provenance: &'static str,
 }
 
 #[derive(Debug, Subcommand)]
@@ -514,6 +569,18 @@ const INSIGHT_READBACK_WARNING: &str =
 
 const MEMORY_READBACK_WARNING: &str =
     "Readback only: Graph Memory status is not approval, authorization, orchestration, memory mutation, or execution state.";
+
+const MEMORY_DEMO_WARNING: &str =
+    "Local demo only: this in-memory Graph Memory proof is simulated/internal and is not broad memory mutation, authorization, autonomy, or external execution state.";
+
+const FAILURE_INSIGHT_DEMO_CHAIN: &[&str] = &[
+    "safe operational signal",
+    "create_failure_insight_memory ProposedAction",
+    "Decision Gate approval",
+    "decision audit event",
+    "approved local Graph Memory persistence",
+    "FailureInsight readback with decision/audit trace proof",
+];
 
 const INSIGHT_MINIMUM_FIELDS: &[&str] = &[
     "id",
@@ -722,6 +789,11 @@ async fn run() -> Result<(), Box<dyn Error>> {
             MemorySubcommand::Status(args) => memory_status(args)?,
             MemorySubcommand::Proposals(args) => memory_proposals(&client, &api_url, args).await?,
             MemorySubcommand::Proposal(args) => memory_proposal(&client, &api_url, args).await?,
+            MemorySubcommand::Demo(demo) => match demo.command {
+                MemoryDemoSubcommand::FailureInsight(args) => {
+                    memory_demo_failure_insight(args).await?
+                }
+            },
         },
     }
 
@@ -1276,6 +1348,221 @@ async fn memory_proposal(
         print!("{}", format_memory_proposal_detail_readback(&readback));
     }
     Ok(())
+}
+
+async fn memory_demo_failure_insight(
+    args: MemoryDemoFailureInsightArgs,
+) -> Result<(), Box<dyn Error>> {
+    let readback = memory_demo_failure_insight_readback().await?;
+    if args.json {
+        println!("{}", serde_json::to_string_pretty(&readback)?);
+    } else {
+        print!("{}", format_memory_demo_failure_insight_readback(&readback));
+    }
+    Ok(())
+}
+
+async fn memory_demo_failure_insight_readback(
+) -> Result<MemoryDemoFailureInsightReadback, Box<dyn Error>> {
+    let workspace_id = WorkspaceId::new("workspace-demo-failure-insight");
+    let task_id = TaskId::new("task-demo-failure-insight");
+    let agent_id = AgentId::new("agent-demo-focus-loop");
+    let proposed_action_id = ProposedActionId::new("action-demo-create-failure-insight-memory");
+    let failure_insight_id = FailureInsightId::new("insight-demo-governed-learning-loop");
+    let created_at = Utc::now();
+    let signal = DetectionSignal::new(
+        DetectionSignalType::RuntimeObservation,
+        "Local focus-loop demo observed a safe, bounded FailureInsight learning signal.",
+    );
+
+    let base_insight = FailureInsight::new(
+        failure_insight_id.clone(),
+        FailureClass::InsufficientObservability,
+        InsightSeverity::Low,
+        CorrectionTarget::Memory,
+        "Governed FailureInsight learning loop needs repeatable local readback proof.",
+        "Without an end-to-end local demo, operators must infer whether proposal, decision, audit, persistence, and readback remain connected.",
+        "Human supervisors have weaker evidence that approved FailureInsights can be inspected without widening mutation authority.",
+        "Exercise the loop with in-memory Graph Memory and explicit non-authorizing readback output.",
+        "Graph Memory / Decision Gate alpha demo",
+        signal.clone(),
+        0.92,
+        created_at,
+    );
+
+    let proposal_intent =
+        failure_insight_demo_intent(&agent_id, &base_insight, None, None, created_at)?;
+    let action = ProposedAction {
+        id: proposed_action_id.clone(),
+        workspace_id: workspace_id.clone(),
+        task_id: Some(task_id.clone()),
+        proposed_by: agent_id.clone(),
+        action_type: ActionType::CreateFailureInsightMemory,
+        target: Some("memory:failure_insight:insight-demo-governed-learning-loop".to_owned()),
+        payload: json!({ "memory_write_intent": proposal_intent }),
+        risk_level: RiskLevel::Low,
+        required_permissions: vec![Permission::WriteMemory],
+        rationale: "Demonstrate a governed create_failure_insight_memory proposal without durable or external memory mutation.".to_owned(),
+        context_refs: vec![],
+        status: ProposedActionStatus::PendingDecision,
+        created_at,
+    };
+
+    let decision = evaluate_proposed_action(&action, &[], &[Permission::WriteMemory]);
+    if decision.status != DecisionStatus::Approved {
+        return Err(format!(
+            "demo expected Decision Gate approval for low-risk local memory demo, got {:?}: {}",
+            decision.status, decision.reason
+        )
+        .into());
+    }
+    let audit_event = audit_event_for_decision(&action, &decision);
+    let linked_insight = base_insight.with_trace_links(
+        Some(workspace_id.clone()),
+        Some(task_id.clone()),
+        Some(proposed_action_id.clone()),
+        Some(decision.id.clone()),
+        Some(audit_event.id.clone()),
+    );
+    let approved_intent = failure_insight_demo_intent(
+        &agent_id,
+        &linked_insight,
+        Some(decision.id.clone()),
+        Some(audit_event.id.clone()),
+        created_at,
+    )?;
+
+    let store = in_memory_graph_memory_store("arpagona_demo", "failure_insight_loop").await?;
+    let persisted = store
+        .persist_approved_failure_insight_memory(
+            approved_intent,
+            decision.clone(),
+            audit_event.clone(),
+        )
+        .await?;
+    let readback = store
+        .failure_insight_memory_readback(persisted.id.clone())
+        .await?;
+
+    Ok(MemoryDemoFailureInsightReadback {
+        signal: MemoryDemoSignalReadback {
+            signal_type: "runtime_observation",
+            summary: "safe bounded FailureInsight learning signal",
+            correction_target: "memory",
+            provenance: "local in-memory demo",
+        },
+        proposed_action_id: proposed_action_id.to_string(),
+        memory_write_kind: "create_failure_insight_memory".to_owned(),
+        decision_id: decision.id.to_string(),
+        decision_status: to_api_string(&decision.status)?,
+        decision_reason: decision.reason,
+        audit_event_id: audit_event.id.to_string(),
+        persisted_failure_insight_id: readback.insight.map(|insight| insight.id.to_string()),
+        readback_found: persisted.id == failure_insight_id,
+        readback_audit_event_count: readback.decision_audit_events.len(),
+        readback_relation_count: readback.insight_relations.len(),
+        readback_warning: readback.warning,
+        functional_alpha_chain: FAILURE_INSIGHT_DEMO_CHAIN,
+        next_safe_human_action: "Inspect the JSON/text readback and treat it as evidence only; do not treat it as approval, authorization, execution, or durable user memory.",
+        warning: MEMORY_DEMO_WARNING,
+    })
+}
+
+fn failure_insight_demo_intent(
+    agent_id: &AgentId,
+    insight: &FailureInsight,
+    decision_id: Option<DecisionId>,
+    audit_event_id: Option<AuditEventId>,
+    proposed_at: chrono::DateTime<Utc>,
+) -> Result<MemoryWriteIntent, Box<dyn Error>> {
+    Ok(MemoryWriteIntent::new(
+        MemoryWriteKind::CreateFailureInsightMemory,
+        MemoryWriteTarget {
+            entity_type: "failure_insight".to_owned(),
+            entity_id: insight.id.to_string(),
+            attribute: Some("insight".to_owned()),
+            value: Some(serde_json::to_value(insight)?),
+            fact_id: None,
+            related_fact_id: None,
+            failure_insight_id: Some(insight.id.clone()),
+        },
+        MemoryWriteProvenance::new(
+            Some(SourceId::new("source-demo-failure-insight-loop")),
+            "local FailureInsight demo signal",
+            "system_observation",
+            "A local, in-memory demo exercises proposal, Decision Gate, audit, approved persistence, and readback.",
+        ),
+        insight.confidence,
+        agent_id.clone(),
+        "Remember this bounded FailureInsight only inside the local demo Graph Memory store for supervised readback proof.",
+        proposed_at,
+    )
+    .with_audit_linkage(decision_id, audit_event_id))
+}
+
+fn format_memory_demo_failure_insight_readback(
+    readback: &MemoryDemoFailureInsightReadback,
+) -> String {
+    let mut output = String::new();
+    push_readback_line(&mut output, &style_info("FailureInsight memory demo"));
+    push_readback_field(&mut output, "signal_type:", readback.signal.signal_type);
+    push_readback_field(&mut output, "signal_summary:", readback.signal.summary);
+    push_readback_field(
+        &mut output,
+        "correction_target:",
+        readback.signal.correction_target,
+    );
+    push_readback_field(&mut output, "provenance:", readback.signal.provenance);
+    push_readback_field(
+        &mut output,
+        "proposed_action_id:",
+        &readback.proposed_action_id,
+    );
+    push_readback_field(
+        &mut output,
+        "memory_write_kind:",
+        &readback.memory_write_kind,
+    );
+    push_readback_field(&mut output, "decision_id:", &readback.decision_id);
+    push_readback_field(&mut output, "decision_status:", &readback.decision_status);
+    push_readback_field(&mut output, "decision_reason:", &readback.decision_reason);
+    push_readback_field(&mut output, "audit_event_id:", &readback.audit_event_id);
+    push_readback_field(
+        &mut output,
+        "persisted_failure_insight_id:",
+        readback
+            .persisted_failure_insight_id
+            .as_deref()
+            .unwrap_or("none"),
+    );
+    push_readback_field(
+        &mut output,
+        "readback_found:",
+        &readback.readback_found.to_string(),
+    );
+    push_readback_field(
+        &mut output,
+        "readback_audit_event_count:",
+        &readback.readback_audit_event_count.to_string(),
+    );
+    push_readback_field(
+        &mut output,
+        "readback_relation_count:",
+        &readback.readback_relation_count.to_string(),
+    );
+    push_readback_field(
+        &mut output,
+        "functional_alpha_chain:",
+        &format_static_list(readback.functional_alpha_chain),
+    );
+    push_readback_field(
+        &mut output,
+        "next_safe_human_action:",
+        readback.next_safe_human_action,
+    );
+    push_readback_line(&mut output, &style_dim(readback.readback_warning));
+    push_readback_line(&mut output, &style_dim(readback.warning));
+    output
 }
 
 fn memory_proposals_readback_from_actions(actions: Vec<ProposedAction>) -> MemoryProposalsReadback {
@@ -3228,6 +3515,45 @@ mod tests {
             }
             _ => panic!("expected action propose"),
         }
+    }
+
+    #[test]
+    fn cli_parses_memory_demo_failure_insight_json() {
+        let cli = Cli::parse_from(["arpagona", "memory", "demo", "failure-insight", "--json"]);
+        match cli.command {
+            Command::Memory(MemoryCommand {
+                command:
+                    MemorySubcommand::Demo(MemoryDemoCommand {
+                        command: MemoryDemoSubcommand::FailureInsight(args),
+                    }),
+            }) => assert!(args.json),
+            _ => panic!("expected memory demo failure-insight"),
+        }
+    }
+
+    #[tokio::test]
+    async fn memory_demo_failure_insight_readback_proves_governed_loop_without_authorizing() {
+        let readback = memory_demo_failure_insight_readback()
+            .await
+            .expect("demo readback succeeds");
+
+        assert_eq!(readback.signal.signal_type, "runtime_observation");
+        assert_eq!(readback.memory_write_kind, "create_failure_insight_memory");
+        assert_eq!(readback.decision_status, "approved");
+        assert!(readback.readback_found);
+        assert_eq!(
+            readback.persisted_failure_insight_id.as_deref(),
+            Some("insight-demo-governed-learning-loop")
+        );
+        assert_eq!(readback.readback_audit_event_count, 1);
+        assert_eq!(readback.readback_relation_count, 2);
+        assert!(readback.readback_warning.contains("Readback only"));
+        assert!(readback.warning.contains("Local demo only"));
+
+        let formatted = format_memory_demo_failure_insight_readback(&readback);
+        assert!(formatted.contains("FailureInsight memory demo"));
+        assert!(formatted.contains("create_failure_insight_memory"));
+        assert!(formatted.contains("Readback only"));
     }
 
     #[test]
