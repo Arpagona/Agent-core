@@ -8,13 +8,13 @@ This file does not override safety, governance, `PROJECT_OBJECTIVES.md`, `PROJEC
 
 ## Current next-pass instruction
 
-Next pass should prioritize delivering or unblocking the repeatable governed FailureInsight learning demo:
+Next pass should: recover the completed local work on branch `feat/failure-insight-memory-demo`, push it, create a PR to `main`, and only then continue implementation.
 
-```text
-signal -> proposed FailureInsight memory write -> Decision Gate decision -> audit linkage -> approved Graph Memory persistence -> readback proof -> repeatable local demo command or test
-```
+Why: the previous cron completed and locally committed the repeatable governed FailureInsight memory demo, but hit the tool-call limit before GitHub push/PR creation.
 
-Start by checking whether the full loop is already implemented and testable. If not, identify the smallest missing link that prevents the demo from being reproducible, implement that link, and report the exact command or test proving the advance.
+Proof to seek: `git status --short --branch`, `git log -1 --oneline`, `git push -u origin feat/failure-insight-memory-demo`, a PR URL, and the demo command `cargo run -q --bin arpagona -- memory demo failure-insight --json` passing.
+
+Do not: reimplement the same demo from scratch, discard the local commit, or start a new feature before preserving the completed branch.
 
 ## Required update at the end of every run
 
