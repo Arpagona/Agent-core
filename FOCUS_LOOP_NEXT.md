@@ -8,13 +8,13 @@ This file does not override safety, governance, `PROJECT_OBJECTIVES.md`, `PROJEC
 
 ## Current next-pass instruction
 
-Next pass should: review the merged or open `feat/failure-insight-memory-demo` PR, then add the smallest operator-facing follow-up that makes the governed FailureInsight learning demo easier to rerun or inspect locally.
+Next pass should: add the smallest persisted-memory inspection follow-up that lets an operator inspect an approved FailureInsight artifact by id after a configured local persistence run.
 
-Why: the recovered branch now proves the signal -> proposal -> decision -> audit -> approved persistence -> readback chain, but the next product step is making that proof more operator-friendly without widening mutation or authorization.
+Why: the demo now proves and documents how to rerun the governed learning loop, but operator inspection still stops at the self-contained demo output rather than a reusable persisted-artifact readback command.
 
-Proof to seek: `cargo run -q --bin arpagona -- memory demo failure-insight --json` plus the PR status for `feat/failure-insight-memory-demo`.
+Proof to seek: `cargo run -q --bin arpagona -- memory demo failure-insight --json` plus a new readback command or test proving the approved FailureInsight id can be inspected without broad mutation.
 
-Do not: add broad autonomous memory writing, provider/runtime direct memory mutation, external effects, scheduler expansion, Mission Control Web, or another unrelated schema-only field.
+Do not: add broad autonomous memory writing, provider/runtime direct memory mutation, external effects, scheduler expansion, Mission Control Web, MCP/browser automation, or readback-as-authorization behavior.
 
 ## Required update at the end of every run
 
