@@ -108,6 +108,41 @@ What is the next safe human action?
 
 Good implementation shapes include one or more of the following if they form a coherent slice:
 
+### Today's functional-alpha objectives
+
+For today's remaining focus-loop runs, raise the ambition from isolated memory plumbing to a demonstrable functional alpha path.
+
+The cron should aim to move ARPAGONA Agent Core closer to something a human can run locally and understand as a working governed agent core, not merely a library of disconnected primitives.
+
+Minimum acceptable objective for today:
+
+```text
+A reproducible local demo or test proving one complete governed learning loop from signal to readback.
+```
+
+Strong objective for today:
+
+```text
+A CLI-accessible alpha demo path that creates or simulates a safe operational signal, materializes a governed proposal, passes through Decision Gate, records/validates audit linkage, persists approved Graph Memory state, and proves the result through readback.
+```
+
+Stretch objective for today, only if the strong objective is already safe and passing:
+
+```text
+A small operator-facing command or documented demo recipe that makes the governed loop easy to run again locally, without adding uncontrolled autonomy or external effects.
+```
+
+The loop should prefer implementation work that creates an end-to-end product slice over another narrow schema/readback field. A product slice may still be local, alpha, simulated and test-driven; it does not need real external tool execution.
+
+Today's work should make at least one of these user-visible statements true:
+
+- `I can run one command or test and see ARPAGONA learn from a correction through the governed path.`
+- `I can inspect what was proposed, why it was approved or blocked, what audit event proves it, and what memory artifact resulted.`
+- `I can repeat the demo locally without relying on hidden context or manual database surgery.`
+- `I can see a clear next step toward a real alpha operator workflow.`
+
+Do not choose work that only improves internal elegance unless it directly unlocks one of those statements.
+
 ### CLI proposal readback
 
 Add or extend a read-only CLI surface for proposed memory writes.
@@ -201,6 +236,14 @@ Good enabling slices include:
 
 Do not jump to broad persistent memory unless the proposal, permission, audit and readback path is clear and tested.
 
+For today only, secondary work should be accepted only if it clearly states which part of the functional-alpha loop it unblocks:
+
+```text
+signal -> proposal -> decision -> audit -> approved persistence -> readback -> repeatable local demo
+```
+
+If a proposed task does not move at least one arrow in this chain, defer it.
+
 ## 6. Allowed work
 
 Allowed during the current phase:
@@ -217,6 +260,7 @@ Allowed during the current phase:
 - Decision Gate support for memory-write permissions and risk classification;
 - explanatory audit for memory-write proposals;
 - narrow operational-memory design around FailureInsight, corrections and project decisions;
+- local demo fixtures, examples or CLI commands that exercise the governed path without external side effects;
 - `PROJECT_STATUS.md` updates reflecting each significant change.
 
 ## 7. Forbidden work
@@ -282,6 +326,12 @@ Do not split one coherent architectural slice into tiny PRs solely out of cautio
 
 Avoid PRs that only add generic CLI polish unless they directly support memory proposal observability, governed memory writes, controlled persistence, audit explainability or local supervision of the current priority.
 
+For today's functional-alpha push, a PR is considered ambitious enough only if it either:
+
+- proves the governed learning loop end-to-end;
+- adds a repeatable local command or demo recipe for that loop;
+- or removes a concrete blocker that prevents the next loop from delivering that demo.
+
 ## 10. Controlled auto-merge policy
 
 The focus loop may auto-merge its own PR without waiting for human review only when all of the following conditions are true:
@@ -300,6 +350,7 @@ The focus loop may auto-merge its own PR without waiting for human review only w
 - the PR does not introduce direct Graph Memory mutation by LLM/provider/runtime;
 - any memory state-changing capability remains routed through ProposedAction -> DecisionGate -> Decision -> Audit;
 - any real persistence path is local/test-oriented, explicit, inspectable and documented;
+- any local demo remains simulated/internal and does not create external side effects;
 - `PROJECT_STATUS.md` is updated if the change is significant.
 
 Preferred merge method:
@@ -332,6 +383,8 @@ Use the actual implemented command name.
 
 When adding controlled persistence, include at least one local readback verification showing that an approved persisted memory fact can be inspected afterward.
 
+For today's functional-alpha objective, the report should include the exact local command, test name or demo recipe that proves the implemented loop or blocker removal.
+
 ## 12. LOCO/Ollama delegation rules
 
 LOCO/Ollama may be used for bounded analysis or first-pass low-risk review.
@@ -358,6 +411,14 @@ Current priority issue:
 
 If no suitable issue exists, create one only when it clarifies a real architectural or implementation target.
 
+For today's push, creating a new issue is acceptable if it frames a concrete functional-alpha milestone, for example:
+
+```text
+Deliver repeatable governed FailureInsight learning demo
+```
+
+Do not create vague roadmap issues when a direct implementation PR is possible.
+
 ## 14. Report format
 
 Every focus-loop report must include:
@@ -370,6 +431,8 @@ Every focus-loop report must include:
 - local task summary;
 - why this work was chosen;
 - why the selected PR is ambitious enough for the current priority;
+- which part of the functional-alpha chain was advanced;
+- exact command, test or demo recipe proving the advance;
 - work completed;
 - files changed;
 - tests run;
@@ -386,4 +449,4 @@ Every focus-loop report must include:
 
 ## 15. Current intent in one sentence
 
-Make governed memory-write proposals observable, controllable and suitable for controlled local persistence tests, so ARPAGONA can show what it wants to remember, why, under which permission/policy, whether it was persisted, and how to inspect or supersede it afterward.
+Make governed memory-write proposals observable, controllable and suitable for controlled local persistence tests, then turn that into a repeatable local functional-alpha demo where ARPAGONA learns from a safe correction through ProposedAction, Decision Gate, Audit, approved Graph Memory persistence and readback.
