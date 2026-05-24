@@ -333,6 +333,48 @@ For today's functional-alpha push, a PR is considered ambitious enough only if i
 - adds a repeatable local command or demo recipe for that loop;
 - or removes a concrete blocker that prevents the next loop from delivering that demo.
 
+### PR creation and reporting verification
+
+A pushed branch is not a pull request.
+
+A GitHub `/pull/new/<branch>` URL is only a PR creation page. It must never be reported as a created PR, a PR link, or proof that a PR exists.
+
+A pull request may be reported as created only when GitHub returns a real PR number and a canonical URL of this form:
+
+```text
+https://github.com/<owner>/<repo>/pull/<number>
+```
+
+After pushing a branch, run a verification command equivalent to:
+
+```bash
+gh pr list --head <branch> --json number,title,url,state,headRefName,baseRefName
+```
+
+If no PR exists, attempt PR creation when credentials permit:
+
+```bash
+gh pr create --base main --head <branch> --title "<title>" --body "<body>"
+```
+
+After creating a PR, verify it again with `gh pr list --head <branch>` or `gh pr view <number>`.
+
+Final reports must use exactly one of these states:
+
+```text
+PR created: #<number> <https://github.com/<owner>/<repo>/pull/<number>>
+```
+
+or:
+
+```text
+Branch pushed, PR not created: <reason>. PR creation URL: https://github.com/<owner>/<repo>/pull/new/<branch>
+```
+
+Do not write `PR link` unless the URL is a canonical `/pull/<number>` URL.
+
+No PR number means no PR.
+
 ## 10. Controlled auto-merge policy
 
 The focus loop may auto-merge its own PR without waiting for human review only when all of the following conditions are true:
@@ -466,7 +508,9 @@ Every focus-loop report must include:
 - tests run;
 - test result;
 - GitHub push status;
-- PR link if created;
+- PR creation status, using exactly one of:
+  - `PR created: #<number> <https://github.com/<owner>/<repo>/pull/<number>>`
+  - `Branch pushed, PR not created: <reason>. PR creation URL: https://github.com/<owner>/<repo>/pull/new/<branch>`
 - auto-merge attempted or skipped, with reason;
 - blockers;
 - risks;
