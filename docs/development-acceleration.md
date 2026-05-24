@@ -1,64 +1,92 @@
-# Development Acceleration — Hermes-like Alpha and Rippletide Direction
+# Development Acceleration — Cognitive Hermes-like Alpha
 
 This document clarifies the current product-building bias for ARPAGONA Agent Core.
 
-It complements `PROJECT_OBJECTIVES.md`, `PROJECT_STATUS.md`, `docs/operating-doctrine.md`, `docs/failure-to-insight.md`, `docs/architecture.md` and `docs/roadmap.md`.
+It complements `WHITEPAPER.md`, `PROJECT_OBJECTIVES.md`, `PROJECT_STATUS.md`, `docs/operating-doctrine.md`, `docs/failure-to-insight.md`, `docs/architecture.md` and `docs/roadmap.md`.
 
-## 1. Current intent
+## 1. Current Intent
 
-The project should now move aggressively toward a functional Hermes-like alpha while preserving ARPAGONA's own architecture.
+The project should move aggressively toward a functional **Hermes-like cognitive alpha** while preserving ARPAGONA's own architecture.
 
-The goal is not to clone Hermes. Hermes is an inspiration for practical agent-product ergonomics: CLI entrypoints, local developer workflow, explicit commands, scheduled loops, inspectable state and operator-friendly reporting.
+Hermes/OpenClaw are inspirations for practical agent-product ergonomics: local CLI entrypoints, developer workflow, explicit commands, scheduled loops, inspectable state and operator-friendly reporting.
 
-ARPAGONA must remain distinct:
+ARPAGONA must go further by making cognitive architecture explicit:
 
-- Rust-first core;
-- local-first supervision;
-- graph-native memory;
-- compute-aware routing;
-- Rippletide-inspired runtime enforcement;
-- Decision Gate before any external effect;
-- audit and causal trace by default;
-- human supervision for sensitive actions;
-- Failure-to-Insight as the loop that turns mistakes, blockers and human corrections into durable improvements without treating them as authorization.
+- Rust-first runtime;
+- Working Memory;
+- Reservoir Echo for short-term continuity;
+- Graph Memory for durable structured context;
+- Compute Reservoir for local/cloud/worker routing;
+- Reflection and Failure-to-Insight loops;
+- CLI supervision as first Mission Control;
+- progressive autonomy;
+- governance as immune system, not primary identity.
 
-## 2. Product bias: CLI supervision first
+The project must not drift into a pure compliance/audit runtime. Audit and Decision Gate matter because they make the cognitive ambition safe enough to use.
+
+## 2. Product Bias: CLI Supervision First
 
 The CLI is the first local Mission Control surface.
 
-Near-term work should bias toward making the CLI useful for inspecting the system, rather than repeatedly adding more test-only guards around already-covered audit/readback behavior.
-
-Test-only PRs remain valid when they protect a concrete uncovered regression risk. They should not be the default next step.
+Near-term work should bias toward making the CLI useful for inspecting the cognitive system, rather than repeatedly adding abstract guards.
 
 Preferred CLI progression:
 
-1. strengthen `arpagona audit decision-summary <decision-id>`;
-2. add `arpagona audit task-summary <task-id>`;
-3. add `arpagona audit workspace-summary <workspace-id>`;
-4. expose status/readback commands that help answer what happened, why it happened and what should happen next;
-5. only then consider Mission Control Web expansion.
+1. show what the system is trying to do;
+2. show tasks and proposed actions;
+3. show decision and audit summaries;
+4. show Graph Memory readback;
+5. show Reservoir Echo / cognitive cycle state when available;
+6. show Compute Reservoir allocation rationale when available;
+7. show Failure-to-Insight artifacts and suggested improvements;
+8. only then consider Mission Control Web expansion.
 
 CLI commands must remain read-only unless a future command explicitly goes through the governed action path.
 
-## 3. Aggressive but bounded development
+## 3. Aggressive but Bounded Development
 
 The desired mode is aggressive iteration, not reckless expansion.
 
-A good loop should ship one small usable increment, not just one more abstract guard.
-
-Hermes-like ergonomics are not only about speed. They require fast iteration plus a disciplined Failure-to-Insight loop: when a loop exposes a mistake, missing context, poor route, blocked decision, bad proposal or human correction, the result should become durable documentation, tests, policy, memory conventions or readback improvements. This strengthens observability, error recovery and continuous progress while keeping the governed path intact.
+A good loop should ship one small usable increment that improves the cognitive runtime or its inspectability.
 
 Default preference order:
 
 1. useful read-only CLI supervision increment;
-2. small Rust abstraction that enables the next CLI/product step;
-3. Graph Memory or Audit stabilization only when it unblocks product use or protects a real uncovered risk;
+2. small Rust abstraction that improves cognitive continuity, memory, compute routing or reflection;
+3. Graph Memory / Audit stabilization when it supports actual cognitive readback;
 4. Runtime/API expansion only when it remains read-only or clearly governed;
-5. execution/autonomy only after the governed path is ready.
+5. execution/autonomy only after the governed path and reflection loops are ready.
 
-## 4. Rippletide direction to preserve
+## 4. Cognitive Direction to Preserve
+
+The runtime should gradually become able to maintain and inspect a cognitive cycle:
+
+```text
+Input
+-> Working Memory
+-> Reservoir Echo
+-> Graph Memory recall
+-> Compute Reservoir allocation
+-> ProposedAction
+-> DecisionGate if needed
+-> Audit
+-> Reflection / Failure-to-Insight
+```
+
+Key requirements:
+
+- each cycle should produce inspectable state;
+- temporary salience must remain distinct from durable memory;
+- readback must not be confused with authorization;
+- compute allocation must not be confused with decision approval;
+- failure insights must remain learning artifacts, not self-modification commands;
+- human supervision remains required for sensitive action and structural changes.
+
+## 5. Rippletide Direction to Preserve
 
 The Rippletide-inspired direction is runtime enforcement.
+
+It should be treated as a safety mechanism around the cognitive runtime.
 
 The system must make it structurally difficult for an agent to act directly. Agents produce structured intent. The runtime evaluates intent against context, policies, permissions and risk before anything can affect the outside world.
 
@@ -74,37 +102,43 @@ Key requirements:
 - Tool Registry lookup is not approval;
 - Graph Memory is not authorization.
 
-## 5. Compute Reservoir direction
+## 6. Compute Reservoir Direction
 
-The system should also move toward real local/cloud delegation rather than using cloud reasoning for everything.
+The system should move toward real local/cloud delegation rather than using cloud reasoning for everything.
 
-Hermes/cloud-like orchestration should be reserved for final judgment, planning and integration.
+Compute Reservoir should become a cognitive router that chooses which resource should think, read, summarize, extract, draft or reason.
+
+Hermes/cloud-like orchestration should be reserved for final judgment, planning and integration when justified.
 
 LOCO/Ollama/local models should handle first-pass reading, summarization, extraction, draft generation and log analysis whenever practical.
 
-Future Compute Reservoir work should make this explicit in code: choosing which resource should think, read, summarize or draft based on capability, cost, latency and data sensitivity.
+Future Compute Reservoir work should make this explicit in code: choosing resources based on capability, cost, latency, data sensitivity, local availability, fallback strategy and observed performance.
 
-## 6. What to avoid now
+## 7. What to Avoid Now
 
 Avoid:
 
-- endless test-only stabilization when a product-visible readback surface is possible;
+- reducing the project to audit/governance only;
+- endless test-only stabilization when a cognitive/product-visible readback surface is possible;
 - growing API/Runtime before CLI supervision is useful;
 - treating CLI as a debug toy rather than the first local Mission Control surface;
-- copying Hermes without preserving ARPAGONA's governed architecture;
-- implementing execution before the Tool Registry, Decision Gate and Audit chain are ready;
+- copying Hermes without preserving ARPAGONA's cognitive architecture;
+- implementing execution before the Tool Registry, Decision Gate, Audit and reflection path are ready;
 - letting Graph Memory, CLI, API or Runtime become hidden authorization layers.
 
-## 7. Near-term success target
+## 8. Near-Term Success Target
 
 A useful near-term alpha should let a human operator run local CLI commands to understand:
 
+- what the system is trying to do;
 - what tasks exist;
 - what actions were proposed;
 - what decisions were made;
 - why they were made;
+- what context or memory was involved;
 - which policies and risks were involved;
 - what audit events support the answer;
+- what failure insight or suggested improvement emerged;
 - what remains pending.
 
 That is the practical bridge between the current Rust foundation and a future Mission Control Web interface.
