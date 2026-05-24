@@ -1421,12 +1421,9 @@ async fn memory_demo_failure_insight(
     if let Some(snapshot_path) = &args.snapshot_path {
         let json = serde_json::to_value(&readback)?;
         let snapshot = arpagona_graph_memory::demo_snapshot::FailureInsightDemoSnapshot::new(json);
-        if let Err(err) = snapshot.write_to_file(snapshot_path) {
-            eprintln!(
-                "Warning: could not write demo snapshot to '{}': {err}",
-                snapshot_path
-            );
-        }
+        snapshot
+            .write_to_file(snapshot_path)
+            .map_err(|e| format!("Failed to write demo snapshot to '{}': {e}", snapshot_path))?;
     }
 
     if args.json {
