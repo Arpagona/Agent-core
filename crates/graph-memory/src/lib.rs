@@ -16,6 +16,8 @@ use surrealdb::sql::Thing;
 use surrealdb::{Connection, Surreal};
 use thiserror::Error;
 
+pub mod demo_snapshot;
+
 pub const GRAPH_MEMORY_SCHEMA: &str = include_str!("../migrations/0001_graph_memory.surql");
 
 #[derive(Debug, Error)]
