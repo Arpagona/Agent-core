@@ -183,3 +183,53 @@ What failed in the last loop, what did we learn, what was changed, and how will 
 ```
 
 If the system cannot answer that from durable artifacts, the failure-to-insight loop is not yet implemented.
+
+## 10. Recorded insight — CI binary path contract
+
+Failure observed:
+
+```text
+GitHub Actions Rust workflow failed on feat/cli-integration-test-snapshot around commit d70d41a after a cross-invocation CLI test was added.
+```
+
+Failure class:
+
+```text
+test_gap / documentation_gap
+```
+
+Root cause:
+
+```text
+The cross-invocation test located the CLI binary through a hardcoded relative path derived from CARGO_MANIFEST_DIR, such as ../../target/debug/arpagona. This can pass on a developer machine after cargo run or cargo build, but it is not a stable CI invariant. Cargo may build test binaries and package binaries in target subdirectories that do not match that assumed path.
+```
+
+Impact:
+
+```text
+Local verification could report success while GitHub Actions failed, creating a false sense that the branch was merge-ready.
+```
+
+Corrective action:
+
+```text
+Move process-spawning CLI tests into proper Cargo integration tests and use env!("CARGO_BIN_EXE_arpagona") to locate the compiled binary. This delegates binary-path discovery to Cargo instead of relying on repository-relative target paths.
+```
+
+Future detection signal:
+
+```text
+Any test that spawns the arpagona binary must be checked for hardcoded target/debug, target/release, CARGO_MANIFEST_DIR-relative binary paths, or assumptions that cargo check/cargo test created a specific executable path.
+```
+
+Policy:
+
+```text
+For cross-process CLI tests, prefer Cargo integration tests plus CARGO_BIN_EXE_<bin-name>. Do not use ../../target/debug/<binary> as a test contract.
+```
+
+Linked proof:
+
+```text
+Expected fixed shape: crates/cli/tests/snapshot_integration.rs uses env!("CARGO_BIN_EXE_arpagona") and no hardcoded ../../target/debug/arpagona path remains.
+```
