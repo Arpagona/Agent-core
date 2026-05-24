@@ -1,28 +1,46 @@
 # ARPAGONA Agent Core
 
-ARPAGONA Agent Core est un runtime agentique généraliste, local-first, conçu pour faire fonctionner des agents IA dans un environnement professionnel contrôlé.
+ARPAGONA Agent Core est un **runtime agentique cognitif en Rust**, local-first, inspiré dans l'esprit des systèmes Hermes/OpenClaw, mais conçu pour aller plus loin : mémoire vivante, continuité cognitive, graphe de contexte, routage intelligent des ressources de calcul, réflexion post-cycle et auto-amélioration contrôlée.
 
-Ce projet n'est pas un simple chatbot, ni un fork de framework existant, ni un script d'automatisation fragile. Il vise à fournir un noyau agentique professionnel, gouverné par graphe, où les agents peuvent raisonner et proposer des actions sans jamais les exécuter directement.
+Le projet ne vise pas seulement à gouverner des agents IA. Il vise d'abord à construire un système cognitif logiciel capable de raisonner, mémoriser, maintenir une continuité, proposer des actions, apprendre de ses erreurs et devenir progressivement plus utile.
+
+La gouvernance, la traçabilité et le Decision Gate restent essentiels, mais comme **système immunitaire** du runtime : ils rendent cette ambition cognitive utilisable sans laisser les agents agir directement ou devenir opaques.
 
 ## Documents canoniques
 
 Avant toute modification du dépôt, un contributeur humain ou agentique doit lire :
 
-- `PROJECT_OBJECTIVES.md` : vision canonique du projet, objectifs fondateurs et principes non négociables ;
-- `PROJECT_STATUS.md` : état opérationnel courant, niveau de stabilité des briques, risques architecturaux, stop-list et prochaine séquence recommandée ;
-- `docs/operating-doctrine.md` : doctrine de travail courante, itération contrôlée, Rust-first, délégation LOCO/Ollama, biais CLI supervision et reporting Failure-to-Insight ;
-- `docs/development-acceleration.md` : direction actuelle d'accélération vers une alpha Hermes-like, CLI supervision first et Rippletide-inspired runtime enforcement ;
-- `docs/failure-to-insight.md` : doctrine canonique pour transformer échecs, blocages, mauvaises propositions, contextes manquants, policy gaps et corrections humaines en apprentissages durables non autorisants.
+- `WHITEPAPER.md` : vision fondatrice recentrée sur le Cognitive Agent Runtime ;
+- `PROJECT_OBJECTIVES.md` : objectifs canoniques du projet ;
+- `PROJECT_STATUS.md` : état opérationnel courant, stabilité des briques, risques et stop-list ;
+- `docs/operating-doctrine.md` : doctrine de travail courante ;
+- `docs/development-acceleration.md` : direction d'accélération vers une alpha Hermes-like cognitive ;
+- `docs/failure-to-insight.md` : doctrine pour transformer échecs, blocages et corrections humaines en apprentissages durables non autorisants.
 
-L'objectif immédiat n'est plus une simple consolidation abstraite. Le projet doit maintenant avancer vers des incréments utiles et inspectables, en particulier la CLI de supervision locale, tout en conservant les garde-fous non négociables : pas d'exécution directe par les agents, pas de contournement du Decision Gate, pas d'autonomie non gouvernée.
+## Intention centrale
 
-## Principes fondateurs
+```text
+Cognitive ambition first.
+Governance as the immune system.
+```
+
+Objectif : construire un Hermes-like local en Rust avec des capacités cognitives avancées :
+
+- Working Memory ;
+- Reservoir Echo court terme ;
+- Graph Memory structurée ;
+- Compute Reservoir ;
+- Reflection Engine / Failure-to-Insight ;
+- CLI supervision comme premier Mission Control ;
+- Orchestrator neutre ;
+- future autonomie contrôlée.
+
+## Principe de sécurité non négociable
 
 - Aucun agent n'agit directement.
 - Un agent propose une action.
-- Le Decision Gate évalue chaque action proposée.
-- L'action est autorisée, bloquée ou soumise à validation humaine.
-- Toute décision est enregistrée dans le graphe.
+- Le Decision Gate évalue les actions sensibles ou risquées.
+- Toute décision importante est tracée.
 - Toute action sensible requiert une approbation humaine.
 - Aucun secret n'est exposé au LLM.
 - Aucun shell libre n'est disponible en V0.
@@ -32,6 +50,8 @@ En bref :
 ```text
 Agent -> ProposedAction -> DecisionGate -> Execution éventuelle -> Audit
 ```
+
+Ce flux est un garde-fou, pas l'identité complète du projet.
 
 ## Stack cible
 
@@ -49,6 +69,7 @@ Agent -> ProposedAction -> DecisionGate -> Execution éventuelle -> Audit
 ```text
 arpagona-agent-core/
   README.md
+  WHITEPAPER.md
   PROJECT_OBJECTIVES.md
   PROJECT_STATUS.md
   Cargo.toml
@@ -64,67 +85,19 @@ arpagona-agent-core/
     development-acceleration.md
     failure-to-insight.md
   crates/
-    compute-reservoir/
-      Cargo.toml
-      src/
-        lib.rs
-    decision-gate/
-      Cargo.toml
-      src/
-        lib.rs
     core/
-      Cargo.toml
-      src/
-        lib.rs
-        ids.rs
-        agent.rs
-        workspace.rs
-        task.rs
-        goal.rs
-        action.rs
-        decision.rs
-        policy.rs
-        tool.rs
-        memory.rs
-        graph.rs
-        audit.rs
-        risk.rs
-        permission.rs
-        episode.rs
-        source.rs
-        errors.rs
-    graph-memory/
-      Cargo.toml
-      src/
-        lib.rs
-      migrations/
-        0001_graph_memory.surql
-    llm/
-      Cargo.toml
-      src/
-        lib.rs
-    runtime/
-      Cargo.toml
-      src/
-        lib.rs
+    decision-gate/
+    compute-reservoir/
     tool-registry/
-      Cargo.toml
-      src/
-        lib.rs
+    graph-memory/
+    llm/
+    runtime/
     cli/
-      Cargo.toml
-      src/
-        main.rs
   apps/
     api-server/
-      Cargo.toml
-      src/
-        main.rs
     mission-control/
-      README.md
   workers/
     python-ingestion/
-      README.md
 ```
 
 ## État actuel
@@ -135,39 +108,38 @@ Les premières briques fournissent :
 - la documentation fondatrice ;
 - le crate Rust `crates/core` ;
 - des types fondamentaux sérialisables ;
-- un Decision Gate alpha extrait dans `crates/decision-gate` ;
-- un crate alpha minimal `crates/compute-reservoir` pour déclarer des ressources compute et recommander une allocation via une fonction pure ;
-- un crate alpha minimal `crates/tool-registry` pour déclarer un catalogue d'outils, de capacités, de schémas, de permissions, de risques et d'états sans exécution ;
 - des primitives de Cognitive Runtime incluant le Reservoir Echo court terme ;
-- un crate expérimental `crates/graph-memory` pour persister la mémoire graphe dans SurrealDB ;
-- un crate expérimental `crates/llm` pour transformer une demande utilisateur en `ProposedAction` pending, sans exécution ;
+- un Decision Gate alpha extrait dans `crates/decision-gate` ;
+- un crate alpha minimal `crates/compute-reservoir` ;
+- un crate alpha minimal `crates/tool-registry` ;
+- un crate expérimental `crates/graph-memory` pour la mémoire graphe SurrealDB ;
+- un crate expérimental `crates/llm` limité à la proposition d'action pending ;
 - un crate expérimental `crates/runtime` pour une boucle cognitive qui s'arrête à la proposition d'action ;
 - une application alpha `apps/api-server` ;
-- une interface terminal alpha `crates/cli` avec une première surface de supervision audit read-only ;
-- une migration SurrealDB initiale pour faits, sources, épisodes, observations, audit, décisions et actions proposées ;
-- quelques tests unitaires de base.
+- une CLI alpha `crates/cli` jouant le rôle de premier Mission Control local ;
+- une doctrine Failure-to-Insight pour transformer les erreurs et corrections en apprentissages durables non autorisants.
 
-Le crate `core` doit rester limité au vocabulaire domaine et aux types purs réutilisables. Il ne doit pas devenir un fourre-tout. Le Decision Gate est désormais dans `crates/decision-gate` et le Compute Reservoir minimal dans `crates/compute-reservoir`.
+Le crate `core` doit rester limité au vocabulaire domaine et aux types purs réutilisables. Le Decision Gate, le Compute Reservoir et le Tool Registry restent des crates séparés.
 
-Le crate `compute-reservoir` est alpha minimal : il fournit des types sérialisables et `allocate_compute`, une fonction pure d'allocation de ressources selon capacités, coût, latence, confidentialité et fallback. Il ne fait aucun appel modèle, aucune exécution, aucun I/O, et ne remplace jamais le Decision Gate.
-
-Le crate `tool-registry` est alpha minimal : il fournit un catalogue déclaratif en mémoire pour les définitions d'outils, les capacités, les schémas, les permissions, les risques et les états. Il permet d'enregistrer, chercher, lister et désactiver des déclarations d'outils. Il ne contient aucun runner, hook d'exécution, shell, scheduler, MCP, navigateur ou runtime multi-agent.
-
-Le crate `graph-memory` porte l'adapter SurrealDB séparé du domaine core. La source de vérité domaine est le trait synchrone `GraphMemoryStore` dans `crates/core`; l'adapter persistant expose `SurrealGraphMemoryStore` et un port async expérimental `AsyncGraphMemoryStore`, testés avec SurrealDB en mémoire.
-
-Le crate `llm` porte les providers expérimentaux. Même lorsqu'un provider OpenAI est utilisé, il ne peut produire qu'un `ProposedActionDraft`, ensuite matérialisé en `ProposedAction` avec le statut `pending_decision`. Aucun outil réel n'est exécuté et le Decision Gate reste obligatoire avant toute suite.
-
-Le Runtime, l'API server et la CLI sont alpha. Ils doivent rester des surfaces d'expérimentation, de readback et de contrôle, pas des couches de gouvernance métier ni des chemins d'exécution alternatifs.
+Le Runtime, l'API server et la CLI sont alpha. Ils doivent rester des surfaces d'expérimentation, de readback et de supervision, pas des chemins d'exécution alternatifs.
 
 ## Priorité immédiate
 
-La priorité actuelle est d'accélérer vers une alpha fonctionnelle, Hermes-like dans son ergonomie mais ARPAGONA dans son architecture : Rust-first, local-first, graph-native, compute-aware, auditée et gouvernée.
+La priorité actuelle est d'accélérer vers une alpha fonctionnelle **Hermes-like dans son ergonomie, ARPAGONA dans son architecture cognitive** : Rust-first, local-first, graph-native, compute-aware, inspectable, réflexive et gouvernée.
 
 Priorité produit actuelle : **CLI supervision first**.
 
-Objectif : faire de la CLI le premier Mission Control local, capable de relire tâches, actions proposées, décisions et traces d'audit, avant d'élargir l'API, le runtime ou Mission Control Web.
+La CLI doit progressivement permettre de comprendre :
 
-Aucune exécution réelle d'outil ne doit être ajoutée avant stabilisation du Decision Gate, du Tool Registry et de l'Audit.
+- ce que le système essaie de faire ;
+- ce qu'il garde en mémoire active ;
+- ce qu'il relit dans Graph Memory ;
+- quel modèle ou ressource est choisi ;
+- quelle action est proposée ;
+- pourquoi une action est approuvée, bloquée ou en attente ;
+- ce que le système apprend d'une erreur ou correction humaine.
+
+Aucune exécution réelle d'outil ne doit être ajoutée avant stabilisation du Decision Gate, du Tool Registry, de l'Audit et des boucles de réflexion.
 
 ## Compiler et tester
 
@@ -179,13 +151,10 @@ cargo check
 cargo test
 ```
 
-La documentation de la mémoire graphe se trouve dans `docs/graph-memory.md`.
-
 ## Volontairement non implémenté en V0
 
 - Pas d'interface web réelle.
 - Pas de serveur Axum stable.
-- Pas de connexion SurrealDB dans `crates/core`.
 - Pas d'appel LLM d'exécution : l'intégration LLM expérimentale propose uniquement des actions pending.
 - Pas de shell libre.
 - Pas d'envoi email réel.
@@ -197,4 +166,4 @@ La documentation de la mémoire graphe se trouve dans `docs/graph-memory.md`.
 - Pas d'autonomie multi-agent.
 - Pas d'accès aux secrets par le LLM.
 
-Cette fondation existe pour stabiliser le modèle conceptuel tout en construisant rapidement des surfaces locales d'inspection, de supervision et de contrôle humain.
+Cette fondation existe pour construire un runtime cognitif de plus en plus capable, tout en gardant les garde-fous nécessaires à une autonomie progressive.
