@@ -64,7 +64,8 @@ The current product direction is no longer abstract stabilization only. The near
 | `crates/core` | Stable foundation | Domain vocabulary and pure types | Must not become a catch-all crate. Governance logic should stay in dedicated crates. |
 | Core domain types | Stable foundation | Shared typed language | Includes minimal Failure-to-Insight vocabulary; remains pure, serializable and dependency-light. |
 | Decision Gate | Alpha | Pre-execution governance | Extracted into `crates/decision-gate`; `crates/core` no longer reexports the Decision Gate logic. |
-| Reservoir Echo | Alpha | Short-term cognitive continuity | Volatile traces only. Not persistent memory. Not model routing. Not Compute Reservoir. |
+|| Reservoir Echo | Alpha | Short-term cognitive continuity | Volatile traces only. Not persistent memory. Not model routing. Not Compute Reservoir. |
+|| Holographic Memory | Alpha domain vocabulary | Pattern resonance layer | Types exist in `crates/core`; no runtime behavior, vector DB, persistence, authorization or similarity execution yet. |
 | Compute Reservoir | Alpha minimal | Compute/model/resource routing | `crates/compute-reservoir` provides serializable types and pure allocation only; no model calls, execution, I/O, persistence or Decision Gate replacement. |
 | Tool Registry | Alpha minimal | Declarative catalogue of tools and permissions | `crates/tool-registry` declares tools, capabilities, schemas, governance notes and lookup/status changes only; no execution path. |
 | `crates/graph-memory` | Experimental | SurrealDB Graph Memory adapter | Adds alpha audit-event queries by task, proposed action and decision plus governed FailureInsight memory trace proof readback, an in-memory demo/test helper and schema-backed CLI status readback; broader persistence conventions and graph schema still need stabilization. |
@@ -109,6 +110,7 @@ Experimental areas:
 - API shape in `apps/api-server`;
 - terminal UX in `crates/cli`;
 - Reservoir Echo tuning and lifecycle;
+- Holographic Memory adapter crate, vector similarity, persistence and runtime integration (domain vocabulary exists in `crates/core`);
 - Compute Reservoir allocation heuristics and telemetry shape;
 - audit persistence and causal trace design;
 - future Failure-to-Insight audit conventions, CLI readback and broader Graph Memory integration;
