@@ -329,6 +329,35 @@ Limits:
 - readback remains evidence only and must not be treated as authorization.
 
 Architectural risk:
-- low. The test is white-box process invocation of the already-built binary. The main risk is that `CARGO_MANIFEST_DIR`-relative binary path (`../../target/debug/arpagona`) may break in unusual build setups; if this becomes a problem, switch to `cargo run` or `assert_cmd` integration test crate.`
+- low. The test uses `CARGO_BIN_EXE_arpagona`, a stable Cargo-provided environment variable available to integration tests in the same package that declares the `arpagona` binary target. This is the canonical way to reference companion binaries in cross-process integration tests.
 
 Recommended next step: consider making the demo snapshot path the standard persistence proof for operator demos and add a section to `docs/failure-to-insight.md` documenting the cross-invocation readback verification procedure.
+
+## Latest Session Update (2026-05-24 — Cherry-pick and deliver demo snapshot PR)
+
+This session cherry-picked 4 existing commits from the previous `feat/cli-integration-test-snapshot` branch onto a fresh branch (`feat/demo-snapshot-persistence-v2`) based on the latest `main`, then ran full verification and pushed/PR'd the branch.
+
+The 4 commits (in order):
+1. `feat: add demo snapshot path for cross-invocation FailureInsight readback proof`
+2. `Harden demo snapshot persistence path`
+3. `feat: add CLI integration test for cross-invocation demo snapshot readback`
+4. `docs: add cross-invocation readback verification section to failure-to-insight`
+
+Changed:
+- cherry-picked `crates/graph-memory/src/demo_snapshot.rs` (pure-Rust JSON snapshot persistence)
+- cherry-picked `crates/cli/src/main.rs` extensions (--snapshot-path flag, snapshot-read subcommand, cross-invocation integration test)
+- cherry-picked `docs/failure-to-insight.md` cross-invocation verification section
+- updated `FOCUS_LOOP_NEXT.md` with next handoff
+
+Verification:
+- `cargo fmt -- --check`: clean
+- `cargo check`: clean
+- `cargo test`: 133 tests pass, including `cross_invocation_demo_snapshot_proves_readback_across_process_invocations`
+- Manual CLI demo: snapshot written and read back across separate process invocation
+
+Stability level: alpha CLI demo persistence. No new code was added by this session; existing work was delivered as a PR.
+
+Limits: unchanged from the cherry-picked commits — no SurrealDB backend change, no broad CLI mutation, no Decision Gate change, no LLM/provider/runtime direct memory mutation, no personal/sensitive memory paths, no real tool execution, no scheduler/autonomy/MCP/browser/credential expansion, no Mission Control Web. Readback remains evidence-only and non-authorizing.
+
+Architectural risk:
+- low. This run delivered existing work that was verified on a branch but never pushed/PR'd. The code is pure Rust JSON I/O behind an optional CLI flag with a passing integration test. No new risk was introduced.
