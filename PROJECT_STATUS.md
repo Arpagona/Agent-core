@@ -300,3 +300,35 @@ Architectural risk:
 - low. The snapshot path is pure Rust JSON I/O behind an optional CLI flag. The main risk is operator confusion between demo snapshot files and real persistent memory; the evidence-only token and readback warnings explicitly preserve the demo-only, non-authorizing boundary.
 
 Recommended next step: adopt the demo snapshot command as the standard cross-invocation readback proof and add a CLI integration test that runs the snapshot-then-read cycle end-to-end.
+
+## Latest Session Update (2026-05-24 — CLI integration test for cross-invocation snapshot readback)
+
+This session added a CLI-level integration test that runs the full demo snapshot-then-read cycle end-to-end, proving the governed FailureInsight learning demo persists and readably survives a separate process invocation.
+
+Changed:
+- added `cross_invocation_demo_snapshot_proves_readback_across_process_invocations` test in `crates/cli/src/main.rs` that:
+  1. invokes the built `arpagona` binary with `memory demo failure-insight --json --snapshot-path <path>`;
+  2. verifies the snapshot file was created;
+  3. invokes the built `arpagona` binary with `memory demo snapshot-read <path> --json` in a separate process;
+  4. asserts the readback JSON contains the `evidence_only_token`, `functional_alpha_chain` and the cross-invocation snapshot chain step.
+
+Stability level: alpha CLI integration test. The test uses `std::process::Command` to run the built binary, proving the governed learning loop output survives serialization, file I/O, process restart and deserialization. It requires no SurrealDB backend, no unstable cfg flags, no native dependencies, and runs in ~0.03s.
+
+Limits:
+- no Cargo feature flag was added;
+- no SurrealDB backend change was made (`kv-mem` remains the default);
+- no migration runner was added;
+- no broad CLI mutation command was added;
+- no API endpoint was added;
+- no Decision Gate behavior was changed;
+- no LLM/provider/runtime direct memory mutation was added;
+- no broad autonomous memory writing was added;
+- no personal or sensitive memory path was added;
+- no real tool execution was introduced;
+- no scheduler, autonomy, MCP, browser automation, credential handling or Mission Control Web growth was introduced;
+- readback remains evidence only and must not be treated as authorization.
+
+Architectural risk:
+- low. The test is white-box process invocation of the already-built binary. The main risk is that `CARGO_MANIFEST_DIR`-relative binary path (`../../target/debug/arpagona`) may break in unusual build setups; if this becomes a problem, switch to `cargo run` or `assert_cmd` integration test crate.`
+
+Recommended next step: consider making the demo snapshot path the standard persistence proof for operator demos and add a section to `docs/failure-to-insight.md` documenting the cross-invocation readback verification procedure.

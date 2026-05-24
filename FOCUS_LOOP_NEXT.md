@@ -8,11 +8,11 @@ This file does not override safety, governance, `PROJECT_OBJECTIVES.md`, `PROJEC
 
 ## Current next-pass instruction
 
-Next pass should: adopt the demo snapshot command as the standard cross-invocation readback proof and add a CLI integration test that runs the snapshot-then-read cycle end-to-end.
+Next pass should: document the cross-invocation demo snapshot readback procedure in `docs/failure-to-insight.md` and make it the standard operator demo recipe.
 
-Why: the snapshot path now proves FailureInsight readback survives across separate process runs (pure Rust JSON persistence, no native deps). The next step is to automate the proof as a `cargo test` or CLI integration test so every CI run verifies cross-invocation readback without manual invocation.
+Why: the snapshot path now has passing unit tests and a CLI integration test. The next operator-facing step is to document the full verification procedure — `cargo run memory demo failure-insight --snapshot-path target/demo.json && cargo run memory demo snapshot-read target/demo.json` — as the standard way to prove the governed learning loop output survives serialization, file I/O, process restart and deserialization.
 
-Proof to seek: a passing test that calls `memory demo failure-insight --snapshot-path` then `memory demo snapshot-read <path>` and asserts the readback JSON matches expected fields.
+Proof to seek: a `docs/failure-to-insight.md` section titled "Cross-invocation readback verification" describing the exact one-liner command sequence and what to look for in the readback output.
 
 Do not: add broad autonomous memory writing, provider/runtime direct memory mutation, external effects, scheduler expansion, Mission Control Web, MCP/browser automation, personal/sensitive memory, readback-as-authorization behavior, or always-on native/unstable backend requirements.
 
