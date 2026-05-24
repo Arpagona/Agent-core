@@ -13,6 +13,7 @@ The original ambition is not only to control AI agents, audit their actions, or 
 - working memory;
 - graph memory;
 - short-term reservoir echo;
+- holographic memory;
 - compute-aware model routing;
 - reflection loops;
 - failure-to-insight learning;
@@ -25,7 +26,7 @@ The governance layer inspired by Rippletide is important, but it is not the hear
 The core vision is:
 
 ```text
-Build a local-first cognitive runtime where agents can reason, remember, maintain continuity, route their own cognitive resources, propose actions, learn from failures and progressively become more useful — while remaining bounded by explicit safety, governance and human supervision.
+Build a local-first cognitive runtime where agents can reason, remember, maintain continuity, detect recurring cognitive patterns, route their own cognitive resources, propose actions, learn from failures and progressively become more useful — while remaining bounded by explicit safety, governance and human supervision.
 ```
 
 ---
@@ -42,9 +43,10 @@ They often provide useful orchestration, tool calling and LLM interaction, but t
 - poor continuity between cycles;
 - weak self-evaluation;
 - limited learning from failures;
+- poor pattern recognition across past episodes;
 - poor routing between cloud models, local models and deterministic workers;
 - insufficient cost awareness;
-- weak distinction between working memory, durable memory and temporary salience;
+- weak distinction between working memory, durable memory, temporary salience and pattern resonance;
 - tool execution added before cognitive architecture is stable;
 - autonomy added before reflection and correction loops are reliable.
 ```
@@ -76,6 +78,7 @@ Input
 -> Intent parsing
 -> Working memory
 -> Reservoir Echo
+-> Holographic Memory recall
 -> Graph Memory recall
 -> Compute Reservoir allocation
 -> Agent proposal
@@ -159,7 +162,40 @@ Cognitive pulse
 
 Reservoir Echo is not durable memory and not model routing. It is a volatile cognitive continuity mechanism.
 
-### 4.4 Compute Reservoir
+### 4.4 Holographic Memory
+
+Holographic Memory is an experimental cognitive resonance layer.
+
+It stores distributed pattern signatures of cognitive experience rather than authoritative facts. It should help the runtime detect when a current task, action chain, failure, success, conversation pattern, routing choice or decision resembles something encountered before.
+
+Its core question is:
+
+```text
+What does this situation resonate with?
+```
+
+It may support:
+
+- similarity across episodes;
+- failure pattern detection;
+- success pattern recall;
+- action-chain resonance;
+- conversation drift detection;
+- compute routing hints;
+- reflection and Failure-to-Insight.
+
+It must not authorize actions or replace Graph Memory.
+
+```text
+Working Memory       = active context.
+Reservoir Echo       = short-term salience.
+Holographic Memory   = distributed pattern resonance.
+Graph Memory         = explicit durable facts and relations.
+Compute Reservoir    = cognitive resource selection.
+Decision Gate        = action safety boundary.
+```
+
+### 4.5 Compute Reservoir
 
 Compute Reservoir is the cognitive resource router.
 
@@ -196,7 +232,7 @@ It must consider:
 
 Compute Reservoir is not only a cost optimization feature. It is part of the cognitive architecture.
 
-### 4.5 Reflection Engine
+### 4.6 Reflection Engine
 
 The runtime must be able to reflect on what happened.
 
@@ -224,7 +260,7 @@ Reflection should produce bounded, non-authorizing improvement proposals:
 - tool improvement proposal;
 - documentation update proposal.
 
-### 4.6 Failure-to-Insight
+### 4.7 Failure-to-Insight
 
 Failure-to-Insight is the learning doctrine of the project.
 
@@ -241,7 +277,7 @@ The Decision Gate, audit trail, policies and Rippletide-inspired runtime enforce
 They exist because a more capable cognitive runtime needs boundaries.
 
 ```text
-Cognitive ambition = memory, continuity, reasoning, routing, reflection, learning.
+Cognitive ambition = memory, continuity, resonance, reasoning, routing, reflection, learning.
 Governance = the immune system that prevents unsafe action and preserves trust.
 ```
 
@@ -318,6 +354,7 @@ The CLI should help the operator inspect:
 - decisions;
 - audit traces;
 - memory readback;
+- holographic resonance matches;
 - failure insights;
 - compute/resource choices;
 - pending human decisions.
@@ -328,6 +365,7 @@ The long-term Mission Control UI should make the cognitive runtime visible:
 What is the agent trying to do?
 What does it remember?
 What is currently salient?
+What patterns does this situation resonate with?
 Which model/resource was selected?
 What action is proposed?
 Why was it approved, blocked or escalated?
@@ -367,6 +405,7 @@ React Flow / Cytoscape.js for graph visualization
 ```text
 SurrealDB
 Graph Memory
+Holographic Memory experiments
 future vector search / embeddings
 source-aware memory
 invalidation and consolidation
@@ -409,13 +448,14 @@ A successful V0 shows:
 2. The runtime creates or updates a task.
 3. Working memory is formed.
 4. Reservoir Echo preserves short-term salience.
-5. Graph Memory recalls structured context.
-6. Compute Reservoir selects a cognitive resource.
-7. An agent proposes an action.
-8. Decision Gate evaluates it if needed.
-9. The result is audited.
-10. Reflection or Failure-to-Insight captures what was learned.
-11. The operator can inspect the chain locally.
+5. Holographic Memory can surface non-authorizing resonance patterns.
+6. Graph Memory recalls structured context.
+7. Compute Reservoir selects a cognitive resource.
+8. An agent proposes an action.
+9. Decision Gate evaluates it if needed.
+10. The result is audited.
+11. Reflection or Failure-to-Insight captures what was learned.
+12. The operator can inspect the chain locally.
 ```
 
 The key proof is not raw autonomy. The key proof is **cognitive continuity plus controlled progression**.
@@ -435,7 +475,7 @@ V0 must avoid unsafe premature autonomy:
 - no financial actions;
 - no self-modification of runtime code;
 - no scheduler autonomy before governance and reflection are ready;
-- no treating readback as authorization.
+- no treating readback or resonance as authorization.
 ```
 
 The system should become ambitious through staged cognitive capability, not reckless execution.
@@ -450,18 +490,19 @@ The development order should now be interpreted through the cognitive vision:
 1. Core cognitive/domain vocabulary
 2. Reservoir Echo and cognitive cycle primitives
 3. Graph Memory and readback
-4. Decision Gate as safety boundary
-5. Compute Reservoir
-6. Tool Registry
-7. CLI supervision as first Mission Control
-8. Reflection / Failure-to-Insight
-9. Neutral Orchestrator
-10. API server integration
-11. Mission Control Web
-12. Scheduler and controlled loops
-13. Tool Runtime and sandbox
-14. Security hardening
-15. End-to-end cognitive alpha
+4. Holographic Memory documentation and later experiments
+5. Decision Gate as safety boundary
+6. Compute Reservoir
+7. Tool Registry
+8. CLI supervision as first Mission Control
+9. Reflection / Failure-to-Insight
+10. Neutral Orchestrator
+11. API server integration
+12. Mission Control Web
+13. Scheduler and controlled loops
+14. Tool Runtime and sandbox
+15. Security hardening
+16. End-to-end cognitive alpha
 ```
 
 This does not mean governance disappears. It means governance supports the cognitive runtime instead of defining the whole project.
@@ -481,14 +522,14 @@ ARPAGONA Agent Core should evolve toward a local-first cognitive operating layer
 - multi-agent cognitive workspace;
 - self-improving but human-governed system.
 
-The highest ambition is not simply automation. It is a software system that maintains context, reflects, learns, routes cognition, and becomes progressively more useful.
+The highest ambition is not simply automation. It is a software system that maintains context, detects resonance, reflects, learns, routes cognition, and becomes progressively more useful.
 
 ---
 
 ## 14. Guiding Sentence
 
 ```text
-ARPAGONA Agent Core is a Rust-based cognitive agent runtime: a Hermes-like local-first system designed for memory, continuity, reflection, compute-aware reasoning and controlled self-improvement — with governance as the safety layer that makes this ambition usable.
+ARPAGONA Agent Core is a Rust-based cognitive agent runtime: a Hermes-like local-first system designed for memory, continuity, holographic resonance, reflection, compute-aware reasoning and controlled self-improvement — with governance as the safety layer that makes this ambition usable.
 ```
 
 Short version:
