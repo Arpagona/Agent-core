@@ -268,3 +268,35 @@ Architectural risk:
 - low. The change adds read-only artifact inspection inside an already bounded local demo path. The main risk is operator confusion if in-memory demo readback is mistaken for durable memory; the readback warnings and handoff explicitly preserve the evidence-only, local-demo boundary.
 
 Recommended next step: replace the in-memory-only FailureInsight demo inspection with an explicitly configured local SurrealDB persistence/readback path if the adapter can support a safe file-backed configuration, without adding broad mutation or authorization paths.
+
+## Latest Session Update (2026-05-24 — Demo snapshot path for cross-invocation readback)
+
+This session added a cross-invocation demo snapshot path for the governed FailureInsight learning loop, proving readback across separate process invocations without unstable SurrealDB cfg flags or native RocksDB/zstd dependencies.
+
+Changed:
+- added `crates/graph-memory/src/demo_snapshot.rs` with a `FailureInsightDemoSnapshot` struct, JSON serialize/deserialize, `write_to_file()` and `read_failure_insight_demo_snapshot()` public API;
+- extended `arpagona memory demo failure-insight` with `--snapshot-path <path>` flag that persists the demo readback as a pure-Rust JSON snapshot file after the in-memory demo succeeds;
+- added `arpagona memory demo snapshot-read <path>` subcommand that reads and formats a demo snapshot JSON file from disk;
+- updated the functional-alpha chain to include the snapshot step: `demo snapshot written for cross-invocation readback proof`;
+- updated the repeatable demo recipe with snapshot-path and snapshot-read steps.
+
+Stability level: alpha CLI demo persistence. This change uses pure Rust stdlib file I/O and serde for cross-invocation snapshot persistence. It requires no native toolchain dependencies, no unstable cfg flags, and leaves `cargo fmt -- --check && cargo check && cargo test` green by default. The snapshot mechanism is a development-only proof, not a production persistence mechanism.
+
+Limits:
+- no Cargo feature flag was added (the snapshot path is pure Rust stdlib/serde, no build-time gate needed);
+- no SurrealDB backend change was made (`kv-mem` remains the default);
+- no migration runner was added;
+- no broad CLI mutation command was added;
+- no API endpoint was added;
+- no Decision Gate behavior was changed;
+- no LLM/provider/runtime direct memory mutation was added;
+- no broad autonomous memory writing was added;
+- no personal or sensitive memory path was added;
+- no real tool execution was introduced;
+- no scheduler, autonomy, MCP, browser automation, credential handling or Mission Control Web growth was introduced;
+- readback remains evidence only and must not be treated as authorization.
+
+Architectural risk:
+- low. The snapshot path is pure Rust JSON I/O behind an optional CLI flag. The main risk is operator confusion between demo snapshot files and real persistent memory; the evidence-only token and readback warnings explicitly preserve the demo-only, non-authorizing boundary.
+
+Recommended next step: adopt the demo snapshot command as the standard cross-invocation readback proof and add a CLI integration test that runs the snapshot-then-read cycle end-to-end.

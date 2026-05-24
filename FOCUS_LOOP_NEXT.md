@@ -8,11 +8,11 @@ This file does not override safety, governance, `PROJECT_OBJECTIVES.md`, `PROJEC
 
 ## Current next-pass instruction
 
-Next pass should: add an opt-in local Graph Memory persistence feature or demo snapshot path that leaves plain `cargo check`/`cargo test` green by default.
+Next pass should: adopt the demo snapshot command as the standard cross-invocation readback proof and add a CLI integration test that runs the snapshot-then-read cycle end-to-end.
 
-Why: direct always-on SurrealDB persistent backends are currently blocked: `kv-surrealkv` needs `surrealdb_unstable`, and `kv-rocksdb`/`File` failed local verification on native `zstd-sys`/clang headers.
+Why: the snapshot path now proves FailureInsight readback survives across separate process runs (pure Rust JSON persistence, no native deps). The next step is to automate the proof as a `cargo test` or CLI integration test so every CI run verifies cross-invocation readback without manual invocation.
 
-Proof to seek: `cargo fmt -- --check && cargo check && cargo test`, plus an explicit feature-gated or demo command/test proving FailureInsight readback across a separate persistence/readback step.
+Proof to seek: a passing test that calls `memory demo failure-insight --snapshot-path` then `memory demo snapshot-read <path>` and asserts the readback JSON matches expected fields.
 
 Do not: add broad autonomous memory writing, provider/runtime direct memory mutation, external effects, scheduler expansion, Mission Control Web, MCP/browser automation, personal/sensitive memory, readback-as-authorization behavior, or always-on native/unstable backend requirements.
 
