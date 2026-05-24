@@ -1,469 +1,355 @@
 # ARPAGONA Agent Core — Foundational Whitepaper
 
-## Runtime agentique local-first, gouverné par graphe et orienté usage professionnel
+## Cognitive Agent Runtime in Rust
 
 ---
 
-## 1. Résumé exécutif
+## 1. Executive Summary
 
-ARPAGONA Agent Core est un projet de runtime agentique professionnel destiné à faire fonctionner des agents IA dans un environnement local-first, contrôlé, auditable et extensible.
+ARPAGONA Agent Core is first and foremost a **cognitive agent runtime** written in Rust.
 
-L'objectif n'est pas de créer un simple chatbot, ni de reproduire un framework existant comme Hermes Agent, OpenClaw ou autre système agentique généraliste. L'objectif est de construire un socle logiciel souverain et professionnel, capable de faire interagir des agents IA avec de la mémoire, des outils, des règles, des ressources de calcul et des humains, sans perdre le contrôle.
+The original ambition is not only to control AI agents, audit their actions, or build an enterprise governance layer. The deeper ambition is to build a Hermes-like / OpenClaw-like agentic system, but with a more advanced cognitive architecture from the beginning:
 
-La philosophie centrale est simple :
+- working memory;
+- graph memory;
+- short-term reservoir echo;
+- compute-aware model routing;
+- reflection loops;
+- failure-to-insight learning;
+- progressive autonomy;
+- local-first execution and supervision;
+- controlled self-improvement.
+
+The governance layer inspired by Rippletide is important, but it is not the heart of the project. It is the immune system that makes a more capable cognitive runtime safe enough to use.
+
+The core vision is:
 
 ```text
-Les agents ne doivent pas agir directement.
-Ils doivent proposer des actions.
-Le runtime décide ensuite si ces actions sont autorisées, bloquées ou soumises à validation humaine.
+Build a local-first cognitive runtime where agents can reason, remember, maintain continuity, route their own cognitive resources, propose actions, learn from failures and progressively become more useful — while remaining bounded by explicit safety, governance and human supervision.
 ```
-
-ARPAGONA Agent Core vise donc à devenir une couche d'orchestration agentique fiable, explicable et adaptable à différents contextes : usage personnel avancé, entreprise locale, automatisation documentaire, assistance métier, recherche, développement logiciel, supervision de projets et systèmes multi-agents.
 
 ---
 
-## 2. Problème identifié
+## 2. Why This Project Exists
 
-Les systèmes agentiques actuels montrent rapidement plusieurs limites lorsqu'on tente de les utiliser sérieusement :
+Current agentic systems are promising but incomplete.
+
+They often provide useful orchestration, tool calling and LLM interaction, but they remain weak in several areas:
 
 ```text
-- accumulation excessive de contexte ;
-- coût incontrôlé des appels aux grands modèles cloud ;
-- mémoire long terme peu fiable ;
-- difficulté à invalider les informations obsolètes ;
-- manque de traçabilité des décisions ;
-- absence de séparation claire entre raisonnement et action ;
-- sécurité insuffisante autour des outils ;
-- difficulté à combiner modèles locaux, cloud et workers spécialisés ;
-- autonomie parfois ajoutée avant la gouvernance.
+- fragile long-term memory;
+- excessive context stuffing;
+- poor continuity between cycles;
+- weak self-evaluation;
+- limited learning from failures;
+- poor routing between cloud models, local models and deterministic workers;
+- insufficient cost awareness;
+- weak distinction between working memory, durable memory and temporary salience;
+- tool execution added before cognitive architecture is stable;
+- autonomy added before reflection and correction loops are reliable.
 ```
 
-Un agent puissant mais mal encadré peut produire des résultats impressionnants à court terme, mais devenir dangereux, coûteux, opaque ou instable dès qu'il interagit avec des données réelles, des outils réels ou des décisions professionnelles.
-
-Le besoin n'est donc pas seulement de créer un meilleur agent. Le besoin est de créer un runtime agentique gouverné.
+The goal of ARPAGONA Agent Core is to explore what a more serious agentic runtime could become if it were designed as a **software cognitive system**, not just as a chatbot with tools.
 
 ---
 
-## 3. Vision
+## 3. Primary Vision: A Hermes-like Runtime, But Deeper
 
-ARPAGONA Agent Core doit devenir une plateforme locale capable de faire fonctionner des agents IA selon une boucle contrôlée :
-
-```text
-Objectif utilisateur
--> interprétation
--> rappel du contexte pertinent
--> choix de ressource cognitive
--> proposition d'action
--> évaluation par le Decision Gate
--> validation humaine si nécessaire
--> exécution contrôlée éventuelle
--> observation
--> audit
--> mise à jour de la mémoire
--> réflexion et amélioration contrôlée
-```
-
-Le système doit permettre aux agents d'être utiles, proactifs et capables de raisonner, sans leur donner un pouvoir d'exécution direct.
-
-La vision long terme est celle d'un système agentique auto-améliorant, mais selon une règle stricte :
+ARPAGONA Agent Core should provide the practical ergonomics of modern local agent systems:
 
 ```text
-Le système peut observer ses erreurs, proposer des améliorations et ajuster ses stratégies,
-mais toute modification structurelle sensible doit rester contrôlée, traçable et validée.
+- local CLI interaction;
+- persistent project context;
+- task and action tracking;
+- model providers;
+- local/cloud delegation;
+- inspectable state;
+- future scheduler loops;
+- future tool execution;
+- future Mission Control UI.
 ```
 
-Autonomie ne signifie pas absence de contrôle. Autonomie signifie capacité à proposer, apprendre et s'améliorer dans un cadre gouverné.
+But unlike a simple agent runner, the runtime must be structured around cognitive layers:
+
+```text
+Input
+-> Intent parsing
+-> Working memory
+-> Reservoir Echo
+-> Graph Memory recall
+-> Compute Reservoir allocation
+-> Agent proposal
+-> Decision Gate / human boundary when needed
+-> Observation
+-> Audit
+-> Reflection
+-> Memory consolidation
+```
+
+This is the central direction: **build a cognitive runtime first, then make it governable**.
 
 ---
 
-## 4. Principe fondateur
+## 4. Cognitive Pillars
 
-Le principe non négociable d'ARPAGONA Agent Core est :
+### 4.1 Working Memory
+
+Working memory is the active context of the current cycle.
+
+It should contain:
+
+- current objective;
+- active task;
+- recent observations;
+- relevant graph context;
+- active constraints;
+- selected model/resource;
+- current proposed action.
+
+Working memory is not durable memory. It is the active mental workspace of the system.
+
+### 4.2 Graph Memory
+
+Graph Memory is the durable structured memory of the runtime.
+
+It must represent:
+
+```text
+- facts;
+- entities;
+- relations;
+- sources;
+- episodes;
+- observations;
+- decisions;
+- failures;
+- policies;
+- validity windows;
+- confidence;
+- provenance;
+- invalidation state.
+```
+
+Important primitives:
+
+```text
+remember   -> store structured facts or episodes;
+relate     -> connect facts, entities, tasks, decisions or sources;
+recall     -> retrieve applicable context;
+invalidate -> expire, revoke, supersede or mark information as unreliable;
+consolidate -> transform episodes and traces into more durable memory.
+```
+
+Graph Memory is not just a database. It is the substrate that lets the runtime build a more stable model of its world.
+
+### 4.3 Reservoir Echo
+
+Reservoir Echo is the short-term continuity layer.
+
+Its purpose is to prevent the system from behaving as if each LLM call were isolated. Recent signals should remain temporarily active, decay over time, and influence upcoming cycles before being forgotten or consolidated.
+
+```text
+Cognitive pulse
+-> temporary activation
+-> decay
+-> reinforcement if repeated
+-> influence on next cycle
+-> consolidation or disappearance
+```
+
+Reservoir Echo is not durable memory and not model routing. It is a volatile cognitive continuity mechanism.
+
+### 4.4 Compute Reservoir
+
+Compute Reservoir is the cognitive resource router.
+
+The system should not behave as if it had only one brain. It should be able to choose between:
+
+```text
+- strong cloud LLMs;
+- local LLMs;
+- embedding models;
+- deterministic tools;
+- Python workers;
+- GPU/CPU resources;
+- deferred jobs;
+- fallback strategies.
+```
+
+Its core question is:
+
+```text
+Which form of intelligence or computation should be used for this task?
+```
+
+It must consider:
+
+- task complexity;
+- data sensitivity;
+- model capability;
+- cost;
+- latency;
+- local-first constraints;
+- fallback options;
+- past performance;
+- quality requirements.
+
+Compute Reservoir is not only a cost optimization feature. It is part of the cognitive architecture.
+
+### 4.5 Reflection Engine
+
+The runtime must be able to reflect on what happened.
+
+Reflection should answer:
+
+```text
+What was attempted?
+What succeeded?
+What failed?
+Was the wrong context recalled?
+Was the wrong model selected?
+Was the proposed action poorly formed?
+Was a policy missing?
+Did the human correct the system?
+What should be remembered, invalidated, tested or improved?
+```
+
+Reflection should produce bounded, non-authorizing improvement proposals:
+
+- memory update proposal;
+- policy improvement proposal;
+- test case proposal;
+- prompt/system instruction improvement;
+- compute routing improvement;
+- tool improvement proposal;
+- documentation update proposal.
+
+### 4.6 Failure-to-Insight
+
+Failure-to-Insight is the learning doctrine of the project.
+
+Failures, blocked actions, bad proposals, human corrections, missing context and poor routing choices must become durable learning artifacts.
+
+They are not authorization. They are not self-modification. They are structured material for future improvement.
+
+---
+
+## 5. Governance as Immune System, Not Main Identity
+
+The Decision Gate, audit trail, policies and Rippletide-inspired runtime enforcement are essential, but they are not the main purpose of ARPAGONA Agent Core.
+
+They exist because a more capable cognitive runtime needs boundaries.
+
+```text
+Cognitive ambition = memory, continuity, reasoning, routing, reflection, learning.
+Governance = the immune system that prevents unsafe action and preserves trust.
+```
+
+The governing principle remains:
 
 ```text
 No agent executes directly.
 Agents only propose actions.
-Every action passes through the Decision Gate.
-Every important decision is recorded in the graph.
-Every sensitive action requires human approval.
+Every sensitive action passes through the Decision Gate.
+Every important decision is recorded.
+Every structural improvement remains controlled.
 ```
 
-En français :
-
-```text
-Aucun agent n'agit directement.
-Un agent propose une action.
-Le Decision Gate évalue l'action.
-L'action est approuvée, bloquée, reroutée ou soumise à validation humaine.
-Toute décision importante est tracée dans le graphe.
-```
-
-Cette séparation entre proposition, décision et exécution est le cœur de l'architecture.
+This principle should enable autonomy, not replace it.
 
 ---
 
-## 5. Objectifs principaux
+## 6. Rippletide-Inspired Runtime Enforcement
 
-ARPAGONA Agent Core doit fournir les briques suivantes.
+ARPAGONA Agent Core borrows one key idea from Rippletide-like systems: actions should be checked before they affect the world.
 
-### 5.1 Core Domain
-
-Le Core Domain définit le vocabulaire fondamental du système :
+The useful pattern is:
 
 ```text
-Agent
-Human
-Workspace
-Project
-Goal
-Task
-Action
-ProposedAction
-Decision
-Policy
-Tool
-Permission
-Risk
-Fact
-Source
-Episode
-Observation
-AuditEvent
-Memory
-ComputeNode
-ModelProfile
-ComputeAllocation
-```
-
-Ce domaine doit rester stable, typé, modulaire et indépendant des détails d'implémentation.
-
-### 5.2 Graph Memory
-
-La mémoire ne doit pas être une simple conversation sauvegardée ni une base vectorielle brute.
-
-Elle doit être une mémoire structurée en graphe, capable de représenter :
-
-```text
-- faits ;
-- entités ;
-- relations ;
-- sources ;
-- épisodes ;
-- observations ;
-- décisions ;
-- règles ;
-- validité temporelle ;
-- confiance ;
-- provenance ;
-- invalidation.
-```
-
-Le système doit pouvoir répondre à des questions comme :
-
-```text
-D'où vient cette information ?
-Est-elle encore valide ?
-Quelle décision l'a utilisée ?
-Quelle règle s'appliquait à ce moment ?
-Cette information a-t-elle été remplacée ou révoquée ?
-```
-
-Les primitives essentielles sont :
-
-```text
-remember   -> mémoriser un fait structuré ;
-relate     -> relier deux entités ou faits ;
-recall     -> rappeler un contexte applicable ;
-invalidate -> expirer, remplacer, révoquer ou marquer comme incertain.
-```
-
-C'est une inspiration directe des approches modernes de context graph et des architectures de type Rippletide : il ne suffit pas de retrouver une information similaire, il faut retrouver une information applicable, valide et autorisée.
-
-### 5.3 Decision Gate
-
-Le Decision Gate est la couche de contrôle pré-exécution.
-
-Il reçoit une `ProposedAction` et retourne une décision :
-
-```text
-Approved
-Blocked
-NeedsHumanApproval
-NeedsMoreContext
-```
-
-Il évalue notamment :
-
-```text
-- type d'action ;
-- outil demandé ;
-- permissions requises ;
-- niveau de risque ;
-- policies applicables ;
-- validité du contexte ;
-- nécessité de validation humaine.
-```
-
-Le Decision Gate ne remplace pas le LLM. Il est au contraire volontairement extérieur au LLM.
-
-Le LLM peut proposer. Le runtime décide.
-
-### 5.4 Tool Registry
-
-Le Tool Registry déclare les outils disponibles.
-
-Un agent ne doit jamais recevoir un accès libre au système. Il doit uniquement pouvoir proposer une action utilisant un outil déclaré.
-
-Chaque outil doit avoir :
-
-```text
-- nom ;
-- description ;
-- schéma d'entrée ;
-- schéma de sortie ;
-- permissions requises ;
-- niveau de risque ;
-- statut activé/désactivé ;
-- mode dry-run éventuel.
-```
-
-La logique est :
-
-```text
-Tool Registry = ce qui existe
-Decision Gate = ce qui est autorisé
-Tool Runtime = ce qui exécute réellement
-Audit = ce qui trace
-```
-
-### 5.5 Compute Reservoir
-
-Le Compute Reservoir est une brique centrale du projet.
-
-Son rôle est de donner au système une conscience de ses ressources de calcul et de raisonnement.
-
-ARPAGONA Agent Core ne doit pas considérer l'intelligence artificielle comme un seul modèle abstrait, mais comme un réservoir de ressources cognitives hétérogènes :
-
-```text
-- grands modèles cloud ;
-- modèles locaux ;
-- modèles d'embedding ;
-- workers Python ;
-- outils déterministes ;
-- GPU local ;
-- CPU local ;
-- serveurs distants ;
-- traitements différés ;
-- fallbacks.
-```
-
-Le Compute Reservoir doit répondre à des questions comme :
-
-```text
-Quelle ressource doit traiter cette tâche ?
-Pourquoi ce modèle plutôt qu'un autre ?
-Le cloud est-il autorisé pour ces données ?
-Le modèle local suffit-il ?
-Quel est le coût estimé ?
-Quelle est la latence attendue ?
-Existe-t-il un fallback ?
-Cette tâche doit-elle être prétraitée localement avant synthèse cloud ?
-```
-
-Exemples de règles :
-
-```text
-Données sensibles -> local-first.
-Tâche longue -> prétraitement local.
-Tâche stratégique complexe -> modèle fort autorisé.
-Budget faible -> éviter les modèles coûteux.
-Risque élevé -> modèle fort + Decision Gate + validation humaine.
-```
-
-Cette brique répond à une faiblesse majeure des systèmes actuels : ils appellent souvent les modèles sans stratégie de coût, de confidentialité ou de performance.
-
-### 5.6 Neutral Orchestrator
-
-L'orchestrateur neutre coordonne les objectifs, les tâches, les agents, la mémoire, les ressources et les actions proposées.
-
-Il ne doit pas être spécialisé dès le départ dans un seul cas métier. Il doit pouvoir s'adapter ensuite à plusieurs usages :
-
-```text
-- assistant personnel/professionnel ;
-- agent documentaire ;
-- agent de recherche ;
-- agent de développement logiciel ;
-- agent administratif ;
-- assistant d'entreprise ;
-- système local multi-agents.
-```
-
-Son rôle :
-
-```text
-recevoir un objectif
--> créer une tâche
--> rappeler le contexte
--> demander une allocation compute
--> construire un plan
--> proposer une action
--> soumettre au Decision Gate
--> enregistrer le résultat
--> mettre à jour la mémoire
-```
-
-### 5.7 Audit System
-
-L'audit doit être natif.
-
-Chaque événement important doit être traçable :
-
-```text
-- demande utilisateur ;
-- création de tâche ;
-- contexte rappelé ;
-- allocation compute ;
-- action proposée ;
-- décision ;
-- validation humaine ;
-- exécution éventuelle ;
-- observation ;
-- fait mémorisé ;
-- fait invalidé ;
-- erreur ;
-- post-mortem.
-```
-
-L'objectif est de pouvoir répondre à tout moment :
-
-```text
-Qui a demandé quoi ?
-Quel agent a proposé l'action ?
-Quel contexte a été utilisé ?
-Quelle règle a été appliquée ?
-Pourquoi l'action a-t-elle été acceptée ou bloquée ?
-Quel humain a validé ?
-Quel résultat a été observé ?
-```
-
-### 5.8 Mission Control
-
-Mission Control est le cockpit web du système.
-
-Il doit permettre de visualiser et piloter :
-
-```text
-- agents ;
-- workspaces ;
-- objectifs ;
-- tâches ;
-- actions proposées ;
-- décisions ;
-- validations humaines ;
-- graphe mémoire ;
-- audit ;
-- ressources compute ;
-- modèles disponibles ;
-- outils ;
-- policies ;
-- erreurs ;
-- boucles autonomes.
-```
-
-Mission Control est essentiel parce qu'un système agentique professionnel doit être observable. Un agent qui agit dans une boîte noire n'est pas acceptable en contexte professionnel.
-
----
-
-## 6. Inspiration Rippletide
-
-ARPAGONA Agent Core s'inspire conceptuellement d'une idée forte : les agents professionnels ont besoin d'une couche de décision entre eux et le monde réel.
-
-La leçon importante n'est pas « faire des agents plus intelligents ». La leçon est :
-
-```text
-Rendre les agents contrôlables, traçables et gouvernés avant exécution.
-```
-
-Les points à retenir :
-
-```text
-- pre-execution enforcement ;
-- context graph ;
-- règles/policies explicites ;
-- contexte applicable plutôt que seulement similaire ;
-- audit causal ;
-- séparation entre intention et action ;
-- invalidation des informations obsolètes.
-```
-
-ARPAGONA Agent Core ne doit pas copier Rippletide, mais peut s'inspirer de cette philosophie pour construire son propre runtime local-first, adapté à des usages professionnels, personnels avancés et entreprises locales.
-
----
-
-## 7. Auto-amélioration contrôlée
-
-Le système doit évoluer vers une capacité d'auto-amélioration, mais sans auto-modification dangereuse.
-
-La boucle cible :
-
-```text
-exécution ou tentative
--> observation du résultat
+Agent proposal
+-> applicable context
+-> policy/risk/permission check
+-> approve / block / escalate / request more context
 -> audit
--> détection d'erreur ou faiblesse
--> post-mortem
--> proposition d'amélioration
--> validation humaine
--> mise à jour contrôlée
+-> controlled execution only if allowed
 ```
 
-Le système peut proposer :
+This is a guardrail around the cognitive runtime. It should not dominate the product identity.
+
+The goal is not to build only a compliance layer. The goal is to let a cognitive agent become more useful while remaining governable.
+
+---
+
+## 7. Tool and Action Layer
+
+Agents should be able to propose actions, but not execute them directly.
+
+The Tool Registry declares available tools:
+
+- name;
+- capability;
+- input/output schema;
+- risk level;
+- required permissions;
+- enabled/disabled state;
+- governance notes.
+
+The Tool Runtime, later, may execute approved actions. Until then, tool execution must remain deferred.
+
+The distinction must remain strict:
 
 ```text
-- invalidation d'un fait ;
-- modification d'une policy ;
-- amélioration d'un outil ;
-- changement de modèle pour un type de tâche ;
-- ajout d'un test ;
-- amélioration d'un prompt système ;
-- mise à jour de la mémoire ;
-- amélioration d'une règle de routage compute.
-```
-
-Mais il ne doit pas modifier librement ses propres règles critiques.
-
-Formule clé :
-
-```text
-ARPAGONA Agent Core ne doit pas seulement exécuter des workflows agentiques ;
-il doit observer ses propres erreurs, coûts, décisions et résultats afin de proposer
-des améliorations contrôlées de sa mémoire, de ses règles, de ses outils et de son routage compute.
+Tool Registry = what exists.
+Decision Gate = what is allowed.
+Tool Runtime = what executes.
+Audit = what explains what happened.
 ```
 
 ---
 
-## 8. Technologies cibles
+## 8. Mission Control and CLI Supervision
 
-### Backend
+Before the web dashboard exists, the CLI is the first local Mission Control.
+
+The CLI should help the operator inspect:
+
+- current tasks;
+- proposed actions;
+- decisions;
+- audit traces;
+- memory readback;
+- failure insights;
+- compute/resource choices;
+- pending human decisions.
+
+The long-term Mission Control UI should make the cognitive runtime visible:
+
+```text
+What is the agent trying to do?
+What does it remember?
+What is currently salient?
+Which model/resource was selected?
+What action is proposed?
+Why was it approved, blocked or escalated?
+What did the system learn from the result?
+```
+
+---
+
+## 9. Technology Direction
+
+### Core Runtime
 
 ```text
 Rust
-Axum
+Axum later
 Tokio
 Serde
 tracing
-OpenAPI / utoipa
+OpenAPI / utoipa later
 ```
 
-Rust est choisi pour :
-
-```text
-- typage fort ;
-- fiabilité ;
-- sécurité mémoire ;
-- maintenabilité ;
-- pertinence pour un runtime local installable.
-```
+Rust is chosen because ARPAGONA Agent Core is intended to become a serious runtime, not a disposable script.
 
 ### Frontend
 
@@ -473,248 +359,140 @@ React
 TypeScript
 Tailwind
 shadcn/ui
-React Flow ou Cytoscape.js pour la visualisation graphe
+React Flow / Cytoscape.js for graph visualization
 ```
 
-### Base principale
+### Data and Memory
 
 ```text
 SurrealDB
+Graph Memory
+future vector search / embeddings
+source-aware memory
+invalidation and consolidation
 ```
 
-Rôle :
-
-```text
-- graphe ;
-- documents ;
-- relations ;
-- mémoire ;
-- audit ;
-- décisions ;
-- policies ;
-- compute allocations.
-```
-
-### Workers
-
-```text
-Python
-PyMuPDF / OCR / parsing documentaire / embeddings
-```
-
-### Modèles
+### AI and Workers
 
 ```text
 OpenAI / GPT-5.5
 Ollama
-modèles locaux
-providers futurs : Mistral, Anthropic, OpenRouter, custom HTTP
+local models
+Python workers
+OCR / PDF parsing / embeddings
+future provider abstraction
 ```
 
-### Déploiement futur
+### Deployment and Safety
 
 ```text
 Docker / Podman
 systemd
-sauvegarde/restauration
-secret vault
-sandbox d'exécution
+local-first configuration
+secret vault later
+sandbox later
+backup/restore later
 ```
 
 ---
 
-## 9. Ce que la V0 doit prouver
+## 10. What V0 Must Prove
 
-La V0 n'a pas besoin d'être autonome ni prête pour un client. Elle doit prouver que la boucle centrale fonctionne.
+V0 must not prove that the system is enterprise-ready.
 
-Scénario V0 :
+V0 must prove that the cognitive architecture works in miniature.
+
+A successful V0 shows:
 
 ```text
-1. Un utilisateur crée un objectif.
-2. L'orchestrateur crée une tâche.
-3. Graph Memory rappelle le contexte applicable.
-4. Compute Reservoir choisit une ressource cognitive.
-5. Un agent propose une action.
-6. Decision Gate évalue l'action.
-7. La décision est enregistrée.
-8. L'audit trace la chaîne causale.
-9. Mission Control ou l'interface alpha rend la chaîne visible.
+1. A user gives an objective.
+2. The runtime creates or updates a task.
+3. Working memory is formed.
+4. Reservoir Echo preserves short-term salience.
+5. Graph Memory recalls structured context.
+6. Compute Reservoir selects a cognitive resource.
+7. An agent proposes an action.
+8. Decision Gate evaluates it if needed.
+9. The result is audited.
+10. Reflection or Failure-to-Insight captures what was learned.
+11. The operator can inspect the chain locally.
 ```
 
-La V0 doit démontrer la structure, pas la puissance brute.
+The key proof is not raw autonomy. The key proof is **cognitive continuity plus controlled progression**.
 
 ---
 
-## 10. Ce que la V0 ne doit pas faire
+## 11. What V0 Must Not Do
 
-Interdits V0 :
+V0 must avoid unsafe premature autonomy:
 
 ```text
-- pas de shell libre ;
-- pas de suppression fichier ;
-- pas de modification système ;
-- pas d'envoi email réel ;
-- pas d'accès secret par le LLM ;
-- pas d'action financière ;
-- pas d'auto-modification du runtime ;
-- pas d'outil réel sans Tool Registry ;
-- pas d'exécution sans Decision Gate ;
-- pas d'autonomie scheduler sans garde-fous.
+- no free shell;
+- no arbitrary file deletion;
+- no uncontrolled tool execution;
+- no autonomous email sending;
+- no secrets in LLM context;
+- no financial actions;
+- no self-modification of runtime code;
+- no scheduler autonomy before governance and reflection are ready;
+- no treating readback as authorization.
 ```
 
-L'ambition doit être forte, mais la sécurité doit être native.
+The system should become ambitious through staged cognitive capability, not reckless execution.
 
 ---
 
-## 11. Ordre de développement recommandé
+## 12. Recommended Development Order
 
-L'ordre logique est :
-
-```text
-1. Core Domain Types
-2. Decision Gate séparé
-3. Compute Reservoir minimal
-4. Tool Registry
-5. Graph Memory + SurrealDB
-6. Audit System
-7. Neutral Orchestrator
-8. API Server Axum
-9. Mission Control Web
-10. Scheduler et boucles autonomes contrôlées
-11. LLM Provider abstraction
-12. Démo end-to-end
-13. Security hardening
-```
-
-Même si certaines briques sont prototypées plus tôt, l'ordre de consolidation doit rester celui-ci.
-
-Priorité actuelle :
+The development order should now be interpreted through the cognitive vision:
 
 ```text
-Stop feature expansion.
-Stabiliser les couches de gouvernance.
-Extraire le Decision Gate.
-Créer le Compute Reservoir.
-Créer le Tool Registry.
-Puis seulement continuer API, CLI, runtime et UI.
+1. Core cognitive/domain vocabulary
+2. Reservoir Echo and cognitive cycle primitives
+3. Graph Memory and readback
+4. Decision Gate as safety boundary
+5. Compute Reservoir
+6. Tool Registry
+7. CLI supervision as first Mission Control
+8. Reflection / Failure-to-Insight
+9. Neutral Orchestrator
+10. API server integration
+11. Mission Control Web
+12. Scheduler and controlled loops
+13. Tool Runtime and sandbox
+14. Security hardening
+15. End-to-end cognitive alpha
 ```
+
+This does not mean governance disappears. It means governance supports the cognitive runtime instead of defining the whole project.
 
 ---
 
-## 12. Risques principaux
+## 13. Long-Term Vision
 
-### 12.1 Surcomplexité
+ARPAGONA Agent Core should evolve toward a local-first cognitive operating layer:
 
-Risque : vouloir tout construire en même temps.
+- personal/professional agent runtime;
+- AI research assistant;
+- development assistant;
+- document intelligence system;
+- business workflow assistant;
+- local company brain;
+- multi-agent cognitive workspace;
+- self-improving but human-governed system.
 
-Réponse :
-
-```text
-Chaque brique doit être testable seule.
-Chaque phase doit produire un résultat visible.
-```
-
-### 12.2 Dérive prototype
-
-Risque : ajouter API, CLI, LLM, runtime, UI avant d'avoir stabilisé la gouvernance.
-
-Réponse :
-
-```text
-Feature freeze temporaire.
-Consolidation de l'architecture.
-```
-
-### 12.3 Graphe inutilisable
-
-Risque : créer un graphe trop vague.
-
-Réponse :
-
-```text
-ontologie minimale ;
-relations typées ;
-sources ;
-validité ;
-invalidation.
-```
-
-### 12.4 Sécurité insuffisante
-
-Risque : donner trop vite du pouvoir aux agents.
-
-Réponse :
-
-```text
-aucun shell ;
-aucun secret ;
-Tool Registry ;
-Decision Gate ;
-Audit ;
-validation humaine.
-```
-
-### 12.5 Coûts LLM incontrôlés
-
-Risque : envoyer trop de contexte aux modèles cloud.
-
-Réponse :
-
-```text
-Compute Reservoir ;
-budgets ;
-local-first ;
-prétraitement local ;
-routage intelligent.
-```
+The highest ambition is not simply automation. It is a software system that maintains context, reflects, learns, routes cognition, and becomes progressively more useful.
 
 ---
 
-## 13. Vision long terme
-
-À long terme, ARPAGONA Agent Core peut devenir un véritable agentic operating layer :
+## 14. Guiding Sentence
 
 ```text
-- assistant personnel/professionnel ;
-- système local d'entreprise ;
-- mémoire organisationnelle ;
-- assistant documentaire ;
-- assistant R&D ;
-- assistant d'ingénierie ;
-- agent de développement logiciel ;
-- système de veille ;
-- assistant administratif ;
-- orchestration multi-agents ;
-- cerveau d'entreprise local-first.
+ARPAGONA Agent Core is a Rust-based cognitive agent runtime: a Hermes-like local-first system designed for memory, continuity, reflection, compute-aware reasoning and controlled self-improvement — with governance as the safety layer that makes this ambition usable.
 ```
 
-Mais l'autonomie doit être construite progressivement.
-
-La formule directrice :
+Short version:
 
 ```text
-Autonomy must be earned, not assumed.
-```
-
-En français :
-
-```text
-L'autonomie doit être méritée, pas supposée.
-```
-
----
-
-## 14. Phrase de synthèse
-
-```text
-ARPAGONA Agent Core est un runtime agentique local-first, graph-native et compute-aware,
-conçu pour permettre à des agents IA de raisonner, mémoriser et proposer des actions,
-tandis que le runtime gouverne ce qui peut réellement se produire.
-```
-
-Ou en version plus courte :
-
-```text
-Des agents capables de penser et proposer,
-un runtime conçu pour contrôler, tracer et améliorer.
+Cognitive ambition first. Governance as the immune system.
 ```
