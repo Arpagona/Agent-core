@@ -268,3 +268,25 @@ Architectural risk:
 - low. The change adds read-only artifact inspection inside an already bounded local demo path. The main risk is operator confusion if in-memory demo readback is mistaken for durable memory; the readback warnings and handoff explicitly preserve the evidence-only, local-demo boundary.
 
 Recommended next step: replace the in-memory-only FailureInsight demo inspection with an explicitly configured local SurrealDB persistence/readback path if the adapter can support a safe file-backed configuration, without adding broad mutation or authorization paths.
+
+## Latest Session Update (2026-05-24 — Holographic Memory domain vocabulary)
+
+This session added the minimal pure-domain vocabulary for Holographic Memory — an experimental cognitive resonance layer that stores distributed pattern signatures of cognitive experience. This aligns with the recentred project philosophy: **Cognitive ambition first. Governance as the immune system.**
+
+Changed:
+- Created `crates/core/src/holographic.rs` with pure serialisable types:
+  - `HolographicTraceKind` enum (TaskPattern, ActionChainPattern, FailurePattern, SuccessPattern, ConversationPattern, ComputeRoutingPattern, DecisionPattern, ToolUsePattern, CognitiveCyclePattern)
+  - `HolographicPatternKind` enum (FailurePrototype, SuccessPrototype, RoutingPrototype, ConversationDriftPrototype, DecisionBoundaryPrototype, ToolUsePrototype, CognitiveCyclePrototype)
+  - `HolographicTrace` struct with workspace_id, source_episode_id, vector (Vec<f32> placeholder), labels, strength, decay
+  - `HolographicPattern` struct with workspace_id, prototype_vector (Vec<f32> placeholder), support_count, confidence, labels
+  - `HolographicQuery` struct (workspace_id, query_vector, top_k, min_similarity)
+  - `HolographicMatch` struct (trace_id, similarity, matched_labels, linked_episode_id)
+- Added `HolographicTraceId` and `HolographicPatternId` to `crates/core/src/ids.rs`
+- Added `HolographicMemory` variant to `CognitiveLayer` enum in `crates/core/src/cognitive.rs`
+- Exported the new module in `crates/core/src/lib.rs`
+
+Stability level: stable domain vocabulary. Pure types, serialisable, zero-dependency beyond chrono + serde, no execution logic, no vector database, no persistence adapter, no runtime integration, no Decision Gate bypass, no authorisation of any kind. The `Vec<f32>` fields are placeholders — not computed, persisted or queried.
+
+Tests: 8 tests pass including `holographic_memory_is_non_authorizing_by_design` which explicitly verifies no governance fields exist.
+
+Recommended next step: add a read-only CLI `arpagona memory holographic status --json` command (Option B) or create a `HolographicStore` trait analogous to `GraphMemoryStore`.
