@@ -48,10 +48,14 @@ impl FailureInsightDemoSnapshot {
     /// Write the snapshot to the given file path as pretty-printed JSON.
     ///
     /// Creates parent directories if they do not exist.
+    /// Paths without a parent directory (e.g. `snapshot.json`) are written
+    /// directly to the current working directory without any `create_dir_all` call.
     pub fn write_to_file(&self, path: impl AsRef<Path>) -> Result<(), DemoSnapshotError> {
         let path = path.as_ref();
         if let Some(parent) = path.parent() {
-            std::fs::create_dir_all(parent)?;
+            if !parent.as_os_str().is_empty() {
+                std::fs::create_dir_all(parent)?;
+            }
         }
         let json = serde_json::to_string_pretty(self)?;
         std::fs::write(path, json)?;
@@ -148,6 +152,32 @@ mod tests {
         );
 
         let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn writes_snapshot_to_path_without_parent_directory() {
+        // A bare filename like "bare.json" has parent() == Some("")
+        // where as_os_str().is_empty() is true.  write_to_file must
+        // skip the create_dir_all call in that case.
+        let original_cwd = std::env::current_dir().expect("get current dir");
+        let dir = std::env::temp_dir().join("arpagona-demo-bare-json-test");
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).expect("create temp dir");
+        std::env::set_current_dir(&dir).expect("change to temp dir");
+
+        let snapshot = FailureInsightDemoSnapshot::new(json!({
+            "test": "bare_filename_path",
+        }));
+
+        snapshot
+            .write_to_file("bare.json")
+            .expect("write with bare filename should succeed");
+
+        let loaded = read_failure_insight_demo_snapshot("bare.json").expect("read should succeed");
+        assert_eq!(loaded.readback_json["test"], "bare_filename_path");
+
+        let _ = fs::remove_dir_all(&dir);
+        std::env::set_current_dir(&original_cwd).expect("restore original cwd");
     }
 
     #[test]
