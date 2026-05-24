@@ -8,13 +8,13 @@ This file does not override safety, governance, `PROJECT_OBJECTIVES.md`, `PROJEC
 
 ## Current next-pass instruction
 
-Next pass should: replace the in-memory-only FailureInsight demo inspection with an explicitly configured local SurrealDB persistence/readback path if the adapter can support a safe file-backed configuration.
+Next pass should: add an opt-in local Graph Memory persistence feature or demo snapshot path that leaves plain `cargo check`/`cargo test` green by default.
 
-Why: `--inspect-id` now proves artifact-by-id inspection inside the governed local demo, but persistence remains scoped to the in-memory demo store rather than a reusable configured local database.
+Why: direct always-on SurrealDB persistent backends are currently blocked: `kv-surrealkv` needs `surrealdb_unstable`, and `kv-rocksdb`/`File` failed local verification on native `zstd-sys`/clang headers.
 
-Proof to seek: `cargo run -q --bin arpagona -- memory demo failure-insight --json --inspect-id insight-demo-governed-learning-loop` plus a new configured local persistence command or test showing the same id can be inspected after a separate readback step.
+Proof to seek: `cargo fmt -- --check && cargo check && cargo test`, plus an explicit feature-gated or demo command/test proving FailureInsight readback across a separate persistence/readback step.
 
-Do not: add broad autonomous memory writing, provider/runtime direct memory mutation, external effects, scheduler expansion, Mission Control Web, MCP/browser automation, personal/sensitive memory, or readback-as-authorization behavior.
+Do not: add broad autonomous memory writing, provider/runtime direct memory mutation, external effects, scheduler expansion, Mission Control Web, MCP/browser automation, personal/sensitive memory, readback-as-authorization behavior, or always-on native/unstable backend requirements.
 
 ## Required update at the end of every run
 
