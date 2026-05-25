@@ -579,3 +579,39 @@ Stable alpha extension. Pure file I/O, no native deps or SurrealDB feature flags
 ### Recommended next step
 
 Create a self-contained demo script (`scripts/demo-full-loop.sh`) that runs the complete governed FailureInsight demo path end-to-end, proving the full chain in one repeatable invocation.
+
+## 15. Latest Session Update (2026-05-25 — Rebase #77, resolve conflicts, close superseded PRs)
+
+This session rebased PR #77's description-propagation commits onto the latest `main`, resolving merge conflicts in handoff files (FOCUS_LOOP_NEXT.md, PROJECT_STATUS.md accepted main's versions). The code commits applied cleanly.
+
+Changed:
+- Cherry-picked 2 commits from `feat/description-cross-invocation-delivery` (#77) onto current `main`:
+  1. `feat: prove --description propagates through full governed loop (signal to readback)` — changes `MemoryDemoSignalReadback.summary` from `&'static str` to `String`, wires custom description into signal readback, adds integration test
+  2. `feat: add cross-invocation description propagation test` — proves `--description` text survives demo snapshot-then-readback cycle across separate process invocations
+- Force-pushed rebased branch to update #77 (conflicts resolved, now mergeable)
+- Closed superseded PRs:
+  - #74 (feat/description-end-to-end-governed-path-test) — superseded by #77
+  - #72 (feat/description-e2e-v2) — superseded by #77
+
+Status: PR #77 is mergeable (no conflicts). CI pending re-run on new commits.
+
+Stability level: alpha CLI demo/readback. Same bounded work as before, just rebased and delivered cleanly.
+
+Verification:
+- `cargo fmt -- --check`: clean
+- `cargo check`: clean
+- `cargo test`: 172 tests pass (all crates), including `memory_demo_description_propagates_through_governed_loop_signal_to_readback` and `cross_invocation_description_survives_snapshot_path_across_processes`
+
+Limits:
+- no new code was added by this session (cherry-pick only)
+- no broad CLI mutation command added
+- no API endpoint added
+- no Graph Memory persistence helper added
+- no Decision Gate behavior changed
+- no SurrealDB backend change made
+- no LLM/provider/runtime direct memory mutation added
+- no real tool execution introduced
+- no scheduler, autonomy, MCP, browser automation, credential handling, or Mission Control Web growth
+- readback remains evidence only, not authorization
+
+Recommended next step: wait for CI to complete on #77, then merge into `main`. After merge, create `scripts/demo-full-loop.sh` for a single-repeatable-command governed FailureInsight demo path.
