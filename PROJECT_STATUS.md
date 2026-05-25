@@ -11,7 +11,6 @@ Every future contributor or agent must read this file together with `PROJECT_OBJ
 The repository currently contains a fast-moving alpha foundation with several experimental building blocks already present.
 
 Current observed state:
-
 - `PROJECT_OBJECTIVES.md` exists and defines the canonical vision of the project.
 - `PROJECT_STATUS.md` exists and defines the canonical operational status of the repository.
 - `docs/operating-doctrine.md` defines the current working doctrine: controlled fast iteration, Rust-first development, LOCO/Ollama delegation and CLI supervision first.
@@ -80,7 +79,7 @@ The current product direction is no longer abstract stabilization only. The near
 | Scheduler / autonomous loops | Deferred | Controlled recurring work | Must wait for Decision Gate, Tool Registry, Audit and human approval path. |
 | MCP integration | Deferred | External tool ecosystem | Must wait for Tool Registry and security hardening. |
 | Browser automation | Deferred | Controlled web interaction | Must wait for governance, audit and security hardening. |
-| Security hardening | Deferred | Production-grade protection | Final V0 hardening stage, not a reason to bypass governance now. |
+| Security hardening | Deferred | Production-grade protection | Final V0 hardening stage, not a reason to bypass governance now.
 
 ## 3. What Is Stable
 
@@ -237,6 +236,7 @@ The update must clearly state whether the change is stable, alpha, experimental,
 
 ## 11. Latest Session Update
 
+This session added structured JSON output to the read-only local supervision status CLI.
 This session added a cross-invocation demo snapshot path that proves the governed FailureInsight learning loop output survives across separate process invocations.
 
 Changed:
@@ -246,6 +246,25 @@ Changed:
 - added `arpagona memory demo snapshot-read <path> [--json]` subcommand that reads and displays a previously written snapshot file, proving cross-invocation readback;
 - all new code uses only `serde` + `serde_json` + `std::fs` — no native SurrealDB backend dependencies, no feature flags, no build-time gates.
 - all verification passes: `cargo fmt -- --check`, `cargo check`, `cargo test` (132+4 new tests all passing).
+
+- changed `arpagona status` to accept `--json` in `crates/cli`;
+- reused the existing `StatusReadback` shape for human and JSON output;
+- documented `arpagona status --json` in `docs/cli.md`;
+- added CLI parser coverage for the new flag.
+
+Stability level: alpha CLI supervision surface.
+
+Limits:
+- no endpoint was added;
+- no server-side state was modified;
+- no Graph Memory schema, query or mutation was added;
+- no audit event creation or extraction behavior was added;
+- no runtime behavior was added;
+- no real tool execution was introduced;
+- no destructive capability was added;
+- no approval, rejection or authorization behavior was added;
+- no Decision Gate behavior was changed;
+- no scheduler, autonomy, MCP, browser automation, credential handling or Mission Control Web growth was introduced;
 
 Stability level: alpha CLI demo/readback. This change adds the missing `approved persistence -> cross-invocation readback -> repeatable demo` link to the functional-alpha chain. It remains a simulated/internal Graph Memory proof and does not add durable user memory, approval, authorization, execution or external side effects.
 
@@ -261,9 +280,6 @@ Limits:
 - no database migration runner was added;
 - no broad semantic search or embeddings pipeline was added;
 - no hidden context injection into LLM prompts was added;
-- no real tool execution was introduced;
-- no destructive capability was added;
-- no scheduler, autonomy, MCP, browser automation, credential handling or Mission Control Web growth was introduced;
 - readback remains evidence only and must not be treated as authorization.
 
 - low. The change adds read-only artifact inspection inside an already bounded local demo path. The main risk is operator confusion if in-memory demo readback is mistaken for durable memory; the readback warnings and handoff explicitly preserve the evidence-only, local-demo boundary.
@@ -322,7 +338,9 @@ Limits:
 Architectural risk:
 - low. The snapshot path is pure Rust JSON I/O behind an optional CLI flag. The main risk is operator confusion between demo snapshot files and real persistent memory; the evidence-only token and readback warnings explicitly preserve the demo-only, non-authorizing boundary.
 
-Recommended next step: adopt the demo snapshot command as the standard cross-invocation readback proof and add a CLI integration test that runs the snapshot-then-read cycle end-to-end.
+- low for alpha use. The change is bounded to read-only CLI status readback formatting and documentation, preserving the separation between supervision output, governance and execution.
+
+Recommended next step: add the next small read-only CLI supervision increment that helps operators inspect pending actions, decisions or failure insights without expanding API/runtime execution.
 
 ## Latest Session Update (2026-05-24 — CLI integration test for cross-invocation snapshot readback)
 
