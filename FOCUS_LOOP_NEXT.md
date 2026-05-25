@@ -8,11 +8,11 @@ This file does not override safety, governance, `PROJECT_OBJECTIVES.md`, `PROJEC
 
 ## Current next-pass instruction
 
-Next pass should: add an end-to-end integration test proving that `--description` text flows through the full governed path (signal → proposal → decision → audit → persistence → readback) and appears in the readback output.
+Next pass should: add a cross-invocation integration test that proves `--description` text survives through the demo snapshot path — run `failure-insight --json --snapshot-path` in one process, then `snapshot-read --json` in a separate process, and assert the description field appears in the readback.
 
-Why: the `--description` flag was added this session, but there is no test verifying that operator-supplied text actually propagates through the full FailureInsight → ProposedAction → Decision Gate → Audit → persistence → readback chain. The parser test only verifies CLI argument parsing.
+Why: the current description-propagation test proves in-process propagation; the snapshot path already proves cross-invocation readback for the static demo, but there is no cross-process proof that operator-supplied description text also survives serialization, file I/O, process restart and deserialization.
 
-Proof to seek: a new test in the existing `#[cfg(test)] mod tests {}` block in `main.rs` that calls `memory_demo_failure_insight_readback(Some("inspect-id"), Some("custom description"))` and asserts the readback JSON/text contains the custom description in the signal summary, failure summary, and relevant fields.
+Proof to seek: a new integration test (in the integration test directory or a separate test file) that spawns the built binary twice — first with `--description "cross-invocation desc" --json --snapshot-path`, then with `snapshot-read --json` — and asserts the description appears in the second invocation's output.
 
 Do not: add broad autonomous memory writing, provider/runtime direct memory mutation, external effects, scheduler expansion, Mission Control Web, MCP/browser automation, personal/sensitive memory, readback-as-authorization behavior, or always-on native/unstable backend requirements.
 
