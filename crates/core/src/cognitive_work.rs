@@ -337,6 +337,14 @@ pub fn build_working_memory_cycle(
         assumptions: vec![],
         constraints: vec![],
         missing_context: vec![],
+        // P5 fields — defaults for builder-constructed WorkingMemory
+        sensitivity_estimate: SensitivityEstimate::Public,
+        complexity_estimate: 0.0,
+        local_first: false,
+        cost_sensitive: false,
+        proposed_next_action_kind: String::new(),
+        required_observations_count: 0,
+        // P4 fields
         required_observations: vec![],
         cognitive_observations: observations.unwrap_or_default(),
         improvement_candidates: improvement_candidates.unwrap_or_default(),
@@ -1547,6 +1555,14 @@ mod tests {
             assumptions: vec![],
             constraints: vec![],
             missing_context: vec![],
+            // P5 fields
+            sensitivity_estimate: SensitivityEstimate::Public,
+            complexity_estimate: 0.0,
+            local_first: false,
+            cost_sensitive: false,
+            proposed_next_action_kind: String::new(),
+            required_observations_count: 0,
+            // P4 fields
             required_observations: vec![],
             cognitive_observations: vec![],
             improvement_candidates: vec![],
@@ -1577,6 +1593,14 @@ mod tests {
             assumptions: vec![],
             constraints: vec![],
             missing_context: vec![],
+            // P5 fields
+            sensitivity_estimate: SensitivityEstimate::Public,
+            complexity_estimate: 0.0,
+            local_first: false,
+            cost_sensitive: false,
+            proposed_next_action_kind: String::new(),
+            required_observations_count: 0,
+            // P4 fields
             required_observations: vec![],
             cognitive_observations: vec![],
             improvement_candidates: vec![],

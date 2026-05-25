@@ -702,6 +702,7 @@ mod tests {
 
     fn wm_simple() -> WorkingMemory {
         WorkingMemory {
+            objective: None,
             context_items: vec![],
             assumptions: vec![],
             constraints: vec![],
@@ -712,11 +713,19 @@ mod tests {
             cost_sensitive: false,
             proposed_next_action_kind: "stopwithreport".to_owned(),
             required_observations_count: 1,
+            required_observations: vec![],
+            cognitive_observations: vec![],
+            improvement_candidates: vec![],
+            failure_insight_candidates: vec![],
+            proposed_next_action: None,
+            cycle_status: arpagona_agent_core::cognitive_work::CycleStatus::Completed,
+            evidence_only_warning: String::new(),
         }
     }
 
     fn wm_missing_context() -> WorkingMemory {
         WorkingMemory {
+            objective: None,
             context_items: vec![],
             assumptions: vec![],
             constraints: vec![],
@@ -731,11 +740,19 @@ mod tests {
             cost_sensitive: false,
             proposed_next_action_kind: "requestcontext".to_owned(),
             required_observations_count: 2,
+            required_observations: vec![],
+            cognitive_observations: vec![],
+            improvement_candidates: vec![],
+            failure_insight_candidates: vec![],
+            proposed_next_action: None,
+            cycle_status: arpagona_agent_core::cognitive_work::CycleStatus::Completed,
+            evidence_only_warning: String::new(),
         }
     }
 
     fn wm_sensitive() -> WorkingMemory {
         WorkingMemory {
+            objective: None,
             context_items: vec![],
             assumptions: vec![],
             constraints: vec![],
@@ -746,11 +763,19 @@ mod tests {
             cost_sensitive: true,
             proposed_next_action_kind: "stopwithreport".to_owned(),
             required_observations_count: 1,
+            required_observations: vec![],
+            cognitive_observations: vec![],
+            improvement_candidates: vec![],
+            failure_insight_candidates: vec![],
+            proposed_next_action: None,
+            cycle_status: arpagona_agent_core::cognitive_work::CycleStatus::Completed,
+            evidence_only_warning: String::new(),
         }
     }
 
     fn wm_complex_research() -> WorkingMemory {
         WorkingMemory {
+            objective: None,
             context_items: vec![],
             assumptions: vec![],
             constraints: vec![],
@@ -761,6 +786,13 @@ mod tests {
             cost_sensitive: false,
             proposed_next_action_kind: "proposeplan".to_owned(),
             required_observations_count: 5,
+            required_observations: vec![],
+            cognitive_observations: vec![],
+            improvement_candidates: vec![],
+            failure_insight_candidates: vec![],
+            proposed_next_action: None,
+            cycle_status: arpagona_agent_core::cognitive_work::CycleStatus::Completed,
+            evidence_only_warning: String::new(),
         }
     }
 
