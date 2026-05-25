@@ -65,6 +65,7 @@ The current product direction is no longer abstract stabilization only. The near
 | Core domain types | Stable foundation | Shared typed language | Includes minimal Failure-to-Insight vocabulary; remains pure, serializable and dependency-light. |
 | Decision Gate | Alpha | Pre-execution governance | Extracted into `crates/decision-gate`; `crates/core` no longer reexports the Decision Gate logic. |
 | Reservoir Echo | Alpha | Short-term cognitive continuity | Volatile traces only. Not persistent memory. Not model routing. Not Compute Reservoir. |
+| Holographic Memory | Alpha domain vocabulary | Pattern resonance layer | Types exist in `crates/core`; no runtime behavior, vector DB, persistence, authorization or similarity execution yet. |
 | Compute Reservoir | Alpha minimal | Compute/model/resource routing | `crates/compute-reservoir` provides serializable types and pure allocation only; no model calls, execution, I/O, persistence or Decision Gate replacement. |
 | Tool Registry | Alpha minimal | Declarative catalogue of tools and permissions | `crates/tool-registry` declares tools, capabilities, schemas, governance notes and lookup/status changes only; no execution path. |
 | `crates/graph-memory` | Experimental | SurrealDB Graph Memory adapter | Adds alpha audit-event queries by task, proposed action and decision plus governed FailureInsight memory trace proof readback, an in-memory demo/test helper and schema-backed CLI status readback; broader persistence conventions and graph schema still need stabilization. |
@@ -109,6 +110,7 @@ Experimental areas:
 - API shape in `apps/api-server`;
 - terminal UX in `crates/cli`;
 - Reservoir Echo tuning and lifecycle;
+- Holographic Memory adapter crate, vector similarity, persistence and runtime integration (domain vocabulary exists in `crates/core`);
 - Compute Reservoir allocation heuristics and telemetry shape;
 - audit persistence and causal trace design;
 - future Failure-to-Insight audit conventions, CLI readback and broader Graph Memory integration;
@@ -264,13 +266,31 @@ Limits:
 - no scheduler, autonomy, MCP, browser automation, credential handling or Mission Control Web growth was introduced;
 - readback remains evidence only and must not be treated as authorization.
 
-Architectural risk:
-- low. The snapshot path uses only serde_json + std::fs with no native database dependencies. The `evidence_only_token` prevents readback-as-authorization drift. All snapshot operations are separate from the demo execution path and do not affect correctness.
-
-<<<<<<< HEAD
 - low. The change adds read-only artifact inspection inside an already bounded local demo path. The main risk is operator confusion if in-memory demo readback is mistaken for durable memory; the readback warnings and handoff explicitly preserve the evidence-only, local-demo boundary.
 
 Recommended next step: replace the in-memory-only FailureInsight demo inspection with an explicitly configured local SurrealDB persistence/readback path if the adapter can support a safe file-backed configuration, without adding broad mutation or authorization paths.
+
+## Latest Session Update (2026-05-24 — Holographic Memory domain vocabulary)
+
+This session added the minimal pure-domain vocabulary for Holographic Memory — an experimental cognitive resonance layer that stores distributed pattern signatures of cognitive experience. This aligns with the recentred project philosophy: **Cognitive ambition first. Governance as the immune system.**
+
+Changed:
+- Created `crates/core/src/holographic.rs` with pure serialisable types:
+  - `HolographicTraceKind` enum (TaskPattern, ActionChainPattern, FailurePattern, SuccessPattern, ConversationPattern, ComputeRoutingPattern, DecisionPattern, ToolUsePattern, CognitiveCyclePattern)
+  - `HolographicPatternKind` enum (FailurePrototype, SuccessPrototype, RoutingPrototype, ConversationDriftPrototype, DecisionBoundaryPrototype, ToolUsePrototype, CognitiveCyclePrototype)
+  - `HolographicTrace` struct with workspace_id, source_episode_id, vector (Vec<f32> placeholder), labels, strength, decay
+  - `HolographicPattern` struct with workspace_id, prototype_vector (Vec<f32> placeholder), support_count, confidence, labels
+  - `HolographicQuery` struct (workspace_id, query_vector, top_k, min_similarity)
+  - `HolographicMatch` struct (trace_id, similarity, matched_labels, linked_episode_id)
+- Added `HolographicTraceId` and `HolographicPatternId` to `crates/core/src/ids.rs`
+- Added `HolographicMemory` variant to `CognitiveLayer` enum in `crates/core/src/cognitive.rs`
+- Exported the new module in `crates/core/src/lib.rs`
+
+Stability level: stable domain vocabulary. Pure types, serialisable, zero-dependency beyond chrono + serde, no execution logic, no vector database, no persistence adapter, no runtime integration, no Decision Gate bypass, no authorisation of any kind. The `Vec<f32>` fields are placeholders — not computed, persisted or queried.
+
+Tests: 8 tests pass including `holographic_memory_is_non_authorizing_by_design` which explicitly verifies no governance fields exist.
+
+Recommended next step: add a read-only CLI `arpagona memory holographic status --json` command (Option B) or create a `HolographicStore` trait analogous to `GraphMemoryStore`.
 
 ## Latest Session Update (2026-05-24 — Demo snapshot path for cross-invocation readback)
 
@@ -316,8 +336,6 @@ Changed:
   4. asserts the readback JSON contains the `evidence_only_token`, `functional_alpha_chain` and the cross-invocation snapshot chain step.
 
 Stability level: alpha CLI integration test. The test uses `std::process::Command` to run the built binary, proving the governed learning loop output survives serialization, file I/O, process restart and deserialization. It requires no SurrealDB backend, no unstable cfg flags, no native dependencies, and runs in ~0.03s.
-
-Limits:
 - no Cargo feature flag was added;
 - no SurrealDB backend change was made (`kv-mem` remains the default);
 - no migration runner was added;
@@ -402,4 +420,5 @@ Architectural risk:
 - low. The integration test is in a separate `tests/` directory and uses `std::process::Command` to spawn the binary — it cannot affect the test runner's state. The temp directory cleanup ensures no file leaks across test runs.
 
 Recommended next step: transition the demo snapshot approach to a Cargo feature-gated SurrealDB `kv-surrealkv` backend when the `surrealdb_unstable` cfg flag becomes stable or an alternative pure-Rust key-value backend emerges.
+>>>>>>> origin/main
 >>>>>>> origin/main
