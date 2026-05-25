@@ -417,6 +417,17 @@ impl ToolRuntime {
             );
         }
 
+        // Block listing of sensitive/ignored directories even when explicitly requested
+        if let Some(dir_name) = resolved.file_name().and_then(|n| n.to_str()) {
+            if Self::is_blocked_dir(dir_name) {
+                return ToolExecutionResult::blocked(
+                    execution_id,
+                    "list_files",
+                    format!("Directory access blocked: {path_str}"),
+                );
+            }
+        }
+
         let mut entries = Vec::new();
         let max_depth = self.config.max_list_depth;
         let max_results = self.config.max_list_results;
@@ -566,6 +577,17 @@ impl ToolRuntime {
                 ToolExecutionError::new("not_a_directory", format!("Not a directory: {path_str}")),
                 "Expected a directory for search",
             );
+        }
+
+        // Block searching inside sensitive/ignored directories even when explicitly requested
+        if let Some(dir_name) = resolved.file_name().and_then(|n| n.to_str()) {
+            if Self::is_blocked_dir(dir_name) {
+                return ToolExecutionResult::blocked(
+                    execution_id,
+                    "search_text",
+                    format!("Directory access blocked: {path_str}"),
+                );
+            }
         }
 
         let mut matches = Vec::new();
