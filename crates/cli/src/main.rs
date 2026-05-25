@@ -448,6 +448,8 @@ enum ToolDemoSubcommand {
     ListFiles(ToolDemoListFilesArgs),
     /// Demo the search_text tool.
     SearchText(ToolDemoSearchTextArgs),
+    /// Run the full cognitive observation pipeline: tool execution → observation → assessment.
+    Observe(ToolDemoObserveArgs),
 }
 
 #[derive(Debug, Args)]
@@ -476,6 +478,17 @@ struct ToolDemoSearchTextArgs {
     /// Path to search in (relative to workspace, default: .).
     #[arg(default_value = ".")]
     path: String,
+    /// Emit structured JSON instead of human-oriented text.
+    #[arg(long)]
+    json: bool,
+}
+
+#[derive(Debug, Args)]
+struct ToolDemoObserveArgs {
+    /// Name of the tool to execute (read_file, list_files, search_text).
+    tool_name: String,
+    /// JSON arguments for the tool, e.g. '{"path": "Cargo.toml"}'.
+    json_args: String,
     /// Emit structured JSON instead of human-oriented text.
     #[arg(long)]
     json: bool,
@@ -975,6 +988,7 @@ async fn run() -> Result<(), Box<dyn Error>> {
                 ToolDemoSubcommand::ReadFile(args) => tool_demo_read_file(args)?,
                 ToolDemoSubcommand::ListFiles(args) => tool_demo_list_files(args)?,
                 ToolDemoSubcommand::SearchText(args) => tool_demo_search_text(args)?,
+                ToolDemoSubcommand::Observe(args) => tool_demo_observe(args)?,
             },
         },
     }
@@ -2189,6 +2203,96 @@ fn tool_demo_search_text(args: ToolDemoSearchTextArgs) -> Result<(), Box<dyn Err
             _ => {}
         }
         println!("Full result available with --json");
+    }
+    Ok(())
+}
+
+const OBSERVE_TOOL_WARNING: &str =
+    "⚠️  Cognitive observation pipeline demo — read-only, no authorization, no governance bypass. ⚠️";
+
+fn tool_demo_observe(args: ToolDemoObserveArgs) -> Result<(), Box<dyn Error>> {
+    let config = ToolRuntimeConfig::new(".");
+    let runtime = ToolRuntime::new(config);
+
+    let arguments: Value = serde_json::from_str(&args.json_args)
+        .map_err(|e| format!("Invalid JSON arguments: {e}"))?;
+
+    let result = runtime.execute(&args.tool_name, &arguments);
+
+    let obs = arpagona_agent_core::CognitiveObservation::from_tool_execution(&result);
+    let assessment = arpagona_agent_core::assess_observation(&obs);
+
+    if args.json {
+        let output = serde_json::json!({
+            "pipeline": "ToolExecutionResult → CognitiveObservation → ObservationAssessment",
+            "warning": OBSERVE_TOOL_WARNING,
+            "tool_execution_result": &result,
+            "cognitive_observation": &obs,
+            "assessment": &assessment,
+        });
+        println!("{}", serde_json::to_string_pretty(&output)?);
+    } else {
+        println!("{OBSERVE_TOOL_WARNING}");
+        println!();
+        println!("🧩 Cognitive Observation Pipeline Demo");
+        println!("   Pipeline: ToolExecutionResult → CognitiveObservation → ObservationAssessment");
+        println!();
+
+        // Tool execution result
+        println!("━━━ Step 1: Tool Execution ━━━");
+        println!("   Tool:      {}", result.tool_name);
+        println!("   Status:    {:?}", result.status);
+        println!("   Summary:   {}", result.output_summary);
+
+        // Cognitive observation
+        println!();
+        println!("━━━ Step 2: Cognitive Observation ━━━");
+        println!("   Kind:      {:?}", obs.kind);
+        println!("   Status:    {:?}", obs.status);
+        println!("   Usefulness: {:?}", obs.usefulness);
+        println!("   Risk:       {:?}", obs.risk);
+        println!("   Count:      {}", obs.count);
+        println!("   Truncated:  {}", obs.truncated);
+
+        if obs.failure_insight_candidate {
+            let signal = if obs.is_positive_signal() {
+                "🟢 positive"
+            } else {
+                "🟡 candidate"
+            };
+            println!(
+                "   FailureInsight: {signal} ({:?})",
+                obs.candidate_kind.unwrap()
+            );
+            println!("   Reason:      {}", obs.candidate_reason);
+        } else {
+            println!("   FailureInsight: ❌ none (clean observation)");
+        }
+
+        // Assessment
+        println!();
+        println!("━━━ Step 3: Assessment ━━━");
+        println!("   Useful:     {}", assessment.is_useful);
+        println!("   Complete:   {}", assessment.is_complete);
+
+        if let Some(candidate) = &assessment.candidate {
+            let signal_label = if candidate.is_positive_signal {
+                "🟢 positive signal (safety boundary working)"
+            } else {
+                "🟡 candidate for FailureInsight creation"
+            };
+            println!("   Candidate:  {signal_label}");
+            println!("   Kind:       {:?}", candidate.kind);
+            println!("   Summary:    {}", candidate.summary);
+        } else {
+            println!("   Candidate:  ❌ none");
+        }
+
+        println!();
+        println!("   Summary:    {}", assessment.assessment_summary);
+        println!("   Next step:  {}", assessment.suggested_next_step);
+        println!();
+        println!("Full pipeline output available with --json");
     }
     Ok(())
 }
