@@ -6,9 +6,16 @@ It must contain one concrete next action only. The priority queue and long-term 
 
 ## Next action
 
-Next pass should: wait for CI on PR #77 to complete (mergeStateStatus: UNSTABLE), verify green, then merge into main.
-Why: #77 has been rebased, conflicts resolved, superseded PRs (#74, #72) closed. The description-propagation chain is ready for merge.
+Connect CognitiveObservation candidates to governed FailureInsight proposal demo.
 
-Proof to seek: `gh pr view 77 --json mergeStateStatus,state,statusCheckRollup` shows MERGEABLE + green CI checks. Then `gh pr merge 77 --squash` succeeds.
+Why: PR #80 added the Cognitive Observation Pipeline (ToolExecutionResult → CognitiveObservation → ObservationAssessment → Option<FailureInsightCandidate>). The pipeline now flags candidates (truncated, empty, blocked) but stops at candidate detection.
 
-Do not: create new work until #77 is merged. After merge, create `scripts/demo-full-loop.sh` as the next feature increment (self-contained repeatable governed FailureInsight demo).
+The next natural step is a governed cognitive loop that:
+1. Collects FailureInsightCandidates from the pipeline
+2. Creates a FailureInsight ProposedAction through the Decision Gate
+3. Persists the approved FailureInsight via the governed Graph Memory path
+4. Uses the existing `failure-insight` demo snapshot infrastructure for proof
+
+Proof to seek: `cargo run -q --bin arpagona -- tool demo observe read_file '{"path":"Cargo.toml"}' --json` shows a valid cognitive observation with assessment.
+
+Do not: start `scripts/demo-full-loop.sh` before this step is designed and agreed. Do not refactor observation.rs. Do not add new CLI commands outside the agreed scope.
