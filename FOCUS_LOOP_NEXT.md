@@ -6,13 +6,13 @@ It must contain one concrete next action only. The runtime milestone queue and l
 
 ## Next action
 
-Integrate CognitiveObservation and FailureInsightCandidates into WorkingMemory cycle state.
+Connect WorkingMemory + ComputeAllocation to Holographic Memory resonance hints.
 
-Why: P3 bridge is now merged (PR #83) — `FailureInsightCandidate::from_improvement_candidates()` and `--assess` CLI flag are live on main. The next step is to feed `CognitiveObservation` pipeline outputs and resolved `FailureInsightCandidate` items back into `WorkingMemory` so subsequent cognitive cycles benefit from accumulated state.
+Why: P5 (PR #85) ties WorkingMemory state to ComputeReservoir allocation — the next step is to feed these decisions into HolographicMemory::resonate() as contextual hints, closing the loop between cognitive state, resource selection, and pattern recall.
 
-Proof to seek: A test showing that a `CognitiveObservation` assessment (e.g. `UsefulAndComplete`) can be stored as a `ContextItem` in `WorkingMemory`, and that a `FailureInsightCandidate` can produce a `Constraint` or `Assumption` update in the next cycle.
+Proof to seek: A test showing that a ComputeAllocation reason string or WorkingMemory sensitivity/complexity fields can be passed to HolographicMemory::resonate() and produce a non-authorizing MatchResult with hints.
 
-Do not: add LLM calls, persistence, shell execution, external effects, or Decision Gate bypass. P4 must remain pure-domain state transformation.
+Do not: add LLM calls, persistence, shell execution, external effects, or Decision Gate bypass. P6 must remain pure readback — HolographicMemory is a non-authorizing resonance surface, not an action engine.
 
 ## Required update at the end of every run
 

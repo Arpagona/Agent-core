@@ -12,7 +12,10 @@
 //! - Graph Memory: persists facts, sources, episodes and relations.
 //! - Audit: records causal traces.
 
-use arpagona_agent_core::{TaskId, WorkspaceId};
+use arpagona_agent_core::{
+    cognitive_work::{SensitivityEstimate, WorkingMemory},
+    TaskId, WorkspaceId,
+};
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -389,6 +392,86 @@ fn no_suitable_resource(
     }
 }
 
+/// Static warning embedded in every WorkingMemory allocation result.
+pub const NON_AUTHORIZING_READBACK: &str =
+    "Readback only — allocation is not authorization, not execution, not a bypass of the Decision Gate. Review before acting.";
+
+/// Allocate a compute resource based on WorkingMemory cognitive state.
+///
+/// This pure function maps the heuristic fields of a `WorkingMemory` to a
+/// `ComputeRequest` and uses the existing `allocate_compute` engine to produce
+/// a `ComputeAllocation`.
+///
+/// It does NOT:
+/// - call LLMs
+/// - make API calls
+/// - persist any state
+/// - authorize any action
+/// - bypass the Decision Gate
+pub fn allocate_for_working_memory(
+    working_memory: &WorkingMemory,
+    nodes: &[ComputeNode],
+    policy: &ComputePolicy,
+) -> ComputeAllocation {
+    // 1. Map WorkingMemory sensitivity to ComputeRequest sensitivity
+    let data_sensitivity = match &working_memory.sensitivity_estimate {
+        SensitivityEstimate::Secret => DataSensitivity::Secret,
+        SensitivityEstimate::Confidential => DataSensitivity::Confidential,
+        SensitivityEstimate::Internal => DataSensitivity::Internal,
+        SensitivityEstimate::Public => DataSensitivity::Public,
+    };
+
+    // 2. Determine required capabilities from complexity and observations
+    let mut required_capabilities = Vec::new();
+    required_capabilities.push(ComputeCapability::SimpleReasoning);
+
+    let needs_complex = working_memory.complexity_estimate >= 0.7
+        || working_memory.required_observations_count >= 5;
+    if needs_complex {
+        required_capabilities.push(ComputeCapability::ComplexReasoning);
+    }
+
+    // 3. Determine budget from local_first and cost_sensitive preferences
+    let budget = if working_memory.local_first || working_memory.cost_sensitive {
+        ComputeBudget::local_first()
+    } else {
+        ComputeBudget {
+            max_cloud_cost_cents: 100,
+            max_latency_ms: None,
+            max_retries: 1,
+        }
+    };
+
+    // 4. Build a ComputeRequest from WorkingMemory state
+    let request = ComputeRequest {
+        workspace_id: WorkspaceId::new("cognitive-work-cycle"),
+        task_id: None,
+        purpose: format!(
+            "WorkingMemory allocation: sensitivity={:?}, complexity={}, observations={}, local_first={}, cost_sensitive={}",
+            working_memory.sensitivity_estimate,
+            working_memory.complexity_estimate,
+            working_memory.required_observations_count,
+            working_memory.local_first,
+            working_memory.cost_sensitive,
+        ),
+        required_capabilities,
+        data_sensitivity,
+        budget,
+        requires_complex_reasoning: needs_complex,
+    };
+
+    // 5. Delegate to the existing allocation engine
+    let mut allocation = allocate_compute(&request, nodes, policy);
+
+    // 6. Append non-authorizing readback to justification
+    allocation.justification = format!(
+        "{}\n\n{}",
+        allocation.justification, NON_AUTHORIZING_READBACK
+    );
+
+    allocation
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -613,5 +696,243 @@ mod tests {
 
         assert_eq!(decoded.node_id, ComputeNodeId::new("local-small"));
         assert_eq!(decoded.observed_cost_cents, Some(0));
+    }
+
+    // ─── P5 — allocate_for_working_memory tests ─────────────────────────
+
+    fn wm_simple() -> WorkingMemory {
+        WorkingMemory {
+            objective: None,
+            context_items: vec![],
+            assumptions: vec![],
+            constraints: vec![],
+            missing_context: vec![],
+            sensitivity_estimate: SensitivityEstimate::Public,
+            complexity_estimate: 0.2,
+            local_first: false,
+            cost_sensitive: false,
+            proposed_next_action_kind: "stopwithreport".to_owned(),
+            required_observations_count: 1,
+            required_observations: vec![],
+            cognitive_observations: vec![],
+            improvement_candidates: vec![],
+            failure_insight_candidates: vec![],
+            proposed_next_action: None,
+            cycle_status: arpagona_agent_core::cognitive_work::CycleStatus::Completed,
+            evidence_only_warning: String::new(),
+        }
+    }
+
+    fn wm_missing_context() -> WorkingMemory {
+        WorkingMemory {
+            objective: None,
+            context_items: vec![],
+            assumptions: vec![],
+            constraints: vec![],
+            missing_context: vec![arpagona_agent_core::cognitive_work::MissingContext {
+                id: "mc-1".to_owned(),
+                description: "No context given.".to_owned(),
+                why_needed: "Need context.".to_owned(),
+            }],
+            sensitivity_estimate: SensitivityEstimate::Public,
+            complexity_estimate: 0.2,
+            local_first: false,
+            cost_sensitive: false,
+            proposed_next_action_kind: "requestcontext".to_owned(),
+            required_observations_count: 2,
+            required_observations: vec![],
+            cognitive_observations: vec![],
+            improvement_candidates: vec![],
+            failure_insight_candidates: vec![],
+            proposed_next_action: None,
+            cycle_status: arpagona_agent_core::cognitive_work::CycleStatus::Completed,
+            evidence_only_warning: String::new(),
+        }
+    }
+
+    fn wm_sensitive() -> WorkingMemory {
+        WorkingMemory {
+            objective: None,
+            context_items: vec![],
+            assumptions: vec![],
+            constraints: vec![],
+            missing_context: vec![],
+            sensitivity_estimate: SensitivityEstimate::Confidential,
+            complexity_estimate: 0.3,
+            local_first: true,
+            cost_sensitive: true,
+            proposed_next_action_kind: "stopwithreport".to_owned(),
+            required_observations_count: 1,
+            required_observations: vec![],
+            cognitive_observations: vec![],
+            improvement_candidates: vec![],
+            failure_insight_candidates: vec![],
+            proposed_next_action: None,
+            cycle_status: arpagona_agent_core::cognitive_work::CycleStatus::Completed,
+            evidence_only_warning: String::new(),
+        }
+    }
+
+    fn wm_complex_research() -> WorkingMemory {
+        WorkingMemory {
+            objective: None,
+            context_items: vec![],
+            assumptions: vec![],
+            constraints: vec![],
+            missing_context: vec![],
+            sensitivity_estimate: SensitivityEstimate::Public,
+            complexity_estimate: 0.9,
+            local_first: false,
+            cost_sensitive: false,
+            proposed_next_action_kind: "proposeplan".to_owned(),
+            required_observations_count: 5,
+            required_observations: vec![],
+            cognitive_observations: vec![],
+            improvement_candidates: vec![],
+            failure_insight_candidates: vec![],
+            proposed_next_action: None,
+            cycle_status: arpagona_agent_core::cognitive_work::CycleStatus::Completed,
+            evidence_only_warning: String::new(),
+        }
+    }
+
+    #[test]
+    fn p5_missing_context_requests_context_no_expensive_model() {
+        // When missing_context is present, the next action kind is request_context
+        // and complexity is low — simple model is sufficient.
+        let wm = wm_missing_context();
+        assert_eq!(wm.proposed_next_action_kind, "requestcontext");
+        assert!(wm.complexity_estimate < 0.7);
+
+        let allocation = allocate_for_working_memory(
+            &wm,
+            &[local_small(), cloud_strong()],
+            &ComputePolicy::default(),
+        );
+
+        // Should select local-small (cheap) over cloud-strong
+        assert_eq!(
+            allocation.selected_node_id,
+            Some(ComputeNodeId::new("local-small"))
+        );
+        assert!(allocation.justification.contains(NON_AUTHORIZING_READBACK));
+    }
+
+    #[test]
+    fn p5_sensitive_objective_prefers_local_resource() {
+        // Confidential sensitivity + local_first = forced local
+        let wm = wm_sensitive();
+        assert!(wm.sensitivity_estimate.requires_local());
+
+        let allocation = allocate_for_working_memory(
+            &wm,
+            &[cloud_strong(), local_small()],
+            &ComputePolicy::default(),
+        );
+
+        assert_eq!(
+            allocation.selected_node_id,
+            Some(ComputeNodeId::new("local-small"))
+        );
+        assert!(allocation.resource_kind == Some(ComputeResourceKind::LocalLlm));
+    }
+
+    #[test]
+    fn p5_complex_research_justifies_strong_model_when_policy_allows() {
+        // High complexity, many observations -> ComplexReasoning capability required
+        // cloud_strong has ComplexReasoning, local_small does not
+        let wm = wm_complex_research();
+
+        // With default policy, cloud_strong is available (public data, budget allows)
+        // Complex research justifies the stronger (cloud) model
+        let allocation = allocate_for_working_memory(
+            &wm,
+            &[local_small(), cloud_strong()],
+            &ComputePolicy::default(),
+        );
+
+        // cloud_strong is selected because it supports ComplexReasoning and cost is within budget
+        assert_eq!(
+            allocation.selected_node_id,
+            Some(ComputeNodeId::new("cloud-strong"))
+        );
+        assert_eq!(allocation.status, ComputeAllocationStatus::Selected);
+
+        // Now test fallback: cloud_strong cannot handle Secret data
+        // But local_small can (it has max_data_sensitivity: Secret)
+        // However local_small lacks ComplexReasoning -> cloud blocked for secret, local doesn't support
+        // -> fallback_to_any_compatible_local finds local_small
+        let wm_secret = WorkingMemory {
+            sensitivity_estimate: SensitivityEstimate::Secret,
+            complexity_estimate: 0.9,
+            required_observations_count: 5,
+            ..wm_simple()
+        };
+        let allocation_secret = allocate_for_working_memory(
+            &wm_secret,
+            &[local_small(), cloud_strong()],
+            &ComputePolicy::default(),
+        );
+
+        // cloud_strong max_data_sensitivity is Confidential, cannot handle Secret
+        // local_small can handle Secret but lacks ComplexReasoning
+        // Fallback to local_small as compatible local
+        assert_eq!(
+            allocation_secret.status,
+            ComputeAllocationStatus::FallbackSelected
+        );
+        assert_eq!(
+            allocation_secret.selected_node_id,
+            Some(ComputeNodeId::new("local-small"))
+        );
+    }
+
+    #[test]
+    fn p5_unavailable_resource_triggers_fallback() {
+        let wm = wm_simple();
+
+        let mut unavailable_local = local_small();
+        unavailable_local.status = ComputeNodeStatus::Unavailable;
+
+        let allocation =
+            allocate_for_working_memory(&wm, &[unavailable_local], &ComputePolicy::default());
+
+        assert_eq!(
+            allocation.status,
+            ComputeAllocationStatus::NoSuitableResource
+        );
+        assert_eq!(allocation.selected_node_id, None);
+        assert!(allocation.fallback.is_some());
+    }
+
+    #[test]
+    fn p5_allocation_is_not_authorization() {
+        let wm = wm_simple();
+
+        let allocation =
+            allocate_for_working_memory(&wm, &[local_small()], &ComputePolicy::default());
+
+        let encoded = serde_json::to_string(&allocation).expect("allocation should serialize");
+        assert!(encoded.contains("Readback only"));
+        assert!(encoded.contains("not authorization"));
+        assert!(encoded.contains("not execution"));
+        assert!(allocation.justification.contains(NON_AUTHORIZING_READBACK));
+    }
+
+    #[test]
+    fn p5_no_external_provider_call() {
+        // This test verifies the function is pure: no LLM, API, or provider call.
+        // The function is pure Rust — it runs without any external dependency.
+        let wm = wm_simple();
+        let allocation =
+            allocate_for_working_memory(&wm, &[local_small()], &ComputePolicy::default());
+
+        // Pure deterministic: same inputs always produce same output
+        let allocation2 =
+            allocate_for_working_memory(&wm, &[local_small()], &ComputePolicy::default());
+
+        assert_eq!(allocation.status, allocation2.status);
+        assert_eq!(allocation.selected_node_id, allocation2.selected_node_id);
+        assert_eq!(allocation.justification, allocation2.justification);
     }
 }

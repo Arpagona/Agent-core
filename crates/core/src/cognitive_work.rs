@@ -107,6 +107,24 @@ pub struct MissingContext {
     pub why_needed: String,
 }
 
+/// A heuristic compute-need estimate: how sensitive is the data involved.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum SensitivityEstimate {
+    #[default]
+    Public,
+    Internal,
+    Confidential,
+    Secret,
+}
+
+impl SensitivityEstimate {
+    /// Returns `true` if the estimate suggests data should not leave local infrastructure.
+    pub fn requires_local(&self) -> bool {
+        matches!(self, Self::Confidential | Self::Secret)
+    }
+}
+
 /// Lifecycle status of a cognitive cycle.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -128,16 +146,6 @@ pub enum CycleStatus {
 }
 
 /// The agent's current working memory for a single cognitive cycle.
-///
-/// This is the central state container that bundles the objective, context,
-/// observations, improvement candidates, failure insight candidates, and
-/// the proposed next action into a single self-describing structure.
-///
-/// # Safety
-///
-/// - All fields are descriptive, not prescriptive.
-/// - `evidence_only_warning` is a static invariant marker.
-/// - No field authorises execution, persistence, or side effects.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct WorkingMemory {
     /// The objective this cycle is working toward.
@@ -150,6 +158,26 @@ pub struct WorkingMemory {
     pub constraints: Vec<Constraint>,
     /// Context that is missing and needs to be gathered.
     pub missing_context: Vec<MissingContext>,
+    // P5 — Compute Reservoir allocation fields
+    /// Heuristic data-sensitivity estimate derived from domain and objective.
+    #[serde(default)]
+    pub sensitivity_estimate: SensitivityEstimate,
+    /// Heuristic complexity score (0.0 = trivial, 1.0 = very complex).
+    #[serde(default)]
+    pub complexity_estimate: f32,
+    /// Heuristic preference for local-only compute resources.
+    #[serde(default)]
+    pub local_first: bool,
+    /// Heuristic preference for low-cost compute resources.
+    #[serde(default)]
+    pub cost_sensitive: bool,
+    /// Serialised form of the proposed next action kind (for CLI/JSON consumers).
+    #[serde(default)]
+    pub proposed_next_action_kind: String,
+    /// Number of required observations identified by the cycle.
+    #[serde(default)]
+    pub required_observations_count: usize,
+    // P4 — Working Memory integration fields
     /// Observations that are required before continuing.
     pub required_observations: Vec<RequiredObservation>,
     /// Cognitive observations produced during the cycle.
@@ -309,6 +337,14 @@ pub fn build_working_memory_cycle(
         assumptions: vec![],
         constraints: vec![],
         missing_context: vec![],
+        // P5 fields — defaults for builder-constructed WorkingMemory
+        sensitivity_estimate: SensitivityEstimate::Public,
+        complexity_estimate: 0.0,
+        local_first: false,
+        cost_sensitive: false,
+        proposed_next_action_kind: String::new(),
+        required_observations_count: 0,
+        // P4 fields
         required_observations: vec![],
         cognitive_observations: observations.unwrap_or_default(),
         improvement_candidates: improvement_candidates.unwrap_or_default(),
@@ -362,26 +398,50 @@ pub fn run_cognitive_work_cycle(
     let constraints = generate_constraints(&domain);
     let missing_context = detect_missing_context(objective_input, &domain, optional_context);
 
+    // P5 — Compute Reservoir heuristics and next-action determination
+    let proposed_next_action = determine_next_action(&missing_context, &domain);
+    let required_observations = generate_required_observations(&domain, &missing_context);
+
+    let complexity_estimate = estimate_complexity(&domain, &missing_context);
+    let sensitivity_estimate = estimate_sensitivity(&domain, objective_input);
+    let local_first = sensitivity_estimate.requires_local()
+        || contains_any(
+            &objective_input.to_lowercase(),
+            &["local", "sensitive", "privé", "confidentiel"],
+        );
+    let cost_sensitive = domain == ObjectiveDomain::Business
+        || contains_any(
+            &objective_input.to_lowercase(),
+            &["budget", "coût", "cost", "économique", "low-cost"],
+        );
+    let proposed_next_action_kind_str = format!("{:?}", proposed_next_action.kind).to_lowercase();
+
     // 4. Generate plan
     let plan = generate_plan(&domain, &objective_input, &missing_context);
 
-    // 5. Generate required observations
-    let required_observations = generate_required_observations(&domain, &missing_context);
+    // 5. Observations already generated in step 3
 
-    // 6. Determine next action
-    let proposed_next_action = determine_next_action(&missing_context, &domain);
+    // 6. Next action already determined in step 3
 
     // 7. Collect improvement candidates
     let improvement_candidates =
         generate_improvement_candidates(&objective_input, &missing_context, &domain);
 
-    // 8. Build enriched WorkingMemory with all cycle state
+    // 8. Build enriched WorkingMemory with all cycle state (P4 + P5 fields)
     let working_memory = WorkingMemory {
         objective: Some(objective.clone()),
         context_items,
         assumptions,
         constraints,
         missing_context: missing_context.clone(),
+        // P5 — Compute Reservoir allocation fields
+        sensitivity_estimate,
+        complexity_estimate,
+        local_first,
+        cost_sensitive,
+        proposed_next_action_kind: proposed_next_action_kind_str,
+        required_observations_count: required_observations.len(),
+        // P4 — Working Memory integration fields
         required_observations: required_observations.clone(),
         cognitive_observations: vec![],
         improvement_candidates: improvement_candidates.clone(),
@@ -399,6 +459,62 @@ pub fn run_cognitive_work_cycle(
         proposed_next_action,
         improvement_candidates,
         warning: COGNITIVE_READBACK_WARNING,
+    }
+}
+
+// ─── P5 — Compute Reservoir Heuristics ─────────────────────────────────
+
+/// Heuristically estimate the complexity of an objective (0.0–1.0).
+fn estimate_complexity(domain: &ObjectiveDomain, missing: &[MissingContext]) -> f32 {
+    let base = match domain {
+        ObjectiveDomain::Research => 0.9,
+        ObjectiveDomain::Coding => 0.7,
+        ObjectiveDomain::Engineering => 0.8,
+        ObjectiveDomain::Business => 0.5,
+        ObjectiveDomain::Teaching => 0.5,
+        ObjectiveDomain::Administration => 0.3,
+        ObjectiveDomain::PersonalProductivity => 0.3,
+        ObjectiveDomain::General => 0.4,
+        ObjectiveDomain::Unknown => 0.5,
+    };
+    let gap_penalty = (missing.len() as f32) * 0.05;
+    (base + gap_penalty).clamp(0.0, 1.0)
+}
+
+/// Heuristically estimate the data-sensitivity level from domain and keywords.
+fn estimate_sensitivity(domain: &ObjectiveDomain, input: &str) -> SensitivityEstimate {
+    let lower = input.to_lowercase();
+    let secret_keywords = ["secret", "confidentiel", "classified", "top secret"];
+    let confidential_keywords = [
+        "confidential",
+        "sensitive",
+        "privé",
+        "private",
+        "personnel",
+        "personal",
+        "salary",
+        "salary",
+        "hr",
+        "rh",
+        "client data",
+    ];
+
+    if contains_any(&lower, &secret_keywords) {
+        return SensitivityEstimate::Secret;
+    }
+    if contains_any(&lower, &confidential_keywords) {
+        return SensitivityEstimate::Confidential;
+    }
+
+    match domain {
+        ObjectiveDomain::Teaching => SensitivityEstimate::Internal,
+        ObjectiveDomain::Business | ObjectiveDomain::Administration => {
+            SensitivityEstimate::Internal
+        }
+        ObjectiveDomain::General | ObjectiveDomain::PersonalProductivity => {
+            SensitivityEstimate::Public
+        }
+        _ => SensitivityEstimate::Public,
     }
 }
 
@@ -1035,6 +1151,38 @@ mod tests {
         assert_eq!(decoded.domain, ObjectiveDomain::Business);
     }
 
+    #[test]
+    fn working_memory_serializes_roundtrip() {
+        let wm = WorkingMemory {
+            objective: None,
+            context_items: vec![ContextItem {
+                key: "region".to_owned(),
+                value: "Île-de-France".to_owned(),
+                source: "user_provided".to_owned(),
+            }],
+            assumptions: vec![],
+            constraints: vec![],
+            missing_context: vec![],
+            // P5 fields
+            sensitivity_estimate: SensitivityEstimate::Public,
+            complexity_estimate: 0.0,
+            local_first: false,
+            cost_sensitive: false,
+            proposed_next_action_kind: String::new(),
+            required_observations_count: 0,
+            // P4 fields
+            required_observations: vec![],
+            cognitive_observations: vec![],
+            improvement_candidates: vec![],
+            failure_insight_candidates: vec![],
+            proposed_next_action: None,
+            cycle_status: CycleStatus::Initialized,
+            evidence_only_warning: String::new(),
+        };
+        let json = serde_json::to_string(&wm).unwrap();
+        let decoded: WorkingMemory = serde_json::from_str(&json).unwrap();
+        assert_eq!(decoded.context_items[0].key, "region");
+    }
     // ─── Domain classification ───────────────────────────────────────────
 
     #[test]
@@ -1407,6 +1555,14 @@ mod tests {
             assumptions: vec![],
             constraints: vec![],
             missing_context: vec![],
+            // P5 fields
+            sensitivity_estimate: SensitivityEstimate::Public,
+            complexity_estimate: 0.0,
+            local_first: false,
+            cost_sensitive: false,
+            proposed_next_action_kind: String::new(),
+            required_observations_count: 0,
+            // P4 fields
             required_observations: vec![],
             cognitive_observations: vec![],
             improvement_candidates: vec![],
@@ -1437,6 +1593,14 @@ mod tests {
             assumptions: vec![],
             constraints: vec![],
             missing_context: vec![],
+            // P5 fields
+            sensitivity_estimate: SensitivityEstimate::Public,
+            complexity_estimate: 0.0,
+            local_first: false,
+            cost_sensitive: false,
+            proposed_next_action_kind: String::new(),
+            required_observations_count: 0,
+            // P4 fields
             required_observations: vec![],
             cognitive_observations: vec![],
             improvement_candidates: vec![],
