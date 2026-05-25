@@ -6,9 +6,16 @@ It must contain one concrete next action only. The priority queue and long-term 
 
 ## Next action
 
-Next pass should: wait for CI on PR #77 to complete (mergeStateStatus: UNSTABLE), verify green, then merge into main.
-Why: #77 has been rebased, conflicts resolved, superseded PRs (#74, #72) closed. The description-propagation chain is ready for merge.
+Next pass should: implement `arpagona memory holographic status --json` (P4 from AGENT_FOCUS_LOOP.md priority queue).
+Why: all higher-priority items are delivered (P1: #77 merged, snapshot-list created, demo script created). P4 is the next unblocked bounded increment.
 
-Proof to seek: `gh pr view 77 --json mergeStateStatus,state,statusCheckRollup` shows MERGEABLE + green CI checks. Then `gh pr merge 77 --squash` succeeds.
+The target command should:
+- Read-only CLI command under `arpagona memory holographic status`
+- Support `--json` for structured output
+- Expose Holographic Memory vocabulary implementation status
+- NOT add any embedding, vector store, or runtime integration
+- Document that Holographic Memory is alpha vocabulary only, no runtime integration yet
 
-Do not: create new work until #77 is merged. After merge, create `scripts/demo-full-loop.sh` as the next feature increment (self-contained repeatable governed FailureInsight demo).
+Proof to seek: `cargo run --bin arpagona -- memory holographic status --json` returns structured JSON showing existing domains, trace kinds, patterns, and the "no runtime integration" disclaimer.
+
+Do not: add embeddings, vector DB, persistence, or runtime integration. Pure status readback only.

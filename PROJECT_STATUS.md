@@ -615,3 +615,40 @@ Limits:
 - readback remains evidence only, not authorization
 
 Recommended next step: wait for CI to complete on #77, then merge into `main`. After merge, create `scripts/demo-full-loop.sh` for a single-repeatable-command governed FailureInsight demo path.
+
+## 16. Latest Session Update (2026-05-25 — Demo full-loop script + post-#77 cleanup)
+
+This session created a self-contained shell script that runs the complete governed FailureInsight demo path end-to-end in a single invocation. PR #77 was already merged; stale remote branches were pruned.
+
+Changed:
+- Created `scripts/demo-full-loop.sh` — single-repeatable-command governed FailureInsight demo that proves:
+  - signal → proposal → decision → audit → approved persistence
+  - snapshot-write → snapshot-read → snapshot-list
+  - cross-invocation readback (separate process invocation)
+  - custom description propagation
+- Supports `--json` (structured output), `--clean` (reset snapshots), and `$DESCRIPTION` env var
+- Exit code 0 on success, 1 on failure — suitable for CI validation
+- Updated `FOCUS_LOOP_NEXT.md` with next handoff
+- Pruned stale remote branches (`docs/focus-loop-priority-discipline`, `feat/governed-loop-command`)
+
+Verification:
+- `cargo fmt -- --check`: clean
+- `cargo check`: clean
+- `cargo test`: 190 tests pass (all crates)
+- Manual script run: full 5-step demo loop succeeded with all assertions passing
+
+Stability level: alpha demo script. Uses only existing CLI commands and documented demo paths.
+
+Limits:
+- no new Rust code was added;
+- no CLI command was added;
+- no API endpoint was added;
+- no Graph Memory persistence helper added;
+- no Decision Gate behavior changed;
+- no SurrealDB backend change made;
+- no LLM/provider/runtime direct memory mutation added;
+- no real tool execution introduced;
+- no scheduler, autonomy, MCP, browser automation, credential handling, or Mission Control Web growth;
+- readback remains evidence only, not authorization.
+
+Recommended next step: implement `arpagona memory holographic status --json` (P4 from AGENT_FOCUS_LOOP.md priority queue) as a read-only CLI supervision command that exposes Holographic Memory implementation status without runtime integration.
