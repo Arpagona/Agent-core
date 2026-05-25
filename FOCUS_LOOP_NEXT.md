@@ -8,11 +8,11 @@ This file does not override safety, governance, `PROJECT_OBJECTIVES.md`, `PROJEC
 
 ## Current next-pass instruction
 
-Next pass should: add an end-to-end integration test proving that `--description` text flows through the full governed path (signal → proposal → decision → audit → persistence → readback) and appears in the readback output.
+Next pass should: add a documented operator CLI workflow or demo recipe showing how to run `arpagona memory demo failure-insight --description "..."` locally and inspect the governed learning loop output.
 
-Why: the `--description` flag was added this session, but there is no test verifying that operator-supplied text actually propagates through the full FailureInsight → ProposedAction → Decision Gate → Audit → persistence → readback chain. The parser test only verifies CLI argument parsing.
+Why: the `--description` flag now has an automated test proving full governed path propagation, but there is no operator-facing CLI walkthrough or README/demo recipe that documents how a human can run it locally, which weakens the functional-alpha chain from "tested" to "usable."
 
-Proof to seek: a new test in the existing `#[cfg(test)] mod tests {}` block in `main.rs` that calls `memory_demo_failure_insight_readback(Some("inspect-id"), Some("custom description"))` and asserts the readback JSON/text contains the custom description in the signal summary, failure summary, and relevant fields.
+Proof to seek: a `docs/` or README update with a CLI example showing the exact commands and expected output for running the operator-supplied description demo from scratch, or a cargo run invocation that a human can copy-paste and verify the description appears in the output.
 
 Do not: add broad autonomous memory writing, provider/runtime direct memory mutation, external effects, scheduler expansion, Mission Control Web, MCP/browser automation, personal/sensitive memory, readback-as-authorization behavior, or always-on native/unstable backend requirements.
 

@@ -5251,6 +5251,56 @@ mod tests {
         assert!(!message.contains("sk-"));
     }
 
+    #[tokio::test]
+    async fn description_propagates_through_governed_failure_insight_path() {
+        let custom_desc = "the proposal lacked a confidence field";
+        let readback = memory_demo_failure_insight_readback(
+            Some("insight-demo-governed-learning-loop".to_owned()),
+            Some(custom_desc.to_owned()),
+        )
+        .await
+        .expect("demo with custom description succeeds");
+
+        // The governed path is intact: proposal → decision → audit → persistence → readback
+        assert_eq!(readback.memory_write_kind, "create_failure_insight_memory");
+        assert_eq!(readback.decision_status, "approved");
+        assert!(readback.readback_found);
+        assert_eq!(
+            readback.persisted_failure_insight_id.as_deref(),
+            Some("insight-demo-governed-learning-loop")
+        );
+        assert_eq!(readback.readback_audit_event_count, 1);
+        assert_eq!(readback.readback_relation_count, 2);
+        assert!(readback.readback_warning.contains("Readback only"));
+
+        // The inspection shows the custom description propagated through FailureInsight
+        let inspection = readback
+            .inspected_failure_insight
+            .as_ref()
+            .expect("inspection is present when inspect_id is provided");
+        assert!(inspection.found);
+        assert_eq!(
+            inspection.inspected_failure_insight_id.as_deref(),
+            Some("insight-demo-governed-learning-loop")
+        );
+        let summary = inspection.summary.as_deref().unwrap_or_default();
+        assert!(
+            summary.contains(custom_desc),
+            "Inspection summary should contain the custom description, got: {summary}"
+        );
+
+        // The formatted readback text also carries the custom description
+        let formatted = format_memory_demo_failure_insight_readback(&readback);
+        assert!(
+            formatted.contains(custom_desc),
+            "Formatted readback should contain the custom description"
+        );
+
+        // Verify no-authorization invariant
+        assert!(readback.warning.contains("Local demo only"));
+        assert!(readback.next_safe_human_action.contains("evidence only"));
+    }
+
     #[test]
     fn command_definition_is_valid() {
         Cli::command().debug_assert();

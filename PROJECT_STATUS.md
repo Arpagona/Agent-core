@@ -514,3 +514,34 @@ Alpha experimental. All 3 tools are proven by unit tests (13 tests in tool-runti
 ### Recommended next step
 
 Connect `ToolExecutionResult` to the Audit system and Failure-to-Insight pipeline, so that failed observations automatically produce candidate `FailureInsight` records. Then add the `search_text` and `list_files` results to the Working Memory / Reservoir vocabulary for context-grounded agent behaviour.
+
+## 14. Latest Session Update
+
+This session added an end-to-end integration test proving that `--description` text propagates through the full governed FailureInsight path (signal → proposal → decision → audit → persistence → readback → inspection).
+
+Changed:
+- Added `description_propagates_through_governed_failure_insight_path` test to `crates/cli/src/main.rs` that:
+  1. Calls `memory_demo_failure_insight_readback` with a custom inspect_id and custom description
+  2. Verifies the governed path is intact (proposal type, decision status, readback found, audit events, relations)
+  3. Asserts the custom description appears in the FailureInsight inspection summary
+  4. Asserts the custom description appears in the formatted readback text output
+  5. Verifies the no-authorization invariant (warning, evidence-only next step)
+
+Stability level: alpha CLI integration test. Pure in-memory, no external effects, no persistence, no SurrealDB.
+
+Limits:
+- no broad CLI mutation command was added;
+- no API endpoint was added;
+- no new Graph Memory persistence helper was added;
+- no Decision Gate behavior was changed;
+- no SurrealDB backend change was made;
+- no LLM/provider/runtime direct memory mutation was added;
+- no real tool execution was introduced;
+- no destructive capability was added;
+- no scheduler, autonomy, MCP, browser automation, credential handling or Mission Control Web growth was introduced;
+- readback remains evidence only and must not be treated as authorization.
+
+Architectural risk:
+- low. The test is pure in-memory async with no external side effects. It reuses the existing `memory_demo_failure_insight_readback` function with existing `--description` support.
+
+Recommended next step: add a CLI end-to-end demo recipe or a documented operator workflow that shows how to run `arpagona memory demo failure-insight --description "..."` locally and inspect the governed learning loop output. The test proves it works; a recipe makes it usable.
