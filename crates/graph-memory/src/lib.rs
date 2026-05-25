@@ -1,7 +1,10 @@
+pub mod demo_snapshot;
+
 use arpagona_core::{
-    AuditEvent, AuditTraceSummary, DecisionId, Episode, EpisodeId, Fact, FactId, FactStatus,
-    GraphRef, GraphRelation, Observation, ObservationId, ProposedActionId, Source, SourceId,
-    TaskId, WorkspaceId,
+    AuditEvent, AuditTraceSummary, Decision, DecisionId, DecisionStatus, Episode, EpisodeId, Fact,
+    FactId, FactStatus, FailureInsight, FailureInsightId, GraphNodeType, GraphRef, GraphRelation,
+    MemoryWriteIntent, MemoryWriteKind, Observation, ObservationId, ProposedActionId, RelationType,
+    Source, SourceId, SourceType, TaskId, WorkspaceId,
 };
 use async_trait::async_trait;
 use serde::de::DeserializeOwned;
@@ -10,9 +13,12 @@ use serde_json::Value;
 use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
 use surrealdb::engine::any::Any;
+use surrealdb::engine::local::{Db, Mem};
 use surrealdb::sql::Thing;
 use surrealdb::{Connection, Surreal};
 use thiserror::Error;
+
+pub mod demo_snapshot;
 
 pub const GRAPH_MEMORY_SCHEMA: &str = include_str!("../migrations/0001_graph_memory.surql");
 
@@ -22,6 +28,8 @@ pub enum GraphMemoryError {
     Surreal(Box<surrealdb::Error>),
     #[error("serialization error: {0}")]
     Serialization(#[from] serde_json::Error),
+    #[error("invalid governed memory write: {0}")]
+    InvalidGovernedMemoryWrite(String),
 }
 
 impl From<surrealdb::Error> for GraphMemoryError {
@@ -31,6 +39,43 @@ impl From<surrealdb::Error> for GraphMemoryError {
 }
 
 pub type Result<T> = std::result::Result<T, GraphMemoryError>;
+
+/// Create an initialized in-memory SurrealDB-backed Graph Memory store.
+///
+/// This is intended for repeatable local demos and tests. It does not connect
+/// to a durable user database and should not be treated as production memory.
+pub async fn in_memory_graph_memory_store(
+    namespace: &str,
+    database: &str,
+) -> Result<SurrealGraphMemoryStore<Db>> {
+    let db = Surreal::new::<Mem>(()).await?;
+    db.use_ns(namespace).use_db(database).await?;
+    let store = SurrealGraphMemoryStore::new(db);
+    store.init_schema().await?;
+    Ok(store)
+}
+
+const FAILURE_INSIGHT_MEMORY_READBACK_WARNING: &str =
+    "Readback only: persisted FailureInsight memory is evidence for supervision, not approval, authorization, policy, or execution state.";
+
+#[derive(Clone, Debug, PartialEq, serde::Serialize)]
+pub struct FailureInsightMemoryReadback {
+    pub insight: Option<FailureInsight>,
+    pub decision_audit_events: Vec<AuditEvent>,
+    pub insight_relations: Vec<GraphRelation>,
+    pub warning: &'static str,
+}
+
+impl FailureInsightMemoryReadback {
+    pub fn missing() -> Self {
+        Self {
+            insight: None,
+            decision_audit_events: Vec::new(),
+            insight_relations: Vec::new(),
+            warning: FAILURE_INSIGHT_MEMORY_READBACK_WARNING,
+        }
+    }
+}
 
 /// Experimental async SurrealDB adapter port.
 ///
@@ -55,6 +100,38 @@ pub trait AsyncGraphMemoryStore {
         entity_id: &str,
     ) -> Result<Vec<Fact>>;
     async fn revoke_fact(&self, id: FactId) -> Result<()>;
+
+    async fn upsert_failure_insight(&self, insight: FailureInsight) -> Result<()>;
+    async fn get_failure_insight(&self, id: FailureInsightId) -> Result<Option<FailureInsight>>;
+    async fn list_failure_insights_for_workspace(
+        &self,
+        workspace_id: WorkspaceId,
+    ) -> Result<Vec<FailureInsight>>;
+    async fn failure_insight_memory_readback(
+        &self,
+        id: FailureInsightId,
+    ) -> Result<FailureInsightMemoryReadback> {
+        let Some(insight) = self.get_failure_insight(id.clone()).await? else {
+            return Ok(FailureInsightMemoryReadback::missing());
+        };
+        let decision_audit_events = match insight.decision_id.clone() {
+            Some(decision_id) => self.list_audit_events_for_decision(decision_id).await?,
+            None => Vec::new(),
+        };
+        let insight_relations = self
+            .list_relations_from(GraphRef::new(
+                GraphNodeType::Other("failure_insight".to_owned()),
+                id.to_string(),
+            ))
+            .await?;
+
+        Ok(FailureInsightMemoryReadback {
+            insight: Some(insight),
+            decision_audit_events,
+            insight_relations,
+            warning: FAILURE_INSIGHT_MEMORY_READBACK_WARNING,
+        })
+    }
 
     async fn upsert_episode(&self, episode: Episode) -> Result<()>;
     async fn get_episode(&self, id: EpisodeId) -> Result<Option<Episode>>;
@@ -90,6 +167,96 @@ pub trait AsyncGraphMemoryStore {
         let mut summary = AuditTraceSummary::from_events(&events);
         summary.decision_id = Some(decision_id);
         Ok(summary)
+    }
+
+    /// Persist a governed, approved `create_memory_fact` intent as an alpha local fact.
+    ///
+    /// This is a controlled persistence helper, not an authorization path. It refuses
+    /// to write unless the caller supplies an approved Decision Gate result and the
+    /// matching decision audit event, then records the audit event alongside the fact
+    /// for later readback.
+    async fn persist_approved_create_memory_fact(
+        &self,
+        intent: MemoryWriteIntent,
+        decision: Decision,
+        audit_event: AuditEvent,
+    ) -> Result<Fact> {
+        let fact = fact_from_approved_memory_intent(&intent, &decision, &audit_event)?;
+
+        self.record_audit_event(audit_event.clone()).await?;
+        if let Some(source) = source_from_memory_intent(&intent) {
+            self.upsert_source(source).await?;
+        }
+        self.upsert_fact(fact.clone()).await?;
+        self.add_relation(GraphRelation::new(
+            GraphRef::new(GraphNodeType::Fact, fact.id.to_string()),
+            GraphRef::with_relation(
+                GraphNodeType::Decision,
+                decision.id.to_string(),
+                RelationType::DerivedFrom,
+            ),
+            RelationType::DerivedFrom,
+        ))
+        .await?;
+        self.add_relation(GraphRelation::new(
+            GraphRef::new(GraphNodeType::Fact, fact.id.to_string()),
+            GraphRef::with_relation(
+                GraphNodeType::AuditEvent,
+                audit_event.id.to_string(),
+                RelationType::DerivedFrom,
+            ),
+            RelationType::DerivedFrom,
+        ))
+        .await?;
+
+        Ok(fact)
+    }
+
+    /// Persist a governed, approved `create_failure_insight_memory` intent as an alpha local insight.
+    ///
+    /// This writes only after an approved Decision Gate result and matching audit
+    /// event. The persisted `FailureInsight` remains descriptive and
+    /// non-authorizing; readback never becomes approval or execution state.
+    async fn persist_approved_failure_insight_memory(
+        &self,
+        intent: MemoryWriteIntent,
+        decision: Decision,
+        audit_event: AuditEvent,
+    ) -> Result<FailureInsight> {
+        let insight =
+            failure_insight_from_approved_memory_intent(&intent, &decision, &audit_event)?;
+
+        self.record_audit_event(audit_event.clone()).await?;
+        if let Some(source) = source_from_memory_intent(&intent) {
+            self.upsert_source(source).await?;
+        }
+        self.upsert_failure_insight(insight.clone()).await?;
+        let insight_ref = GraphRef::new(
+            GraphNodeType::Other("failure_insight".to_owned()),
+            insight.id.to_string(),
+        );
+        self.add_relation(GraphRelation::new(
+            insight_ref.clone(),
+            GraphRef::with_relation(
+                GraphNodeType::Decision,
+                decision.id.to_string(),
+                RelationType::DerivedFrom,
+            ),
+            RelationType::DerivedFrom,
+        ))
+        .await?;
+        self.add_relation(GraphRelation::new(
+            insight_ref,
+            GraphRef::with_relation(
+                GraphNodeType::AuditEvent,
+                audit_event.id.to_string(),
+                RelationType::DerivedFrom,
+            ),
+            RelationType::DerivedFrom,
+        ))
+        .await?;
+
+        Ok(insight)
     }
 
     async fn add_relation(&self, relation: GraphRelation) -> Result<()>;
@@ -212,6 +379,54 @@ where
         fact.status = FactStatus::Revoked;
         fact.updated_at = chrono::Utc::now();
         self.upsert_fact(fact).await
+    }
+
+    async fn upsert_failure_insight(&self, insight: FailureInsight) -> Result<()> {
+        let workspace_id = insight.workspace_id.as_ref().map(ToString::to_string);
+        let task_id = insight.task_id.as_ref().map(ToString::to_string);
+        let proposed_action_id = insight.proposed_action_id.as_ref().map(ToString::to_string);
+        let decision_id = insight.decision_id.as_ref().map(ToString::to_string);
+        let audit_event_id = insight.audit_event_id.as_ref().map(ToString::to_string);
+        self.db
+            .query(
+                "UPDATE type::thing('failure_insight', $id) \
+                 SET data = $data, workspace_id = $workspace_id, task_id = $task_id, \
+                     proposed_action_id = $proposed_action_id, decision_id = $decision_id, \
+                     audit_event_id = $audit_event_id, created_at = $created_at",
+            )
+            .bind(("id", insight.id.to_string()))
+            .bind(("data", serde_json::to_value(&insight)?))
+            .bind(("workspace_id", workspace_id))
+            .bind(("task_id", task_id))
+            .bind(("proposed_action_id", proposed_action_id))
+            .bind(("decision_id", decision_id))
+            .bind(("audit_event_id", audit_event_id))
+            .bind(("created_at", insight.created_at.to_rfc3339()))
+            .await?
+            .check()?;
+        Ok(())
+    }
+
+    async fn get_failure_insight(&self, id: FailureInsightId) -> Result<Option<FailureInsight>> {
+        select_data(&self.db, "failure_insight", id.as_str()).await
+    }
+
+    async fn list_failure_insights_for_workspace(
+        &self,
+        workspace_id: WorkspaceId,
+    ) -> Result<Vec<FailureInsight>> {
+        let rows: Vec<DataRow<FailureInsight>> = self
+            .db
+            .query(
+                "SELECT data, created_at FROM failure_insight \
+                 WHERE workspace_id = $workspace_id \
+                 ORDER BY created_at ASC",
+            )
+            .bind(("workspace_id", workspace_id.to_string()))
+            .await?
+            .take(0)?;
+
+        Ok(rows.into_iter().map(|row| row.data).collect())
     }
 
     async fn upsert_episode(&self, episode: Episode) -> Result<()> {
@@ -410,6 +625,184 @@ where
     }
 }
 
+fn validate_approved_memory_write_links(
+    intent: &MemoryWriteIntent,
+    decision: &Decision,
+    audit_event: &AuditEvent,
+) -> Result<()> {
+    if decision.status != DecisionStatus::Approved {
+        return Err(GraphMemoryError::InvalidGovernedMemoryWrite(format!(
+            "decision {} is {:?}, not approved",
+            decision.id, decision.status
+        )));
+    }
+    if let Some(linked_decision_id) = &intent.decision_id {
+        if linked_decision_id != &decision.id {
+            return Err(GraphMemoryError::InvalidGovernedMemoryWrite(format!(
+                "intent decision link {} does not match supplied decision {}",
+                linked_decision_id, decision.id
+            )));
+        }
+    }
+    if let Some(linked_audit_event_id) = &intent.audit_event_id {
+        if linked_audit_event_id != &audit_event.id {
+            return Err(GraphMemoryError::InvalidGovernedMemoryWrite(format!(
+                "intent audit link {} does not match supplied audit event {}",
+                linked_audit_event_id, audit_event.id
+            )));
+        }
+    }
+    if audit_event.decision_id.as_ref() != Some(&decision.id) {
+        return Err(GraphMemoryError::InvalidGovernedMemoryWrite(format!(
+            "audit event {} is not linked to decision {}",
+            audit_event.id, decision.id
+        )));
+    }
+    if audit_event.proposed_action_id.as_ref() != Some(&decision.proposed_action_id) {
+        return Err(GraphMemoryError::InvalidGovernedMemoryWrite(format!(
+            "audit event {} is not linked to proposed action {}",
+            audit_event.id, decision.proposed_action_id
+        )));
+    }
+    Ok(())
+}
+
+fn fact_from_approved_memory_intent(
+    intent: &MemoryWriteIntent,
+    decision: &Decision,
+    audit_event: &AuditEvent,
+) -> Result<Fact> {
+    validate_approved_memory_write_links(intent, decision, audit_event)?;
+    if intent.kind != MemoryWriteKind::CreateMemoryFact {
+        return Err(GraphMemoryError::InvalidGovernedMemoryWrite(format!(
+            "intent kind {:?} cannot be persisted as a memory fact",
+            intent.kind
+        )));
+    }
+
+    let attribute = intent.target.attribute.clone().ok_or_else(|| {
+        GraphMemoryError::InvalidGovernedMemoryWrite(
+            "create_memory_fact intent requires target.attribute".to_owned(),
+        )
+    })?;
+    let value = intent.target.value.clone().ok_or_else(|| {
+        GraphMemoryError::InvalidGovernedMemoryWrite(
+            "create_memory_fact intent requires target.value".to_owned(),
+        )
+    })?;
+    let now = chrono::Utc::now();
+
+    Ok(Fact {
+        id: intent
+            .target
+            .fact_id
+            .clone()
+            .unwrap_or_else(|| FactId::new(format!("fact-{}", decision.id.as_str()))),
+        entity_type: intent.target.entity_type.clone(),
+        entity_id: intent.target.entity_id.clone(),
+        attribute,
+        value,
+        source_id: intent.provenance.source_id.clone(),
+        confidence: intent.confidence,
+        valid_from: Some(intent.proposed_at),
+        valid_to: None,
+        status: FactStatus::Active,
+        created_at: now,
+        updated_at: now,
+    })
+}
+
+fn failure_insight_from_approved_memory_intent(
+    intent: &MemoryWriteIntent,
+    decision: &Decision,
+    audit_event: &AuditEvent,
+) -> Result<FailureInsight> {
+    validate_approved_memory_write_links(intent, decision, audit_event)?;
+    if intent.kind != MemoryWriteKind::CreateFailureInsightMemory {
+        return Err(GraphMemoryError::InvalidGovernedMemoryWrite(format!(
+            "intent kind {:?} cannot be persisted as failure insight memory",
+            intent.kind
+        )));
+    }
+    if intent.target.entity_type != "failure_insight" {
+        return Err(GraphMemoryError::InvalidGovernedMemoryWrite(format!(
+            "failure insight memory requires entity_type failure_insight, got {}",
+            intent.target.entity_type
+        )));
+    }
+
+    let failure_insight_id = intent.target.failure_insight_id.clone().ok_or_else(|| {
+        GraphMemoryError::InvalidGovernedMemoryWrite(
+            "create_failure_insight_memory intent requires target.failure_insight_id".to_owned(),
+        )
+    })?;
+    if intent.target.entity_id != failure_insight_id.to_string() {
+        return Err(GraphMemoryError::InvalidGovernedMemoryWrite(format!(
+            "intent entity_id {} does not match failure insight id {}",
+            intent.target.entity_id, failure_insight_id
+        )));
+    }
+
+    let value = intent.target.value.clone().ok_or_else(|| {
+        GraphMemoryError::InvalidGovernedMemoryWrite(
+            "create_failure_insight_memory intent requires target.value".to_owned(),
+        )
+    })?;
+    let insight: FailureInsight = serde_json::from_value(value)?;
+    if insight.id != failure_insight_id {
+        return Err(GraphMemoryError::InvalidGovernedMemoryWrite(format!(
+            "serialized insight id {} does not match target failure insight id {}",
+            insight.id, failure_insight_id
+        )));
+    }
+    if insight.decision_id.as_ref() != Some(&decision.id) {
+        return Err(GraphMemoryError::InvalidGovernedMemoryWrite(format!(
+            "failure insight {} is not linked to decision {}",
+            insight.id, decision.id
+        )));
+    }
+    if insight.audit_event_id.as_ref() != Some(&audit_event.id) {
+        return Err(GraphMemoryError::InvalidGovernedMemoryWrite(format!(
+            "failure insight {} is not linked to audit event {}",
+            insight.id, audit_event.id
+        )));
+    }
+    if insight.proposed_action_id.as_ref() != Some(&decision.proposed_action_id) {
+        return Err(GraphMemoryError::InvalidGovernedMemoryWrite(format!(
+            "failure insight {} is not linked to proposed action {}",
+            insight.id, decision.proposed_action_id
+        )));
+    }
+
+    Ok(insight)
+}
+
+fn source_from_memory_intent(intent: &MemoryWriteIntent) -> Option<Source> {
+    intent
+        .provenance
+        .source_id
+        .as_ref()
+        .map(|source_id| Source {
+            id: source_id.clone(),
+            source_type: source_type_from_memory_source_kind(&intent.provenance.source_kind),
+            title: Some(intent.provenance.source_label.clone()),
+            uri: None,
+            content_hash: None,
+            created_at: intent.proposed_at,
+        })
+}
+
+fn source_type_from_memory_source_kind(source_kind: &str) -> SourceType {
+    match source_kind {
+        "user_input" => SourceType::UserInput,
+        "document" => SourceType::Document,
+        "import" => SourceType::Import,
+        "system" | "system_observation" => SourceType::System,
+        "api" => SourceType::Api,
+        other => SourceType::Other(other.to_owned()),
+    }
+}
+
 #[derive(Debug, Deserialize)]
 struct DataRow<T> {
     data: T,
@@ -462,8 +855,11 @@ fn _record_id(table: &str, id: &str) -> Thing {
 mod tests {
     use super::*;
     use arpagona_core::{
-        ActorRef, AgentId, AuditEventId, AuditEventType, Decision, DecisionId, DecisionStatus,
-        GraphNodeType, PolicyId, ProposedActionId, RelationType, RiskLevel, SourceType, TaskId,
+        ActorRef, AgentId, AuditEventId, AuditEventType, CorrectionTarget, Decision, DecisionId,
+        DecisionStatus, DetectionSignal, DetectionSignalType, FailureClass, FailureInsight,
+        FailureInsightId, GraphNodeType, InsightSeverity, MemoryWriteIntent, MemoryWriteKind,
+        MemoryWriteProvenance, MemoryWriteTarget, PolicyId, ProposedActionId, RelationType,
+        RiskLevel, SourceType, TaskId,
     };
     use chrono::{Duration, Utc};
     use serde_json::json;
@@ -544,6 +940,62 @@ mod tests {
         }
     }
 
+    fn approved_memory_decision(status: DecisionStatus) -> Decision {
+        Decision {
+            id: DecisionId::new("decision-approved-memory-fact"),
+            proposed_action_id: ProposedActionId::new("action-approved-memory-fact"),
+            status,
+            reason: "Approved local project memory fact after Decision Gate evaluation.".to_owned(),
+            risk_level: RiskLevel::Low,
+            policies_applied: vec![PolicyId::new("policy-local-project-memory")],
+            decided_by: None,
+            created_at: Utc::now(),
+        }
+    }
+
+    fn approved_memory_audit_event(decision: &Decision) -> AuditEvent {
+        AuditEvent {
+            id: AuditEventId::new("audit-approved-memory-fact"),
+            event_type: AuditEventType::DecisionCreated,
+            actor: ActorRef::System,
+            workspace_id: Some(WorkspaceId::new("workspace-1")),
+            task_id: Some(TaskId::new("task-1")),
+            proposed_action_id: Some(decision.proposed_action_id.clone()),
+            decision_id: Some(decision.id.clone()),
+            payload: json!({
+                "causal_trace": {
+                    "decision_status": decision.status,
+                    "action_type": "create_memory_fact",
+                    "fact_id": "fact-approved-memory-fact"
+                }
+            }),
+            created_at: Utc::now(),
+        }
+    }
+
+    fn approved_memory_intent(decision: &Decision, audit_event: &AuditEvent) -> MemoryWriteIntent {
+        MemoryWriteIntent::new(
+            MemoryWriteKind::CreateMemoryFact,
+            MemoryWriteTarget::fact_with_value(
+                "project",
+                "arpagona-agent-core",
+                "current_priority",
+                json!("controlled local Graph Memory persistence"),
+            ),
+            MemoryWriteProvenance::new(
+                Some(SourceId::new("source-approved-memory-fact")),
+                "focus loop approved memory proposal",
+                "system_observation",
+                "Decision Gate approved a safe local project memory fact.",
+            ),
+            0.91,
+            AgentId::new("agent-1"),
+            "Remember approved operational project memory for later inspection.",
+            Utc::now(),
+        )
+        .with_audit_linkage(Some(decision.id.clone()), Some(audit_event.id.clone()))
+    }
+
     #[tokio::test]
     async fn initializes_schema_in_memory() {
         let _store = memory_store().await;
@@ -622,6 +1074,306 @@ mod tests {
             .await
             .expect("active facts");
         assert!(active.is_empty());
+    }
+
+    #[tokio::test]
+    async fn persists_approved_create_memory_fact_with_audit_readback() {
+        let store = memory_store().await;
+        let decision = approved_memory_decision(DecisionStatus::Approved);
+        let audit_event = approved_memory_audit_event(&decision);
+        let intent = approved_memory_intent(&decision, &audit_event);
+
+        let fact = store
+            .persist_approved_create_memory_fact(
+                intent.clone(),
+                decision.clone(),
+                audit_event.clone(),
+            )
+            .await
+            .expect("approved create_memory_fact intent should persist");
+
+        assert_eq!(fact.entity_type, "project");
+        assert_eq!(fact.entity_id, "arpagona-agent-core");
+        assert_eq!(fact.attribute, "current_priority");
+        assert_eq!(
+            fact.value,
+            json!("controlled local Graph Memory persistence")
+        );
+        assert_eq!(fact.source_id, intent.provenance.source_id);
+        assert_eq!(fact.status, FactStatus::Active);
+
+        let stored_fact = store
+            .get_fact(fact.id.clone())
+            .await
+            .expect("fact readback succeeds")
+            .expect("fact was persisted");
+        assert_eq!(stored_fact, fact.clone());
+
+        let decision_events = store
+            .list_audit_events_for_decision(decision.id.clone())
+            .await
+            .expect("decision audit readback succeeds");
+        assert_eq!(decision_events, vec![audit_event.clone()]);
+        assert_eq!(
+            store
+                .get_source(SourceId::new("source-approved-memory-fact"))
+                .await
+                .expect("source readback succeeds")
+                .expect("source exists")
+                .source_type,
+            SourceType::System
+        );
+        assert!(store
+            .list_relations_from(GraphRef::new(GraphNodeType::Fact, fact.id.to_string()))
+            .await
+            .expect("fact relation readback succeeds")
+            .iter()
+            .any(|relation| relation.to.node_type == GraphNodeType::AuditEvent));
+    }
+
+    #[tokio::test]
+    async fn rejects_non_approved_create_memory_fact_without_persisting() {
+        let store = memory_store().await;
+        let decision = approved_memory_decision(DecisionStatus::NeedsHumanApproval);
+        let audit_event = approved_memory_audit_event(&decision);
+        let intent = approved_memory_intent(&decision, &audit_event);
+
+        let error = store
+            .persist_approved_create_memory_fact(intent, decision.clone(), audit_event)
+            .await
+            .expect_err("non-approved decision must not persist memory facts");
+
+        assert!(matches!(
+            error,
+            GraphMemoryError::InvalidGovernedMemoryWrite(_)
+        ));
+        assert!(store
+            .list_active_facts_for_entity("project", "arpagona-agent-core")
+            .await
+            .expect("active fact readback succeeds")
+            .is_empty());
+        assert!(store
+            .list_audit_events_for_decision(decision.id)
+            .await
+            .expect("audit readback succeeds")
+            .is_empty());
+    }
+
+    fn sample_failure_insight(decision: &Decision, audit_event: &AuditEvent) -> FailureInsight {
+        FailureInsight::new(
+            FailureInsightId::new("insight-approved-memory"),
+            FailureClass::InsufficientObservability,
+            InsightSeverity::Low,
+            CorrectionTarget::Memory,
+            "Approved failure insight memory should be inspectable.",
+            "The focus loop produced a durable learning candidate.",
+            "Future loops can inspect the correction without treating it as authorization.",
+            "Persist only after Decision Gate approval and audit linkage.",
+            "Graph Memory / Failure-to-Insight",
+            DetectionSignal::new(
+                DetectionSignalType::RuntimeObservation,
+                "Controlled local persistence test observed an approved insight.",
+            ),
+            0.88,
+            Utc::now(),
+        )
+        .with_trace_links(
+            Some(WorkspaceId::new("workspace-1")),
+            Some(TaskId::new("task-1")),
+            Some(decision.proposed_action_id.clone()),
+            Some(decision.id.clone()),
+            Some(audit_event.id.clone()),
+        )
+    }
+
+    fn approved_failure_insight_intent(
+        decision: &Decision,
+        audit_event: &AuditEvent,
+        insight: &FailureInsight,
+    ) -> MemoryWriteIntent {
+        MemoryWriteIntent::new(
+            MemoryWriteKind::CreateFailureInsightMemory,
+            MemoryWriteTarget {
+                entity_type: "failure_insight".to_owned(),
+                entity_id: insight.id.to_string(),
+                attribute: Some("insight".to_owned()),
+                value: Some(serde_json::to_value(insight).expect("failure insight serializes")),
+                fact_id: None,
+                related_fact_id: None,
+                failure_insight_id: Some(insight.id.clone()),
+            },
+            MemoryWriteProvenance::new(
+                Some(SourceId::new("source-approved-failure-insight")),
+                "focus loop approved failure insight proposal",
+                "system_observation",
+                "Decision Gate approved a safe local FailureInsight memory artifact.",
+            ),
+            insight.confidence,
+            AgentId::new("agent-1"),
+            "Remember approved Failure-to-Insight learning for later inspection.",
+            insight.created_at,
+        )
+        .with_audit_linkage(Some(decision.id.clone()), Some(audit_event.id.clone()))
+    }
+
+    #[tokio::test]
+    async fn persists_approved_failure_insight_memory_with_audit_readback() {
+        let store = memory_store().await;
+        let decision = Decision {
+            id: DecisionId::new("decision-approved-failure-insight"),
+            proposed_action_id: ProposedActionId::new("action-approved-failure-insight"),
+            status: DecisionStatus::Approved,
+            reason: "Approved local operational FailureInsight after Decision Gate evaluation."
+                .to_owned(),
+            risk_level: RiskLevel::Low,
+            policies_applied: vec![PolicyId::new("policy-local-project-memory")],
+            decided_by: None,
+            created_at: Utc::now(),
+        };
+        let audit_event = approved_memory_audit_event(&decision);
+        let insight = sample_failure_insight(&decision, &audit_event);
+        let intent = approved_failure_insight_intent(&decision, &audit_event, &insight);
+
+        let persisted = store
+            .persist_approved_failure_insight_memory(
+                intent.clone(),
+                decision.clone(),
+                audit_event.clone(),
+            )
+            .await
+            .expect("approved create_failure_insight_memory intent should persist");
+
+        assert_eq!(persisted, insight);
+        assert_eq!(
+            store
+                .get_failure_insight(FailureInsightId::new("insight-approved-memory"))
+                .await
+                .expect("failure insight readback succeeds"),
+            Some(insight.clone())
+        );
+        assert_eq!(
+            store
+                .list_failure_insights_for_workspace(WorkspaceId::new("workspace-1"))
+                .await
+                .expect("workspace insight readback succeeds"),
+            vec![insight.clone()]
+        );
+        assert_eq!(
+            store
+                .list_audit_events_for_decision(decision.id.clone())
+                .await
+                .expect("decision audit readback succeeds"),
+            vec![audit_event.clone()]
+        );
+        assert!(store
+            .list_relations_from(GraphRef::new(
+                GraphNodeType::Other("failure_insight".to_owned()),
+                insight.id.to_string(),
+            ))
+            .await
+            .expect("failure insight relation readback succeeds")
+            .iter()
+            .any(|relation| relation.to.node_type == GraphNodeType::AuditEvent));
+        assert_eq!(
+            store
+                .get_source(SourceId::new("source-approved-failure-insight"))
+                .await
+                .expect("source readback succeeds")
+                .expect("source exists")
+                .source_type,
+            SourceType::System
+        );
+    }
+
+    #[tokio::test]
+    async fn reads_back_persisted_failure_insight_memory_with_trace_proof() {
+        let store = memory_store().await;
+        let decision = Decision {
+            id: DecisionId::new("decision-readback-failure-insight"),
+            proposed_action_id: ProposedActionId::new("action-readback-failure-insight"),
+            status: DecisionStatus::Approved,
+            reason: "Approved local FailureInsight memory for readback proof.".to_owned(),
+            risk_level: RiskLevel::Low,
+            policies_applied: vec![PolicyId::new("policy-local-project-memory")],
+            decided_by: None,
+            created_at: Utc::now(),
+        };
+        let audit_event = approved_memory_audit_event(&decision);
+        let insight = sample_failure_insight(&decision, &audit_event);
+        let intent = approved_failure_insight_intent(&decision, &audit_event, &insight);
+
+        store
+            .persist_approved_failure_insight_memory(intent, decision.clone(), audit_event.clone())
+            .await
+            .expect("approved failure insight memory persists");
+
+        let readback = store
+            .failure_insight_memory_readback(insight.id.clone())
+            .await
+            .expect("failure insight memory readback succeeds");
+
+        assert_eq!(readback.insight, Some(insight.clone()));
+        assert_eq!(readback.decision_audit_events, vec![audit_event.clone()]);
+        assert_eq!(readback.warning, FAILURE_INSIGHT_MEMORY_READBACK_WARNING);
+        assert!(readback
+            .insight_relations
+            .iter()
+            .any(|relation| relation.to.node_type == GraphNodeType::Decision));
+        assert!(readback
+            .insight_relations
+            .iter()
+            .any(|relation| relation.to.node_type == GraphNodeType::AuditEvent));
+    }
+
+    #[tokio::test]
+    async fn missing_failure_insight_memory_readback_is_non_authorizing_empty_proof() {
+        let store = memory_store().await;
+
+        let readback = store
+            .failure_insight_memory_readback(FailureInsightId::new("missing-insight"))
+            .await
+            .expect("missing failure insight readback succeeds");
+
+        assert_eq!(readback, FailureInsightMemoryReadback::missing());
+    }
+
+    #[tokio::test]
+    async fn rejects_non_approved_failure_insight_memory_without_persisting() {
+        let store = memory_store().await;
+        let decision = Decision {
+            id: DecisionId::new("decision-rejected-failure-insight"),
+            proposed_action_id: ProposedActionId::new("action-rejected-failure-insight"),
+            status: DecisionStatus::NeedsHumanApproval,
+            reason: "Human confirmation is required before persisting FailureInsight memory."
+                .to_owned(),
+            risk_level: RiskLevel::Medium,
+            policies_applied: vec![PolicyId::new("policy-human-confirmation")],
+            decided_by: None,
+            created_at: Utc::now(),
+        };
+        let audit_event = approved_memory_audit_event(&decision);
+        let insight = sample_failure_insight(&decision, &audit_event);
+        let intent = approved_failure_insight_intent(&decision, &audit_event, &insight);
+
+        let error = store
+            .persist_approved_failure_insight_memory(intent, decision.clone(), audit_event)
+            .await
+            .expect_err("non-approved decision must not persist failure insights");
+
+        assert!(matches!(
+            error,
+            GraphMemoryError::InvalidGovernedMemoryWrite(_)
+        ));
+        assert!(store
+            .list_failure_insights_for_workspace(WorkspaceId::new("workspace-1"))
+            .await
+            .expect("workspace insight readback succeeds")
+            .is_empty());
+        assert!(store
+            .list_audit_events_for_decision(decision.id)
+            .await
+            .expect("audit readback succeeds")
+            .is_empty());
     }
 
     #[tokio::test]

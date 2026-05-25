@@ -1,63 +1,102 @@
 # Architecture cible
 
-ARPAGONA Agent Core est organisé autour d'un runtime gouverné par graphe. Les agents ne sont pas des exécutants directs : ils produisent des intentions structurées qui sont évaluées, tracées et éventuellement exécutées par des composants contrôlés.
+ARPAGONA Agent Core est un **Cognitive Agent Runtime** en Rust.
 
-## Flux central
+L'architecture cible n'est pas seulement un runtime gouverné par graphe. C'est d'abord un système agentique cognitif local-first, inspiré par l'ergonomie des systèmes Hermes/OpenClaw, mais conçu avec des couches cognitives explicites : Working Memory, Reservoir Echo, Graph Memory, Compute Reservoir, Reflection / Failure-to-Insight, puis gouvernance et audit comme garde-fous.
+
+## Flux cognitif central
+
+```text
+Input utilisateur
+-> Intent parsing
+-> Working Memory
+-> Reservoir Echo
+-> Graph Memory recall
+-> Compute Reservoir allocation
+-> Agent Proposal
+-> Decision Gate si nécessaire
+-> Human Boundary si nécessaire
+-> Observation
+-> Audit
+-> Reflection / Failure-to-Insight
+-> Memory consolidation
+```
+
+Le flux de sécurité reste non négociable pour toute action sensible :
 
 ```text
 Agent -> ProposedAction -> DecisionGate -> Execution éventuelle -> Audit
 ```
 
-Ce flux est non négociable : toute action sensible passe par une décision explicite et traçable.
+Mais ce flux est le système immunitaire du runtime. L'identité centrale du projet reste l'ambition cognitive.
 
 ## Architectural Re-Centering
 
-Le dépôt contient déjà plusieurs briques alpha ou expérimentales. Elles doivent maintenant être recadrées autour des responsabilités suivantes.
+Le dépôt contient déjà plusieurs briques alpha ou expérimentales. Elles doivent maintenant être recadrées autour de deux exigences simultanées :
 
-`crates/core` doit rester le vocabulaire domaine du système : types, identifiants, événements, risques, permissions, actions proposées, décisions, sources, faits, épisodes, audit, graph primitives et contrats purs. Il ne doit pas devenir un fourre-tout pour la logique runtime, les adapters, les providers, l'API, la CLI ou la gouvernance métier avancée.
+1. construire un Hermes-like local, utile et ergonomique ;
+2. préserver une architecture cognitive avancée avec garde-fous explicites.
 
-Le Decision Gate doit être extrait dans un crate dédié lorsque l'extraction peut être faite proprement sans casser les tests. Sa responsabilité est de prendre une `ProposedAction`, des politiques, des permissions et du contexte applicable, puis de produire une `Decision` traçable. Il ne doit pas appeler de LLM, exécuter d'outil, accéder au shell ou faire d'I/O direct.
+`crates/core` doit rester le vocabulaire domaine du système : types, identifiants, événements, risques, permissions, actions proposées, décisions, sources, faits, épisodes, audit, graph primitives, cognitive primitives et contrats purs. Il ne doit pas devenir un fourre-tout pour la logique runtime, les adapters, les providers, l'API, la CLI ou la gouvernance métier avancée.
 
-Le Compute Reservoir est une brique distincte du Reservoir Echo :
+Le Decision Gate est une brique de sécurité, pas le cœur cognitif. Sa responsabilité est de prendre une `ProposedAction`, des politiques, des permissions et du contexte applicable, puis de produire une `Decision` traçable. Il ne doit pas appeler de LLM, exécuter d'outil, accéder au shell ou faire d'I/O direct.
+
+Le Compute Reservoir est une brique cognitive centrale : il choisit quelle ressource doit penser, lire, résumer, parser ou raisonner. Il est distinct du Reservoir Echo :
 
 - Reservoir Echo : continuité cognitive court terme, traces volatiles, activation/décroissance, influence limitée sur les prochains cycles ;
 - Compute Reservoir : sélection de ressources, routage modèle/worker, arbitrage coût/latence/confidentialité/capability/fallback, mémoire de performance.
-
-Le Compute Reservoir choisit comment penser ou traiter une tâche. Il ne décide pas si une action peut être exécutée. Cette responsabilité reste celle du Decision Gate.
 
 Le Tool Registry doit précéder toute exécution réelle. Il décrit déclarativement les outils, leurs schémas, permissions, risques et états activé/désactivé. Un agent ne doit jamais obtenir d'accès direct à un outil.
 
 L'API, la CLI et le Runtime ne doivent pas prendre de responsabilité de gouvernance métier. Ils exposent ou orchestrent les couches, mais ne remplacent ni Decision Gate, ni Tool Registry, ni Audit, ni Graph Memory.
 
-Toute future exécution doit être contrôlée par :
+## Cognitive Runtime Core
 
-```text
-ProposedAction -> ToolRegistry lookup -> DecisionGate -> Human approval if needed -> Controlled execution -> Audit -> Graph update
-```
+Le Runtime Core définit les concepts fondamentaux : agents, workspaces, tâches, objectifs, working memory, actions proposées, décisions, politiques, permissions, risques, sources, épisodes, faits, événements d'audit, réservoirs cognitifs, compute allocations et failure insights.
 
-Aucune exécution d'outil, autonomie scheduler, browser automation, MCP integration, shell access, email sending ou secrets access by LLM ne doit être ajoutée avant stabilisation de Decision Gate + Tool Registry + Audit.
+`crates/core` doit rester un crate de types purs. Il ne dépend pas d'Axum, de SurrealDB, d'un provider LLM ou d'un système d'exécution.
 
-## Runtime Core
+## Working Memory
 
-Le Runtime Core définit les concepts fondamentaux : agents, workspaces, tâches, objectifs, actions proposées, décisions, politiques, permissions, risques, sources, épisodes, faits et événements d'audit.
+Working Memory est le contexte actif du cycle courant. Elle doit progressivement contenir : objectif actif, tâche courante, observations récentes, contexte graphe rappelé, contraintes actives, ressource compute sélectionnée et proposition en cours.
 
-Dans cette première brique, `crates/core` reste un crate de types purs. Il ne dépend pas d'Axum, de SurrealDB, d'un provider LLM ou d'un système d'exécution.
+Elle n'est pas une mémoire durable. C'est l'espace mental actif du runtime.
 
-## Mission Control
+## Reservoir Echo
 
-Mission Control sera l'interface web de supervision. Elle permettra de consulter les tâches, inspecter les actions proposées, approuver les actions sensibles, explorer la mémoire graphe et suivre les événements d'audit.
+Reservoir Echo appartient aux primitives cognitives court terme. Il sert à maintenir une continuité volatile entre cycles : traces, activation, décroissance et influence limitée sur les prochains tours.
 
-Mission Control est deferred tant que les couches de gouvernance ne sont pas stabilisées.
+Il ne doit pas être confondu avec une mémoire persistante, un routeur de modèles, une couche de budget ou le Compute Reservoir.
 
 ## Graph Memory
 
-Graph Memory sera la couche de mémoire structurée. Elle stockera les faits, sources, épisodes, observations, relations et décisions importantes. Le contrat domaine vit dans `crates/core` sous forme d'un port Rust pur (`GraphMemoryStore`) et d'une implémentation en mémoire (`InMemoryGraphMemoryStore`). Le crate `crates/graph-memory` est l'adapter persistant SurrealDB : il expose `SurrealGraphMemoryStore` et un port async expérimental nommé `AsyncGraphMemoryStore`, distinct du contrat domaine. Aucune couche Graph Memory ne donne de pouvoir d'exécution aux agents.
+Graph Memory est la couche de mémoire structurée durable. Elle stocke les faits, sources, épisodes, observations, relations, décisions importantes, failure insights, traces et informations invalidables.
 
-Graph Memory doit aussi devenir la base de traçabilité des décisions importantes, en lien avec Audit, sans devenir un orchestrateur ou un moteur d'exécution.
+Le contrat domaine vit dans `crates/core` sous forme d'un port Rust pur (`GraphMemoryStore`) et d'une implémentation en mémoire (`InMemoryGraphMemoryStore`). Le crate `crates/graph-memory` est l'adapter persistant SurrealDB.
+
+Graph Memory ne donne aucun pouvoir d'exécution aux agents. Elle fournit du contexte, des traces et des matériaux de consolidation.
+
+## Compute Reservoir
+
+Le Compute Reservoir choisit la ressource cognitive ou computationnelle adaptée à une tâche : modèle local, modèle cloud, worker local, GPU, CPU, tâche différée ou fallback.
+
+Il arbitre selon : capability, confidentialité, coût, latence, budget, disponibilité, performance observée et stratégie de fallback.
+
+Il ne remplace pas le Decision Gate, ne remplace pas Graph Memory et ne donne pas de droit d'exécution.
+
+Document de cadrage : `docs/compute-reservoir.md`.
+
+## Reflection / Failure-to-Insight
+
+Reflection analyse les cycles terminés : succès, erreurs, blocages, mauvais routages, mauvais contextes, policy gaps et corrections humaines.
+
+Failure-to-Insight transforme ces signaux en apprentissages durables non autorisants : propositions d'amélioration de mémoire, policies, tests, prompts, outils, documentation ou routage compute.
+
+Cette couche est essentielle à l'ambition auto-améliorante du projet. Elle ne doit pas devenir un mécanisme d'auto-modification non contrôlée.
 
 ## Decision Gate
 
-Le Decision Gate évaluera chaque `ProposedAction` selon :
+Le Decision Gate évalue les `ProposedAction` selon :
 
 - le type d'action ;
 - le niveau de risque ;
@@ -66,43 +105,27 @@ Le Decision Gate évaluera chaque `ProposedAction` selon :
 - le contexte du workspace ;
 - le besoin éventuel d'approbation humaine.
 
-Il produira une `Decision` : autorisation, blocage ou demande de validation humaine.
+Il produit une `Decision` : autorisation, blocage, demande de validation humaine ou demande de contexte supplémentaire.
 
 État actuel : alpha dans le crate dédié `crates/decision-gate`, sans I/O direct et sans exécution. `crates/core` conserve uniquement les types domaine partagés.
 
-## Compute Reservoir
-
-Le Compute Reservoir est une future brique centrale. Il choisira la ressource cognitive ou computationnelle adaptée à une tâche : modèle local, modèle cloud, worker local, GPU, CPU, tâche différée ou fallback.
-
-Il arbitrera selon : capability, confidentialité, coût, latence, budget, disponibilité, performance observée et stratégie de fallback.
-
-Il ne remplace pas le Decision Gate, ne remplace pas Graph Memory et ne donne pas de droit d'exécution.
-
-Document de cadrage : `docs/compute-reservoir.md`.
-
-## Reservoir Echo
-
-Reservoir Echo appartient aux primitives cognitives court terme. Il sert à maintenir une continuité volatile entre cycles : traces, activation, décroissance et influence limitée sur les prochains tours.
-
-Il ne doit pas être confondu avec une mémoire persistante, un routeur de modèles, une couche de budget ou le Compute Reservoir.
-
 ## Tool Registry
 
-Le Tool Registry décrit les capacités disponibles sans donner un accès libre aux agents. Son état actuel est alpha minimal dans `crates/tool-registry` : catalogue déclaratif en mémoire, schémas, permissions, risques, statuts, lookup et désactivation de déclarations uniquement. Un agent peut demander une action outillée, mais l'exécution effective reste contrôlée par le Decision Gate et les couches runtime.
+Le Tool Registry décrit les capacités disponibles sans donner un accès libre aux agents. Son état actuel est alpha minimal dans `crates/tool-registry` : catalogue déclaratif en mémoire, schémas, permissions, risques, statuts, lookup et désactivation de déclarations uniquement.
 
 Le Tool Registry doit exister et être stabilisé avant toute exécution réelle d'outil.
 
 ## Audit Store
 
-L'Audit Store conservera les événements importants : action proposée, décision prise, approbation humaine, exécution, échec, révocation, changement de politique, etc.
+L'Audit Store conserve les événements importants : action proposée, décision prise, approbation humaine, exécution, échec, révocation, changement de politique, failure insight, correction humaine, etc.
 
-Audit doit être stabilisé avant toute exécution réelle afin que chaque effet externe soit relié à une proposition, une décision et un contexte vérifiable.
+Audit doit servir la compréhension du runtime cognitif. Il ne doit pas réduire le projet à une logique de conformité.
 
 ## Orchestrator
 
-L'Orchestrator coordonnera les agents, les tâches, les objectifs et les propositions d'action. Il restera neutre et adaptable : assistant d'entreprise, agent documentaire, agent de recherche, agent métier, agent de code ou assistant personnel/pro.
+L'Orchestrator coordonnera les agents, les tâches, les objectifs, le contexte, le Compute Reservoir, les propositions d'action et les boucles de réflexion. Il restera neutre et adaptable : assistant personnel/pro, agent documentaire, agent de recherche, agent métier, agent de code ou système local multi-agents.
 
-Il ne doit jamais contourner le flux : `ProposedAction -> DecisionGate -> Audit`.
+Il ne doit jamais contourner le flux : `ProposedAction -> DecisionGate -> Audit` pour les actions sensibles.
 
 ## LLM Providers
 
@@ -110,19 +133,21 @@ Les providers LLM vivent hors de `crates/core`, dans `crates/llm`. La V0 expéri
 
 Contraintes permanentes : le LLM ne doit jamais exécuter, ne doit pas utiliser d'outils OpenAI, ne doit pas faire de web search et ne doit jamais contourner le Decision Gate. `OPENAI_API_KEY` est lu uniquement par le provider OpenAI et ne doit jamais être loggé.
 
+## CLI and Mission Control
+
+La CLI est le premier Mission Control local. Elle doit rendre inspectable la boucle cognitive : tâches, actions, décisions, mémoire, audit, failure insights, choix compute, traces et prochaines étapes.
+
+Mission Control Web viendra plus tard pour rendre cette supervision visuelle.
+
 ## API Server
 
 L'API Server expose des objets et flux alpha. Il ne doit pas contenir la gouvernance métier profonde. Il doit appeler les crates responsables et ne jamais devenir un bypass d'exécution.
-
-## CLI
-
-La CLI est une interface de contrôle et de test alpha. Elle ne doit pas obtenir de privilèges directs supérieurs aux couches métier. Toute commande sensible future devra passer par Tool Registry, Decision Gate, approbation humaine si nécessaire et Audit.
 
 ## Scheduler
 
 Le Scheduler déclenchera des tâches planifiées ou périodiques, mais ses actions devront suivre le même circuit de décision que les actions proposées par un agent.
 
-Le scheduler est deferred tant que le chemin de gouvernance n'est pas stable.
+Le scheduler est deferred tant que le chemin de gouvernance et la réflexion post-cycle ne sont pas stables.
 
 ## Workers d'ingestion
 

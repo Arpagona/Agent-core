@@ -161,7 +161,8 @@ fn risk_rank(risk: &RiskLevel) -> u8 {
 mod tests {
     use super::*;
     use arpagona_agent_core::{
-        AgentId, AuditEventType, PolicyId, ProposedActionId, ProposedActionStatus, TaskId,
+        AgentId, AuditEventType, MemoryWriteIntent, MemoryWriteKind, MemoryWriteProvenance,
+        MemoryWriteTarget, PolicyId, ProposedActionId, ProposedActionStatus, SourceId, TaskId,
         WorkspaceId,
     };
     use serde_json::json;
@@ -182,6 +183,31 @@ mod tests {
             status: ProposedActionStatus::PendingDecision,
             created_at: Utc::now(),
         }
+    }
+
+    fn memory_write_action(kind: MemoryWriteKind, risk_level: RiskLevel) -> ProposedAction {
+        let intent = MemoryWriteIntent::new(
+            kind.clone(),
+            MemoryWriteTarget::fact("project", "arpagona-agent-core", "current_priority"),
+            MemoryWriteProvenance::new(
+                Some(SourceId::new("source-focus-loop")),
+                "focus loop",
+                "system_observation",
+                "A bounded focus-loop run selected a governed memory-write proposal path.",
+            ),
+            0.86,
+            AgentId::new("agent-1"),
+            "Remember the project-level operational priority as governed memory intent.",
+            Utc::now(),
+        );
+
+        let mut action = proposed_action(kind.action_type(), risk_level);
+        action.target = Some("memory:project:arpagona-agent-core".to_owned());
+        action.payload =
+            serde_json::to_value(intent).expect("memory write intent should serialize");
+        action.required_permissions = vec![Permission::WriteMemory];
+        action.rationale = "Agent proposes a governed memory write intent.".to_owned();
+        action
     }
 
     fn policy(
@@ -329,29 +355,54 @@ mod tests {
     }
 
     #[test]
-    fn blocked_read_memory_audit_event_explains_missing_permission() {
-        let mut action = proposed_action(ActionType::ReadMemory, RiskLevel::Low);
-        action.required_permissions = vec![Permission::ReadMemory];
-        let decision = evaluate_proposed_action(&action, &[], &[]);
+    fn missing_write_memory_permission_blocks_create_memory_fact() {
+        let action = memory_write_action(MemoryWriteKind::CreateMemoryFact, RiskLevel::Low);
 
+        let decision = evaluate_proposed_action(&action, &[], &[]);
         let event = audit_event_for_decision(&action, &decision);
         let trace = &event.payload["causal_trace"];
 
         assert_eq!(decision.status, DecisionStatus::Blocked);
-        assert_eq!(trace["decision_outcome"], json!("blocked"));
-        assert_eq!(trace["explicit_reason"], json!(decision.reason));
-        assert_eq!(trace["action_type"], json!("read_memory"));
-        assert_eq!(trace["risk"], json!("low"));
+        assert!(decision.reason.contains("required permission"));
+        assert_eq!(trace["action_type"], json!("create_memory_fact"));
+        assert_eq!(trace["required_permission"], json!("write_memory"));
         assert_eq!(
             trace["matched_policy_or_fallback_rule"],
             json!("missing_permission")
         );
         assert_eq!(trace["block_reason_category"], json!("missing_permission"));
-        assert_eq!(trace["required_permission"], json!("read_memory"));
-        assert!(trace["timestamp"].is_string());
         assert!(trace["suggested_next_action"]
             .as_str()
             .unwrap()
-            .contains("Grant"));
+            .contains("WriteMemory"));
+    }
+
+    #[test]
+    fn medium_memory_write_with_permission_needs_human_approval() {
+        let action = memory_write_action(
+            MemoryWriteKind::CreateFailureInsightMemory,
+            RiskLevel::Medium,
+        );
+
+        let decision = evaluate_proposed_action(&action, &[], &[Permission::WriteMemory]);
+        let event = audit_event_for_decision(&action, &decision);
+        let trace = &event.payload["causal_trace"];
+
+        assert_eq!(decision.status, DecisionStatus::NeedsHumanApproval);
+        assert!(decision.reason.contains("Medium risk"));
+        assert_eq!(trace["action_type"], json!("create_failure_insight_memory"));
+        assert_eq!(trace["required_permissions"], json!(["write_memory"]));
+        assert_eq!(
+            trace["matched_policy_or_fallback_rule"],
+            json!("required_confirmation")
+        );
+        assert_eq!(
+            trace["block_reason_category"],
+            json!("required_confirmation")
+        );
+        assert!(trace["suggested_next_action"]
+            .as_str()
+            .unwrap()
+            .contains("human confirmation"));
     }
 }

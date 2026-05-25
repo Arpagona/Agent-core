@@ -16,6 +16,7 @@ pub enum CognitiveLayer {
     WorkingMemory,
     ReservoirEcho,
     GraphMemory,
+    HolographicMemory,
     AgentProposal,
     DecisionGate,
     HumanBoundary,

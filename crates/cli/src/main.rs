@@ -1,7 +1,16 @@
 use arpagona_agent_core::{
-    AuditEvent, AuditTraceSummary, Decision, DecisionId, DecisionStatus, ProposedAction,
-    ProposedActionStatus, Task, TaskId, WorkspaceId,
+    ActionType, AgentId, AuditEvent, AuditEventId, AuditTraceSummary, CorrectionTarget, Decision,
+    DecisionId, DecisionStatus, DetectionSignal, DetectionSignalType, FailureClass, FailureInsight,
+    FailureInsightId, InsightSeverity, MemoryWriteIntent, MemoryWriteKind, MemoryWriteProvenance,
+    MemoryWriteTarget, Permission, ProposedAction, ProposedActionId, ProposedActionStatus,
+    RiskLevel, SourceId, Task, TaskId, WorkspaceId,
 };
+use arpagona_decision_gate::{audit_event_for_decision, evaluate_proposed_action};
+use arpagona_graph_memory::{
+    demo_snapshot::{FailureInsightDemoSnapshot, EVIDENCE_ONLY_TOKEN},
+    in_memory_graph_memory_store, AsyncGraphMemoryStore, GRAPH_MEMORY_SCHEMA,
+};
+use chrono::Utc;
 use clap::{Args, Parser, Subcommand, ValueEnum};
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
@@ -57,6 +66,8 @@ enum Command {
     Audit(AuditCommand),
     /// Inspect Failure-to-Insight vocabulary and readback conventions.
     Insight(InsightCommand),
+    /// Inspect Graph Memory alpha status and readback conventions.
+    Memory(MemoryCommand),
 }
 
 #[derive(Debug, Args)]
@@ -187,6 +198,51 @@ struct ProposeActionArgs {
     /// Rationale recorded with the action.
     #[arg(long, default_value = DEFAULT_RATIONALE)]
     rationale: String,
+    /// Memory proposal target entity type for governed memory-write action types.
+    #[arg(long, default_value = "project")]
+    memory_target_type: String,
+    /// Memory proposal target entity id for governed memory-write action types.
+    #[arg(long, default_value = "arpagona-agent-core")]
+    memory_target_id: String,
+    /// Memory proposal target attribute for governed memory-write action types.
+    #[arg(long, default_value = "operational_note")]
+    memory_target_attribute: String,
+    /// Proposed memory value for governed memory-write action types. Accepts JSON or plain text.
+    #[arg(long)]
+    memory_value: Option<String>,
+    /// Optional proposed Graph Memory fact id for governed memory-write action types.
+    #[arg(long)]
+    memory_fact_id: Option<String>,
+    /// Optional related fact id for link/invalidation governed memory-write action types.
+    #[arg(long)]
+    memory_related_fact_id: Option<String>,
+    /// Optional FailureInsight id for governed FailureInsight memory proposals.
+    #[arg(long)]
+    memory_failure_insight_id: Option<String>,
+    /// Optional provenance source id for governed memory-write action types.
+    #[arg(long)]
+    memory_source_id: Option<String>,
+    /// Provenance source label for governed memory-write action types.
+    #[arg(long, default_value = "arpagona cli proposal")]
+    memory_source_label: String,
+    /// Provenance source kind for governed memory-write action types.
+    #[arg(long, default_value = "local_operator_input")]
+    memory_source_kind: String,
+    /// Provenance evidence for governed memory-write action types.
+    #[arg(
+        long,
+        default_value = "Memory write was proposed through the alpha CLI and still requires Decision Gate review."
+    )]
+    memory_evidence: String,
+    /// Confidence for governed memory-write action types.
+    #[arg(long, default_value_t = 0.5)]
+    memory_confidence: f64,
+    /// Future invalidation/supersession guidance for governed memory-write action types.
+    #[arg(
+        long,
+        default_value = "Supersede or invalidate if the proposed operational note becomes stale."
+    )]
+    memory_invalidation_note: String,
 }
 
 #[derive(Clone, Debug, ValueEnum)]
@@ -231,10 +287,42 @@ struct InsightCommand {
     command: InsightSubcommand,
 }
 
+#[derive(Debug, Args)]
+struct MemoryCommand {
+    #[command(subcommand)]
+    command: MemorySubcommand,
+}
+
 #[derive(Debug, Subcommand)]
 enum InsightSubcommand {
     /// Show the read-only Failure-to-Insight schema and taxonomy.
     Schema(InsightSchemaArgs),
+}
+
+#[derive(Debug, Subcommand)]
+enum MemorySubcommand {
+    /// Show read-only Graph Memory alpha status.
+    Status(MemoryStatusArgs),
+    /// List read-only governed memory-write proposals from proposed actions.
+    Proposals(MemoryProposalsArgs),
+    /// Show one read-only governed memory-write proposal from proposed actions.
+    Proposal(MemoryProposalArgs),
+    /// Run local Graph Memory demos that exercise governed alpha paths.
+    Demo(MemoryDemoCommand),
+}
+
+#[derive(Debug, Args)]
+struct MemoryDemoCommand {
+    #[command(subcommand)]
+    command: MemoryDemoSubcommand,
+}
+
+#[derive(Debug, Subcommand)]
+enum MemoryDemoSubcommand {
+    /// Simulate a governed FailureInsight learning loop with in-memory persistence and readback.
+    FailureInsight(MemoryDemoFailureInsightArgs),
+    /// Read a FailureInsight demo snapshot from a JSON file for cross-invocation inspection.
+    SnapshotRead(MemoryDemoSnapshotReadArgs),
 }
 
 #[derive(Debug, Args)]
@@ -242,6 +330,93 @@ struct InsightSchemaArgs {
     /// Emit structured JSON instead of human-oriented text.
     #[arg(long)]
     json: bool,
+}
+
+#[derive(Debug, Args)]
+struct MemoryStatusArgs {
+    /// Emit structured JSON instead of human-oriented text.
+    #[arg(long)]
+    json: bool,
+}
+
+#[derive(Debug, Args)]
+struct MemoryProposalsArgs {
+    /// Emit structured JSON instead of human-oriented text.
+    #[arg(long)]
+    json: bool,
+}
+
+#[derive(Debug, Args)]
+struct MemoryProposalArgs {
+    /// Proposed action id to inspect.
+    proposal_id: String,
+    /// Emit structured JSON instead of human-oriented text.
+    #[arg(long)]
+    json: bool,
+}
+
+#[derive(Debug, Args)]
+struct MemoryDemoFailureInsightArgs {
+    /// Inspect a specific FailureInsight id after the local governed demo persists it.
+    #[arg(long = "inspect-id")]
+    inspect_id: Option<String>,
+    /// Optional path to write a demo snapshot JSON file for cross-invocation readback proof.
+    /// When provided, the demo writes the readback state to disk after the in-memory demo succeeds.
+    #[arg(long = "snapshot-path")]
+    snapshot_path: Option<String>,
+}
+
+#[derive(Debug, Args)]
+struct MemoryDemoSnapshotReadArgs {
+    /// Path to the demo snapshot JSON file to read.
+    snapshot_path: String,
+    /// Emit structured JSON instead of human-oriented text.
+    #[arg(long)]
+    json: bool,
+}
+
+#[derive(Debug, Serialize)]
+struct MemoryDemoFailureInsightReadback {
+    signal: MemoryDemoSignalReadback,
+    proposed_action_id: String,
+    memory_write_kind: String,
+    decision_id: String,
+    decision_status: String,
+    decision_reason: String,
+    audit_event_id: String,
+    persisted_failure_insight_id: Option<String>,
+    inspected_failure_insight: Option<MemoryDemoFailureInsightInspectionReadback>,
+    readback_found: bool,
+    readback_audit_event_count: usize,
+    readback_relation_count: usize,
+    readback_warning: &'static str,
+    functional_alpha_chain: &'static [&'static str],
+    exact_local_command: &'static str,
+    repeatable_demo_recipe: &'static [&'static str],
+    next_safe_human_action: &'static str,
+    warning: &'static str,
+}
+
+#[derive(Debug, Serialize)]
+struct MemoryDemoSignalReadback {
+    signal_type: &'static str,
+    summary: &'static str,
+    correction_target: &'static str,
+    provenance: &'static str,
+}
+
+#[derive(Debug, Serialize)]
+struct MemoryDemoFailureInsightInspectionReadback {
+    requested_failure_insight_id: String,
+    found: bool,
+    inspected_failure_insight_id: Option<String>,
+    summary: Option<String>,
+    correction_target: Option<String>,
+    decision_id: Option<String>,
+    audit_event_id: Option<String>,
+    audit_event_count: usize,
+    relation_count: usize,
+    warning: &'static str,
 }
 
 #[derive(Debug, Subcommand)]
@@ -292,6 +467,27 @@ struct AuditDecisionReadback {
     decision_status: Option<String>,
     explicit_reason: Option<String>,
     action_type: Option<String>,
+    memory_write_kind: Option<String>,
+    memory_target_type: Option<String>,
+    memory_target_id: Option<String>,
+    memory_target_attribute: Option<String>,
+    memory_target_value: Option<Value>,
+    memory_target_fact_id: Option<String>,
+    memory_related_fact_id: Option<String>,
+    memory_failure_insight_id: Option<String>,
+    memory_provenance_source_id: Option<String>,
+    memory_provenance_source_label: Option<String>,
+    memory_provenance_source_kind: Option<String>,
+    memory_provenance_evidence: Option<String>,
+    memory_confidence: Option<f64>,
+    memory_actor: Option<String>,
+    memory_reason_for_remembering: Option<String>,
+    memory_proposed_at: Option<String>,
+    memory_invalidation_note: Option<String>,
+    memory_decision_id: Option<String>,
+    memory_audit_event_id: Option<String>,
+    memory_persistence_readback_hint: Option<String>,
+    memory_supersession_hint: Option<String>,
     risk_level: Option<String>,
     matched_policy_or_fallback_rule: Option<String>,
     required_permission: Option<String>,
@@ -341,11 +537,115 @@ struct InsightSchemaReadback {
     warning: &'static str,
 }
 
+#[derive(Debug, Serialize)]
+struct MemoryStatusReadback {
+    graph_memory_support_compiled: bool,
+    expected_backend: &'static str,
+    configured_backend: Option<String>,
+    surrealdb_adapter_available: bool,
+    schema_available: bool,
+    schema_bytes: usize,
+    governed_persistence_helpers: &'static [&'static str],
+    required_governance_controls: &'static [&'static str],
+    alpha_limits: &'static [&'static str],
+    not_implemented: &'static [&'static str],
+    warning: &'static str,
+}
+
+#[derive(Debug, Serialize)]
+struct MemoryProposalsReadback {
+    proposals: Vec<MemoryProposalSummary>,
+    warning: &'static str,
+}
+
+#[derive(Debug, Serialize)]
+struct MemoryProposalDetailReadback {
+    proposal: Option<MemoryProposalSummary>,
+    warning: &'static str,
+}
+
+#[derive(Debug, Serialize)]
+struct MemoryProposalSummary {
+    id: String,
+    workspace_id: String,
+    task_id: Option<String>,
+    proposed_by: String,
+    action_type: String,
+    status: String,
+    risk_level: String,
+    required_permissions: Vec<String>,
+    target: Option<String>,
+    rationale: String,
+    created_at: String,
+    memory_write_kind: Option<String>,
+    target_type: Option<String>,
+    target_id: Option<String>,
+    target_attribute: Option<String>,
+    target_value: Option<Value>,
+    target_fact_id: Option<String>,
+    related_fact_id: Option<String>,
+    failure_insight_id: Option<String>,
+    provenance_source_id: Option<String>,
+    provenance_source_label: Option<String>,
+    provenance_source_kind: Option<String>,
+    provenance_evidence: Option<String>,
+    confidence: Option<f64>,
+    actor: Option<String>,
+    reason_for_remembering: Option<String>,
+    proposed_at: Option<String>,
+    decision_id: Option<String>,
+    audit_event_id: Option<String>,
+    invalidation_note: Option<String>,
+    persistence_readback_hint: String,
+    supersession_hint: String,
+    suggested_next_action: String,
+}
+
 const AUDIT_READBACK_WARNING: &str =
     "Readback only: this summary is not approval, authorization, orchestration, or execution state.";
 
 const INSIGHT_READBACK_WARNING: &str =
     "Readback only: FailureInsight vocabulary informs learning and supervision; it is not approval, authorization, self-modification, or execution state.";
+
+const MEMORY_READBACK_WARNING: &str =
+    "Readback only: Graph Memory status is not approval, authorization, orchestration, memory mutation, or execution state.";
+
+const MEMORY_DEMO_WARNING: &str =
+    "Local demo only: this in-memory Graph Memory proof is simulated/internal and is not broad memory mutation, authorization, autonomy, or external execution state.";
+
+const FAILURE_INSIGHT_DEMO_CHAIN: &[&str] = &[
+    "safe operational signal",
+    "create_failure_insight_memory ProposedAction",
+    "Decision Gate approval",
+    "decision audit event",
+    "approved local Graph Memory persistence",
+    "FailureInsight readback with decision/audit trace proof",
+    "demo snapshot written for cross-invocation readback proof",
+];
+
+const FAILURE_INSIGHT_DEMO_COMMAND: &str =
+    "cargo run -q --bin arpagona -- memory demo failure-insight --json";
+
+const FAILURE_INSIGHT_DEMO_INSPECT_COMMAND: &str =
+    "cargo run -q --bin arpagona -- memory demo failure-insight --json --inspect-id insight-demo-governed-learning-loop";
+
+#[allow(dead_code)]
+const FAILURE_INSIGHT_DEMO_SNAPSHOT_COMMAND: &str =
+    "cargo run -q --bin arpagona -- memory demo failure-insight --json --snapshot-path target/demo-snapshot.json";
+
+#[allow(dead_code)]
+const FAILURE_INSIGHT_DEMO_SNAPSHOT_READ_COMMAND: &str =
+    "cargo run -q --bin arpagona -- memory demo snapshot-read target/demo-snapshot.json";
+
+const FAILURE_INSIGHT_DEMO_RECIPE: &[&str] = &[
+    "run the exact_local_command from the repository root",
+    "verify decision_status is approved before treating persistence as expected demo behavior",
+    "verify readback_found is true and readback_audit_event_count is at least 1",
+    "optionally rerun with --inspect-id insight-demo-governed-learning-loop to inspect the persisted artifact by id",
+    "run with --snapshot-path target/demo-snapshot.json to persist the readback as a JSON file",
+    "in a separate terminal session, run snapshot-read target/demo-snapshot.json to prove cross-invocation readback",
+    "treat all output as local evidence only, not authorization or durable user memory",
+];
 
 const INSIGHT_MINIMUM_FIELDS: &[&str] = &[
     "id",
@@ -415,6 +715,37 @@ const INSIGHT_ALPHA_LIMITS: &[&str] = &[
     "no provider routing influence",
     "no self-modification",
     "no execution or external side effects",
+];
+
+const MEMORY_ALPHA_LIMITS: &[&str] = &[
+    "read-only CLI status/proposal readback only",
+    "approved persistence helpers are local alpha Graph Memory adapter capabilities, not CLI mutation commands",
+    "SurrealDB adapter remains experimental",
+    "no migration runner exposed through the CLI",
+    "no broad semantic search or embeddings pipeline",
+    "no hidden context injection into LLM prompts",
+    "no personal or sensitive memory writes",
+];
+
+const MEMORY_GOVERNED_PERSISTENCE_HELPERS: &[&str] = &[
+    "persist_approved_create_memory_fact",
+    "persist_approved_failure_insight_memory",
+];
+
+const MEMORY_REQUIRED_GOVERNANCE_CONTROLS: &[&str] = &[
+    "ProposedAction memory-write intent",
+    "approved Decision Gate result",
+    "matching decision audit event",
+    "source/provenance readback when provided",
+    "post-persistence fact or FailureInsight inspection path",
+];
+
+const MEMORY_NOT_IMPLEMENTED: &[&str] = &[
+    "CLI memory mutation command",
+    "automatic FailureInsight creation from audit events",
+    "Decision Gate influence from memory readback",
+    "Mission Control Graph Memory UI",
+    "scheduler or autonomous memory expansion",
 ];
 
 #[derive(Debug, PartialEq, Eq)]
@@ -518,6 +849,17 @@ async fn run() -> Result<(), Box<dyn Error>> {
         },
         Command::Insight(insight) => match insight.command {
             InsightSubcommand::Schema(args) => insight_schema(args)?,
+        },
+        Command::Memory(memory) => match memory.command {
+            MemorySubcommand::Status(args) => memory_status(args)?,
+            MemorySubcommand::Proposals(args) => memory_proposals(&client, &api_url, args).await?,
+            MemorySubcommand::Proposal(args) => memory_proposal(&client, &api_url, args).await?,
+            MemorySubcommand::Demo(demo) => match demo.command {
+                MemoryDemoSubcommand::FailureInsight(args) => {
+                    memory_demo_failure_insight(args).await?
+                }
+                MemoryDemoSubcommand::SnapshotRead(args) => memory_demo_snapshot_read(args)?,
+            },
         },
     }
 
@@ -933,6 +1275,852 @@ fn format_optional_usize(value: Option<usize>) -> String {
         .unwrap_or_else(|| "unavailable".to_owned())
 }
 
+fn format_optional_json(value: &Option<Value>) -> String {
+    value
+        .as_ref()
+        .map(|value| value.to_string())
+        .unwrap_or_else(|| "-".to_owned())
+}
+
+fn memory_status(args: MemoryStatusArgs) -> Result<(), Box<dyn Error>> {
+    let readback = memory_status_readback();
+    if args.json {
+        println!("{}", serde_json::to_string_pretty(&readback)?);
+    } else {
+        print!("{}", format_memory_status_readback(&readback));
+    }
+    Ok(())
+}
+
+fn memory_status_readback() -> MemoryStatusReadback {
+    let configured_backend = env::var("ARPAGONA_GRAPH_MEMORY_BACKEND")
+        .ok()
+        .map(|value| value.trim().to_ascii_lowercase())
+        .filter(|value| !value.is_empty());
+
+    MemoryStatusReadback {
+        graph_memory_support_compiled: true,
+        expected_backend: "surrealdb",
+        configured_backend,
+        surrealdb_adapter_available: true,
+        schema_available: !GRAPH_MEMORY_SCHEMA.trim().is_empty(),
+        schema_bytes: GRAPH_MEMORY_SCHEMA.len(),
+        governed_persistence_helpers: MEMORY_GOVERNED_PERSISTENCE_HELPERS,
+        required_governance_controls: MEMORY_REQUIRED_GOVERNANCE_CONTROLS,
+        alpha_limits: MEMORY_ALPHA_LIMITS,
+        not_implemented: MEMORY_NOT_IMPLEMENTED,
+        warning: MEMORY_READBACK_WARNING,
+    }
+}
+
+fn format_memory_status_readback(readback: &MemoryStatusReadback) -> String {
+    let mut output = String::new();
+    push_readback_line(&mut output, &style_info("Graph Memory status"));
+    push_readback_field(
+        &mut output,
+        "graph_memory_support_compiled:",
+        &readback.graph_memory_support_compiled.to_string(),
+    );
+    push_readback_field(&mut output, "expected_backend:", readback.expected_backend);
+    push_readback_field(
+        &mut output,
+        "configured_backend:",
+        readback
+            .configured_backend
+            .as_deref()
+            .unwrap_or("not configured"),
+    );
+    push_readback_field(
+        &mut output,
+        "surrealdb_adapter_available:",
+        &readback.surrealdb_adapter_available.to_string(),
+    );
+    push_readback_field(
+        &mut output,
+        "schema_available:",
+        &readback.schema_available.to_string(),
+    );
+    push_readback_field(
+        &mut output,
+        "schema_bytes:",
+        &readback.schema_bytes.to_string(),
+    );
+    push_readback_field(
+        &mut output,
+        "governed_persistence_helpers:",
+        &format_static_list(readback.governed_persistence_helpers),
+    );
+    push_readback_field(
+        &mut output,
+        "required_governance_controls:",
+        &format_static_list(readback.required_governance_controls),
+    );
+    push_readback_field(
+        &mut output,
+        "alpha_limits:",
+        &format_static_list(readback.alpha_limits),
+    );
+    push_readback_field(
+        &mut output,
+        "not_implemented:",
+        &format_static_list(readback.not_implemented),
+    );
+    push_readback_line(&mut output, &style_dim(readback.warning));
+    output
+}
+
+async fn memory_proposals(
+    client: &Client,
+    api_url: &str,
+    args: MemoryProposalsArgs,
+) -> Result<(), Box<dyn Error>> {
+    let actions: Vec<ProposedAction> = get_json(
+        client
+            .get(format!("{api_url}/proposed-actions"))
+            .send()
+            .await?,
+    )
+    .await?;
+    let readback = memory_proposals_readback_from_actions(actions);
+
+    if args.json {
+        println!("{}", serde_json::to_string_pretty(&readback)?);
+    } else {
+        print!("{}", format_memory_proposals_readback(&readback));
+    }
+    Ok(())
+}
+
+async fn memory_proposal(
+    client: &Client,
+    api_url: &str,
+    args: MemoryProposalArgs,
+) -> Result<(), Box<dyn Error>> {
+    let actions: Vec<ProposedAction> = get_json(
+        client
+            .get(format!("{api_url}/proposed-actions"))
+            .send()
+            .await?,
+    )
+    .await?;
+    let proposal = memory_proposals_readback_from_actions(actions)
+        .proposals
+        .into_iter()
+        .find(|proposal| proposal.id == args.proposal_id);
+    let readback = MemoryProposalDetailReadback {
+        proposal,
+        warning: MEMORY_READBACK_WARNING,
+    };
+
+    if args.json {
+        println!("{}", serde_json::to_string_pretty(&readback)?);
+    } else {
+        print!("{}", format_memory_proposal_detail_readback(&readback));
+    }
+    Ok(())
+}
+
+async fn memory_demo_failure_insight(
+    args: MemoryDemoFailureInsightArgs,
+) -> Result<(), Box<dyn Error>> {
+    let readback = memory_demo_failure_insight_readback(args.inspect_id.clone()).await?;
+
+    // Persist the demo snapshot for cross-invocation readback if requested.
+    if let Some(snapshot_path) = &args.snapshot_path {
+        let json = serde_json::to_value(&readback)?;
+        let snapshot = arpagona_graph_memory::demo_snapshot::FailureInsightDemoSnapshot::new(json);
+        snapshot
+            .write_to_file(snapshot_path)
+            .map_err(|e| format!("Failed to write demo snapshot to '{}': {e}", snapshot_path))?;
+    }
+
+    if args.json {
+        println!("{}", serde_json::to_string_pretty(&readback)?);
+    } else {
+        print!("{}", format_memory_demo_failure_insight_readback(&readback));
+    }
+    // If --snapshot-path is provided, write the readback JSON to disk for cross-invocation proof.
+    if let Some(snapshot_path) = args.snapshot_path {
+        let json_value = serde_json::to_value(&readback)?;
+        let chain: Vec<String> = readback
+            .functional_alpha_chain
+            .iter()
+            .map(|s| s.to_string())
+            .collect();
+        let snapshot = FailureInsightDemoSnapshot::new(json_value, chain);
+        snapshot
+            .write_to_file(std::path::Path::new(&snapshot_path))
+            .map_err(|e| format!("failed to write snapshot to {snapshot_path}: {e}"))?;
+        if args.json {
+            // Merge the snapshot path info into the existing JSON output for cleaner piping.
+            let mut output = serde_json::to_value(&readback)?;
+            if let serde_json::Value::Object(ref mut map) = output {
+                map.insert("snapshot_written".to_owned(), serde_json::json!(true));
+                map.insert("snapshot_path".to_owned(), serde_json::json!(snapshot_path));
+                map.insert(
+                    "evidence_only_token".to_owned(),
+                    serde_json::json!(EVIDENCE_ONLY_TOKEN),
+                );
+            }
+            println!("{}", serde_json::to_string_pretty(&output)?);
+        } else {
+            eprintln!(
+                "Snapshot written to {} (evidence_only_token: {})",
+                snapshot_path, EVIDENCE_ONLY_TOKEN
+            );
+        }
+    }
+    Ok(())
+}
+
+async fn memory_demo_failure_insight_readback(
+    inspect_id: Option<String>,
+) -> Result<MemoryDemoFailureInsightReadback, Box<dyn Error>> {
+    let workspace_id = WorkspaceId::new("workspace-demo-failure-insight");
+    let task_id = TaskId::new("task-demo-failure-insight");
+    let agent_id = AgentId::new("agent-demo-focus-loop");
+    let proposed_action_id = ProposedActionId::new("action-demo-create-failure-insight-memory");
+    let failure_insight_id = FailureInsightId::new("insight-demo-governed-learning-loop");
+    let created_at = Utc::now();
+    let signal = DetectionSignal::new(
+        DetectionSignalType::RuntimeObservation,
+        "Local focus-loop demo observed a safe, bounded FailureInsight learning signal.",
+    );
+
+    let base_insight = FailureInsight::new(
+        failure_insight_id.clone(),
+        FailureClass::InsufficientObservability,
+        InsightSeverity::Low,
+        CorrectionTarget::Memory,
+        "Governed FailureInsight learning loop needs repeatable local readback proof.",
+        "Without an end-to-end local demo, operators must infer whether proposal, decision, audit, persistence, and readback remain connected.",
+        "Human supervisors have weaker evidence that approved FailureInsights can be inspected without widening mutation authority.",
+        "Exercise the loop with in-memory Graph Memory and explicit non-authorizing readback output.",
+        "Graph Memory / Decision Gate alpha demo",
+        signal.clone(),
+        0.92,
+        created_at,
+    );
+
+    let proposal_intent =
+        failure_insight_demo_intent(&agent_id, &base_insight, None, None, created_at)?;
+    let action = ProposedAction {
+        id: proposed_action_id.clone(),
+        workspace_id: workspace_id.clone(),
+        task_id: Some(task_id.clone()),
+        proposed_by: agent_id.clone(),
+        action_type: ActionType::CreateFailureInsightMemory,
+        target: Some("memory:failure_insight:insight-demo-governed-learning-loop".to_owned()),
+        payload: json!({ "memory_write_intent": proposal_intent }),
+        risk_level: RiskLevel::Low,
+        required_permissions: vec![Permission::WriteMemory],
+        rationale: "Demonstrate a governed create_failure_insight_memory proposal without durable or external memory mutation.".to_owned(),
+        context_refs: vec![],
+        status: ProposedActionStatus::PendingDecision,
+        created_at,
+    };
+
+    let decision = evaluate_proposed_action(&action, &[], &[Permission::WriteMemory]);
+    if decision.status != DecisionStatus::Approved {
+        return Err(format!(
+            "demo expected Decision Gate approval for low-risk local memory demo, got {:?}: {}",
+            decision.status, decision.reason
+        )
+        .into());
+    }
+    let audit_event = audit_event_for_decision(&action, &decision);
+    let linked_insight = base_insight.with_trace_links(
+        Some(workspace_id.clone()),
+        Some(task_id.clone()),
+        Some(proposed_action_id.clone()),
+        Some(decision.id.clone()),
+        Some(audit_event.id.clone()),
+    );
+    let approved_intent = failure_insight_demo_intent(
+        &agent_id,
+        &linked_insight,
+        Some(decision.id.clone()),
+        Some(audit_event.id.clone()),
+        created_at,
+    )?;
+
+    let store = in_memory_graph_memory_store("arpagona_demo", "failure_insight_loop").await?;
+    let persisted = store
+        .persist_approved_failure_insight_memory(
+            approved_intent,
+            decision.clone(),
+            audit_event.clone(),
+        )
+        .await?;
+    let readback = store
+        .failure_insight_memory_readback(persisted.id.clone())
+        .await?;
+    let inspected_failure_insight = match inspect_id {
+        Some(id) => {
+            let requested_readback = store
+                .failure_insight_memory_readback(FailureInsightId::new(id.clone()))
+                .await?;
+            Some(memory_demo_failure_insight_inspection_from_readback(
+                id,
+                requested_readback,
+            ))
+        }
+        None => None,
+    };
+
+    Ok(MemoryDemoFailureInsightReadback {
+        signal: MemoryDemoSignalReadback {
+            signal_type: "runtime_observation",
+            summary: "safe bounded FailureInsight learning signal",
+            correction_target: "memory",
+            provenance: "local in-memory demo",
+        },
+        proposed_action_id: proposed_action_id.to_string(),
+        memory_write_kind: "create_failure_insight_memory".to_owned(),
+        decision_id: decision.id.to_string(),
+        decision_status: to_api_string(&decision.status)?,
+        decision_reason: decision.reason,
+        audit_event_id: audit_event.id.to_string(),
+        persisted_failure_insight_id: readback.insight.map(|insight| insight.id.to_string()),
+        inspected_failure_insight,
+        readback_found: persisted.id == failure_insight_id,
+        readback_audit_event_count: readback.decision_audit_events.len(),
+        readback_relation_count: readback.insight_relations.len(),
+        readback_warning: readback.warning,
+        functional_alpha_chain: FAILURE_INSIGHT_DEMO_CHAIN,
+        exact_local_command: FAILURE_INSIGHT_DEMO_COMMAND,
+        repeatable_demo_recipe: FAILURE_INSIGHT_DEMO_RECIPE,
+        next_safe_human_action: "Inspect the JSON/text readback and treat it as evidence only; do not treat it as approval, authorization, execution, or durable user memory.",
+        warning: MEMORY_DEMO_WARNING,
+    })
+}
+
+fn memory_demo_failure_insight_inspection_from_readback(
+    requested_id: String,
+    readback: arpagona_graph_memory::FailureInsightMemoryReadback,
+) -> MemoryDemoFailureInsightInspectionReadback {
+    let insight = readback.insight;
+    MemoryDemoFailureInsightInspectionReadback {
+        requested_failure_insight_id: requested_id,
+        found: insight.is_some(),
+        inspected_failure_insight_id: insight.as_ref().map(|insight| insight.id.to_string()),
+        summary: insight.as_ref().map(|insight| insight.summary.clone()),
+        correction_target: insight
+            .as_ref()
+            .and_then(|insight| to_api_string(&insight.correction_target).ok()),
+        decision_id: insight
+            .as_ref()
+            .and_then(|insight| insight.decision_id.as_ref().map(ToString::to_string)),
+        audit_event_id: insight
+            .as_ref()
+            .and_then(|insight| insight.audit_event_id.as_ref().map(ToString::to_string)),
+        audit_event_count: readback.decision_audit_events.len(),
+        relation_count: readback.insight_relations.len(),
+        warning: readback.warning,
+    }
+}
+
+fn memory_demo_snapshot_read(args: MemoryDemoSnapshotReadArgs) -> Result<(), Box<dyn Error>> {
+    let snapshot = arpagona_graph_memory::demo_snapshot::read_failure_insight_demo_snapshot(
+        &args.snapshot_path,
+    )?;
+
+    if args.json {
+        println!("{}", serde_json::to_string_pretty(&snapshot)?);
+    } else {
+        let mut output = String::new();
+        output.push_str(&format!(
+            "📸 Demo Snapshot Readback (file: {})\n\n",
+            args.snapshot_path
+        ));
+        output.push_str(&format!(
+            "Evidence token: {}\n\n",
+            snapshot.evidence_only_token
+        ));
+        if !snapshot.functional_alpha_chain.is_empty() {
+            output.push_str("Functional alpha chain achieved:\n");
+            for step in &snapshot.functional_alpha_chain {
+                output.push_str(&format!("  → {step}\n"));
+            }
+            output.push('\n');
+        }
+        output.push_str("Readback JSON content (truncated, use --json for full):\n\n");
+        let json_str = serde_json::to_string_pretty(&snapshot.readback_json)?;
+        let truncated = if json_str.len() > 500 {
+            format!("{} ... [truncated]", &json_str[..500])
+        } else {
+            json_str
+        };
+        output.push_str(&truncated);
+        output.push('\n');
+        print!("{output}");
+    }
+    Ok(())
+}
+
+fn failure_insight_demo_intent(
+    agent_id: &AgentId,
+    insight: &FailureInsight,
+    decision_id: Option<DecisionId>,
+    audit_event_id: Option<AuditEventId>,
+    proposed_at: chrono::DateTime<Utc>,
+) -> Result<MemoryWriteIntent, Box<dyn Error>> {
+    Ok(MemoryWriteIntent::new(
+        MemoryWriteKind::CreateFailureInsightMemory,
+        MemoryWriteTarget {
+            entity_type: "failure_insight".to_owned(),
+            entity_id: insight.id.to_string(),
+            attribute: Some("insight".to_owned()),
+            value: Some(serde_json::to_value(insight)?),
+            fact_id: None,
+            related_fact_id: None,
+            failure_insight_id: Some(insight.id.clone()),
+        },
+        MemoryWriteProvenance::new(
+            Some(SourceId::new("source-demo-failure-insight-loop")),
+            "local FailureInsight demo signal",
+            "system_observation",
+            "A local, in-memory demo exercises proposal, Decision Gate, audit, approved persistence, and readback.",
+        ),
+        insight.confidence,
+        agent_id.clone(),
+        "Remember this bounded FailureInsight only inside the local demo Graph Memory store for supervised readback proof.",
+        proposed_at,
+    )
+    .with_audit_linkage(decision_id, audit_event_id))
+}
+
+fn format_memory_demo_failure_insight_readback(
+    readback: &MemoryDemoFailureInsightReadback,
+) -> String {
+    let mut output = String::new();
+    push_readback_line(&mut output, &style_info("FailureInsight memory demo"));
+    push_readback_field(&mut output, "signal_type:", readback.signal.signal_type);
+    push_readback_field(&mut output, "signal_summary:", readback.signal.summary);
+    push_readback_field(
+        &mut output,
+        "correction_target:",
+        readback.signal.correction_target,
+    );
+    push_readback_field(&mut output, "provenance:", readback.signal.provenance);
+    push_readback_field(
+        &mut output,
+        "proposed_action_id:",
+        &readback.proposed_action_id,
+    );
+    push_readback_field(
+        &mut output,
+        "memory_write_kind:",
+        &readback.memory_write_kind,
+    );
+    push_readback_field(&mut output, "decision_id:", &readback.decision_id);
+    push_readback_field(&mut output, "decision_status:", &readback.decision_status);
+    push_readback_field(&mut output, "decision_reason:", &readback.decision_reason);
+    push_readback_field(&mut output, "audit_event_id:", &readback.audit_event_id);
+    push_readback_field(
+        &mut output,
+        "persisted_failure_insight_id:",
+        readback
+            .persisted_failure_insight_id
+            .as_deref()
+            .unwrap_or("none"),
+    );
+    if let Some(inspection) = &readback.inspected_failure_insight {
+        push_readback_field(
+            &mut output,
+            "inspected_failure_insight_id:",
+            inspection
+                .inspected_failure_insight_id
+                .as_deref()
+                .unwrap_or("none"),
+        );
+        push_readback_field(
+            &mut output,
+            "inspected_failure_insight_found:",
+            &inspection.found.to_string(),
+        );
+        push_readback_field(
+            &mut output,
+            "inspected_failure_insight_summary:",
+            inspection.summary.as_deref().unwrap_or("none"),
+        );
+        push_readback_field(
+            &mut output,
+            "inspect_command:",
+            FAILURE_INSIGHT_DEMO_INSPECT_COMMAND,
+        );
+    }
+    push_readback_field(
+        &mut output,
+        "readback_found:",
+        &readback.readback_found.to_string(),
+    );
+    push_readback_field(
+        &mut output,
+        "readback_audit_event_count:",
+        &readback.readback_audit_event_count.to_string(),
+    );
+    push_readback_field(
+        &mut output,
+        "readback_relation_count:",
+        &readback.readback_relation_count.to_string(),
+    );
+    push_readback_field(
+        &mut output,
+        "functional_alpha_chain:",
+        &format_static_list(readback.functional_alpha_chain),
+    );
+    push_readback_field(
+        &mut output,
+        "exact_local_command:",
+        readback.exact_local_command,
+    );
+    push_readback_field(
+        &mut output,
+        "repeatable_demo_recipe:",
+        &format_static_list(readback.repeatable_demo_recipe),
+    );
+    push_readback_field(
+        &mut output,
+        "next_safe_human_action:",
+        readback.next_safe_human_action,
+    );
+    push_readback_line(&mut output, &style_dim(readback.readback_warning));
+    push_readback_line(&mut output, &style_dim(readback.warning));
+    output
+}
+
+fn memory_proposals_readback_from_actions(actions: Vec<ProposedAction>) -> MemoryProposalsReadback {
+    let proposals = actions
+        .into_iter()
+        .filter_map(memory_proposal_summary_from_action)
+        .collect();
+
+    MemoryProposalsReadback {
+        proposals,
+        warning: MEMORY_READBACK_WARNING,
+    }
+}
+
+fn memory_proposal_summary_from_action(action: ProposedAction) -> Option<MemoryProposalSummary> {
+    let action_type = to_api_string(&action.action_type).ok()?;
+    if !is_memory_write_action_type(&action_type) {
+        return None;
+    }
+
+    let intent = action
+        .payload
+        .get("memory_write_intent")
+        .unwrap_or(&action.payload);
+    let target = intent.get("target").unwrap_or(&Value::Null);
+    let provenance = intent.get("provenance").unwrap_or(&Value::Null);
+
+    Some(MemoryProposalSummary {
+        id: action.id.to_string(),
+        workspace_id: action.workspace_id.to_string(),
+        task_id: action.task_id.map(|task_id| task_id.to_string()),
+        proposed_by: action.proposed_by.to_string(),
+        action_type,
+        status: to_api_string(&action.status).unwrap_or_else(|_| "unknown".to_owned()),
+        risk_level: to_api_string(&action.risk_level).unwrap_or_else(|_| "unknown".to_owned()),
+        required_permissions: action
+            .required_permissions
+            .iter()
+            .filter_map(|permission| to_api_string(permission).ok())
+            .collect(),
+        target: action.target,
+        rationale: action.rationale,
+        created_at: action.created_at.to_rfc3339(),
+        memory_write_kind: string_field(intent, "kind"),
+        target_type: string_field(target, "entity_type"),
+        target_id: string_field(target, "entity_id"),
+        target_attribute: string_field(target, "attribute"),
+        target_value: target.get("value").cloned(),
+        target_fact_id: string_field(target, "fact_id"),
+        related_fact_id: string_field(target, "related_fact_id"),
+        failure_insight_id: string_field(target, "failure_insight_id"),
+        provenance_source_id: string_field(provenance, "source_id"),
+        provenance_source_label: string_field(provenance, "source_label"),
+        provenance_source_kind: string_field(provenance, "source_kind"),
+        provenance_evidence: string_field(provenance, "evidence"),
+        confidence: intent.get("confidence").and_then(Value::as_f64),
+        actor: string_field(intent, "actor"),
+        reason_for_remembering: string_field(intent, "reason_for_remembering"),
+        proposed_at: string_field(intent, "proposed_at"),
+        decision_id: string_field(intent, "decision_id"),
+        audit_event_id: string_field(intent, "audit_event_id"),
+        invalidation_note: string_field(intent, "invalidation_note"),
+        persistence_readback_hint: memory_proposal_persistence_readback_hint(
+            &action.status,
+            &string_field(target, "fact_id"),
+            &string_field(target, "failure_insight_id"),
+            &string_field(intent, "decision_id"),
+            &string_field(intent, "audit_event_id"),
+        ),
+        supersession_hint: memory_proposal_supersession_hint(
+            &string_field(target, "fact_id"),
+            &string_field(target, "related_fact_id"),
+            &string_field(target, "failure_insight_id"),
+            &string_field(intent, "invalidation_note"),
+        ),
+        suggested_next_action: memory_proposal_next_action(&action.status),
+    })
+}
+
+fn is_memory_write_action_type(action_type: &str) -> bool {
+    matches!(
+        action_type,
+        "write_memory"
+            | "create_memory_fact"
+            | "link_memory_fact"
+            | "invalidate_memory_fact"
+            | "create_failure_insight_memory"
+    )
+}
+
+fn memory_proposal_next_action(status: &ProposedActionStatus) -> String {
+    match status {
+        ProposedActionStatus::PendingDecision => {
+            "Evaluate through Decision Gate before any memory persistence.".to_owned()
+        }
+        ProposedActionStatus::NeedsHumanApproval => {
+            "Review Decision Gate result and obtain explicit human confirmation before persistence."
+                .to_owned()
+        }
+        ProposedActionStatus::Approved => {
+            "Persist only through an explicit governed Graph Memory path, then inspect readback."
+                .to_owned()
+        }
+        ProposedActionStatus::Blocked => {
+            "Do not persist; inspect explicit reason and correct proposal, policy, or evidence."
+                .to_owned()
+        }
+        ProposedActionStatus::Cancelled => "No action; proposal was cancelled.".to_owned(),
+    }
+}
+
+fn memory_proposal_persistence_readback_hint(
+    status: &ProposedActionStatus,
+    fact_id: &Option<String>,
+    failure_insight_id: &Option<String>,
+    decision_id: &Option<String>,
+    audit_event_id: &Option<String>,
+) -> String {
+    if status != &ProposedActionStatus::Approved {
+        return "Not persistable yet: inspect Decision Gate status before using Graph Memory helpers."
+            .to_owned();
+    }
+
+    let artifact = fact_id
+        .as_deref()
+        .map(|id| format!("fact {id}"))
+        .or_else(|| {
+            failure_insight_id
+                .as_deref()
+                .map(|id| format!("FailureInsight {id}"))
+        })
+        .unwrap_or_else(|| "the generated Graph Memory artifact".to_owned());
+    let decision = decision_id.as_deref().unwrap_or("the approved decision");
+    let audit = audit_event_id
+        .as_deref()
+        .unwrap_or("the matching decision audit event");
+
+    format!(
+        "After explicit governed persistence, inspect {artifact}; verify it remains linked to decision {decision} and audit event {audit}."
+    )
+}
+
+fn memory_proposal_supersession_hint(
+    fact_id: &Option<String>,
+    related_fact_id: &Option<String>,
+    failure_insight_id: &Option<String>,
+    invalidation_note: &Option<String>,
+) -> String {
+    if let Some(note) = invalidation_note {
+        return format!("Future invalidation/supersession note: {note}");
+    }
+    if let Some(related_fact_id) = related_fact_id {
+        return format!(
+            "If this relationship becomes stale, propose invalidate_memory_fact or link supersession for related fact {related_fact_id}."
+        );
+    }
+    if let Some(fact_id) = fact_id {
+        return format!(
+            "If this fact becomes stale, propose invalidate_memory_fact for {fact_id} before replacing it."
+        );
+    }
+    if let Some(failure_insight_id) = failure_insight_id {
+        return format!(
+            "If this FailureInsight is superseded, create a later insight that references {failure_insight_id} and preserves audit linkage."
+        );
+    }
+
+    "Future invalidation/supersession path must be proposed through governed memory-write intent before mutation."
+        .to_owned()
+}
+
+fn format_memory_proposals_readback(readback: &MemoryProposalsReadback) -> String {
+    let mut output = String::new();
+    push_readback_line(&mut output, &style_info("Memory write proposals"));
+    push_readback_field(
+        &mut output,
+        "proposal_count:",
+        &readback.proposals.len().to_string(),
+    );
+    if readback.proposals.is_empty() {
+        push_readback_line(
+            &mut output,
+            &style_dim("No governed memory-write proposals found."),
+        );
+    }
+    for proposal in &readback.proposals {
+        push_memory_proposal_fields(&mut output, proposal);
+    }
+    push_readback_line(&mut output, &style_dim(readback.warning));
+    output
+}
+
+fn format_memory_proposal_detail_readback(readback: &MemoryProposalDetailReadback) -> String {
+    let mut output = String::new();
+    push_readback_line(&mut output, &style_info("Memory write proposal"));
+    match &readback.proposal {
+        Some(proposal) => push_memory_proposal_fields(&mut output, proposal),
+        None => push_readback_line(
+            &mut output,
+            &style_dim("No governed memory-write proposal found for that id."),
+        ),
+    }
+    push_readback_line(&mut output, &style_dim(readback.warning));
+    output
+}
+
+fn push_memory_proposal_fields(output: &mut String, proposal: &MemoryProposalSummary) {
+    push_readback_field(output, "id:", &proposal.id);
+    push_readback_field(output, "action_type:", &proposal.action_type);
+    push_readback_field(output, "status:", &proposal.status);
+    push_readback_field(output, "risk_level:", &proposal.risk_level);
+    push_readback_field(
+        output,
+        "required_permissions:",
+        &format_policies(&proposal.required_permissions),
+    );
+    push_readback_field(output, "workspace_id:", &proposal.workspace_id);
+    push_readback_field(
+        output,
+        "task_id:",
+        proposal.task_id.as_deref().unwrap_or("-"),
+    );
+    push_readback_field(output, "proposed_by:", &proposal.proposed_by);
+    push_readback_field(output, "target:", proposal.target.as_deref().unwrap_or("-"));
+    push_readback_field(
+        output,
+        "memory_write_kind:",
+        proposal.memory_write_kind.as_deref().unwrap_or("-"),
+    );
+    push_readback_field(
+        output,
+        "target_type:",
+        proposal.target_type.as_deref().unwrap_or("-"),
+    );
+    push_readback_field(
+        output,
+        "target_id:",
+        proposal.target_id.as_deref().unwrap_or("-"),
+    );
+    push_readback_field(
+        output,
+        "target_attribute:",
+        proposal.target_attribute.as_deref().unwrap_or("-"),
+    );
+    push_readback_field(
+        output,
+        "target_value:",
+        &format_optional_json(&proposal.target_value),
+    );
+    push_readback_field(
+        output,
+        "target_fact_id:",
+        proposal.target_fact_id.as_deref().unwrap_or("-"),
+    );
+    push_readback_field(
+        output,
+        "related_fact_id:",
+        proposal.related_fact_id.as_deref().unwrap_or("-"),
+    );
+    push_readback_field(
+        output,
+        "failure_insight_id:",
+        proposal.failure_insight_id.as_deref().unwrap_or("-"),
+    );
+    push_readback_field(
+        output,
+        "provenance_source_id:",
+        proposal.provenance_source_id.as_deref().unwrap_or("-"),
+    );
+    push_readback_field(
+        output,
+        "provenance_source_label:",
+        proposal.provenance_source_label.as_deref().unwrap_or("-"),
+    );
+    push_readback_field(
+        output,
+        "provenance_source_kind:",
+        proposal.provenance_source_kind.as_deref().unwrap_or("-"),
+    );
+    push_readback_field(
+        output,
+        "provenance_evidence:",
+        proposal.provenance_evidence.as_deref().unwrap_or("-"),
+    );
+    push_readback_field(
+        output,
+        "confidence:",
+        &proposal
+            .confidence
+            .map(|confidence| confidence.to_string())
+            .unwrap_or_else(|| "-".to_owned()),
+    );
+    push_readback_field(output, "actor:", proposal.actor.as_deref().unwrap_or("-"));
+    push_readback_field(
+        output,
+        "reason_for_remembering:",
+        proposal.reason_for_remembering.as_deref().unwrap_or("-"),
+    );
+    push_readback_field(
+        output,
+        "proposed_at:",
+        proposal.proposed_at.as_deref().unwrap_or("-"),
+    );
+    push_readback_field(
+        output,
+        "decision_id:",
+        proposal.decision_id.as_deref().unwrap_or("-"),
+    );
+    push_readback_field(
+        output,
+        "audit_event_id:",
+        proposal.audit_event_id.as_deref().unwrap_or("-"),
+    );
+    push_readback_field(
+        output,
+        "invalidation_note:",
+        proposal.invalidation_note.as_deref().unwrap_or("-"),
+    );
+    push_readback_field(
+        output,
+        "persistence_readback_hint:",
+        &proposal.persistence_readback_hint,
+    );
+    push_readback_field(output, "supersession_hint:", &proposal.supersession_hint);
+    push_readback_field(output, "created_at:", &proposal.created_at);
+    push_readback_field(output, "rationale:", &proposal.rationale);
+    push_readback_field(
+        output,
+        "suggested_next_action:",
+        &proposal.suggested_next_action,
+    );
+}
+
 fn insight_schema(args: InsightSchemaArgs) -> Result<(), Box<dyn Error>> {
     let readback = insight_schema_readback();
     if args.json {
@@ -1059,7 +2247,8 @@ async fn propose_action(
     api_url: &str,
     args: ProposeActionArgs,
 ) -> Result<(), Box<dyn Error>> {
-    let permissions = normalize_permissions(args.permissions);
+    let permissions = normalize_permissions(args.permissions.clone());
+    let payload = default_payload(&args);
     let response: ProposedAction = get_json(
         client
             .post(format!("{api_url}/proposed-actions"))
@@ -1072,7 +2261,7 @@ async fn propose_action(
                 "risk_level": args.risk.as_api_value(),
                 "required_permissions": permissions,
                 "rationale": args.rationale,
-                "payload": default_payload(&args.action_type),
+                "payload": payload,
             }))
             .send()
             .await?,
@@ -1424,6 +2613,27 @@ fn decision_readback_from_audit_events(
         decision_status: metadata.decision_status,
         explicit_reason: metadata.explicit_reason,
         action_type: metadata.action_type,
+        memory_write_kind: metadata.memory_write_kind,
+        memory_target_type: metadata.memory_target_type,
+        memory_target_id: metadata.memory_target_id,
+        memory_target_attribute: metadata.memory_target_attribute,
+        memory_target_value: metadata.memory_target_value,
+        memory_target_fact_id: metadata.memory_target_fact_id,
+        memory_related_fact_id: metadata.memory_related_fact_id,
+        memory_failure_insight_id: metadata.memory_failure_insight_id,
+        memory_provenance_source_id: metadata.memory_provenance_source_id,
+        memory_provenance_source_label: metadata.memory_provenance_source_label,
+        memory_provenance_source_kind: metadata.memory_provenance_source_kind,
+        memory_provenance_evidence: metadata.memory_provenance_evidence,
+        memory_confidence: metadata.memory_confidence,
+        memory_actor: metadata.memory_actor,
+        memory_reason_for_remembering: metadata.memory_reason_for_remembering,
+        memory_proposed_at: metadata.memory_proposed_at,
+        memory_invalidation_note: metadata.memory_invalidation_note,
+        memory_decision_id: metadata.memory_decision_id,
+        memory_audit_event_id: metadata.memory_audit_event_id,
+        memory_persistence_readback_hint: metadata.memory_persistence_readback_hint,
+        memory_supersession_hint: metadata.memory_supersession_hint,
         risk_level: metadata.risk_level,
         matched_policy_or_fallback_rule: metadata.matched_policy_or_fallback_rule,
         required_permission: metadata.required_permission,
@@ -1477,6 +2687,27 @@ struct AuditDecisionMetadata {
     decision_status: Option<String>,
     explicit_reason: Option<String>,
     action_type: Option<String>,
+    memory_write_kind: Option<String>,
+    memory_target_type: Option<String>,
+    memory_target_id: Option<String>,
+    memory_target_attribute: Option<String>,
+    memory_target_value: Option<Value>,
+    memory_target_fact_id: Option<String>,
+    memory_related_fact_id: Option<String>,
+    memory_failure_insight_id: Option<String>,
+    memory_provenance_source_id: Option<String>,
+    memory_provenance_source_label: Option<String>,
+    memory_provenance_source_kind: Option<String>,
+    memory_provenance_evidence: Option<String>,
+    memory_confidence: Option<f64>,
+    memory_actor: Option<String>,
+    memory_reason_for_remembering: Option<String>,
+    memory_proposed_at: Option<String>,
+    memory_invalidation_note: Option<String>,
+    memory_decision_id: Option<String>,
+    memory_audit_event_id: Option<String>,
+    memory_persistence_readback_hint: Option<String>,
+    memory_supersession_hint: Option<String>,
     risk_level: Option<String>,
     matched_policy_or_fallback_rule: Option<String>,
     required_permission: Option<String>,
@@ -1503,6 +2734,7 @@ fn decision_readback_metadata(events: &[AuditEvent]) -> AuditDecisionMetadata {
         if metadata.action_type.is_none() {
             metadata.action_type = string_field(trace, "action_type");
         }
+        populate_memory_write_metadata(&mut metadata, trace.get("memory_write_intent"));
         if metadata.risk_level.is_none() {
             metadata.risk_level =
                 string_field(trace, "risk_level").or_else(|| string_field(trace, "risk"));
@@ -1529,6 +2761,142 @@ fn decision_readback_metadata(events: &[AuditEvent]) -> AuditDecisionMetadata {
     }
 
     metadata
+}
+
+fn populate_memory_write_metadata(metadata: &mut AuditDecisionMetadata, intent: Option<&Value>) {
+    let Some(intent) = intent else {
+        return;
+    };
+    let target = intent.get("target").unwrap_or(&Value::Null);
+    let provenance = intent.get("provenance").unwrap_or(&Value::Null);
+
+    if metadata.memory_write_kind.is_none() {
+        metadata.memory_write_kind = string_field(intent, "kind");
+    }
+    if metadata.memory_target_type.is_none() {
+        metadata.memory_target_type = string_field(target, "entity_type");
+    }
+    if metadata.memory_target_id.is_none() {
+        metadata.memory_target_id = string_field(target, "entity_id");
+    }
+    if metadata.memory_target_attribute.is_none() {
+        metadata.memory_target_attribute = string_field(target, "attribute");
+    }
+    if metadata.memory_target_value.is_none() {
+        metadata.memory_target_value = target.get("value").cloned();
+    }
+    if metadata.memory_target_fact_id.is_none() {
+        metadata.memory_target_fact_id = string_field(target, "fact_id");
+    }
+    if metadata.memory_related_fact_id.is_none() {
+        metadata.memory_related_fact_id = string_field(target, "related_fact_id");
+    }
+    if metadata.memory_failure_insight_id.is_none() {
+        metadata.memory_failure_insight_id = string_field(target, "failure_insight_id");
+    }
+    if metadata.memory_provenance_source_id.is_none() {
+        metadata.memory_provenance_source_id = string_field(provenance, "source_id");
+    }
+    if metadata.memory_provenance_source_label.is_none() {
+        metadata.memory_provenance_source_label = string_field(provenance, "source_label");
+    }
+    if metadata.memory_provenance_source_kind.is_none() {
+        metadata.memory_provenance_source_kind = string_field(provenance, "source_kind");
+    }
+    if metadata.memory_provenance_evidence.is_none() {
+        metadata.memory_provenance_evidence = string_field(provenance, "evidence");
+    }
+    if metadata.memory_confidence.is_none() {
+        metadata.memory_confidence = intent.get("confidence").and_then(Value::as_f64);
+    }
+    if metadata.memory_actor.is_none() {
+        metadata.memory_actor = string_field(intent, "actor");
+    }
+    if metadata.memory_reason_for_remembering.is_none() {
+        metadata.memory_reason_for_remembering = string_field(intent, "reason_for_remembering");
+    }
+    if metadata.memory_proposed_at.is_none() {
+        metadata.memory_proposed_at = string_field(intent, "proposed_at");
+    }
+    if metadata.memory_invalidation_note.is_none() {
+        metadata.memory_invalidation_note = string_field(intent, "invalidation_note");
+    }
+    if metadata.memory_decision_id.is_none() {
+        metadata.memory_decision_id = string_field(intent, "decision_id");
+    }
+    if metadata.memory_audit_event_id.is_none() {
+        metadata.memory_audit_event_id = string_field(intent, "audit_event_id");
+    }
+    if metadata.memory_persistence_readback_hint.is_none() {
+        metadata.memory_persistence_readback_hint = Some(memory_audit_persistence_readback_hint(
+            metadata.decision_status.as_deref(),
+            metadata.memory_target_fact_id.as_deref(),
+            metadata.memory_failure_insight_id.as_deref(),
+            metadata.memory_decision_id.as_deref(),
+            metadata.memory_audit_event_id.as_deref(),
+        ));
+    }
+    if metadata.memory_supersession_hint.is_none() {
+        metadata.memory_supersession_hint = Some(memory_audit_supersession_hint(
+            metadata.memory_target_fact_id.as_deref(),
+            metadata.memory_related_fact_id.as_deref(),
+            metadata.memory_failure_insight_id.as_deref(),
+            metadata.memory_invalidation_note.as_deref(),
+        ));
+    }
+}
+
+fn memory_audit_persistence_readback_hint(
+    decision_status: Option<&str>,
+    fact_id: Option<&str>,
+    failure_insight_id: Option<&str>,
+    decision_id: Option<&str>,
+    audit_event_id: Option<&str>,
+) -> String {
+    if decision_status != Some("approved") {
+        return "Not persistable yet: inspect Decision Gate status before using Graph Memory helpers."
+            .to_owned();
+    }
+
+    let artifact = fact_id
+        .map(|id| format!("fact {id}"))
+        .or_else(|| failure_insight_id.map(|id| format!("FailureInsight {id}")))
+        .unwrap_or_else(|| "the generated Graph Memory artifact".to_owned());
+    let decision = decision_id.unwrap_or("the approved decision");
+    let audit = audit_event_id.unwrap_or("the matching decision audit event");
+
+    format!(
+        "After explicit governed persistence, inspect {artifact}; verify it remains linked to decision {decision} and audit event {audit}."
+    )
+}
+
+fn memory_audit_supersession_hint(
+    fact_id: Option<&str>,
+    related_fact_id: Option<&str>,
+    failure_insight_id: Option<&str>,
+    invalidation_note: Option<&str>,
+) -> String {
+    if let Some(note) = invalidation_note {
+        return format!("Future invalidation/supersession note: {note}");
+    }
+    if let Some(related_fact_id) = related_fact_id {
+        return format!(
+            "If this relationship becomes stale, propose invalidate_memory_fact or link supersession for related fact {related_fact_id}."
+        );
+    }
+    if let Some(fact_id) = fact_id {
+        return format!(
+            "If this fact becomes stale, propose invalidate_memory_fact for {fact_id} before replacing it."
+        );
+    }
+    if let Some(failure_insight_id) = failure_insight_id {
+        return format!(
+            "If this FailureInsight is superseded, create a later insight that references {failure_insight_id} and preserves audit linkage."
+        );
+    }
+
+    "Future invalidation/supersession path must be proposed through governed memory-write intent before mutation."
+        .to_owned()
 }
 
 fn string_field(value: &Value, field: &str) -> Option<String> {
@@ -1624,6 +2992,132 @@ fn format_audit_decision_readback(readback: &AuditDecisionReadback) -> String {
         &mut output,
         "action_type:",
         readback.action_type.as_deref().unwrap_or("-"),
+    );
+    push_readback_field(
+        &mut output,
+        "memory_write_kind:",
+        readback.memory_write_kind.as_deref().unwrap_or("-"),
+    );
+    push_readback_field(
+        &mut output,
+        "memory_target_type:",
+        readback.memory_target_type.as_deref().unwrap_or("-"),
+    );
+    push_readback_field(
+        &mut output,
+        "memory_target_id:",
+        readback.memory_target_id.as_deref().unwrap_or("-"),
+    );
+    push_readback_field(
+        &mut output,
+        "memory_target_attribute:",
+        readback.memory_target_attribute.as_deref().unwrap_or("-"),
+    );
+    push_readback_field(
+        &mut output,
+        "memory_target_value:",
+        &format_optional_json(&readback.memory_target_value),
+    );
+    push_readback_field(
+        &mut output,
+        "memory_target_fact_id:",
+        readback.memory_target_fact_id.as_deref().unwrap_or("-"),
+    );
+    push_readback_field(
+        &mut output,
+        "memory_related_fact_id:",
+        readback.memory_related_fact_id.as_deref().unwrap_or("-"),
+    );
+    push_readback_field(
+        &mut output,
+        "memory_failure_insight_id:",
+        readback.memory_failure_insight_id.as_deref().unwrap_or("-"),
+    );
+    push_readback_field(
+        &mut output,
+        "memory_provenance_source_id:",
+        readback
+            .memory_provenance_source_id
+            .as_deref()
+            .unwrap_or("-"),
+    );
+    push_readback_field(
+        &mut output,
+        "memory_provenance_source_label:",
+        readback
+            .memory_provenance_source_label
+            .as_deref()
+            .unwrap_or("-"),
+    );
+    push_readback_field(
+        &mut output,
+        "memory_provenance_source_kind:",
+        readback
+            .memory_provenance_source_kind
+            .as_deref()
+            .unwrap_or("-"),
+    );
+    push_readback_field(
+        &mut output,
+        "memory_provenance_evidence:",
+        readback
+            .memory_provenance_evidence
+            .as_deref()
+            .unwrap_or("-"),
+    );
+    push_readback_field(
+        &mut output,
+        "memory_confidence:",
+        &readback
+            .memory_confidence
+            .map(|confidence| confidence.to_string())
+            .unwrap_or_else(|| "-".to_owned()),
+    );
+    push_readback_field(
+        &mut output,
+        "memory_actor:",
+        readback.memory_actor.as_deref().unwrap_or("-"),
+    );
+    push_readback_field(
+        &mut output,
+        "memory_reason_for_remembering:",
+        readback
+            .memory_reason_for_remembering
+            .as_deref()
+            .unwrap_or("-"),
+    );
+    push_readback_field(
+        &mut output,
+        "memory_proposed_at:",
+        readback.memory_proposed_at.as_deref().unwrap_or("-"),
+    );
+    push_readback_field(
+        &mut output,
+        "memory_invalidation_note:",
+        readback.memory_invalidation_note.as_deref().unwrap_or("-"),
+    );
+    push_readback_field(
+        &mut output,
+        "memory_decision_id:",
+        readback.memory_decision_id.as_deref().unwrap_or("-"),
+    );
+    push_readback_field(
+        &mut output,
+        "memory_audit_event_id:",
+        readback.memory_audit_event_id.as_deref().unwrap_or("-"),
+    );
+    push_readback_field(
+        &mut output,
+        "memory_persistence_readback_hint:",
+        readback
+            .memory_persistence_readback_hint
+            .as_deref()
+            .unwrap_or("-"),
+    );
+    push_readback_field(
+        &mut output,
+        "memory_supersession_hint:",
+        readback.memory_supersession_hint.as_deref().unwrap_or("-"),
     );
     push_readback_field(
         &mut output,
@@ -1877,6 +3371,10 @@ fn normalize_action_type(action_type: &str) -> Value {
         | "read_status"
         | "system_check"
         | "write_memory"
+        | "create_memory_fact"
+        | "link_memory_fact"
+        | "invalidate_memory_fact"
+        | "create_failure_insight_memory"
         | "read_document"
         | "write_document"
         | "propose_tool_use"
@@ -1893,16 +3391,56 @@ fn normalize_permissions(permissions: Vec<String>) -> Vec<String> {
         .collect()
 }
 
-fn default_payload(action_type: &str) -> Value {
-    if action_type == "simulate_email" {
+fn default_payload(args: &ProposeActionArgs) -> Value {
+    if args.action_type == "simulate_email" {
         json!({
             "to": "client@example.com",
             "subject": "Simulation alpha ARPAGONA",
             "body": "Préparer un brouillon sans l’envoyer"
         })
+    } else if is_memory_write_action_type(&args.action_type) {
+        let target_value = memory_target_value(args);
+        json!({
+            "memory_write_intent": {
+                "kind": args.action_type,
+                "target": {
+                    "entity_type": args.memory_target_type,
+                    "entity_id": args.memory_target_id,
+                    "attribute": args.memory_target_attribute,
+                    "value": target_value,
+                    "fact_id": args.memory_fact_id,
+                    "related_fact_id": args.memory_related_fact_id,
+                    "failure_insight_id": args.memory_failure_insight_id
+                },
+                "provenance": {
+                    "source_id": args.memory_source_id,
+                    "source_label": args.memory_source_label,
+                    "source_kind": args.memory_source_kind,
+                    "evidence": args.memory_evidence
+                },
+                "confidence": args.memory_confidence,
+                "actor": args.proposed_by,
+                "reason_for_remembering": args.rationale,
+                "proposed_at": null,
+                "decision_id": null,
+                "audit_event_id": null,
+                "invalidation_note": args.memory_invalidation_note
+            }
+        })
     } else {
         json!({})
     }
+}
+
+fn memory_target_value(args: &ProposeActionArgs) -> Value {
+    args.memory_value
+        .as_deref()
+        .map(parse_memory_value)
+        .unwrap_or_else(|| json!(args.rationale.clone()))
+}
+
+fn parse_memory_value(value: &str) -> Value {
+    serde_json::from_str(value).unwrap_or_else(|_| json!(value))
 }
 
 fn parse_chat_line(line: &str) -> ChatLine {
@@ -2084,6 +3622,256 @@ mod tests {
             }
             _ => panic!("expected action propose"),
         }
+    }
+
+    #[test]
+    fn cli_parses_memory_action_proposal_controls() {
+        let cli = Cli::parse_from([
+            "arpagona",
+            "action",
+            "propose",
+            "--type",
+            "create_memory_fact",
+            "--permission",
+            "write_memory",
+            "--memory-target-type",
+            "person",
+            "--memory-target-id",
+            "client-1",
+            "--memory-target-attribute",
+            "preference",
+            "--memory-value",
+            "{\"language\":\"fr\"}",
+            "--memory-fact-id",
+            "fact-client-1",
+            "--memory-source-id",
+            "source-note-1",
+            "--memory-source-label",
+            "operator note",
+            "--memory-source-kind",
+            "local_note",
+            "--memory-evidence",
+            "Client explicitly asked for French.",
+            "--memory-confidence",
+            "0.77",
+            "--memory-invalidation-note",
+            "Supersede if preference changes.",
+            "--proposed-by",
+            "agent-alpha",
+            "--rationale",
+            "Remember client language preference.",
+        ]);
+        match cli.command {
+            Command::Action(ActionCommand {
+                command: ActionSubcommand::Propose(args),
+            }) => {
+                assert_eq!(args.action_type, "create_memory_fact");
+                assert_eq!(args.permissions, vec!["write_memory"]);
+                assert_eq!(args.memory_target_type, "person");
+                assert_eq!(args.memory_target_id, "client-1");
+                assert_eq!(args.memory_target_attribute, "preference");
+                assert_eq!(args.memory_value.as_deref(), Some("{\"language\":\"fr\"}"));
+                assert_eq!(args.memory_fact_id.as_deref(), Some("fact-client-1"));
+                assert_eq!(args.memory_source_id.as_deref(), Some("source-note-1"));
+                assert_eq!(args.memory_source_label, "operator note");
+                assert_eq!(args.memory_source_kind, "local_note");
+                assert_eq!(args.memory_evidence, "Client explicitly asked for French.");
+                assert_eq!(args.memory_confidence, 0.77);
+                assert_eq!(
+                    args.memory_invalidation_note,
+                    "Supersede if preference changes."
+                );
+
+                let payload = default_payload(&args);
+                assert_eq!(
+                    payload["memory_write_intent"]["target"]["value"],
+                    json!({"language": "fr"})
+                );
+                assert_eq!(
+                    payload["memory_write_intent"]["target"]["fact_id"],
+                    "fact-client-1"
+                );
+                assert_eq!(
+                    payload["memory_write_intent"]["provenance"]["source_id"],
+                    "source-note-1"
+                );
+                assert_eq!(payload["memory_write_intent"]["actor"], "agent-alpha");
+                assert_eq!(
+                    payload["memory_write_intent"]["reason_for_remembering"],
+                    "Remember client language preference."
+                );
+            }
+            _ => panic!("expected action propose"),
+        }
+    }
+
+    #[test]
+    fn memory_payload_falls_back_to_plain_text_value() {
+        let cli = Cli::parse_from([
+            "arpagona",
+            "action",
+            "propose",
+            "--type",
+            "create_failure_insight_memory",
+            "--permission",
+            "write_memory",
+            "--memory-value",
+            "plain text observation",
+            "--memory-failure-insight-id",
+            "insight-1",
+        ]);
+        match cli.command {
+            Command::Action(ActionCommand {
+                command: ActionSubcommand::Propose(args),
+            }) => {
+                let payload = default_payload(&args);
+                assert_eq!(
+                    payload["memory_write_intent"]["target"]["value"],
+                    "plain text observation"
+                );
+                assert_eq!(
+                    payload["memory_write_intent"]["target"]["failure_insight_id"],
+                    "insight-1"
+                );
+                assert_eq!(
+                    payload["memory_write_intent"]["reason_for_remembering"],
+                    DEFAULT_RATIONALE
+                );
+            }
+            _ => panic!("expected action propose"),
+        }
+    }
+
+    #[test]
+    fn cli_parses_memory_demo_failure_insight_json() {
+        let cli = Cli::parse_from(["arpagona", "memory", "demo", "failure-insight", "--json"]);
+        match cli.command {
+            Command::Memory(MemoryCommand {
+                command:
+                    MemorySubcommand::Demo(MemoryDemoCommand {
+                        command: MemoryDemoSubcommand::FailureInsight(args),
+                    }),
+            }) => {
+                assert!(args.json);
+                assert!(args.inspect_id.is_none());
+            }
+            _ => panic!("expected memory demo failure-insight"),
+        }
+    }
+
+    #[test]
+    fn cli_parses_memory_demo_failure_insight_inspect_id() {
+        let cli = Cli::parse_from([
+            "arpagona",
+            "memory",
+            "demo",
+            "failure-insight",
+            "--json",
+            "--inspect-id",
+            "insight-demo-governed-learning-loop",
+        ]);
+        match cli.command {
+            Command::Memory(MemoryCommand {
+                command:
+                    MemorySubcommand::Demo(MemoryDemoCommand {
+                        command: MemoryDemoSubcommand::FailureInsight(args),
+                    }),
+            }) => {
+                assert!(args.json);
+                assert_eq!(
+                    args.inspect_id.as_deref(),
+                    Some("insight-demo-governed-learning-loop")
+                );
+            }
+            _ => panic!("expected memory demo failure-insight inspect id"),
+        }
+    }
+
+    #[tokio::test]
+    async fn memory_demo_failure_insight_readback_proves_governed_loop_without_authorizing() {
+        let readback = memory_demo_failure_insight_readback(None)
+            .await
+            .expect("demo readback succeeds");
+
+        assert_eq!(readback.signal.signal_type, "runtime_observation");
+        assert_eq!(readback.memory_write_kind, "create_failure_insight_memory");
+        assert_eq!(readback.decision_status, "approved");
+        assert!(readback.readback_found);
+        assert_eq!(
+            readback.persisted_failure_insight_id.as_deref(),
+            Some("insight-demo-governed-learning-loop")
+        );
+        assert_eq!(readback.exact_local_command, FAILURE_INSIGHT_DEMO_COMMAND);
+        assert!(readback.inspected_failure_insight.is_none());
+        assert!(readback.repeatable_demo_recipe.contains(
+            &"verify readback_found is true and readback_audit_event_count is at least 1"
+        ));
+        assert!(readback.repeatable_demo_recipe.contains(
+            &"optionally rerun with --inspect-id insight-demo-governed-learning-loop to inspect the persisted artifact by id"
+        ));
+        assert_eq!(readback.readback_audit_event_count, 1);
+        assert_eq!(readback.readback_relation_count, 2);
+        assert!(readback.readback_warning.contains("Readback only"));
+        assert!(readback.warning.contains("Local demo only"));
+
+        let formatted = format_memory_demo_failure_insight_readback(&readback);
+        assert!(formatted.contains("FailureInsight memory demo"));
+        assert!(formatted.contains("create_failure_insight_memory"));
+        assert!(formatted.contains(FAILURE_INSIGHT_DEMO_COMMAND));
+        assert!(formatted.contains("repeatable_demo_recipe"));
+        assert!(formatted.contains("Readback only"));
+    }
+
+    #[tokio::test]
+    async fn memory_demo_failure_insight_inspect_id_proves_persisted_artifact_readback() {
+        let readback = memory_demo_failure_insight_readback(Some(
+            "insight-demo-governed-learning-loop".to_owned(),
+        ))
+        .await
+        .expect("demo inspection readback succeeds");
+
+        let inspection = readback
+            .inspected_failure_insight
+            .as_ref()
+            .expect("requested inspection is included");
+        assert!(inspection.found);
+        assert_eq!(
+            inspection.inspected_failure_insight_id.as_deref(),
+            Some("insight-demo-governed-learning-loop")
+        );
+        assert_eq!(inspection.audit_event_count, 1);
+        assert_eq!(inspection.relation_count, 2);
+        assert!(inspection.summary.as_deref().unwrap_or_default().contains(
+            "Governed FailureInsight learning loop needs repeatable local readback proof"
+        ));
+        assert!(inspection.warning.contains("Readback only"));
+
+        let formatted = format_memory_demo_failure_insight_readback(&readback);
+        assert!(formatted.contains("inspected_failure_insight_id"));
+        assert!(formatted.contains("inspected_failure_insight_found"));
+        assert!(formatted.contains(FAILURE_INSIGHT_DEMO_INSPECT_COMMAND));
+    }
+
+    #[tokio::test]
+    async fn memory_demo_failure_insight_inspect_id_reports_missing_artifact_without_authorizing() {
+        let readback =
+            memory_demo_failure_insight_readback(Some("insight-demo-missing".to_owned()))
+                .await
+                .expect("demo missing inspection readback succeeds");
+
+        let inspection = readback
+            .inspected_failure_insight
+            .as_ref()
+            .expect("requested inspection is included");
+        assert_eq!(
+            inspection.requested_failure_insight_id,
+            "insight-demo-missing"
+        );
+        assert!(!inspection.found);
+        assert!(inspection.inspected_failure_insight_id.is_none());
+        assert_eq!(inspection.audit_event_count, 0);
+        assert_eq!(inspection.relation_count, 0);
+        assert!(inspection.warning.contains("Readback only"));
     }
 
     #[test]
@@ -2427,8 +4215,34 @@ mod tests {
                 "payload": {
                     "causal_trace": {
                         "decision_status": "needs_human_approval",
+                        "action_type": "create_memory_fact",
                         "risk_level": "high",
-                        "policies_applied": ["policy-human-approval"]
+                        "policies_applied": ["policy-human-approval"],
+                        "memory_write_intent": {
+                            "kind": "create_memory_fact",
+                            "target": {
+                                "entity_type": "project",
+                                "entity_id": "arpagona-agent-core",
+                                "attribute": "operational_note",
+                                "value": "governed memory proposals are visible",
+                                "fact_id": "fact-audit-memory-1",
+                                "related_fact_id": "fact-audit-memory-prior",
+                                "failure_insight_id": null
+                            },
+                            "provenance": {
+                                "source_id": "source-audit-memory",
+                                "source_label": "focus loop",
+                                "source_kind": "operational_report",
+                                "evidence": "Issue #47 requires governed memory observability."
+                            },
+                            "confidence": 0.88,
+                            "actor": "agent-alpha",
+                            "reason_for_remembering": "Keep memory-write proposal context visible in audit readback.",
+                            "proposed_at": "2026-05-21T10:00:00Z",
+                            "decision_id": "decision-1",
+                            "audit_event_id": "audit-2",
+                            "invalidation_note": "Supersede when priority changes."
+                        }
                     }
                 },
                 "created_at": "2026-01-01T00:05:00Z"
@@ -2486,6 +4300,53 @@ mod tests {
         );
         assert_eq!(readback.risk_level.as_deref(), Some("high"));
         assert_eq!(readback.policies_applied, vec!["policy-human-approval"]);
+        assert_eq!(readback.action_type.as_deref(), Some("create_memory_fact"));
+        assert_eq!(
+            readback.memory_write_kind.as_deref(),
+            Some("create_memory_fact")
+        );
+        assert_eq!(readback.memory_target_type.as_deref(), Some("project"));
+        assert_eq!(
+            readback.memory_target_value,
+            Some(json!("governed memory proposals are visible"))
+        );
+        assert_eq!(
+            readback.memory_target_id.as_deref(),
+            Some("arpagona-agent-core")
+        );
+        assert_eq!(
+            readback.memory_target_fact_id.as_deref(),
+            Some("fact-audit-memory-1")
+        );
+        assert_eq!(
+            readback.memory_related_fact_id.as_deref(),
+            Some("fact-audit-memory-prior")
+        );
+        assert_eq!(
+            readback.memory_provenance_source_id.as_deref(),
+            Some("source-audit-memory")
+        );
+        assert_eq!(
+            readback.memory_provenance_source_label.as_deref(),
+            Some("focus loop")
+        );
+        assert_eq!(readback.memory_confidence, Some(0.88));
+        assert_eq!(readback.memory_decision_id.as_deref(), Some("decision-1"));
+        assert_eq!(readback.memory_audit_event_id.as_deref(), Some("audit-2"));
+        assert!(readback
+            .memory_persistence_readback_hint
+            .as_deref()
+            .unwrap()
+            .contains("Not persistable yet"));
+        assert!(readback
+            .memory_supersession_hint
+            .as_deref()
+            .unwrap()
+            .contains("Supersede when priority changes"));
+        assert_eq!(
+            readback.memory_reason_for_remembering.as_deref(),
+            Some("Keep memory-write proposal context visible in audit readback.")
+        );
 
         let formatted = format_audit_decision_readback(&readback);
         assert!(formatted.contains("decision_status:"));
@@ -2494,12 +4355,39 @@ mod tests {
         assert!(formatted.contains("high"));
         assert!(formatted.contains("policies_applied:"));
         assert!(formatted.contains("policy-human-approval"));
+        assert!(formatted.contains("memory_write_kind:"));
+        assert!(formatted.contains("create_memory_fact"));
+        assert!(formatted.contains("memory_target_id:"));
+        assert!(formatted.contains("arpagona-agent-core"));
+        assert!(formatted.contains("memory_target_fact_id:"));
+        assert!(formatted.contains("fact-audit-memory-1"));
+        assert!(formatted.contains("memory_provenance_source_id:"));
+        assert!(formatted.contains("source-audit-memory"));
+        assert!(formatted.contains("memory_persistence_readback_hint:"));
+        assert!(formatted.contains("memory_supersession_hint:"));
+        assert!(formatted.contains("memory_reason_for_remembering:"));
+        assert!(formatted.contains("Keep memory-write proposal context visible in audit readback."));
         assert!(formatted.contains("Readback only"));
 
         let json = serde_json::to_value(&readback).unwrap();
         assert_eq!(json["decision_status"], "needs_human_approval");
         assert_eq!(json["risk_level"], "high");
         assert_eq!(json["policies_applied"], json!(["policy-human-approval"]));
+        assert_eq!(json["memory_write_kind"], "create_memory_fact");
+        assert_eq!(json["memory_target_id"], "arpagona-agent-core");
+        assert_eq!(json["memory_target_fact_id"], "fact-audit-memory-1");
+        assert_eq!(json["memory_related_fact_id"], "fact-audit-memory-prior");
+        assert_eq!(json["memory_provenance_source_id"], "source-audit-memory");
+        assert_eq!(json["memory_decision_id"], "decision-1");
+        assert_eq!(json["memory_audit_event_id"], "audit-2");
+        assert!(json["memory_persistence_readback_hint"]
+            .as_str()
+            .unwrap()
+            .contains("Not persistable yet"));
+        assert_eq!(
+            json["memory_reason_for_remembering"],
+            "Keep memory-write proposal context visible in audit readback."
+        );
         assert_eq!(json["summary"]["event_count"], 2);
     }
 
@@ -2538,6 +4426,206 @@ mod tests {
             }) => assert!(args.json),
             _ => panic!("expected insight schema"),
         }
+    }
+
+    #[test]
+    fn cli_parses_memory_status_command() {
+        let cli = Cli::parse_from(["arpagona", "memory", "status", "--json"]);
+        match cli.command {
+            Command::Memory(MemoryCommand {
+                command: MemorySubcommand::Status(args),
+            }) => assert!(args.json),
+            _ => panic!("expected memory status"),
+        }
+    }
+
+    #[test]
+    fn cli_parses_memory_proposals_commands() {
+        let list = Cli::parse_from(["arpagona", "memory", "proposals", "--json"]);
+        match list.command {
+            Command::Memory(MemoryCommand {
+                command: MemorySubcommand::Proposals(args),
+            }) => assert!(args.json),
+            _ => panic!("expected memory proposals"),
+        }
+
+        let detail = Cli::parse_from(["arpagona", "memory", "proposal", "action-1", "--json"]);
+        match detail.command {
+            Command::Memory(MemoryCommand {
+                command: MemorySubcommand::Proposal(args),
+            }) => {
+                assert_eq!(args.proposal_id, "action-1");
+                assert!(args.json);
+            }
+            _ => panic!("expected memory proposal detail"),
+        }
+    }
+
+    #[test]
+    fn memory_proposal_readback_filters_and_explains_memory_write_intent() {
+        let actions = vec![
+            serde_json::from_value::<ProposedAction>(json!({
+                "id": "action-memory-1",
+                "workspace_id": "workspace-1",
+                "task_id": "task-1",
+                "proposed_by": "agent-alpha",
+                "action_type": "create_memory_fact",
+                "target": "project:arpagona-agent-core",
+                "payload": {
+                    "memory_write_intent": {
+                        "kind": "create_memory_fact",
+                        "target": {
+                            "entity_type": "project",
+                            "entity_id": "arpagona-agent-core",
+                            "attribute": "current_priority",
+                            "value": "governed memory priority is inspectable",
+                            "fact_id": "fact-memory-1",
+                            "related_fact_id": null,
+                            "failure_insight_id": null
+                        },
+                        "provenance": {
+                            "source_id": "source-focus-loop",
+                            "source_label": "focus loop",
+                            "source_kind": "operational_report",
+                            "evidence": "Issue #47 asks for memory proposal observability."
+                        },
+                        "confidence": 0.91,
+                        "actor": "agent-alpha",
+                        "reason_for_remembering": "Keep the current governed memory priority visible.",
+                        "proposed_at": "2026-05-21T10:00:00Z",
+                        "decision_id": "decision-memory-1",
+                        "audit_event_id": "audit-memory-1",
+                        "invalidation_note": "Supersede when focus loop priority changes."
+                    }
+                },
+                "risk_level": "medium",
+                "required_permissions": ["write_memory"],
+                "rationale": "Remember project priority only after governance.",
+                "context_refs": [],
+                "status": "needs_human_approval",
+                "created_at": "2026-05-21T10:00:00Z"
+            }))
+            .unwrap(),
+            serde_json::from_value::<ProposedAction>(json!({
+                "id": "action-email-1",
+                "workspace_id": "workspace-1",
+                "task_id": "task-1",
+                "proposed_by": "agent-alpha",
+                "action_type": "simulate_email",
+                "target": "client@example.com",
+                "payload": {},
+                "risk_level": "medium",
+                "required_permissions": ["simulate_email"],
+                "rationale": "Draft an email.",
+                "context_refs": [],
+                "status": "pending_decision",
+                "created_at": "2026-05-21T10:01:00Z"
+            }))
+            .unwrap(),
+        ];
+
+        let readback = memory_proposals_readback_from_actions(actions);
+
+        assert_eq!(readback.proposals.len(), 1);
+        let proposal = &readback.proposals[0];
+        assert_eq!(proposal.id, "action-memory-1");
+        assert_eq!(proposal.action_type, "create_memory_fact");
+        assert_eq!(
+            proposal.memory_write_kind.as_deref(),
+            Some("create_memory_fact")
+        );
+        assert_eq!(proposal.target_type.as_deref(), Some("project"));
+        assert_eq!(
+            proposal.target_value,
+            Some(json!("governed memory priority is inspectable"))
+        );
+        assert_eq!(
+            proposal.provenance_source_label.as_deref(),
+            Some("focus loop")
+        );
+        assert_eq!(proposal.target_fact_id.as_deref(), Some("fact-memory-1"));
+        assert_eq!(
+            proposal.provenance_source_id.as_deref(),
+            Some("source-focus-loop")
+        );
+        assert!(proposal
+            .persistence_readback_hint
+            .contains("Not persistable yet"));
+        assert!(proposal
+            .supersession_hint
+            .contains("Supersede when focus loop priority changes"));
+        assert_eq!(proposal.required_permissions, vec!["write_memory"]);
+        assert!(proposal
+            .suggested_next_action
+            .contains("Review Decision Gate result"));
+        assert!(readback.warning.contains("not approval"));
+
+        let formatted = format_memory_proposals_readback(&readback);
+        assert!(formatted.contains("Memory write proposals"));
+        assert!(formatted.contains("action-memory-1"));
+        assert!(formatted.contains("reason_for_remembering:"));
+        assert!(formatted.contains("target_fact_id:"));
+        assert!(formatted.contains("persistence_readback_hint:"));
+        assert!(formatted.contains("supersession_hint:"));
+        assert!(formatted.contains("Readback only"));
+
+        let json = serde_json::to_value(&readback).unwrap();
+        assert_eq!(
+            json["proposals"][0]["memory_write_kind"],
+            "create_memory_fact"
+        );
+        assert_eq!(json["proposals"][0]["confidence"], 0.91);
+    }
+
+    #[test]
+    fn memory_status_readback_describes_alpha_state_without_authorizing() {
+        let readback = memory_status_readback();
+
+        assert!(readback.graph_memory_support_compiled);
+        assert_eq!(readback.expected_backend, "surrealdb");
+        assert!(readback.surrealdb_adapter_available);
+        assert!(readback
+            .alpha_limits
+            .contains(&"read-only CLI status/proposal readback only"));
+        assert!(readback
+            .governed_persistence_helpers
+            .contains(&"persist_approved_create_memory_fact"));
+        assert!(readback
+            .governed_persistence_helpers
+            .contains(&"persist_approved_failure_insight_memory"));
+        assert!(readback
+            .required_governance_controls
+            .contains(&"approved Decision Gate result"));
+        assert!(!readback
+            .not_implemented
+            .contains(&"approved Graph Memory write path"));
+        assert!(readback
+            .not_implemented
+            .contains(&"CLI memory mutation command"));
+
+        let formatted = format_memory_status_readback(&readback);
+        assert!(formatted.contains("Graph Memory status"));
+        assert!(formatted.contains("graph_memory_support_compiled:"));
+        assert!(formatted.contains("surrealdb_adapter_available:"));
+        assert!(formatted.contains("governed_persistence_helpers:"));
+        assert!(formatted.contains("persist_approved_create_memory_fact"));
+        assert!(formatted.contains("required_governance_controls:"));
+        assert!(formatted.contains("read-only"));
+        assert!(formatted.contains("not approval"));
+
+        let json = serde_json::to_value(&readback).unwrap();
+        assert_eq!(json["expected_backend"], "surrealdb");
+        assert_eq!(json["surrealdb_adapter_available"], true);
+        assert_eq!(
+            json["governed_persistence_helpers"][0],
+            "persist_approved_create_memory_fact"
+        );
+        assert!(json["required_governance_controls"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|value| value == "approved Decision Gate result"));
+        assert!(json["warning"].as_str().unwrap().contains("not approval"));
     }
 
     #[test]
