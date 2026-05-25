@@ -8,11 +8,11 @@ This file does not override safety, governance, `PROJECT_OBJECTIVES.md`, `PROJEC
 
 ## Current next-pass instruction
 
-Next pass should: add an end-to-end integration test proving that `--description` text flows through the full governed path (signal → proposal → decision → audit → persistence → readback) and appears in the readback output.
+Next pass should: create a CLI command `arpagona memory demo governed-loop` that runs the full end-to-end governed FailureInsight learning loop in one command and prints the chain (signal → proposal → decision → audit → persistence → readback) including any operator-supplied `--description`.
 
-Why: the `--description` flag was added this session, but there is no test verifying that operator-supplied text actually propagates through the full FailureInsight → ProposedAction → Decision Gate → Audit → persistence → readback chain. The parser test only verifies CLI argument parsing.
+Why: the `--description` flag and the full governed path are now verified by an end-to-end test, but there is no single CLI command that runs the complete loop — only the test and the existing `failure-insight` demo subcommand. A dedicated `governed-loop` demo command would make the repeatable demo recipe self-contained and operator-friendly.
 
-Proof to seek: a new test in the existing `#[cfg(test)] mod tests {}` block in `main.rs` that calls `memory_demo_failure_insight_readback(Some("inspect-id"), Some("custom description"))` and asserts the readback JSON/text contains the custom description in the signal summary, failure summary, and relevant fields.
+Proof to seek: a working `cargo run -q --bin arpagona -- memory demo governed-loop --description "test"` that prints the full chain with signal summary containing "test".
 
 Do not: add broad autonomous memory writing, provider/runtime direct memory mutation, external effects, scheduler expansion, Mission Control Web, MCP/browser automation, personal/sensitive memory, readback-as-authorization behavior, or always-on native/unstable backend requirements.
 

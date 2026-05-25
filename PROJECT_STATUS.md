@@ -440,3 +440,36 @@ Architectural risk:
 - low. The `--description` flag is pure CLI input parsing. The demo uses `FailureInsight::new()` which is a pure domain constructor with no side effects. All existing tests continue to pass without modification (the `None` default preserves backward compatibility).
 
 Recommended next step: add an end-to-end integration test proving that `--description` text flows through the full governed path (signal → proposal → decision → audit → persistence → readback) and appears in the readback output.
+
+## Latest Session Update (2026-05-25 — End-to-end test for custom description through governed path)
+
+This session added an end-to-end integration test proving that operator-supplied `--description` text propagates through the full governed FailureInsight learning loop (signal → proposal → decision → audit → persistence → readback) and is surfaced in the readback output.
+
+Changed:
+- Changed `MemoryDemoSignalReadback.summary` from `&'static str` to `String` to support runtime custom descriptions
+- Updated `memory_demo_failure_insight_readback` to include the operator's description text in the signal summary readback when provided
+- Added `memory_demo_failure_insight_with_custom_description_flows_through_full_governed_path` test that:
+  1. Calls the full governed loop with a custom description ("the proposal lacked a confidence field")
+  2. Asserts the signal summary contains the custom description
+  3. Asserts the inspected persisted FailureInsight summary contains the custom description
+  4. Asserts the formatted text output surfaces the custom description
+  5. Asserts all governed path invariants are intact (decision approved, readback warning present, non-authorizing)
+
+Stability level: alpha CLI demo/readback. The `--description` flag integration test is a pure in-memory async test that exercises the full governed chain without external side effects.
+
+Limits:
+- no broad CLI mutation command was added;
+- no API endpoint was added;
+- no new Graph Memory persistence helper was added;
+- no Decision Gate behavior was changed;
+- no SurrealDB backend change was made;
+- no LLM/provider/runtime direct memory mutation was added;
+- no real tool execution was introduced;
+- no destructive capability was added;
+- no scheduler, autonomy, MCP, browser automation, credential handling or Mission Control Web growth was introduced;
+- readback remains evidence only and must not be treated as authorization.
+
+Architectural risk:
+- low. The `summary` field type change (`&'static str` → `String`) is backward-compatible — serialization is unaffected (both serialize as strings). All existing readback consumers continue to work. The new test exercises the same in-memory store as the existing tests with zero new dependencies.
+
+Recommended next step: create a CLI command `arpagona memory demo governed-loop` that runs the full end-to-end governed FailureInsight learning loop in one command and prints the chain including any operator-supplied `--description`, making the repeatable demo recipe self-contained and operator-friendly.
