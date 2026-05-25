@@ -420,5 +420,3 @@ Architectural risk:
 - low. The integration test is in a separate `tests/` directory and uses `std::process::Command` to spawn the binary — it cannot affect the test runner's state. The temp directory cleanup ensures no file leaks across test runs.
 
 Recommended next step: transition the demo snapshot approach to a Cargo feature-gated SurrealDB `kv-surrealkv` backend when the `surrealdb_unstable` cfg flag becomes stable or an alternative pure-Rust key-value backend emerges.
->>>>>>> origin/main
->>>>>>> origin/main
