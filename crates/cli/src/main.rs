@@ -314,8 +314,13 @@ struct MemoryDemoCommand {
 enum MemoryDemoSubcommand {
     /// Simulate a governed FailureInsight learning loop with in-memory persistence and readback.
     FailureInsight(MemoryDemoFailureInsightArgs),
+<<<<<<< HEAD
+    /// Read a FailureInsight demo snapshot from a JSON file for cross-invocation inspection.
+    SnapshotRead(MemoryDemoSnapshotReadArgs),
+=======
     /// Read a demo snapshot JSON file written by --snapshot-path and display its contents.
     SnapshotRead(SnapshotReadArgs),
+>>>>>>> origin/main
 }
 
 #[derive(Debug, Args)]
@@ -340,19 +345,14 @@ struct MemoryProposalsArgs {
 }
 
 #[derive(Debug, Args)]
-struct MemoryProposalArgs {
-    /// Proposed action id to inspect.
-    proposal_id: String,
-    /// Emit structured JSON instead of human-oriented text.
-    #[arg(long)]
-    json: bool,
+    /// Simulate a governed FailureInsight learning loop with in-memory persistence and readback.
+    FailureInsight(MemoryDemoFailureInsightArgs),
+    /// Read a FailureInsight demo snapshot from a JSON file for cross-invocation inspection.
+    SnapshotRead(MemoryDemoSnapshotReadArgs),
 }
 
 #[derive(Debug, Args)]
 struct MemoryDemoFailureInsightArgs {
-    /// Emit structured JSON instead of human-oriented text.
-    #[arg(long)]
-    json: bool,
     /// Inspect a specific FailureInsight id after the local governed demo persists it.
     #[arg(long = "inspect-id")]
     inspect_id: Option<String>,
@@ -362,9 +362,8 @@ struct MemoryDemoFailureInsightArgs {
     snapshot_path: Option<String>,
 }
 
-/// Arguments for `memory demo snapshot-read`.
 #[derive(Debug, Args)]
-struct SnapshotReadArgs {
+struct MemoryDemoSnapshotReadArgs {
     /// Path to the demo snapshot JSON file to read.
     snapshot_path: String,
     /// Emit structured JSON instead of human-oriented text.
@@ -617,6 +616,7 @@ const FAILURE_INSIGHT_DEMO_CHAIN: &[&str] = &[
     "decision audit event",
     "approved local Graph Memory persistence",
     "FailureInsight readback with decision/audit trace proof",
+    "demo snapshot written for cross-invocation readback proof",
 ];
 
 const FAILURE_INSIGHT_DEMO_COMMAND: &str =
@@ -625,11 +625,21 @@ const FAILURE_INSIGHT_DEMO_COMMAND: &str =
 const FAILURE_INSIGHT_DEMO_INSPECT_COMMAND: &str =
     "cargo run -q --bin arpagona -- memory demo failure-insight --json --inspect-id insight-demo-governed-learning-loop";
 
+#[allow(dead_code)]
+const FAILURE_INSIGHT_DEMO_SNAPSHOT_COMMAND: &str =
+    "cargo run -q --bin arpagona -- memory demo failure-insight --json --snapshot-path target/demo-snapshot.json";
+
+#[allow(dead_code)]
+const FAILURE_INSIGHT_DEMO_SNAPSHOT_READ_COMMAND: &str =
+    "cargo run -q --bin arpagona -- memory demo snapshot-read target/demo-snapshot.json";
+
 const FAILURE_INSIGHT_DEMO_RECIPE: &[&str] = &[
     "run the exact_local_command from the repository root",
     "verify decision_status is approved before treating persistence as expected demo behavior",
     "verify readback_found is true and readback_audit_event_count is at least 1",
     "optionally rerun with --inspect-id insight-demo-governed-learning-loop to inspect the persisted artifact by id",
+    "run with --snapshot-path target/demo-snapshot.json to persist the readback as a JSON file",
+    "in a separate terminal session, run snapshot-read target/demo-snapshot.json to prove cross-invocation readback",
     "treat all output as local evidence only, not authorization or durable user memory",
 ];
 
@@ -1406,6 +1416,16 @@ async fn memory_demo_failure_insight(
     args: MemoryDemoFailureInsightArgs,
 ) -> Result<(), Box<dyn Error>> {
     let readback = memory_demo_failure_insight_readback(args.inspect_id.clone()).await?;
+
+    // Persist the demo snapshot for cross-invocation readback if requested.
+    if let Some(snapshot_path) = &args.snapshot_path {
+        let json = serde_json::to_value(&readback)?;
+        let snapshot = arpagona_graph_memory::demo_snapshot::FailureInsightDemoSnapshot::new(json);
+        snapshot
+            .write_to_file(snapshot_path)
+            .map_err(|e| format!("Failed to write demo snapshot to '{}': {e}", snapshot_path))?;
+    }
+
     if args.json {
         println!("{}", serde_json::to_string_pretty(&readback)?);
     } else {
@@ -1592,15 +1612,35 @@ fn memory_demo_failure_insight_inspection_from_readback(
     }
 }
 
+<<<<<<< HEAD
+fn memory_demo_snapshot_read(args: MemoryDemoSnapshotReadArgs) -> Result<(), Box<dyn Error>> {
+    let snapshot = arpagona_graph_memory::demo_snapshot::read_failure_insight_demo_snapshot(
+        &args.snapshot_path,
+    )?;
+=======
 /// Read and display a demo snapshot JSON file written by --snapshot-path.
 fn memory_demo_snapshot_read(args: SnapshotReadArgs) -> Result<(), Box<dyn Error>> {
     let path = std::path::Path::new(&args.snapshot_path);
     let snapshot = FailureInsightDemoSnapshot::read_from_file(path)
         .map_err(|e| format!("failed to read snapshot from {}: {e}", args.snapshot_path))?;
+>>>>>>> origin/main
 
     if args.json {
         println!("{}", serde_json::to_string_pretty(&snapshot)?);
     } else {
+<<<<<<< HEAD
+        println!("{}", style_info("FailureInsight demo snapshot readback"));
+        println!("  snapshot_path: {}", args.snapshot_path);
+        println!("  evidence_only_token: {}", snapshot.evidence_only_token);
+        println!("  functional_alpha_chain:");
+        for step in &snapshot.functional_alpha_chain {
+            println!("    - {step}");
+        }
+        println!(
+            "  readback_json: {}",
+            serde_json::to_string_pretty(&snapshot.readback_json)?
+        );
+=======
         let mut output = String::new();
         output.push_str(&format!(
             "📸 Demo Snapshot Readback (file: {})\n\n",
@@ -1627,6 +1667,7 @@ fn memory_demo_snapshot_read(args: SnapshotReadArgs) -> Result<(), Box<dyn Error
         output.push_str(&truncated);
         output.push('\n');
         print!("{output}");
+>>>>>>> origin/main
     }
     Ok(())
 }

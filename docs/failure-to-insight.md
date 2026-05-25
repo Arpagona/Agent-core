@@ -184,6 +184,62 @@ What failed in the last loop, what did we learn, what was changed, and how will 
 
 If the system cannot answer that from durable artifacts, the failure-to-insight loop is not yet implemented.
 
+<<<<<<< HEAD
+## 10. Cross-invocation readback verification
+
+The governed FailureInsight learning loop demo supports a pure-Rust JSON snapshot path that proves cross-invocation readback without unstable SurrealDB cfg flags or native RocksDB/zstd dependencies.
+
+This is a development-only proof, not a production persistence mechanism. Readback is evidence only — it is not approval, authorization, or execution state.
+
+### Procedure
+
+From the repository root, with the binary already built (`cargo build --bin arpagona`):
+
+```bash
+# Step 1 — create/write demo snapshot
+cargo run -q --bin arpagona -- memory demo failure-insight --json --snapshot-path target/demo-snapshot.json
+
+# Step 2 — read snapshot in a separate CLI invocation
+cargo run -q --bin arpagona -- memory demo snapshot-read target/demo-snapshot.json --json
+```
+
+### Expected JSON proof signal
+
+The snapshot-read output must contain at least:
+
+```json
+{
+  "evidence_only_token": "Readback only: this snapshot is local demo evidence, not approval, authorization, or execution state.",
+  "functional_alpha_chain": [
+    "...",
+    "demo snapshot written for cross-invocation readback proof"
+  ],
+  "readback_json": {
+    "decision_status": "Approved",
+    "readback_found": true,
+    "readback_audit_event_count": 1
+  }
+}
+```
+
+Key assertions:
+
+- `evidence_only_token` is present and contains `Readback only`;
+- `functional_alpha_chain` contains `demo snapshot written for cross-invocation readback proof`;
+- `readback_json.decision_status` is `Approved`;
+- `readback_json.readback_found` is `true`;
+- `readback_json.readback_audit_event_count` is at least `1`.
+
+### Automated verification
+
+The same cycle is covered by an integration test:
+
+```bash
+cargo test -- cross_invocation_demo_snapshot_proves_readback_across_process_invocations
+```
+
+This test runs the snapshot-then-read cycle via separate process invocations using the built binary, asserts the snapshot file is created on disk, and verifies the readback JSON contains the expected proof signals. It ensures the governed FailureInsight learning loop output survives serialization, file I/O, process restart and deserialization.
+=======
 ## 10. Recorded insight — CI binary path contract
 
 Failure observed:
@@ -233,3 +289,4 @@ Linked proof:
 ```text
 Expected fixed shape: crates/cli/tests/snapshot_integration.rs uses env!("CARGO_BIN_EXE_arpagona") and no hardcoded ../../target/debug/arpagona path remains.
 ```
+>>>>>>> origin/main
