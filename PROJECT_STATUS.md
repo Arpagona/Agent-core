@@ -507,6 +507,41 @@ Alpha experimental. All 3 tools are proven by unit tests (13 tests in tool-runti
 ### Test count
 
 - `arpagona-agent-core`: 42 tests (35 existing + 7 new)
+
+## 14. Latest Session Update
+
+This session added an end-to-end integration test proving that `--description` text flows through the full governed path (signal → proposal → decision → audit → persistence → readback) and appears in the readback output.
+
+Changed:
+- Converted `MemoryDemoSignalReadback.summary` from `&'static str` to `String` so the readback can carry a dynamic operator-supplied description
+- Updated `memory_demo_failure_insight_readback` to surface the custom description in the signal summary when `--description` is provided
+- Added `memory_demo_failure_insight_with_custom_description_flows_through_full_governed_path` integration test that:
+  - calls the governed loop with a custom description (`"the proposal lacked a confidence field"`)
+  - asserts the signal summary contains the custom text
+  - asserts the governed path invariants (decision approved, readback warning, non-authorizing boundary)
+  - asserts the inspected FailureInsight artifact contains the description in its summary
+  - asserts the formatted text output also surfaces the description
+- Fixed pre-existing conflict markers in `docs/failure-to-insight.md` (resolved HEAD vs origin/main collision, kept both sections as sections 10 and 11)
+
+Stability level: alpha CLI demo/readback.
+
+Limits:
+- no broad CLI mutation command was added;
+- no API endpoint was added;
+- no new Graph Memory persistence helper was added;
+- no Decision Gate behavior was changed;
+- no SurrealDB backend change was made;
+- no LLM/provider/runtime direct memory mutation was added;
+- no real tool execution was introduced;
+- no destructive capability was added;
+- no scheduler, autonomy, MCP, browser automation, credential handling or Mission Control Web growth was introduced;
+- readback remains evidence only and must not be treated as authorization.
+
+Architectural risk:
+- low. The `summary` field type change from `&'static str` to `String` is backward-compatible for consumers that read `summary` as a `&str` (the `Deref` and `Display` traits handle this). The test uses both the signal summary and inspected artifact summary to prove the description propagates end-to-end, but the signal summary is a CLI-level construct — it does not change any underlying domain type, persistence schema, or governance path.
+
+Recommended next step: extend the demo snapshot path to include the custom `--description` in the JSON snapshot output, then add a cross-process integration test that writes a snapshot with a custom description in one process and reads it back in another.
+
 - `arpagona-tool-registry`: 11 tests (6 existing + 5 new)
 - `arpagona-tool-runtime`: 13 tests (all new)
 - **Total**: 66 tests across the 3 crates

@@ -8,11 +8,11 @@ This file does not override safety, governance, `PROJECT_OBJECTIVES.md`, `PROJEC
 
 ## Current next-pass instruction
 
-Next pass should: add an end-to-end integration test proving that `--description` text flows through the full governed path (signal → proposal → decision → audit → persistence → readback) and appears in the readback output.
+Next pass should: extend the demo snapshot path to include the custom `--description` in the JSON snapshot output, then add a cross-process integration test that writes a snapshot with a custom description in one process and reads it back in another.
 
-Why: the `--description` flag was added this session, but there is no test verifying that operator-supplied text actually propagates through the full FailureInsight → ProposedAction → Decision Gate → Audit → persistence → readback chain. The parser test only verifies CLI argument parsing.
+Why: the `--description` end-to-end test was added this session, proving operator text flows through the full governed signal -> proposal -> decision -> audit -> persistence -> readback path. However, the demo snapshot path (`--snapshot-path`) does not record the description in the snapshot JSON — the snapshot always uses the default hardcoded values. Proving the description survives disk persistence and cross-process readback closes the final gap in the governed learning demo chain.
 
-Proof to seek: a new test in the existing `#[cfg(test)] mod tests {}` block in `main.rs` that calls `memory_demo_failure_insight_readback(Some("inspect-id"), Some("custom description"))` and asserts the readback JSON/text contains the custom description in the signal summary, failure summary, and relevant fields.
+Proof to seek: a new cross-process integration test (in `crates/cli/tests/`) that invokes `memory demo failure-insight --json --snapshot-path <path> --description "custom text"` in one process, then reads the snapshot back in a separate process via `memory demo snapshot-read <path> --json`, and asserts the readback JSON contains the custom description text.
 
 Do not: add broad autonomous memory writing, provider/runtime direct memory mutation, external effects, scheduler expansion, Mission Control Web, MCP/browser automation, personal/sensitive memory, readback-as-authorization behavior, or always-on native/unstable backend requirements.
 

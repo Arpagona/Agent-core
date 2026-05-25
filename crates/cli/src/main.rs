@@ -493,7 +493,7 @@ struct MemoryDemoFailureInsightReadback {
 #[derive(Debug, Serialize)]
 struct MemoryDemoSignalReadback {
     signal_type: &'static str,
-    summary: &'static str,
+    summary: String,
     correction_target: &'static str,
     provenance: &'static str,
 }
@@ -1685,7 +1685,10 @@ async fn memory_demo_failure_insight_readback(
     Ok(MemoryDemoFailureInsightReadback {
         signal: MemoryDemoSignalReadback {
             signal_type: "runtime_observation",
-            summary: "safe bounded FailureInsight learning signal",
+            summary: match &description {
+                Some(desc) => format!("safe bounded FailureInsight learning signal from operator: {desc}"),
+                None => "safe bounded FailureInsight learning signal".to_owned(),
+            },
             correction_target: "memory",
             provenance: "local in-memory demo",
         },
@@ -2172,7 +2175,7 @@ fn format_memory_demo_failure_insight_readback(
     let mut output = String::new();
     push_readback_line(&mut output, &style_info("FailureInsight memory demo"));
     push_readback_field(&mut output, "signal_type:", readback.signal.signal_type);
-    push_readback_field(&mut output, "signal_summary:", readback.signal.summary);
+    push_readback_field(&mut output, "signal_summary:", &readback.signal.summary);
     push_readback_field(
         &mut output,
         "correction_target:",
@@ -4354,6 +4357,66 @@ mod tests {
         assert!(formatted.contains("inspected_failure_insight_id"));
         assert!(formatted.contains("inspected_failure_insight_found"));
         assert!(formatted.contains(FAILURE_INSIGHT_DEMO_INSPECT_COMMAND));
+    }
+
+    #[tokio::test]
+    async fn memory_demo_failure_insight_with_custom_description_flows_through_full_governed_path()
+    {
+        let readback = memory_demo_failure_insight_readback(
+            Some("insight-demo-governed-learning-loop".to_owned()),
+            Some("the proposal lacked a confidence field".to_string()),
+        )
+        .await
+        .expect("demo readback with custom description succeeds");
+
+        // Signal summary shows the custom description
+        assert!(
+            readback
+                .signal
+                .summary
+                .contains("the proposal lacked a confidence field"),
+            "signal summary should contain the custom description, got: {}",
+            readback.signal.summary
+        );
+
+        // Core governed path assertions
+        assert_eq!(readback.signal.signal_type, "runtime_observation");
+        assert_eq!(readback.memory_write_kind, "create_failure_insight_memory");
+        assert_eq!(readback.decision_status, "approved");
+        assert!(readback.readback_found);
+        assert_eq!(
+            readback.persisted_failure_insight_id.as_deref(),
+            Some("insight-demo-governed-learning-loop")
+        );
+        assert_eq!(readback.readback_audit_event_count, 1);
+        assert_eq!(readback.readback_relation_count, 2);
+        assert!(readback.readback_warning.contains("Readback only"));
+        assert!(readback.warning.contains("Local demo only"));
+
+        // Inspection readback — custom description appears in the persisted artifact
+        let inspection = readback
+            .inspected_failure_insight
+            .as_ref()
+            .expect("requested inspection is included for custom description");
+        assert!(inspection.found);
+        assert_eq!(
+            inspection.inspected_failure_insight_id.as_deref(),
+            Some("insight-demo-governed-learning-loop")
+        );
+        let summary = inspection.summary.as_deref().unwrap_or_default();
+        assert!(
+            summary.contains("the proposal lacked a confidence field"),
+            "inspected failure insight summary should contain the custom description, got: {}",
+            summary
+        );
+        assert_eq!(inspection.audit_event_count, 1);
+        assert_eq!(inspection.relation_count, 2);
+        assert!(inspection.warning.contains("Readback only"));
+
+        // Verify formatted text also surfaces the description
+        let formatted = format_memory_demo_failure_insight_readback(&readback);
+        assert!(formatted.contains("the proposal lacked a confidence field"));
+        assert!(formatted.contains("Readback only"));
     }
 
     #[tokio::test]
