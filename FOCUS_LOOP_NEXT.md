@@ -8,11 +8,11 @@ This file does not override safety, governance, `PROJECT_OBJECTIVES.md`, `PROJEC
 
 ## Current next-pass instruction
 
-Next pass should: add an end-to-end integration test proving that `--description` text flows through the full governed path (signal → proposal → decision → audit → persistence → readback) and appears in the readback output.
+Next pass should: create a self-contained shell script or Makefile target (`make demo`) that runs the complete governed FailureInsight demo path end-to-end: `failure-insight --snapshot-path` writes a snapshot, `snapshot-read` proves cross-invocation readback, `snapshot-list` proves discovery, and the script exits with status 0 only if all assertions pass.
 
-Why: the `--description` flag was added this session, but there is no test verifying that operator-supplied text actually propagates through the full FailureInsight → ProposedAction → Decision Gate → Audit → persistence → readback chain. The parser test only verifies CLI argument parsing.
+Why: the snapshot discovery surface is now complete (write, read, list), but there is no single repeatable command that proves the full governed learning loop in one invocation without manual multi-step orchestration.
 
-Proof to seek: a new test in the existing `#[cfg(test)] mod tests {}` block in `main.rs` that calls `memory_demo_failure_insight_readback(Some("inspect-id"), Some("custom description"))` and asserts the readback JSON/text contains the custom description in the signal summary, failure summary, and relevant fields.
+Proof to seek: `./scripts/demo-full-loop.sh` exits 0, and its output contains "ALL CHECKS PASSED" or equivalent, showing signal → proposal → decision → audit → persistence → readback → discovery.
 
 Do not: add broad autonomous memory writing, provider/runtime direct memory mutation, external effects, scheduler expansion, Mission Control Web, MCP/browser automation, personal/sensitive memory, readback-as-authorization behavior, or always-on native/unstable backend requirements.
 

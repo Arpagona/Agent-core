@@ -109,6 +109,74 @@ impl From<serde_json::Error> for SnapshotError {
     }
 }
 
+/// Metadata about one snapshot file discovered in a snapshot directory.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct SnapshotListing {
+    /// The file name (not full path).
+    pub file_name: String,
+    /// Approximate description preview from the readback JSON, if available.
+    pub description_preview: Option<String>,
+    /// Number of functional-alpha chain steps.
+    pub chain_step_count: usize,
+    /// Content preview — first field name from readback_json, if available.
+    pub content_preview: Option<String>,
+}
+
+/// List all readable snapshot files in a directory.
+///
+/// Scans `dir` for `.json` files, attempts to deserialize each as a
+/// `FailureInsightDemoSnapshot`, and returns metadata for successful reads.
+/// Non-JSON files and files that fail deserialization are silently skipped.
+pub fn list_snapshots_in_directory(dir: &Path) -> Vec<(std::path::PathBuf, SnapshotListing)> {
+    let mut results = Vec::new();
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return results;
+    };
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if path.extension().and_then(|e| e.to_str()) != Some("json") {
+            continue;
+        }
+        if let Ok(snapshot) = FailureInsightDemoSnapshot::read_from_file(&path) {
+            let description_preview = snapshot
+                .readback_json
+                .get("description")
+                .or_else(|| snapshot.readback_json.get("description_preview"))
+                .or_else(|| snapshot.readback_json.get("failure_insight_summary"))
+                .and_then(|v| v.as_str())
+                .map(|s| {
+                    if s.len() > 80 {
+                        format!("{}...", &s[..77])
+                    } else {
+                        s.to_owned()
+                    }
+                });
+            let content_preview = snapshot
+                .readback_json
+                .as_object()
+                .and_then(|obj| obj.keys().next())
+                .map(|s| s.to_owned());
+            let file_name = path
+                .file_name()
+                .and_then(|n| n.to_str())
+                .unwrap_or("?")
+                .to_owned();
+            results.push((
+                path,
+                SnapshotListing {
+                    file_name,
+                    description_preview,
+                    chain_step_count: snapshot.functional_alpha_chain.len(),
+                    content_preview,
+                },
+            ));
+        }
+    }
+    // Sort by file name for deterministic output
+    results.sort_by(|a, b| a.1.file_name.cmp(&b.1.file_name));
+    results
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
