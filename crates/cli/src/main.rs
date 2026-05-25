@@ -9,6 +9,7 @@ use arpagona_agent_core::{
 use arpagona_compute_reservoir::{
     allocate_for_working_memory, ComputeAllocation, ComputeCapability, ComputeNode, ComputeNodeId,
     ComputeNodeStatus, ComputePolicy, ComputeResourceKind, DataSensitivity,
+    NON_AUTHORIZING_READBACK,
 };
 use arpagona_decision_gate::{audit_event_for_decision, evaluate_proposed_action};
 use arpagona_graph_memory::{
@@ -96,6 +97,7 @@ pub enum CognitiveSubcommand {
 #[derive(Debug, Args)]
 pub struct CognitiveRunArgs {
     /// The objective text to work on.
+    #[arg(long)]
     pub objective: String,
     /// Optional domain classification.
     #[arg(long)]
@@ -4338,6 +4340,12 @@ fn cognitive_run(args: CognitiveRunArgs) -> Result<(), Box<dyn Error>> {
                 "allocated".to_owned(),
                 serde_json::Value::Bool(args.allocate),
             );
+            if args.allocate {
+                obj.insert(
+                    "non_authorizing_warning".to_owned(),
+                    serde_json::Value::String(NON_AUTHORIZING_READBACK.to_owned()),
+                );
+            }
         }
         println!("{}", serde_json::to_string_pretty(&output)?);
     } else {
