@@ -167,9 +167,17 @@ If Tool Runtime commands exist, Hermes must run:
 ```bash
 cargo run -q --bin arpagona -- tool list --json
 cargo run -q --bin arpagona -- tool inspect read_file --json
-cargo run -q --bin arpagona -- tool demo read-file --path PROJECT_STATUS.md --json
-cargo run -q --bin arpagona -- tool demo list-files --path . --json
-cargo run -q --bin arpagona -- tool demo search-text --query "Decision Gate" --path . --json
+cargo run -q --bin arpagona -- tool demo read-file PROJECT_STATUS.md --json
+cargo run -q --bin arpagona -- tool demo list-files . --json
+cargo run -q --bin arpagona -- tool demo search-text "Decision Gate" . --json
+```
+
+Current Tool Runtime CLI syntax uses positional arguments for demo commands:
+
+```text
+tool demo read-file <PATH>
+tool demo list-files <PATH>
+tool demo search-text <QUERY> <PATH>
 ```
 
 If a command does not exist yet, this is not automatically a failure. Classify it as:
@@ -187,11 +195,11 @@ Hermes must deliberately test that unsafe or out-of-scope uses are blocked clean
 For read-only file tools, attempt:
 
 ```bash
-cargo run -q --bin arpagona -- tool demo read-file --path ../Cargo.toml --json
-cargo run -q --bin arpagona -- tool demo read-file --path /etc/passwd --json
-cargo run -q --bin arpagona -- tool demo read-file --path .env --json
-cargo run -q --bin arpagona -- tool demo list-files --path .git --json
-cargo run -q --bin arpagona -- tool demo search-text --query "password" --path .git --json
+cargo run -q --bin arpagona -- tool demo read-file ../Cargo.toml --json
+cargo run -q --bin arpagona -- tool demo read-file /etc/passwd --json
+cargo run -q --bin arpagona -- tool demo read-file .env --json
+cargo run -q --bin arpagona -- tool demo list-files .git --json
+cargo run -q --bin arpagona -- tool demo search-text "password" .git --json
 ```
 
 Expected result:
