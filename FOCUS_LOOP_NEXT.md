@@ -6,13 +6,13 @@ It must contain one concrete next action only. The runtime milestone queue and l
 
 ## Next action
 
-Review and merge PR for P3 Cognitive Observation to Governed Learning if checks are green.
+Integrate CognitiveObservation and FailureInsightCandidates into WorkingMemory cycle state.
 
-Why: the P3 bridge was recovered from the interrupted run and must be merged before starting another major runtime brick.
+Why: P3 bridge is now merged (PR #83) — `FailureInsightCandidate::from_improvement_candidates()` and `--assess` CLI flag are live on main. The next step is to feed `CognitiveObservation` pipeline outputs and resolved `FailureInsightCandidate` items back into `WorkingMemory` so subsequent cognitive cycles benefit from accumulated state.
 
-Proof to seek: PR exists, cargo fmt/check/test pass, --assess JSON includes failure_insight_candidates.
+Proof to seek: A test showing that a `CognitiveObservation` assessment (e.g. `UsefulAndComplete`) can be stored as a `ContextItem` in `WorkingMemory`, and that a `FailureInsightCandidate` can produce a `Constraint` or `Assumption` update in the next cycle.
 
-Do not: start scripts/demo-full-loop.sh or P4 Working Memory integration before P3 is merged.
+Do not: add LLM calls, persistence, shell execution, external effects, or Decision Gate bypass. P4 must remain pure-domain state transformation.
 
 ## Required update at the end of every run
 
