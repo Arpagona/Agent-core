@@ -80,7 +80,42 @@ If duplicate or superseded PRs exist, clean them before feature work.
 
 When uncertain, do not delete. Report.
 
-## 5. Runtime milestone queue
+## 5. Merge & run cycle (auto-merge policy)
+
+This rule governs every cron run. It ensures the loop stays productive without requiring a human review step for every PR.
+
+### 5.1 At the start of every cron run
+
+1. **Fetch `origin/main`** and check for new commits.
+2. **Fetch the PR created by the previous run** (if any) using `gh pr list --state open --json number,headRefName,mergeable,title`.
+3. **Determine the state:**
+
+   | Previous PR state | Action |
+   |---|---|
+   | Already merged (no open PR for that branch) | ✅ Continue to new feature |
+   | Open, mergeable, **and the previous push had green cargo checks** | ✅ **Merge auto** into `main`, then start new feature |
+   | Open, mergeable, **but previous push failed checks** | ❌ **Do not merge.** Notify Thibaud. Block until resolved. |
+   | Open, **not mergeable** (conflict with main) | 🔧 **Rebase** onto latest `main`, re-run `cargo fmt --check && cargo check && cargo test --workspace`. If green → push, merge auto, then continue. If red → notify, block. |
+   | No previous PR (first run) | ✅ Start new feature directly |
+
+4. **Merge is unconditional when checks are green.** No human gate. Thibaud can always revert or close a PR after the fact.
+
+### 5.2 After merge — new feature
+
+1. Rebase onto `origin/main`.
+2. Create a new branch named `feat/<milestone-key>`.
+3. Implement one bounded increment from the milestone queue.
+4. `cargo fmt --check && cargo check && cargo test --workspace` before every commit.
+5. Push and create a PR via `gh pr create`.
+
+### 5.3 If checks fail before push
+
+- **Do not push.** Do not create a PR.
+- Report the failure with full `cargo test` output in the Telegram report.
+- Set `FOCUS_LOOP_NEXT.md` to the same handoff (no progress made).
+- The next run will retry the same feature.
+
+## 6. Runtime milestone queue
 
 Choose the first safe actionable milestone.
 
@@ -201,7 +236,7 @@ scripts/demo-full-loop.sh
 
 Do not choose this before P2/P3 unless it directly validates a merged major brick.
 
-## 6. Forbidden work
+## 7. Forbidden work
 
 Do not add:
 
@@ -220,7 +255,7 @@ Do not add:
 - self-modification without explicit governed proposal;
 - new strategic roadmap without human direction.
 
-## 7. Required verification
+## 8. Required verification
 
 For any code change:
 
@@ -236,7 +271,7 @@ For Tool Runtime or Observation changes, include safety-boundary tests for `.git
 
 For documentation-only changes, scan for conflict markers and explain why code tests were not required.
 
-## 8. Reporting format
+## 9. Reporting format
 
 Every run must report:
 
@@ -258,7 +293,7 @@ Focus Loop Report
 
 If no safe action is available, report `NO-OP` and explain the blocker.
 
-## 9. Handoff rule
+## 10. Handoff rule
 
 At the end of every successful run, update `FOCUS_LOOP_NEXT.md` with one concrete next action only.
 
