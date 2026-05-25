@@ -46,6 +46,7 @@ id_type!(FailureInsightId);
 id_type!(GoalId);
 id_type!(HolographicPatternId);
 id_type!(HolographicTraceId);
+id_type!(ObjectiveId);
 id_type!(ObservationId);
 id_type!(PolicyId);
 id_type!(ProposedActionId);

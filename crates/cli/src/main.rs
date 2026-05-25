@@ -1,9 +1,10 @@
 use arpagona_agent_core::{
-    ActionType, AgentId, AuditEvent, AuditEventId, AuditTraceSummary, CorrectionTarget, Decision,
-    DecisionId, DecisionStatus, DetectionSignal, DetectionSignalType, FailureClass, FailureInsight,
-    FailureInsightId, InsightSeverity, MemoryWriteIntent, MemoryWriteKind, MemoryWriteProvenance,
-    MemoryWriteTarget, Permission, ProposedAction, ProposedActionId, ProposedActionStatus,
-    RiskLevel, SourceId, Task, TaskId, WorkspaceId,
+    ActionType, AgentId, AuditEvent, AuditEventId, AuditTraceSummary, CognitiveCycleResult,
+    CorrectionTarget, Decision, DecisionId, DecisionStatus, DetectionSignal, DetectionSignalType,
+    FailureClass, FailureInsight, FailureInsightId, InsightSeverity, MemoryWriteIntent,
+    MemoryWriteKind, MemoryWriteProvenance, MemoryWriteTarget, ObjectiveDomain, Permission,
+    ProposedAction, ProposedActionId, ProposedActionStatus, RiskLevel, SourceId, Task, TaskId,
+    WorkspaceId,
 };
 use arpagona_decision_gate::{audit_event_for_decision, evaluate_proposed_action};
 use arpagona_graph_memory::{
@@ -72,6 +73,35 @@ enum Command {
     Memory(MemoryCommand),
     /// Inspect and demo the alpha read-only cognitive tool runtime.
     Tool(ToolCommand),
+    /// Run the General Cognitive Work Loop V0.
+    Cognitive(CognitiveCommand),
+}
+
+#[derive(Debug, Args)]
+pub struct CognitiveCommand {
+    #[command(subcommand)]
+    pub command: CognitiveSubcommand,
+}
+
+#[derive(Debug, Subcommand)]
+pub enum CognitiveSubcommand {
+    /// Run the General Cognitive Work Loop with an objective.
+    Run(CognitiveRunArgs),
+}
+
+#[derive(Debug, Args)]
+pub struct CognitiveRunArgs {
+    /// The objective text to work on.
+    pub objective: String,
+    /// Optional domain classification.
+    #[arg(long)]
+    pub domain: Option<String>,
+    /// Optional context text (key:value pairs, one per line).
+    #[arg(long)]
+    pub context: Option<String>,
+    /// Emit structured JSON instead of human-oriented text.
+    #[arg(long)]
+    pub json: bool,
 }
 
 #[derive(Debug, Args)]
@@ -990,6 +1020,9 @@ async fn run() -> Result<(), Box<dyn Error>> {
                 ToolDemoSubcommand::SearchText(args) => tool_demo_search_text(args)?,
                 ToolDemoSubcommand::Observe(args) => tool_demo_observe(args)?,
             },
+        },
+        Command::Cognitive(cognitive) => match cognitive.command {
+            CognitiveSubcommand::Run(args) => cognitive_run(args)?,
         },
     }
 
@@ -4238,6 +4271,131 @@ fn rainbow_text(text: &str) -> String {
         color_index += 1;
     }
     output
+}
+
+/// Run the General Cognitive Work Loop V0.
+fn cognitive_run(args: CognitiveRunArgs) -> Result<(), Box<dyn Error>> {
+    let domain = match args.domain.as_deref() {
+        Some("general") | None => ObjectiveDomain::General,
+        Some("business") => ObjectiveDomain::Business,
+        Some("research") => ObjectiveDomain::Research,
+        Some("teaching") => ObjectiveDomain::Teaching,
+        Some("engineering") => ObjectiveDomain::Engineering,
+        Some("administration") => ObjectiveDomain::Administration,
+        Some("personal_productivity") | Some("personal-productivity") => {
+            ObjectiveDomain::PersonalProductivity
+        }
+        Some("coding") => ObjectiveDomain::Coding,
+        Some("unknown") => ObjectiveDomain::Unknown,
+        Some(other) => {
+            return Err(format!("Unknown domain '{}'. Valid values: general, business, research, teaching, engineering, administration, personal_productivity, coding, unknown", other).into());
+        }
+    };
+
+    let result = arpagona_agent_core::cognitive_work::run_cognitive_work_cycle(
+        &args.objective,
+        Some(domain),
+        args.context.as_deref(),
+    );
+
+    if args.json {
+        let json = serde_json::to_string_pretty(&result)?;
+        println!("{json}");
+    } else {
+        cognitive_print_readback(&result);
+    }
+
+    Ok(())
+}
+
+/// Print a human-readable cognitive cycle result.
+fn cognitive_print_readback(result: &CognitiveCycleResult) {
+    println!(
+        "{}\n",
+        style_brand("=== General Cognitive Work Loop V0 — Readback ===")
+    );
+    println!("{}", style_info("Objective"));
+    println!("  id:           {}", result.objective.id);
+    println!("  title:        {}", result.objective.title);
+    println!("  domain:       {:?}", result.objective.domain);
+    println!("  status:       {:?}", result.objective.status);
+    println!();
+
+    println!("{}", style_info("Working Memory"));
+    println!(
+        "  context_items:   {}",
+        result.working_memory.context_items.len()
+    );
+    for item in &result.working_memory.context_items {
+        println!(
+            "    - {}: {} (source: {})",
+            item.key, item.value, item.source
+        );
+    }
+    println!(
+        "  assumptions:     {}",
+        result.working_memory.assumptions.len()
+    );
+    for assumption in &result.working_memory.assumptions {
+        println!(
+            "    - {} (confidence: {:.1})",
+            assumption.description, assumption.confidence
+        );
+    }
+    println!(
+        "  constraints:     {}",
+        result.working_memory.constraints.len()
+    );
+    for constraint in &result.working_memory.constraints {
+        println!(
+            "    - {} [kind: {}]",
+            constraint.description, constraint.kind
+        );
+    }
+    println!(
+        "  missing_context: {}",
+        result.working_memory.missing_context.len()
+    );
+    for mc in &result.working_memory.missing_context {
+        println!("    - {}", mc.description);
+        println!("      why: {}", mc.why_needed);
+    }
+    println!();
+
+    println!("{}", style_info("Cognitive Plan"));
+    for step in &result.plan.steps {
+        println!("  {}. {}", step.order, step.description);
+    }
+    println!("  rationale: {}", result.plan.rationale);
+    println!();
+
+    println!("{}", style_info("Required Observations"));
+    for obs in &result.required_observations {
+        println!("  - {} ({})", obs.description, obs.why_needed);
+    }
+    println!();
+
+    println!("{}", style_info("Proposed Next Action"));
+    println!("  kind:       {:?}", result.proposed_next_action.kind);
+    println!("  description: {}", result.proposed_next_action.description);
+    println!("  rationale:  {}", result.proposed_next_action.rationale);
+    println!(
+        "  non_authorizing: {}",
+        result.proposed_next_action.non_authorizing
+    );
+    println!();
+
+    println!("{}", style_info("Improvement Candidates"));
+    for candidate in &result.improvement_candidates {
+        println!(
+            "  - [{}] {} — {}",
+            candidate.id, candidate.description, candidate.rationale
+        );
+    }
+    println!();
+
+    println!("{}", style_dim(&format!("\u{26a0}  {}", result.warning)));
+    println!();
 }
 
 #[cfg(test)]
