@@ -10,11 +10,18 @@
 //! `ImprovementCandidate`s. The engine is heuristic and deterministic — it
 //! does not pretend to be intelligent. It produces structure that a future
 //! LLM/orchestrator can consume and refine.
+//!
+//! WorkingMemory is the central state container for a cognitive cycle. It
+//! bundles the objective, context, observations, improvement candidates,
+//! failure insight candidates, and the proposed next action into a single
+//! self-describing structure.
 
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 
 use crate::ids::ObjectiveId;
+use crate::observation::CognitiveObservation;
+use crate::observation::FailureInsightCandidate;
 
 // ─── Objective ────────────────────────────────────────────────────────────
 
@@ -118,14 +125,38 @@ impl SensitivityEstimate {
     }
 }
 
-/// The agent's current working memory for a single cycle.
-///
-/// Extended in P5 with fields that feed into Compute Reservoir allocation.
+/// Lifecycle status of a cognitive cycle.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum CycleStatus {
+    /// The cycle has been initialised with an objective but no processing.
+    Initialized,
+    /// The cycle is gathering context and observations.
+    ContextGathering,
+    /// The cycle is analysing the objective and context.
+    Analyzing,
+    /// Observations are being collected.
+    Observing,
+    /// A next action is being proposed.
+    Proposing,
+    /// The cycle has completed and is ready for review.
+    Completed,
+    /// The cycle needs human or orchestrator review before proceeding.
+    NeedsReview,
+}
+
+/// The agent's current working memory for a single cognitive cycle.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct WorkingMemory {
+    /// The objective this cycle is working toward.
+    pub objective: Option<Objective>,
+    /// Context items provided or discovered during the cycle.
     pub context_items: Vec<ContextItem>,
+    /// Assumptions made during the cycle.
     pub assumptions: Vec<Assumption>,
+    /// Known constraints that bound the objective space.
     pub constraints: Vec<Constraint>,
+    /// Context that is missing and needs to be gathered.
     pub missing_context: Vec<MissingContext>,
     // P5 — Compute Reservoir allocation fields
     /// Heuristic data-sensitivity estimate derived from domain and objective.
@@ -146,6 +177,21 @@ pub struct WorkingMemory {
     /// Number of required observations identified by the cycle.
     #[serde(default)]
     pub required_observations_count: usize,
+    // P4 — Working Memory integration fields
+    /// Observations that are required before continuing.
+    pub required_observations: Vec<RequiredObservation>,
+    /// Cognitive observations produced during the cycle.
+    pub cognitive_observations: Vec<CognitiveObservation>,
+    /// Improvement candidates identified during the cycle.
+    pub improvement_candidates: Vec<ImprovementCandidate>,
+    /// Failure insight candidates (bridge from improvement candidates).
+    pub failure_insight_candidates: Vec<FailureInsightCandidate>,
+    /// The proposed next action for the cycle (None if not yet determined).
+    pub proposed_next_action: Option<ProposedNextAction>,
+    /// The lifecycle status of this cycle.
+    pub cycle_status: CycleStatus,
+    /// Static warning that this output is evidence-only and non-authorizing.
+    pub evidence_only_warning: String,
 }
 
 // ─── Cognitive Plan ───────────────────────────────────────────────────────
@@ -253,6 +299,54 @@ pub const COGNITIVE_READBACK_WARNING: &str =
     "Readback only — evidence and analysis, not approval, not authorization, not execution. \
      Review all candidates before acting.";
 
+// ─── WorkingMemory Builder ─────────────────────────────────────────────────
+
+/// Build a complete `WorkingMemory` from optional cycle components.
+///
+/// This is a pure, non-authorizing builder that creates a self-describing
+/// WorkingMemory from whatever components are available. Every parameter is
+/// optional, making it suitable for incremental cycle construction.
+///
+/// # Parameters
+///
+/// - `objective` — the objective driving this cycle
+/// - `context` — optional context items (key:value pairs)
+/// - `observations` — optional cognitive observations produced so far
+/// - `improvement_candidates` — optional improvement candidates identified
+/// - `failure_insight_candidates` — optional failure insight candidates
+///
+/// # Returns
+///
+/// A fully populated `WorkingMemory` with `cycle_status: Completed`.
+///
+/// # Safety
+///
+/// - Pure function: no I/O, no LLM calls, no side effects.
+/// - The returned WorkingMemory carries `evidence_only_warning`.
+/// - No field authorises execution or persistence.
+pub fn build_working_memory_cycle(
+    objective: Option<Objective>,
+    context: Option<Vec<ContextItem>>,
+    observations: Option<Vec<CognitiveObservation>>,
+    improvement_candidates: Option<Vec<ImprovementCandidate>>,
+    failure_insight_candidates: Option<Vec<FailureInsightCandidate>>,
+) -> WorkingMemory {
+    WorkingMemory {
+        objective,
+        context_items: context.unwrap_or_default(),
+        assumptions: vec![],
+        constraints: vec![],
+        missing_context: vec![],
+        required_observations: vec![],
+        cognitive_observations: observations.unwrap_or_default(),
+        improvement_candidates: improvement_candidates.unwrap_or_default(),
+        failure_insight_candidates: failure_insight_candidates.unwrap_or_default(),
+        proposed_next_action: None,
+        cycle_status: CycleStatus::Completed,
+        evidence_only_warning: COGNITIVE_READBACK_WARNING.to_owned(),
+    }
+}
+
 // ─── Heuristic Engine ─────────────────────────────────────────────────────
 
 /// Run one cycle of the general cognitive work loop.
@@ -314,19 +408,6 @@ pub fn run_cognitive_work_cycle(
         );
     let proposed_next_action_kind_str = format!("{:?}", proposed_next_action.kind).to_lowercase();
 
-    let working_memory = WorkingMemory {
-        context_items,
-        assumptions,
-        constraints,
-        missing_context: missing_context.clone(),
-        sensitivity_estimate,
-        complexity_estimate,
-        local_first,
-        cost_sensitive,
-        proposed_next_action_kind: proposed_next_action_kind_str,
-        required_observations_count: required_observations.len(),
-    };
-
     // 4. Generate plan
     let plan = generate_plan(&domain, &objective_input, &missing_context);
 
@@ -337,6 +418,30 @@ pub fn run_cognitive_work_cycle(
     // 7. Collect improvement candidates
     let improvement_candidates =
         generate_improvement_candidates(&objective_input, &missing_context, &domain);
+
+    // 8. Build enriched WorkingMemory with all cycle state (P4 + P5 fields)
+    let working_memory = WorkingMemory {
+        objective: Some(objective.clone()),
+        context_items,
+        assumptions,
+        constraints,
+        missing_context: missing_context.clone(),
+        // P5 — Compute Reservoir allocation fields
+        sensitivity_estimate,
+        complexity_estimate,
+        local_first,
+        cost_sensitive,
+        proposed_next_action_kind: proposed_next_action_kind_str,
+        required_observations_count: required_observations.len(),
+        // P4 — Working Memory integration fields
+        required_observations: required_observations.clone(),
+        cognitive_observations: vec![],
+        improvement_candidates: improvement_candidates.clone(),
+        failure_insight_candidates: vec![],
+        proposed_next_action: Some(proposed_next_action.clone()),
+        cycle_status: CycleStatus::Completed,
+        evidence_only_warning: COGNITIVE_READBACK_WARNING.to_owned(),
+    };
 
     CognitiveCycleResult {
         objective,
@@ -1041,6 +1146,7 @@ mod tests {
     #[test]
     fn working_memory_serializes_roundtrip() {
         let wm = WorkingMemory {
+            objective: None,
             context_items: vec![ContextItem {
                 key: "region".to_owned(),
                 value: "Île-de-France".to_owned(),
@@ -1049,18 +1155,26 @@ mod tests {
             assumptions: vec![],
             constraints: vec![],
             missing_context: vec![],
+            // P5 fields
             sensitivity_estimate: SensitivityEstimate::Public,
             complexity_estimate: 0.0,
             local_first: false,
             cost_sensitive: false,
             proposed_next_action_kind: String::new(),
             required_observations_count: 0,
+            // P4 fields
+            required_observations: vec![],
+            cognitive_observations: vec![],
+            improvement_candidates: vec![],
+            failure_insight_candidates: vec![],
+            proposed_next_action: None,
+            cycle_status: CycleStatus::Initialized,
+            evidence_only_warning: String::new(),
         };
         let json = serde_json::to_string(&wm).unwrap();
         let decoded: WorkingMemory = serde_json::from_str(&json).unwrap();
         assert_eq!(decoded.context_items[0].key, "region");
     }
-
     // ─── Domain classification ───────────────────────────────────────────
 
     #[test]
@@ -1227,5 +1341,261 @@ mod tests {
             result.objective.domain,
             ObjectiveDomain::PersonalProductivity
         );
+    }
+
+    // ─── P4 — Working Memory Integration ─────────────────────────────────
+
+    #[test]
+    fn working_memory_contains_objective() {
+        let result = run_cognitive_work_cycle(
+            "Prepare a local business outreach plan for ARPAGONA",
+            None,
+            None,
+        );
+        let wm = &result.working_memory;
+        assert!(
+            wm.objective.is_some(),
+            "WorkingMemory must contain objective"
+        );
+        assert!(wm.objective.as_ref().unwrap().title.contains("ARPAGONA"));
+    }
+
+    #[test]
+    fn working_memory_contains_proposed_next_action() {
+        let result = run_cognitive_work_cycle(
+            "Prepare a local business outreach plan for ARPAGONA",
+            None,
+            None,
+        );
+        let wm = &result.working_memory;
+        assert!(
+            wm.proposed_next_action.is_some(),
+            "WorkingMemory must contain proposed_next_action"
+        );
+        assert!(
+            wm.proposed_next_action.as_ref().unwrap().non_authorizing,
+            "Proposed next action must be non-authorizing"
+        );
+    }
+
+    #[test]
+    fn working_memory_contains_improvement_candidates() {
+        let result = run_cognitive_work_cycle(
+            "Prepare a local business outreach plan for ARPAGONA",
+            None,
+            None,
+        );
+        let wm = &result.working_memory;
+        assert!(
+            !wm.improvement_candidates.is_empty(),
+            "WorkingMemory must contain improvement_candidates"
+        );
+        assert_eq!(
+            wm.improvement_candidates.len(),
+            result.improvement_candidates.len(),
+            "WorkingMemory improvement_candidates must match top-level"
+        );
+    }
+
+    #[test]
+    fn working_memory_contains_required_observations() {
+        let result = run_cognitive_work_cycle(
+            "Prepare a local business outreach plan for ARPAGONA",
+            None,
+            None,
+        );
+        let wm = &result.working_memory;
+        assert!(
+            !wm.required_observations.is_empty(),
+            "WorkingMemory must contain required_observations"
+        );
+        assert_eq!(
+            wm.required_observations.len(),
+            result.required_observations.len(),
+            "WorkingMemory required_observations must match top-level"
+        );
+    }
+
+    #[test]
+    fn working_memory_has_cycle_status() {
+        let result = run_cognitive_work_cycle("Test objective", None, None);
+        assert_eq!(
+            result.working_memory.cycle_status,
+            CycleStatus::Completed,
+            "After full cycle, status must be Completed"
+        );
+    }
+
+    #[test]
+    fn working_memory_has_evidence_only_warning() {
+        let result = run_cognitive_work_cycle("Test", None, None);
+        assert!(
+            result
+                .working_memory
+                .evidence_only_warning
+                .contains("Readback only"),
+            "WorkingMemory must carry evidence_only_warning"
+        );
+    }
+
+    #[test]
+    fn working_memory_failure_insight_candidates_empty_without_assess() {
+        let result = run_cognitive_work_cycle("Test", None, None);
+        assert!(
+            result.working_memory.failure_insight_candidates.is_empty(),
+            "failure_insight_candidates must be empty when --assess is not used"
+        );
+    }
+
+    #[test]
+    fn working_memory_can_be_built_via_builder() {
+        let obj = Objective {
+            id: ObjectiveId::new("obj-builder-test"),
+            title: "Builder test".to_owned(),
+            description: "Testing build_working_memory_cycle".to_owned(),
+            domain: ObjectiveDomain::General,
+            status: ObjectiveStatus::Proposed,
+            success_criteria: vec![],
+            created_at: Utc::now(),
+        };
+        let context = vec![ContextItem {
+            key: "region".to_owned(),
+            value: "Paris".to_owned(),
+            source: "user".to_owned(),
+        }];
+
+        let wm = build_working_memory_cycle(
+            Some(obj.clone()),
+            Some(context.clone()),
+            None, // no observations
+            None, // no improvement candidates
+            None, // no failure insight candidates
+        );
+
+        assert!(
+            wm.objective.is_some(),
+            "WorkingMemory from builder must contain objective"
+        );
+        assert_eq!(wm.objective.unwrap().id, obj.id);
+        assert_eq!(wm.context_items.len(), 1);
+        assert_eq!(wm.context_items[0].key, "region");
+        assert!(
+            wm.cognitive_observations.is_empty(),
+            "No observations provided, must be empty"
+        );
+        assert!(
+            wm.improvement_candidates.is_empty(),
+            "No improvement candidates provided, must be empty"
+        );
+        assert!(
+            wm.failure_insight_candidates.is_empty(),
+            "No failure insight candidates provided, must be empty"
+        );
+        assert!(
+            wm.proposed_next_action.is_none(),
+            "No proposed next action provided, must be None"
+        );
+        assert_eq!(wm.cycle_status, CycleStatus::Completed);
+        assert!(
+            wm.evidence_only_warning.contains("Readback only"),
+            "Builder must include evidence_only_warning"
+        );
+    }
+
+    #[test]
+    fn working_memory_builder_accepts_candidates() {
+        let obj = Objective {
+            id: ObjectiveId::new("obj-builder-candidates"),
+            title: "Builder with candidates".to_owned(),
+            description: "Testing full builder".to_owned(),
+            domain: ObjectiveDomain::Business,
+            status: ObjectiveStatus::Proposed,
+            success_criteria: vec![],
+            created_at: Utc::now(),
+        };
+        let improvement = vec![ImprovementCandidate {
+            id: "improve-1".to_owned(),
+            kind: ImprovementCandidateKind::MissingContext,
+            description: "Missing context detected".to_owned(),
+            rationale: "Test rationale".to_owned(),
+        }];
+        // Create a FailureInsightCandidate directly via the bridge
+        let fic =
+            crate::observation::FailureInsightCandidate::from_improvement_candidates(&improvement);
+
+        let wm =
+            build_working_memory_cycle(Some(obj), None, None, Some(improvement.clone()), Some(fic));
+
+        assert_eq!(wm.improvement_candidates.len(), 1);
+        assert_eq!(
+            wm.improvement_candidates[0].kind,
+            ImprovementCandidateKind::MissingContext
+        );
+        assert_eq!(wm.failure_insight_candidates.len(), 1);
+        assert_eq!(
+            wm.failure_insight_candidates[0].kind,
+            crate::observation::FailureInsightCandidateKind::MissingContext
+        );
+    }
+
+    #[test]
+    fn working_memory_does_not_authorize() {
+        // Structural test: WorkingMemory carries no write/execute fields
+        let wm = WorkingMemory {
+            objective: None,
+            context_items: vec![],
+            assumptions: vec![],
+            constraints: vec![],
+            missing_context: vec![],
+            required_observations: vec![],
+            cognitive_observations: vec![],
+            improvement_candidates: vec![],
+            failure_insight_candidates: vec![],
+            proposed_next_action: None,
+            cycle_status: CycleStatus::Initialized,
+            evidence_only_warning: COGNITIVE_READBACK_WARNING.to_owned(),
+        };
+        // Assert: no execution, no persistence, no decision gate fields exist
+        assert_eq!(wm.cycle_status, CycleStatus::Initialized);
+        assert!(wm.proposed_next_action.is_none());
+        assert!(wm.evidence_only_warning.contains("not approval"));
+    }
+
+    #[test]
+    fn working_memory_serializes_roundtrip_with_new_fields() {
+        let wm = WorkingMemory {
+            objective: Some(Objective {
+                id: ObjectiveId::new("obj-serialize"),
+                title: "Serialize test".to_owned(),
+                description: "Roundtrip test".to_owned(),
+                domain: ObjectiveDomain::General,
+                status: ObjectiveStatus::Proposed,
+                success_criteria: vec![],
+                created_at: Utc::now(),
+            }),
+            context_items: vec![],
+            assumptions: vec![],
+            constraints: vec![],
+            missing_context: vec![],
+            required_observations: vec![],
+            cognitive_observations: vec![],
+            improvement_candidates: vec![],
+            failure_insight_candidates: vec![],
+            proposed_next_action: None,
+            cycle_status: CycleStatus::Initialized,
+            evidence_only_warning: COGNITIVE_READBACK_WARNING.to_owned(),
+        };
+        let json = serde_json::to_string(&wm).unwrap();
+        let decoded: WorkingMemory = serde_json::from_str(&json).unwrap();
+        assert!(
+            decoded.objective.is_some(),
+            "Objective must survive roundtrip"
+        );
+        assert_eq!(
+            decoded.objective.as_ref().unwrap().id.as_str(),
+            "obj-serialize"
+        );
+        assert_eq!(decoded.cycle_status, CycleStatus::Initialized);
+        assert!(decoded.evidence_only_warning.contains("Readback only"));
     }
 }
