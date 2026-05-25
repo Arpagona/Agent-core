@@ -1,21 +1,3 @@
-<<<<<<< HEAD
-//! Integration test for cross-invocation demo snapshot readback.
-//!
-//! Runs the full snapshot-then-read cycle via separate process invocations
-//! using the built `arpagona` binary (resolved by Cargo's
-//! `CARGO_BIN_EXE_arpagona` env var).  Proves the governed FailureInsight
-//! learning loop output survives serialization, file I/O, process restart
-//! and deserialization.
-//!
-//! This is deliberately kept in `tests/` rather than `src/` so Cargo
-//! provides the stable `CARGO_BIN_EXE_arpagona` path instead of a
-//! hardcoded relative path like `../../target/debug/arpagona`.
-
-use std::path::PathBuf;
-use std::process::Command;
-
-/// Path to the built `arpagona` binary, resolved by Cargo at compile time.
-=======
 //! Cross-process CLI integration test for the governed FailureInsight demo snapshot path.
 //!
 //! Proves that the FailureInsight demo output survives serialization, file I/O,
@@ -23,7 +5,6 @@ use std::process::Command;
 
 /// Path to the compiled arpagona binary, resolved by Cargo at compile time.
 /// Works in CI and on developer machines without hardcoded target/debug paths.
->>>>>>> origin/main
 const ARPAGONA_BIN: &str = env!("CARGO_BIN_EXE_arpagona");
 
 #[test]
@@ -34,15 +15,8 @@ fn cross_invocation_demo_snapshot_proves_readback_across_process_invocations() {
     let snapshot_path = dir.join("snapshot.json");
     let snapshot_str = snapshot_path.to_str().expect("valid utf-8 path").to_owned();
 
-<<<<<<< HEAD
-    let bin_path = PathBuf::from(ARPAGONA_BIN);
-
-    // Step 1: run demo with --snapshot-path to produce the snapshot file
-    let output1 = Command::new(&bin_path)
-=======
     // Step 1: run demo with --snapshot-path to produce the snapshot file
     let output1 = std::process::Command::new(ARPAGONA_BIN)
->>>>>>> origin/main
         .args([
             "memory",
             "demo",
@@ -59,19 +33,12 @@ fn cross_invocation_demo_snapshot_proves_readback_across_process_invocations() {
         String::from_utf8_lossy(&output1.stdout),
         String::from_utf8_lossy(&output1.stderr),
     );
-<<<<<<< HEAD
-    assert!(snapshot_path.exists(), "snapshot file was not created");
-
-    // Step 2: read the snapshot back in a separate process
-    let output2 = Command::new(&bin_path)
-=======
 
     // Verify the snapshot file was created
     assert!(snapshot_path.exists(), "snapshot file was not created");
 
     // Step 2: read the snapshot back in a separate process
     let output2 = std::process::Command::new(ARPAGONA_BIN)
->>>>>>> origin/main
         .args(["memory", "demo", "snapshot-read", &snapshot_str, "--json"])
         .output()
         .expect("failed to run snapshot read process");
@@ -82,10 +49,7 @@ fn cross_invocation_demo_snapshot_proves_readback_across_process_invocations() {
         String::from_utf8_lossy(&output2.stderr),
     );
 
-<<<<<<< HEAD
-=======
     // Verify readback contains expected fields
->>>>>>> origin/main
     let stdout = String::from_utf8(output2.stdout).expect("valid utf-8");
     assert!(
         stdout.contains("evidence_only_token"),
@@ -103,26 +67,14 @@ fn cross_invocation_demo_snapshot_proves_readback_across_process_invocations() {
         stdout
     );
     assert!(
-<<<<<<< HEAD
-        stdout.contains("demo snapshot written for cross-invocation readback proof"),
-        "readback should contain the snapshot step in the chain\n{}",
-=======
-        stdout.contains("FailureInsight readback with decision/audit trace proof"),
-        "readback should contain the full demo chain\n{}",
-        stdout
-    );
-    assert!(
         stdout.contains("approved local Graph Memory persistence"),
         "readback should contain the persistence step\n{}",
->>>>>>> origin/main
         stdout
     );
 
     // Cleanup
     let _ = std::fs::remove_dir_all(&dir);
 }
-<<<<<<< HEAD
-=======
 
 #[test]
 fn snapshot_read_reports_missing_file_error() {
@@ -149,4 +101,3 @@ fn snapshot_read_reports_missing_file_error() {
         stderr
     );
 }
->>>>>>> origin/main

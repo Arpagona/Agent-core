@@ -405,36 +405,38 @@ Recommended next step: extend the demo snapshot path to include an optional cros
 
 ## 12. Latest Session Update
 
-This session cherry-picked the demo snapshot commit from the old branch onto main, added a cross-process CLI integration test, and updated the handoff.
+This session resolved merge conflicts in the repository (demo_snapshot.rs, snapshot_integration.rs, lib.rs) and added operator-supplied input to the governed FailureInsight learning demo.
 
 Changed:
-- cherry-picked commit `967a04d` (feat: add demo snapshot path for cross-invocation FailureInsight readback proof) onto a fresh branch `feat/demo-snapshot-v6` from main;
-- added `crates/cli/tests/snapshot_integration.rs` with 2 cross-process integration tests:
-  - `cross_invocation_demo_snapshot_proves_readback_across_process_invocations`: runs `memory demo failure-insight --snapshot-path` in one process, then `memory demo snapshot-read` in a separate process, asserting readback fields (JSON fields, evidence token, functional alpha chain);
-  - `snapshot_read_reports_missing_file_error`: verifies that reading a nonexistent snapshot path returns an error;
-- clean up: deleted stale branch `feat/demo-snapshot-v5` from remote (its lone commit was cherry-picked) and dropped stale context-save stash;
-- updated `FOCUS_LOOP_NEXT.md` and `PROJECT_STATUS.md`.
+- **Merge conflict fixes**:
+  - Restored `crates/graph-memory/src/demo_snapshot.rs` to the clean version from commit `3db91e4` (origin/main PR #64), removing HEAD/origin/main conflict markers
+  - Cleaned `crates/cli/tests/snapshot_integration.rs` — removed conflict markers, kept both integration tests (cross-invocation readback + missing file error)
+  - Removed duplicate `pub mod demo_snapshot;` from `crates/graph-memory/src/lib.rs`
+  - Removed dead duplicate snapshot persistence block from `memory_demo_failure_insight` (was calling old one-arg `FailureInsightDemoSnapshot::new()` API)
+  - Fixed `memory_demo_snapshot_read` to use `FailureInsightDemoSnapshot::read_from_file()` instead of the removed standalone `read_failure_insight_demo_snapshot()` function
+  - Added missing `--json` flag to `MemoryDemoFailureInsightArgs`
+- **Operator-supplied input** (`--description` flag):
+  - Added `--description <text>` flag to `arpagona memory demo failure-insight`
+  - When provided, the FailureInsight is constructed from the operator's custom description instead of the hardcoded default
+  - Updates all FailureInsight fields (summary, impact, root cause, recommended action) with operator text
+  - Added parser test: `cli_parses_memory_demo_failure_insight_with_description`
+- Fixed `FOCUS_LOOP_NEXT.md` which had unresolved conflict markers (`>>>>>>> origin/main`)
 
-Stability level: alpha CLI demo/readback + CI-safe integration test. The new tests use `CARGO_BIN_EXE_arpagona` for binary path resolution, which works in CI without relative path fragility.
+Stability level: alpha CLI demo/readback. The `--description` flag is a read-only input to an already-bounded local demo; it does not add mutation, authorization, persistence, or external effects.
 
 Limits:
 - no broad CLI mutation command was added;
 - no API endpoint was added;
 - no new Graph Memory persistence helper was added;
 - no Decision Gate behavior was changed;
-- no durable/file-backed SurrealDB configuration was added;
+- no SurrealDB backend change was made;
 - no LLM/provider/runtime direct memory mutation was added;
-- no broad autonomous memory writing was added;
-- no personal or sensitive memory path was added;
-- no database migration runner was added;
-- no broad semantic search or embeddings pipeline was added;
-- no hidden context injection into LLM prompts was added;
 - no real tool execution was introduced;
 - no destructive capability was added;
 - no scheduler, autonomy, MCP, browser automation, credential handling or Mission Control Web growth was introduced;
 - readback remains evidence only and must not be treated as authorization.
 
 Architectural risk:
-- low. The integration test is in a separate `tests/` directory and uses `std::process::Command` to spawn the binary — it cannot affect the test runner's state. The temp directory cleanup ensures no file leaks across test runs.
+- low. The `--description` flag is pure CLI input parsing. The demo uses `FailureInsight::new()` which is a pure domain constructor with no side effects. All existing tests continue to pass without modification (the `None` default preserves backward compatibility).
 
-Recommended next step: transition the demo snapshot approach to a Cargo feature-gated SurrealDB `kv-surrealkv` backend when the `surrealdb_unstable` cfg flag becomes stable or an alternative pure-Rust key-value backend emerges.
+Recommended next step: add an end-to-end integration test proving that `--description` text flows through the full governed path (signal → proposal → decision → audit → persistence → readback) and appears in the readback output.

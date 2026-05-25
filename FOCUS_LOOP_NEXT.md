@@ -7,20 +7,12 @@ Every focus-loop run must read this file after the canonical context files, use 
 This file does not override safety, governance, `PROJECT_OBJECTIVES.md`, `PROJECT_STATUS.md` or `AGENT_FOCUS_LOOP.md`. It only captures the most concrete next step discovered by the previous run.
 
 ## Current next-pass instruction
-## Current next-pass instruction
 
-Next pass should: transition the demo snapshot approach to a Cargo feature-gated SurrealDB `kv-surrealkv` backend when the `surrealdb_unstable` cfg flag becomes stable or explore an alternative pure-Rust key-value backend.
+Next pass should: add an end-to-end integration test proving that `--description` text flows through the full governed path (signal → proposal → decision → audit → persistence → readback) and appears in the readback output.
 
-Why: the demo snapshot path proves cross-invocation readback for the governed FailureInsight learning loop, but is limited to JSON file I/O. A real persistent backend would remove the snapshot intermediate step and make the persistence path native.
+Why: the `--description` flag was added this session, but there is no test verifying that operator-supplied text actually propagates through the full FailureInsight → ProposedAction → Decision Gate → Audit → persistence → readback chain. The parser test only verifies CLI argument parsing.
 
-Proof to seek: `cargo test -- cross_invocation` passing (proves the current cross-process demo snapshot path works), plus either a feature-gated SurrealDB-backed test or an alternative pures-Rust KV backend test that also passes the cross-invocation proof.
-
-Do not: add broad autonomous memory writing, provider/runtime direct memory mutation, external effects, scheduler expansion, Mission Control Web, MCP/browser automation, personal/sensitive memory, readback-as-authorization behavior, or always-on native/unstable backend requirements.
-
-Why: the demo snapshot path proves cross-invocation readback for the governed FailureInsight learning loop, but is limited to JSON file I/O. A real persistent backend would remove the snapshot intermediate step and make the persistence path native.
-
-Proof to seek: `cargo test -- cross_invocation` passing (proves the current cross-process demo snapshot path works), plus either a feature-gated SurrealDB-backed test or an alternative pures-Rust KV backend test that also passes the cross-invocation proof.
->>>>>>> origin/main
+Proof to seek: a new test in the existing `#[cfg(test)] mod tests {}` block in `main.rs` that calls `memory_demo_failure_insight_readback(Some("inspect-id"), Some("custom description"))` and asserts the readback JSON/text contains the custom description in the signal summary, failure summary, and relevant fields.
 
 Do not: add broad autonomous memory writing, provider/runtime direct memory mutation, external effects, scheduler expansion, Mission Control Web, MCP/browser automation, personal/sensitive memory, readback-as-authorization behavior, or always-on native/unstable backend requirements.
 
