@@ -2,20 +2,31 @@
 
 This file is the short-lived handoff for the next scheduled focus-loop run.
 
-It must contain one concrete next action only. The priority queue and long-term rules live in `AGENT_FOCUS_LOOP.md`.
+It must contain one concrete next action only. The runtime milestone queue and long-term rules live in `AGENT_FOCUS_LOOP.md`.
 
 ## Next action
 
-Connect CognitiveObservation candidates to governed FailureInsight proposal demo.
+Connect General Cognitive Work Loop V0 to CognitiveObservation inputs and FailureInsightCandidate promotion.
 
-Why: PR #80 added the Cognitive Observation Pipeline (ToolExecutionResult → CognitiveObservation → ObservationAssessment → Option<FailureInsightCandidate>). The pipeline now flags candidates (truncated, empty, blocked) but stops at candidate detection.
+Why: General Cognitive Work Loop V0 (P2) is now implemented — it produces `RequiredObservation` and `ImprovementCandidate` objects. The Cognitive Observation Pipeline (P3 ready) flags candidates (truncated, empty, blocked) but stops at candidate detection. The next natural step is a governed cognitive loop that:
+1. Feeds `RequiredObservation` back into the cognitive observation pipeline
+2. Collects `ImprovementCandidate` items as candidates for `FailureInsight` creation
+3. Creates a `FailureInsight` `ProposedAction` through the Decision Gate
+4. Persists the approved `FailureInsight` via the governed Graph Memory path
 
-The next natural step is a governed cognitive loop that:
-1. Collects FailureInsightCandidates from the pipeline
-2. Creates a FailureInsight ProposedAction through the Decision Gate
-3. Persists the approved FailureInsight via the governed Graph Memory path
-4. Uses the existing `failure-insight` demo snapshot infrastructure for proof
+Proof to seek: A new test showing that `ImprovementCandidate` can be mapped to a `FailureInsight` with `FailureClass::MissingContext` without side effects, and that `RequiredObservation` items appear in the `CognitiveObservation` pipeline.
 
-Proof to seek: `cargo run -q --bin arpagona -- tool demo observe read_file '{"path":"Cargo.toml"}' --json` shows a valid cognitive observation with assessment.
+Do not: start `scripts/demo-full-loop.sh` before P3 is implemented and merged. Do not add another snapshot/readback convenience command.
 
-Do not: start `scripts/demo-full-loop.sh` before this step is designed and agreed. Do not refactor observation.rs. Do not add new CLI commands outside the agreed scope.
+## Required update at the end of every run
+
+Replace the next action above with a new single-step handoff:
+
+```text
+Next pass should: <one concrete action>.
+Why: <one sentence explaining the blocker or opportunity>.
+Proof to seek: <exact command, test, readback, PR state or file confirming progress>.
+Do not: <specific unsafe or distracting thing to avoid next time>.
+```
+
+Keep it short, specific and executable.
