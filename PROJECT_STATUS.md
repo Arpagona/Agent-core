@@ -267,4 +267,40 @@ Limits:
 Architectural risk:
 - low. The snapshot path uses only serde_json + std::fs with no native database dependencies. The `evidence_only_token` prevents readback-as-authorization drift. All snapshot operations are separate from the demo execution path and do not affect correctness.
 
-Recommended next step: extend the demo snapshot path to include an optional cross-process integration test that runs the `failure-insight --snapshot-path` demo in one process, then runs `snapshot-read` in a separate process to assert readback fields — providing a fully automated CI-proof cross-invocation governed memory persistence test.
+|Recommended next step: extend the demo snapshot path to include an optional cross-process integration test that runs the `failure-insight --snapshot-path` demo in one process, then runs `snapshot-read` in a separate process to assert readback fields — providing a fully automated CI-proof cross-invocation governed memory persistence test.
+|
+|## 12. Latest Session Update
+|
+|This session cherry-picked the demo snapshot commit from the old branch onto main, added a cross-process CLI integration test, and updated the handoff.
+|
+|Changed:
+|- cherry-picked commit `967a04d` (feat: add demo snapshot path for cross-invocation FailureInsight readback proof) onto a fresh branch `feat/demo-snapshot-v6` from main;
+|- added `crates/cli/tests/snapshot_integration.rs` with 2 cross-process integration tests:
+|  - `cross_invocation_demo_snapshot_proves_readback_across_process_invocations`: runs `memory demo failure-insight --snapshot-path` in one process, then `memory demo snapshot-read` in a separate process, asserting readback fields (JSON fields, evidence token, functional alpha chain);
+|  - `snapshot_read_reports_missing_file_error`: verifies that reading a nonexistent snapshot path returns an error;
+|- clean up: deleted stale branch `feat/demo-snapshot-v5` from remote (its lone commit was cherry-picked) and dropped stale context-save stash;
+|- updated `FOCUS_LOOP_NEXT.md` and `PROJECT_STATUS.md`.
+|
+|Stability level: alpha CLI demo/readback + CI-safe integration test. The new tests use `CARGO_BIN_EXE_arpagona` for binary path resolution, which works in CI without relative path fragility.
+|
+|Limits:
+|- no broad CLI mutation command was added;
+|- no API endpoint was added;
+|- no new Graph Memory persistence helper was added;
+|- no Decision Gate behavior was changed;
+|- no durable/file-backed SurrealDB configuration was added;
+|- no LLM/provider/runtime direct memory mutation was added;
+|- no broad autonomous memory writing was added;
+|- no personal or sensitive memory path was added;
+|- no database migration runner was added;
+|- no broad semantic search or embeddings pipeline was added;
+|- no hidden context injection into LLM prompts was added;
+|- no real tool execution was introduced;
+|- no destructive capability was added;
+|- no scheduler, autonomy, MCP, browser automation, credential handling or Mission Control Web growth was introduced;
+|- readback remains evidence only and must not be treated as authorization.
+|
+|Architectural risk:
+|- low. The integration test is in a separate `tests/` directory and uses `std::process::Command` to spawn the binary — it cannot affect the test runner's state. The temp directory cleanup ensures no file leaks across test runs.
+|
+|Recommended next step: transition the demo snapshot approach to a Cargo feature-gated SurrealDB `kv-surrealkv` backend when the `surrealdb_unstable` cfg flag becomes stable or an alternative pure-Rust key-value backend emerges.
