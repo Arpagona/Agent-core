@@ -16,6 +16,7 @@ arpagona-agent-core = { path = "../core" }
 arpagona-compute-reservoir = { path = "../compute-reservoir" }
 arpagona-decision-gate = { path = "../decision-gate" }
 arpagona-graph-memory = { path = "../graph-memory" }
+arpagona-llm = { path = "../llm" }
 arpagona-tool-runtime = { path = "../tool-runtime" }
 chrono.workspace = true
 clap.workspace = true

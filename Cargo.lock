@@ -206,6 +206,7 @@ dependencies = [
  "arpagona-compute-reservoir",
  "arpagona-decision-gate",
  "arpagona-graph-memory",
+ "arpagona-llm",
  "arpagona-tool-runtime",
  "chrono",
  "clap",

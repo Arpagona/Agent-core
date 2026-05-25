@@ -23,6 +23,8 @@ use serde_json::{json, Value};
 const DEFAULT_OPENAI_ENDPOINT: &str = "https://api.openai.com/v1/responses";
 const DEFAULT_OPENAI_MODEL: &str = "gpt-4.1-mini";
 
+// ─── Ollama provider ───────────────────────────────────────────────────────
+
 const DEFAULT_OLLAMA_ENDPOINT: &str = "http://localhost:11434/api/chat";
 const DEFAULT_OLLAMA_MODEL: &str = "gemma4:26b";
 
@@ -124,6 +126,8 @@ impl LlmProvider for MockProvider {
         async move { Ok(draft) }
     }
 }
+
+// ─── OpenAI provider ───────────────────────────────────────────────────────
 
 #[derive(Clone, Debug)]
 pub struct OpenAiProvider {
@@ -252,10 +256,23 @@ impl LlmProvider for OpenAiProvider {
     }
 }
 
+<<<<<<< HEAD
 /// Ollama-based LLM provider that connects to a local Ollama instance.
 ///
 /// Uses the Ollama `/api/chat` endpoint with a structured JSON output format.
 /// No API key required — Ollama runs locally.
+=======
+// ─── Ollama provider ───────────────────────────────────────────────────────
+
+/// Provider that calls a local Ollama instance for LLM inference.
+///
+/// Connects to `OLLAMA_ENDPOINT` (default `http://localhost:11434/api/chat`)
+/// and uses `OLLAMA_MODEL` (default `gemma4:26b`).
+///
+/// # Safety
+/// - No tool execution, no persistence, no authorization.
+/// - The output is evidence-only.
+>>>>>>> 4873141 (feat: add OllamaProvider as default LLM backend (gemma4:26b))
 #[derive(Clone, Debug)]
 pub struct OllamaProvider {
     client: Client,
@@ -264,11 +281,18 @@ pub struct OllamaProvider {
 }
 
 impl OllamaProvider {
+<<<<<<< HEAD
+=======
+    /// Construct from environment variables.
+>>>>>>> 4873141 (feat: add OllamaProvider as default LLM backend (gemma4:26b))
     pub fn from_env() -> Self {
         let endpoint =
             env::var("OLLAMA_ENDPOINT").unwrap_or_else(|_| DEFAULT_OLLAMA_ENDPOINT.to_owned());
         let model = env::var("OLLAMA_MODEL").unwrap_or_else(|_| DEFAULT_OLLAMA_MODEL.to_owned());
+<<<<<<< HEAD
 
+=======
+>>>>>>> 4873141 (feat: add OllamaProvider as default LLM backend (gemma4:26b))
         Self {
             client: Client::new(),
             endpoint,
@@ -276,6 +300,10 @@ impl OllamaProvider {
         }
     }
 
+<<<<<<< HEAD
+=======
+    /// Construct with explicit parameters.
+>>>>>>> 4873141 (feat: add OllamaProvider as default LLM backend (gemma4:26b))
     pub fn new(endpoint: impl Into<String>, model: impl Into<String>) -> Self {
         Self {
             client: Client::new(),
@@ -283,6 +311,7 @@ impl OllamaProvider {
             model: model.into(),
         }
     }
+<<<<<<< HEAD
 }
 
 impl OllamaProvider {
@@ -348,6 +377,59 @@ impl OllamaProvider {
 
             parse_agent_turn(text)
         }
+=======
+
+    /// Call Ollama for free-form text synthesis (non-authorizing).
+    pub async fn synthesize(
+        &self,
+        system_prompt: &str,
+        user_prompt: &str,
+    ) -> Result<String, LlmError> {
+        let body = serde_json::json!({
+            "model": self.model,
+            "messages": [
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_prompt}
+            ],
+            "stream": false,
+            "options": {
+                "temperature": 0.7
+            }
+        });
+
+        let response = self
+            .client
+            .post(&self.endpoint)
+            .json(&body)
+            .send()
+            .await
+            .map_err(|err| LlmError::Transport(format!("Ollama connection failed: {err}")))?;
+
+        let status = response.status();
+        let value: serde_json::Value = response
+            .json()
+            .await
+            .map_err(|err| LlmError::InvalidResponse(format!("invalid JSON from Ollama: {err}")))?;
+
+        if !status.is_success() {
+            return Err(LlmError::Provider(format!(
+                "Ollama returned HTTP {status}: {}",
+                value
+                    .get("error")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("unknown error")
+            )));
+        }
+
+        let content = value
+            .pointer("/message/content")
+            .and_then(|v| v.as_str())
+            .ok_or_else(|| {
+                LlmError::InvalidResponse("Ollama response missing /message/content".to_owned())
+            })?;
+
+        Ok(content.to_owned())
+>>>>>>> 4873141 (feat: add OllamaProvider as default LLM backend (gemma4:26b))
     }
 }
 
@@ -356,6 +438,7 @@ impl LlmProvider for OllamaProvider {
         &self,
         request: LlmActionRequest,
     ) -> impl Future<Output = Result<ProposedActionDraft, LlmError>> + Send {
+<<<<<<< HEAD
         let turn = self.propose_turn(request);
         async move {
             match turn.await? {
@@ -365,6 +448,20 @@ impl LlmProvider for OllamaProvider {
                 )),
                 AgentTurnDraft::ClarifyingQuestion { .. } => Err(LlmError::InvalidResponse(
                     "provider returned clarifying_question where proposed_action was required"
+=======
+        let self_clone = self.clone();
+        async move {
+            let text = self_clone
+                .synthesize(provider_system_prompt(), &request.prompt)
+                .await?;
+            match parse_agent_turn(&text)? {
+                AgentTurnDraft::ProposedAction { action } => Ok(action),
+                AgentTurnDraft::DirectReply { .. } => Err(LlmError::InvalidResponse(
+                    "Ollama returned direct_reply where proposed_action was required".to_owned(),
+                )),
+                AgentTurnDraft::ClarifyingQuestion { .. } => Err(LlmError::InvalidResponse(
+                    "Ollama returned clarifying_question where proposed_action was required"
+>>>>>>> 4873141 (feat: add OllamaProvider as default LLM backend (gemma4:26b))
                         .to_owned(),
                 )),
             }
@@ -442,16 +539,16 @@ pub fn deterministic_turn_for_prompt(prompt: &str) -> Option<AgentTurnDraft> {
             message: "Salut. Je suis ARPAGONA Agent Core, en mode alpha gouverné.".to_owned(),
         }),
         IntentClass::DirectReply if is_identity_prompt(&normalized) => Some(AgentTurnDraft::DirectReply {
-            message: "Je suis ARPAGONA Agent Core : un runtime agentique local-first, graph-native et gouverné. En alpha, je peux expliquer, préparer des propositions d’action et garder toute action en attente du Decision Gate.".to_owned(),
+            message: "Je suis ARPAGONA Agent Core : un runtime agentique local-first, graph-native et gouverné. En alpha, je peux expliquer, préparer des propositions d'action et garder toute action en attente du Decision Gate.".to_owned(),
         }),
         IntentClass::DirectReply if is_capability_prompt(&normalized) => Some(AgentTurnDraft::DirectReply {
-            message: "Je peux répondre directement aux questions simples, proposer des actions gouvernées quand une opération est demandée, et demander une clarification si l’intention est ambiguë. Les actions restent toujours pending_decision.".to_owned(),
+            message: "Je peux répondre directement aux questions simples, proposer des actions gouvernées quand une opération est demandée, et demander une clarification si l'intention est ambiguë. Les actions restent toujours pending_decision.".to_owned(),
         }),
         IntentClass::DirectReply if is_advisory_or_analysis_prompt(&normalized) => Some(AgentTurnDraft::DirectReply {
-            message: "Avant d’ajouter une capacité d’exécution réelle, vérifie surtout les garde-fous: permissions explicites, Decision Gate, audit causal, absence de shell libre, périmètre read-only clair, rollback, et validation humaine pour toute action sensible.".to_owned(),
+            message: "Avant d'ajouter une capacité d'exécution réelle, vérifie surtout les garde-fous: permissions explicites, Decision Gate, audit causal, absence de shell libre, périmètre read-only clair, rollback, et validation humaine pour toute action sensible.".to_owned(),
         }),
         IntentClass::ClarifyingQuestion => Some(AgentTurnDraft::ClarifyingQuestion {
-            question: "Que veux-tu que je prépare exactement : une réponse simple, une tâche, une lecture mémoire/audit, ou une proposition d’action gouvernée ?".to_owned(),
+            question: "Que veux-tu que je prépare exactement : une réponse simple, une tâche, une lecture mémoire/audit, ou une proposition d'action gouvernée ?".to_owned(),
         }),
         IntentClass::ProposedAction if is_proposed_actions_read_prompt(&normalized) => Some(
             read_only_turn(
@@ -459,7 +556,7 @@ pub fn deterministic_turn_for_prompt(prompt: &str) -> Option<AgentTurnDraft> {
                 Some("proposed_actions"),
                 Permission::ReadProposedActions,
                 "read_proposed_actions",
-                "L’utilisateur demande une lecture des actions proposées; cela doit rester une action proposée et gouvernée.",
+                "L'utilisateur demande une lecture des actions proposées; cela doit rester une action proposée et gouvernée.",
             ),
         ),
         IntentClass::ProposedAction if is_pending_actions_read_prompt(&normalized) => Some(
@@ -468,7 +565,7 @@ pub fn deterministic_turn_for_prompt(prompt: &str) -> Option<AgentTurnDraft> {
                 Some("pending_actions"),
                 Permission::ReadProposedActions,
                 "read_pending_actions",
-                "L’utilisateur demande une lecture des actions en attente; cela doit rester une action proposée et gouvernée.",
+                "L'utilisateur demande une lecture des actions en attente; cela doit rester une action proposée et gouvernée.",
             ),
         ),
         IntentClass::ProposedAction if is_tasks_read_prompt(&normalized) => Some(read_only_turn(
@@ -476,7 +573,7 @@ pub fn deterministic_turn_for_prompt(prompt: &str) -> Option<AgentTurnDraft> {
             Some("tasks"),
             Permission::ReadTasks,
             "read_tasks",
-            "L’utilisateur demande une lecture de l’état des tâches; cela doit rester une action proposée et gouvernée.",
+            "L'utilisateur demande une lecture de l'état des tâches; cela doit rester une action proposée et gouvernée.",
         )),
         IntentClass::ProposedAction if is_decisions_read_prompt(&normalized) => Some(
             read_only_turn(
@@ -484,7 +581,7 @@ pub fn deterministic_turn_for_prompt(prompt: &str) -> Option<AgentTurnDraft> {
                 Some("decisions"),
                 Permission::ReadDecisions,
                 "read_decisions",
-                "L’utilisateur demande une lecture des décisions; cela doit rester une action proposée et gouvernée.",
+                "L'utilisateur demande une lecture des décisions; cela doit rester une action proposée et gouvernée.",
             ),
         ),
         IntentClass::ProposedAction if is_audit_read_prompt(&normalized) => Some(read_only_turn(
@@ -492,28 +589,28 @@ pub fn deterministic_turn_for_prompt(prompt: &str) -> Option<AgentTurnDraft> {
             Some("audit_logs"),
             Permission::ReadAudit,
             "read_audit",
-            "L’utilisateur demande une lecture des journaux d’audit; cela doit rester une action proposée et gouvernée.",
+            "L'utilisateur demande une lecture des journaux d'audit; cela doit rester une action proposée et gouvernée.",
         )),
         IntentClass::ProposedAction if is_status_read_prompt(&normalized) => Some(read_only_turn(
             ActionType::ReadStatus,
             Some("runtime_status"),
             Permission::ReadStatus,
             "read_status",
-            "L’utilisateur demande une lecture du statut global du runtime; cela doit rester une action proposée et gouvernée.",
+            "L'utilisateur demande une lecture du statut global du runtime; cela doit rester une action proposée et gouvernée.",
         )),
         IntentClass::ProposedAction if is_memory_read_prompt(&normalized) => Some(read_only_turn(
             ActionType::ReadMemory,
             Some("cognitive_memory"),
             Permission::ReadMemory,
             "read_memory",
-            "L’utilisateur demande une lecture de la mémoire longue durée/cognitive; cela doit rester une action proposée et gouvernée.",
+            "L'utilisateur demande une lecture de la mémoire longue durée/cognitive; cela doit rester une action proposée et gouvernée.",
         )),
         IntentClass::ProposedAction if is_system_check_prompt(&normalized) => Some(read_only_turn(
             ActionType::SystemCheck,
             Some("system_state"),
             Permission::ProposeToolUse,
             "system_check",
-            "L’utilisateur demande une vérification système générale; seule une proposition gouvernée est créée.",
+            "L'utilisateur demande une vérification système générale; seule une proposition gouvernée est créée.",
         )),
         IntentClass::ProposedAction if contains_any(&normalized, &["mail", "email", "e-mail", "courriel"]) => {
             Some(AgentTurnDraft::ProposedAction {
@@ -522,7 +619,7 @@ pub fn deterministic_turn_for_prompt(prompt: &str) -> Option<AgentTurnDraft> {
                     target: None,
                     risk_level: RiskLevel::Medium,
                     required_permissions: vec![Permission::SimulateEmail],
-                    rationale: "L’utilisateur demande une action email; en alpha, elle reste simulée et soumise au Decision Gate.".to_owned(),
+                    rationale: "L'utilisateur demande une action email; en alpha, elle reste simulée et soumise au Decision Gate.".to_owned(),
                     payload: json!({"operation": "simulate_email", "llm_executed": false}),
                 },
             })
@@ -824,6 +921,162 @@ impl fmt::Display for LlmError {
 
 impl Error for LlmError {}
 
+// ─── P5/P6 — Cognitive synthesis bridge ────────────────────────────────────
+//
+// These functions connect the cognitive work loop to an LLM for synthesis.
+// The LLM receives the objective and working memory summary and produces
+// a free-form synthesis text. This is non-authorizing — the output is
+// evidence only, not an approved action.
+
+/// System prompt for cognitive synthesis.
+pub const COGNITIVE_SYNTHESIS_SYSTEM_PROMPT: &str = r#"You are ARPAGONA Agent Core — a cognitive loop synthesizer.
+
+The system has run a heuristic cognitive cycle on an objective. You are given:
+1. The objective (what the user wants to achieve)
+2. The domain classification
+3. The working memory summary (assumptions, constraints, missing context)
+4. The proposed next action
+
+Your task: synthesize this information into a short, actionable paragraph that:
+- Summarizes the current state of analysis
+- Highlights the most important gap or risk
+- Suggests what a human should do next
+
+Do NOT propose tool calls, memory writes, or system operations.
+Do NOT claim any action has been executed or authorized.
+Keep your response under 150 words. Respond in the same language as the objective."#;
+
+impl OpenAiProvider {
+    /// Call OpenAI for cognitive synthesis (free-form text, non-authorizing).
+    pub async fn synthesize(
+        &self,
+        system_prompt: &str,
+        user_prompt: &str,
+    ) -> Result<String, LlmError> {
+        let body = json!({
+            "model": self.model,
+            "tools": [],
+            "input": [
+                {
+                    "role": "system",
+                    "content": [
+                        {"type": "input_text", "text": system_prompt}
+                    ]
+                },
+                {
+                    "role": "user",
+                    "content": [
+                        {"type": "input_text", "text": user_prompt}
+                    ]
+                }
+            ],
+            "text": {
+                "format": { "type": "text" }
+            }
+        });
+
+        let response = self
+            .client
+            .post(&self.endpoint)
+            .bearer_auth(&self.api_key)
+            .json(&body)
+            .send()
+            .await
+            .map_err(|err| LlmError::Transport(err.to_string()))?;
+
+        let status = response.status();
+        let value: Value = response
+            .json()
+            .await
+            .map_err(|err| LlmError::InvalidResponse(format!("invalid JSON response: {err}")))?;
+
+        if !status.is_success() {
+            let message = value
+                .pointer("/error/message")
+                .and_then(Value::as_str)
+                .unwrap_or("OpenAI Responses API returned an error");
+            return Err(LlmError::Provider(format!(
+                "OpenAI error {status}: {message}"
+            )));
+        }
+
+        let text = extract_output_text(&value).ok_or_else(|| {
+            LlmError::InvalidResponse("missing output_text in OpenAI response".to_owned())
+        })?;
+
+        Ok(text)
+    }
+}
+
+impl MockProvider {
+    /// Mock synthesis — returns a deterministic message for testing.
+    pub async fn synthesize(
+        &self,
+        _system_prompt: &str,
+        user_prompt: &str,
+    ) -> Result<String, LlmError> {
+        let preview = if user_prompt.len() > 80 {
+            format!("{}...", &user_prompt[..80])
+        } else {
+            user_prompt.to_owned()
+        };
+        Ok(format!(
+            "[MOCK SYNTHESIS] Analyse terminée pour objectif : '{}'. \
+             Aucun LLM réel appelé. Cette sortie est une simulation non-autorisante.",
+            preview
+        ))
+    }
+}
+
+/// Run a cognitive synthesis with the specified provider.
+///
+/// # Parameters
+/// * `objective` — the original objective text
+/// * `wm_summary` — a human-readable summary of the working memory state
+/// * `provider_name` — `"mock"`, `"openai"`, or `"ollama"`
+///
+/// # Returns
+/// The synthesis text from the LLM.
+///
+/// # Safety
+/// * No tool execution, no persistence, no authorization.
+/// * The output is evidence-only.
+pub async fn run_cognitive_synthesis(
+    objective: &str,
+    wm_summary: &str,
+    provider_name: &str,
+) -> Result<String, LlmError> {
+    let user_prompt = format!(
+        r#"Objective: {}
+
+Working Memory Summary:
+{}"#,
+        objective, wm_summary
+    );
+
+    match provider_name {
+        "mock" => {
+            let provider = MockProvider::safe_default();
+            provider
+                .synthesize(COGNITIVE_SYNTHESIS_SYSTEM_PROMPT, &user_prompt)
+                .await
+        }
+        "openai" => {
+            let provider = OpenAiProvider::from_env()?;
+            provider
+                .synthesize(COGNITIVE_SYNTHESIS_SYSTEM_PROMPT, &user_prompt)
+                .await
+        }
+        "ollama" => {
+            let provider = OllamaProvider::from_env();
+            provider
+                .synthesize(COGNITIVE_SYNTHESIS_SYSTEM_PROMPT, &user_prompt)
+                .await
+        }
+        other => Err(LlmError::Provider(format!("Unknown provider: {other}"))),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -936,13 +1189,13 @@ mod tests {
             "read_proposed_actions",
         );
         assert_read_only_route(
-            "Lis l’état des tâches sans rien modifier.",
+            "Lis l'état des tâches sans rien modifier.",
             ActionType::ReadTasks,
             Permission::ReadTasks,
             "read_tasks",
         );
         assert_read_only_route(
-            "Consulte l’audit récent sans rien modifier.",
+            "Consulte l'audit récent sans rien modifier.",
             ActionType::ReadAudit,
             Permission::ReadAudit,
             "read_audit",
@@ -954,7 +1207,7 @@ mod tests {
             "read_status",
         );
         assert_read_only_route(
-            "Vérifie l’état général du système sans rien exécuter.",
+            "Vérifie l'état général du système sans rien exécuter.",
             ActionType::SystemCheck,
             Permission::ProposeToolUse,
             "system_check",
@@ -977,8 +1230,8 @@ mod tests {
     #[test]
     fn keeps_advice_and_risk_questions_as_direct_replies() {
         for prompt in [
-            "Que devrais-je vérifier avant d’ajouter une capacité d’exécution réelle ?",
-            "Quels sont les risques avant d’ajouter une capacité d’exécution réelle ?",
+            "Que devrais-je vérifier avant d'ajouter une capacité d'exécution réelle ?",
+            "Quels sont les risques avant d'ajouter une capacité d'exécution réelle ?",
         ] {
             assert_eq!(classify_prompt_intent(prompt), IntentClass::DirectReply);
             assert!(matches!(
@@ -1036,7 +1289,7 @@ mod tests {
 
     #[test]
     fn deterministic_routing_is_not_action_authorization() {
-        let turn = deterministic_turn_for_prompt("vérifie l’état du système")
+        let turn = deterministic_turn_for_prompt("vérifie l'état du système")
             .expect("system check should route deterministically");
 
         match turn {
