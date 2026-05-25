@@ -6,6 +6,10 @@ use arpagona_agent_core::{
     ProposedAction, ProposedActionId, ProposedActionStatus, RiskLevel, SourceId, Task, TaskId,
     WorkspaceId,
 };
+use arpagona_compute_reservoir::{
+    allocate_for_working_memory, ComputeAllocation, ComputeCapability, ComputeNode, ComputeNodeId,
+    ComputeNodeStatus, ComputePolicy, ComputeResourceKind, DataSensitivity,
+};
 use arpagona_decision_gate::{audit_event_for_decision, evaluate_proposed_action};
 use arpagona_graph_memory::{
     demo_snapshot::{list_snapshots_in_directory, FailureInsightDemoSnapshot, EVIDENCE_ONLY_TOKEN},
@@ -105,6 +109,9 @@ pub struct CognitiveRunArgs {
     /// Run assessment bridge: convert ImprovementCandidates to FailureInsightCandidates.
     #[arg(long)]
     pub assess: bool,
+    /// Run Compute Reservoir allocation bridge: map WorkingMemory to resource selection.
+    #[arg(long)]
+    pub allocate: bool,
 }
 
 #[derive(Debug, Args)]
@@ -4313,14 +4320,130 @@ fn cognitive_run(args: CognitiveRunArgs) -> Result<(), Box<dyn Error>> {
                     serde_json::to_value(&fic)?,
                 );
             }
+            if args.allocate {
+                let allocation = run_allocation(&result.working_memory);
+                obj.insert(
+                    "compute_requirement".to_owned(),
+                    serde_json::to_value(&allocation)?,
+                );
+            }
             obj.insert("assessed".to_owned(), serde_json::Value::Bool(args.assess));
+            obj.insert(
+                "allocated".to_owned(),
+                serde_json::Value::Bool(args.allocate),
+            );
         }
         println!("{}", serde_json::to_string_pretty(&output)?);
     } else {
         cognitive_print_readback(&result, args.assess);
+        if args.allocate {
+            let allocation = run_allocation(&result.working_memory);
+            print_allocation_readback(&allocation);
+        }
     }
 
     Ok(())
+}
+
+/// Build a demo compute inventory for the allocation bridge.
+fn demo_inventory() -> Vec<ComputeNode> {
+    vec![
+        ComputeNode {
+            id: ComputeNodeId::new("local-smol"),
+            label: "Local small model".to_owned(),
+            kind: ComputeResourceKind::LocalLlm,
+            status: ComputeNodeStatus::Available,
+            capabilities: vec![
+                ComputeCapability::SimpleReasoning,
+                ComputeCapability::TextSynthesis,
+                ComputeCapability::LocalOnly,
+            ],
+            max_data_sensitivity: DataSensitivity::Secret,
+            expected_cost_cents: 0,
+            expected_latency_ms: 800,
+            is_local: true,
+            strength: 3,
+        },
+        ComputeNode {
+            id: ComputeNodeId::new("local-cpu"),
+            label: "Local CPU worker".to_owned(),
+            kind: ComputeResourceKind::LocalCpu,
+            status: ComputeNodeStatus::Available,
+            capabilities: vec![ComputeCapability::DeterministicComputation],
+            max_data_sensitivity: DataSensitivity::Secret,
+            expected_cost_cents: 0,
+            expected_latency_ms: 100,
+            is_local: true,
+            strength: 2,
+        },
+        ComputeNode {
+            id: ComputeNodeId::new("cloud-strong"),
+            label: "Cloud strong model".to_owned(),
+            kind: ComputeResourceKind::CloudLlm,
+            status: ComputeNodeStatus::Available,
+            capabilities: vec![
+                ComputeCapability::SimpleReasoning,
+                ComputeCapability::ComplexReasoning,
+                ComputeCapability::TextSynthesis,
+            ],
+            max_data_sensitivity: DataSensitivity::Confidential,
+            expected_cost_cents: 25,
+            expected_latency_ms: 1_200,
+            is_local: false,
+            strength: 10,
+        },
+    ]
+}
+
+/// Run allocation from WorkingMemory with the demo inventory.
+fn run_allocation(
+    working_memory: &arpagona_agent_core::cognitive_work::WorkingMemory,
+) -> ComputeAllocation {
+    let nodes = demo_inventory();
+    let policy = ComputePolicy::default();
+    allocate_for_working_memory(working_memory, &nodes, &policy)
+}
+
+/// Print a human-readable allocation result.
+fn print_allocation_readback(allocation: &ComputeAllocation) {
+    println!();
+    println!(
+        "{}",
+        style_info("Compute Reservoir Allocation (--allocate)")
+    );
+    println!("  status:                    {:?}", allocation.status);
+    println!(
+        "  selected_node_id:           {}",
+        allocation
+            .selected_node_id
+            .as_ref()
+            .map(|id| id.as_str())
+            .unwrap_or("(none)")
+    );
+    println!(
+        "  resource_kind:              {:?}",
+        allocation.resource_kind
+    );
+    println!(
+        "  expected_cost_cents:        {:?}",
+        allocation.expected_cost_cents
+    );
+    println!(
+        "  expected_latency_ms:        {:?}",
+        allocation.expected_latency_ms
+    );
+    println!("  justification:              {}", allocation.justification);
+    if let Some(fallback) = &allocation.fallback {
+        println!("  fallback_node:              {:?}", fallback.node_id);
+        println!("  fallback_reason:            {}", fallback.reason);
+    }
+    println!();
+    println!(
+        "{}",
+        style_dim(
+            "⚠️  Allocation is not authorization — no action approved, no Decision Gate bypass."
+        )
+    );
 }
 
 /// Print a human-readable cognitive cycle result.
