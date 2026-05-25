@@ -184,7 +184,6 @@ What failed in the last loop, what did we learn, what was changed, and how will 
 
 If the system cannot answer that from durable artifacts, the failure-to-insight loop is not yet implemented.
 
-<<<<<<< HEAD
 ## 10. Cross-invocation readback verification
 
 The governed FailureInsight learning loop demo supports a pure-Rust JSON snapshot path that proves cross-invocation readback without unstable SurrealDB cfg flags or native RocksDB/zstd dependencies.
@@ -239,8 +238,8 @@ cargo test -- cross_invocation_demo_snapshot_proves_readback_across_process_invo
 ```
 
 This test runs the snapshot-then-read cycle via separate process invocations using the built binary, asserts the snapshot file is created on disk, and verifies the readback JSON contains the expected proof signals. It ensures the governed FailureInsight learning loop output survives serialization, file I/O, process restart and deserialization.
-=======
-## 10. Recorded insight — CI binary path contract
+
+## 11. Recorded insight — CI binary path contract
 
 Failure observed:
 
@@ -289,4 +288,3 @@ Linked proof:
 ```text
 Expected fixed shape: crates/cli/tests/snapshot_integration.rs uses env!("CARGO_BIN_EXE_arpagona") and no hardcoded ../../target/debug/arpagona path remains.
 ```
->>>>>>> origin/main
