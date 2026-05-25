@@ -6,17 +6,13 @@ It must contain one concrete next action only. The runtime milestone queue and l
 
 ## Next action
 
-Connect General Cognitive Work Loop V0 to CognitiveObservation inputs and FailureInsightCandidate promotion.
+Review and merge PR for P3 Cognitive Observation to Governed Learning if checks are green.
 
-Why: General Cognitive Work Loop V0 (P2) is now implemented — it produces `RequiredObservation` and `ImprovementCandidate` objects. The Cognitive Observation Pipeline (P3 ready) flags candidates (truncated, empty, blocked) but stops at candidate detection. The next natural step is a governed cognitive loop that:
-1. Feeds `RequiredObservation` back into the cognitive observation pipeline
-2. Collects `ImprovementCandidate` items as candidates for `FailureInsight` creation
-3. Creates a `FailureInsight` `ProposedAction` through the Decision Gate
-4. Persists the approved `FailureInsight` via the governed Graph Memory path
+Why: the P3 bridge was recovered from the interrupted run and must be merged before starting another major runtime brick.
 
-Proof to seek: A new test showing that `ImprovementCandidate` can be mapped to a `FailureInsight` with `FailureClass::MissingContext` without side effects, and that `RequiredObservation` items appear in the `CognitiveObservation` pipeline.
+Proof to seek: PR exists, cargo fmt/check/test pass, --assess JSON includes failure_insight_candidates.
 
-Do not: start `scripts/demo-full-loop.sh` before P3 is implemented and merged. Do not add another snapshot/readback convenience command.
+Do not: start scripts/demo-full-loop.sh or P4 Working Memory integration before P3 is merged.
 
 ## Required update at the end of every run
 

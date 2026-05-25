@@ -102,6 +102,9 @@ pub struct CognitiveRunArgs {
     /// Emit structured JSON instead of human-oriented text.
     #[arg(long)]
     pub json: bool,
+    /// Run assessment bridge: convert ImprovementCandidates to FailureInsightCandidates.
+    #[arg(long)]
+    pub assess: bool,
 }
 
 #[derive(Debug, Args)]
@@ -4299,17 +4302,29 @@ fn cognitive_run(args: CognitiveRunArgs) -> Result<(), Box<dyn Error>> {
     );
 
     if args.json {
-        let json = serde_json::to_string_pretty(&result)?;
-        println!("{json}");
+        let mut output = serde_json::to_value(&result)?;
+        if let Some(obj) = output.as_object_mut() {
+            if args.assess {
+                let fic = arpagona_agent_core::observation::FailureInsightCandidate::from_improvement_candidates(
+                    &result.improvement_candidates,
+                );
+                obj.insert(
+                    "failure_insight_candidates".to_owned(),
+                    serde_json::to_value(&fic)?,
+                );
+            }
+            obj.insert("assessed".to_owned(), serde_json::Value::Bool(args.assess));
+        }
+        println!("{}", serde_json::to_string_pretty(&output)?);
     } else {
-        cognitive_print_readback(&result);
+        cognitive_print_readback(&result, args.assess);
     }
 
     Ok(())
 }
 
 /// Print a human-readable cognitive cycle result.
-fn cognitive_print_readback(result: &CognitiveCycleResult) {
+fn cognitive_print_readback(result: &CognitiveCycleResult, assess: bool) {
     println!(
         "{}\n",
         style_brand("=== General Cognitive Work Loop V0 — Readback ===")
@@ -4393,6 +4408,24 @@ fn cognitive_print_readback(result: &CognitiveCycleResult) {
         );
     }
     println!();
+
+    if assess {
+        println!(
+            "{}",
+            style_info("Failure Insight Candidates (via --assess bridge)")
+        );
+        let fic =
+            arpagona_agent_core::observation::FailureInsightCandidate::from_improvement_candidates(
+                &result.improvement_candidates,
+            );
+        for candidate in &fic {
+            println!(
+                "  - [{:?}] {} — {}",
+                candidate.kind, candidate.summary, candidate.reason
+            );
+        }
+        println!();
+    }
 
     println!("{}", style_dim(&format!("\u{26a0}  {}", result.warning)));
     println!();

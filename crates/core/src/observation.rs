@@ -243,6 +243,82 @@ pub struct FailureInsightCandidate {
     pub is_positive_signal: bool,
 }
 
+impl FailureInsightCandidate {
+    /// Convert an `ImprovementCandidate` from the General Cognitive Work Loop
+    /// into a `FailureInsightCandidate` that the cognitive observation pipeline
+    /// can process.
+    ///
+    /// This is the bridge between P2 (Cognitive Work Loop) and P3 (Cognitive
+    /// Observation to Governed Learning).
+    ///
+    /// # Mapping
+    ///
+    /// | ImprovementCandidateKind | FailureInsightCandidateKind |
+    /// |---|---|
+    /// | MissingContext | MissingContext |
+    /// | WeakPlan | AmbiguousResult |
+    /// | RepeatedFriction | RepeatedOperatorFriction |
+    /// | MissingTool | DocumentationMismatch |
+    /// | MissingMemory | DocumentationMismatch |
+    /// | PolicyGap | DocumentationMismatch |
+    /// | ProcessImprovement | AmbiguousResult |
+    /// | PromptImprovement | AmbiguousResult |
+    /// | TestImprovement | DocumentationMismatch |
+    ///
+    /// # Safety
+    ///
+    /// - Pure domain conversion — no I/O, no execution, no authorization.
+    /// - The returned candidate does not create, persist, or route any
+    ///   FailureInsight record.
+    /// - The candidate must still pass through the Decision Gate before any
+    ///   governed action.
+    pub fn from_improvement_candidate(
+        candidate: &crate::cognitive_work::ImprovementCandidate,
+    ) -> Self {
+        let (kind, is_positive_signal) = match &candidate.kind {
+            crate::cognitive_work::ImprovementCandidateKind::MissingContext => {
+                (FailureInsightCandidateKind::MissingContext, false)
+            }
+            crate::cognitive_work::ImprovementCandidateKind::WeakPlan => {
+                (FailureInsightCandidateKind::AmbiguousResult, false)
+            }
+            crate::cognitive_work::ImprovementCandidateKind::RepeatedFriction => {
+                (FailureInsightCandidateKind::RepeatedOperatorFriction, false)
+            }
+            crate::cognitive_work::ImprovementCandidateKind::MissingTool
+            | crate::cognitive_work::ImprovementCandidateKind::MissingMemory
+            | crate::cognitive_work::ImprovementCandidateKind::PolicyGap
+            | crate::cognitive_work::ImprovementCandidateKind::TestImprovement => {
+                (FailureInsightCandidateKind::DocumentationMismatch, false)
+            }
+            crate::cognitive_work::ImprovementCandidateKind::ProcessImprovement
+            | crate::cognitive_work::ImprovementCandidateKind::PromptImprovement => {
+                (FailureInsightCandidateKind::AmbiguousResult, true)
+            }
+        };
+
+        Self {
+            kind,
+            summary: candidate.description.clone(),
+            reason: candidate.rationale.clone(),
+            tool_name: "cognitive_work_loop".to_owned(),
+            is_positive_signal,
+        }
+    }
+
+    /// Convert a slice of `ImprovementCandidate`s into `FailureInsightCandidate`s.
+    ///
+    /// This is a convenience wrapper for bulk conversion.
+    pub fn from_improvement_candidates(
+        candidates: &[crate::cognitive_work::ImprovementCandidate],
+    ) -> Vec<Self> {
+        candidates
+            .iter()
+            .map(Self::from_improvement_candidate)
+            .collect()
+    }
+}
+
 // ---------------------------------------------------------------------------
 // Conversion: ToolExecutionResult → CognitiveObservation
 // ---------------------------------------------------------------------------
