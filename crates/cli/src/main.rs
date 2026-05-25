@@ -4304,14 +4304,20 @@ fn cognitive_run(args: CognitiveRunArgs) -> Result<(), Box<dyn Error>> {
     if args.json {
         let mut output = serde_json::to_value(&result)?;
         if let Some(obj) = output.as_object_mut() {
+            // When --assess, inject failure_insight_candidates into working_memory
             if args.assess {
-                let fic = arpagona_agent_core::observation::FailureInsightCandidate::from_improvement_candidates(
-                    &result.improvement_candidates,
-                );
-                obj.insert(
-                    "failure_insight_candidates".to_owned(),
-                    serde_json::to_value(&fic)?,
-                );
+                if let Some(wm) = obj
+                    .get_mut("working_memory")
+                    .and_then(|v| v.as_object_mut())
+                {
+                    let fic = arpagona_agent_core::observation::FailureInsightCandidate::from_improvement_candidates(
+                        &result.improvement_candidates,
+                    );
+                    wm.insert(
+                        "failure_insight_candidates".to_owned(),
+                        serde_json::to_value(&fic)?,
+                    );
+                }
             }
             obj.insert("assessed".to_owned(), serde_json::Value::Bool(args.assess));
         }
