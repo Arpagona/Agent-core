@@ -1,3 +1,5 @@
+pub mod demo_snapshot;
+
 use arpagona_core::{
     AuditEvent, AuditTraceSummary, Decision, DecisionId, DecisionStatus, Episode, EpisodeId, Fact,
     FactId, FactStatus, FailureInsight, FailureInsightId, GraphNodeType, GraphRef, GraphRelation,
@@ -15,6 +17,8 @@ use surrealdb::engine::local::{Db, Mem};
 use surrealdb::sql::Thing;
 use surrealdb::{Connection, Surreal};
 use thiserror::Error;
+
+pub mod demo_snapshot;
 
 pub const GRAPH_MEMORY_SCHEMA: &str = include_str!("../migrations/0001_graph_memory.surql");
 

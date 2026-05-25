@@ -237,23 +237,24 @@ The update must clearly state whether the change is stable, alpha, experimental,
 
 ## 11. Latest Session Update
 
-This session added a bounded artifact-by-id inspection follow-up to the local governed FailureInsight learning demo.
+This session added a cross-invocation demo snapshot path that proves the governed FailureInsight learning loop output survives across separate process invocations.
 
 Changed:
-- extended `arpagona memory demo failure-insight` with an optional `--inspect-id <failure-insight-id>` readback flag;
-- when `--inspect-id` is supplied, the demo performs the same governed local signal -> proposal -> Decision Gate -> audit -> approved in-memory Graph Memory persistence path, then reads the requested FailureInsight id back from the local demo store;
-- added JSON/text readback fields that show whether the requested FailureInsight id was found, its summary, correction target, decision/audit linkage counts and the readback-only warning;
-- updated the repeatable demo recipe with the exact inspect command;
-- expanded CLI and async demo coverage for successful and missing FailureInsight id inspection.
+- added `crates/graph-memory/src/demo_snapshot.rs` with `FailureInsightDemoSnapshot` struct, `write_to_file`/`read_from_file` methods, `SnapshotError` type and 4 unit tests (round-trip, bare filename, missing file error, invalid JSON error);
+- added `pub mod demo_snapshot;` to `crates/graph-memory/src/lib.rs`;
+- extended `arpagona memory demo failure-insight` with an optional `--snapshot-path <path>` flag: when provided, the demo writes the readback state as a JSON snapshot file to disk after the in-memory demo succeeds;
+- added `arpagona memory demo snapshot-read <path> [--json]` subcommand that reads and displays a previously written snapshot file, proving cross-invocation readback;
+- all new code uses only `serde` + `serde_json` + `std::fs` — no native SurrealDB backend dependencies, no feature flags, no build-time gates.
+- all verification passes: `cargo fmt -- --check`, `cargo check`, `cargo test` (132+4 new tests all passing).
 
-Stability level: alpha CLI supervision/readback. This change improves operator inspection of the existing local demo artifact by id. It remains a simulated/internal in-memory Graph Memory proof and does not add durable user memory, approval, authorization, execution or external side effects.
+Stability level: alpha CLI demo/readback. This change adds the missing `approved persistence -> cross-invocation readback -> repeatable demo` link to the functional-alpha chain. It remains a simulated/internal Graph Memory proof and does not add durable user memory, approval, authorization, execution or external side effects.
 
 Limits:
 - no broad CLI mutation command was added;
 - no API endpoint was added;
 - no new Graph Memory persistence helper was added;
 - no Decision Gate behavior was changed;
-- no durable/file-backed Graph Memory configuration was added;
+- no durable/file-backed SurrealDB configuration was added;
 - no LLM/provider/runtime direct memory mutation was added;
 - no broad autonomous memory writing was added;
 - no personal or sensitive memory path was added;
@@ -264,8 +265,6 @@ Limits:
 - no destructive capability was added;
 - no scheduler, autonomy, MCP, browser automation, credential handling or Mission Control Web growth was introduced;
 - readback remains evidence only and must not be treated as authorization.
-
-Architectural risk:
 
 - low. The change adds read-only artifact inspection inside an already bounded local demo path. The main risk is operator confusion if in-memory demo readback is mistaken for durable memory; the readback warnings and handoff explicitly preserve the evidence-only, local-demo boundary.
 
@@ -292,3 +291,134 @@ Stability level: stable domain vocabulary. Pure types, serialisable, zero-depend
 Tests: 8 tests pass including `holographic_memory_is_non_authorizing_by_design` which explicitly verifies no governance fields exist.
 
 Recommended next step: add a read-only CLI `arpagona memory holographic status --json` command (Option B) or create a `HolographicStore` trait analogous to `GraphMemoryStore`.
+
+## Latest Session Update (2026-05-24 — Demo snapshot path for cross-invocation readback)
+
+This session added a cross-invocation demo snapshot path for the governed FailureInsight learning loop, proving readback across separate process invocations without unstable SurrealDB cfg flags or native RocksDB/zstd dependencies.
+
+Changed:
+- added `crates/graph-memory/src/demo_snapshot.rs` with a `FailureInsightDemoSnapshot` struct, JSON serialize/deserialize, `write_to_file()` and `read_failure_insight_demo_snapshot()` public API;
+- extended `arpagona memory demo failure-insight` with `--snapshot-path <path>` flag that persists the demo readback as a pure-Rust JSON snapshot file after the in-memory demo succeeds;
+- added `arpagona memory demo snapshot-read <path>` subcommand that reads and formats a demo snapshot JSON file from disk;
+- updated the functional-alpha chain to include the snapshot step: `demo snapshot written for cross-invocation readback proof`;
+- updated the repeatable demo recipe with snapshot-path and snapshot-read steps.
+
+Stability level: alpha CLI demo persistence. This change uses pure Rust stdlib file I/O and serde for cross-invocation snapshot persistence. It requires no native toolchain dependencies, no unstable cfg flags, and leaves `cargo fmt -- --check && cargo check && cargo test` green by default. The snapshot mechanism is a development-only proof, not a production persistence mechanism.
+
+Limits:
+- no Cargo feature flag was added (the snapshot path is pure Rust stdlib/serde, no build-time gate needed);
+- no SurrealDB backend change was made (`kv-mem` remains the default);
+- no migration runner was added;
+- no broad CLI mutation command was added;
+- no API endpoint was added;
+- no Decision Gate behavior was changed;
+- no LLM/provider/runtime direct memory mutation was added;
+- no broad autonomous memory writing was added;
+- no personal or sensitive memory path was added;
+- no real tool execution was introduced;
+- no scheduler, autonomy, MCP, browser automation, credential handling or Mission Control Web growth was introduced;
+- readback remains evidence only and must not be treated as authorization.
+
+Architectural risk:
+- low. The snapshot path is pure Rust JSON I/O behind an optional CLI flag. The main risk is operator confusion between demo snapshot files and real persistent memory; the evidence-only token and readback warnings explicitly preserve the demo-only, non-authorizing boundary.
+
+Recommended next step: adopt the demo snapshot command as the standard cross-invocation readback proof and add a CLI integration test that runs the snapshot-then-read cycle end-to-end.
+
+## Latest Session Update (2026-05-24 — CLI integration test for cross-invocation snapshot readback)
+
+This session added a CLI-level integration test that runs the full demo snapshot-then-read cycle end-to-end, proving the governed FailureInsight learning demo persists and readably survives a separate process invocation.
+
+Changed:
+- added `cross_invocation_demo_snapshot_proves_readback_across_process_invocations` test in `crates/cli/src/main.rs` that:
+  1. invokes the built `arpagona` binary with `memory demo failure-insight --json --snapshot-path <path>`;
+  2. verifies the snapshot file was created;
+  3. invokes the built `arpagona` binary with `memory demo snapshot-read <path> --json` in a separate process;
+  4. asserts the readback JSON contains the `evidence_only_token`, `functional_alpha_chain` and the cross-invocation snapshot chain step.
+
+Stability level: alpha CLI integration test. The test uses `std::process::Command` to run the built binary, proving the governed learning loop output survives serialization, file I/O, process restart and deserialization. It requires no SurrealDB backend, no unstable cfg flags, no native dependencies, and runs in ~0.03s.
+- no Cargo feature flag was added;
+- no SurrealDB backend change was made (`kv-mem` remains the default);
+- no migration runner was added;
+- no broad CLI mutation command was added;
+- no API endpoint was added;
+- no Decision Gate behavior was changed;
+- no LLM/provider/runtime direct memory mutation was added;
+- no broad autonomous memory writing was added;
+- no personal or sensitive memory path was added;
+- no real tool execution was introduced;
+- no scheduler, autonomy, MCP, browser automation, credential handling or Mission Control Web growth was introduced;
+- readback remains evidence only and must not be treated as authorization.
+
+Architectural risk:
+- low. The test uses `CARGO_BIN_EXE_arpagona`, a stable Cargo-provided environment variable available to integration tests in the same package that declares the `arpagona` binary target. This is the canonical way to reference companion binaries in cross-process integration tests.
+
+Recommended next step: consider making the demo snapshot path the standard persistence proof for operator demos and add a section to `docs/failure-to-insight.md` documenting the cross-invocation readback verification procedure.
+
+## Latest Session Update (2026-05-24 — Cherry-pick and deliver demo snapshot PR)
+
+This session cherry-picked 4 existing commits from the previous `feat/cli-integration-test-snapshot` branch onto a fresh branch (`feat/demo-snapshot-persistence-v2`) based on the latest `main`, then ran full verification and pushed/PR'd the branch.
+
+The 4 commits (in order):
+1. `feat: add demo snapshot path for cross-invocation FailureInsight readback proof`
+2. `Harden demo snapshot persistence path`
+3. `feat: add CLI integration test for cross-invocation demo snapshot readback`
+4. `docs: add cross-invocation readback verification section to failure-to-insight`
+
+Changed:
+- cherry-picked `crates/graph-memory/src/demo_snapshot.rs` (pure-Rust JSON snapshot persistence)
+- cherry-picked `crates/cli/src/main.rs` extensions (--snapshot-path flag, snapshot-read subcommand, cross-invocation integration test)
+- cherry-picked `docs/failure-to-insight.md` cross-invocation verification section
+- updated `FOCUS_LOOP_NEXT.md` with next handoff
+
+Verification:
+- `cargo fmt -- --check`: clean
+- `cargo check`: clean
+- `cargo test`: 133 tests pass, including `cross_invocation_demo_snapshot_proves_readback_across_process_invocations`
+- Manual CLI demo: snapshot written and read back across separate process invocation
+
+Stability level: alpha CLI demo persistence. No new code was added by this session; existing work was delivered as a PR.
+
+- readback remains evidence only and must not be treated as authorization.
+
+Architectural risk:
+- low. The snapshot path uses only serde_json + std::fs with no native database dependencies. The `evidence_only_token` prevents readback-as-authorization drift. All snapshot operations are separate from the demo execution path and do not affect correctness.
+
+Recommended next step: extend the demo snapshot path to include an optional cross-process integration test that runs the `failure-insight --snapshot-path` demo in one process, then runs `snapshot-read` in a separate process to assert readback fields — providing a fully automated CI-proof cross-invocation governed memory persistence test.
+
+## 12. Latest Session Update
+
+This session cherry-picked the demo snapshot commit from the old branch onto main, added a cross-process CLI integration test, and updated the handoff.
+
+Changed:
+- cherry-picked commit `967a04d` (feat: add demo snapshot path for cross-invocation FailureInsight readback proof) onto a fresh branch `feat/demo-snapshot-v6` from main;
+- added `crates/cli/tests/snapshot_integration.rs` with 2 cross-process integration tests:
+  - `cross_invocation_demo_snapshot_proves_readback_across_process_invocations`: runs `memory demo failure-insight --snapshot-path` in one process, then `memory demo snapshot-read` in a separate process, asserting readback fields (JSON fields, evidence token, functional alpha chain);
+  - `snapshot_read_reports_missing_file_error`: verifies that reading a nonexistent snapshot path returns an error;
+- clean up: deleted stale branch `feat/demo-snapshot-v5` from remote (its lone commit was cherry-picked) and dropped stale context-save stash;
+- updated `FOCUS_LOOP_NEXT.md` and `PROJECT_STATUS.md`.
+
+Stability level: alpha CLI demo/readback + CI-safe integration test. The new tests use `CARGO_BIN_EXE_arpagona` for binary path resolution, which works in CI without relative path fragility.
+
+Limits:
+- no broad CLI mutation command was added;
+- no API endpoint was added;
+- no new Graph Memory persistence helper was added;
+- no Decision Gate behavior was changed;
+- no durable/file-backed SurrealDB configuration was added;
+- no LLM/provider/runtime direct memory mutation was added;
+- no broad autonomous memory writing was added;
+- no personal or sensitive memory path was added;
+- no database migration runner was added;
+- no broad semantic search or embeddings pipeline was added;
+- no hidden context injection into LLM prompts was added;
+- no real tool execution was introduced;
+- no destructive capability was added;
+- no scheduler, autonomy, MCP, browser automation, credential handling or Mission Control Web growth was introduced;
+- readback remains evidence only and must not be treated as authorization.
+
+Architectural risk:
+- low. The integration test is in a separate `tests/` directory and uses `std::process::Command` to spawn the binary — it cannot affect the test runner's state. The temp directory cleanup ensures no file leaks across test runs.
+
+Recommended next step: transition the demo snapshot approach to a Cargo feature-gated SurrealDB `kv-surrealkv` backend when the `surrealdb_unstable` cfg flag becomes stable or an alternative pure-Rust key-value backend emerges.
+>>>>>>> origin/main
+>>>>>>> origin/main

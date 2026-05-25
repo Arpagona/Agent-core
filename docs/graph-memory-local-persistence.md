@@ -44,15 +44,28 @@ cargo test
 
 neither backend should be made part of the always-on workspace baseline until the build story is explicit and verified.
 
-## Safe implementation implication
+## Safe implementation: demo snapshot path (2026-05-24)
 
-The next persistence slice should avoid making the default workspace depend on unstable SurrealDB cfg flags or native RocksDB toolchain assumptions.
+The current solution adds a **demo snapshot path** — a pure-Rust JSON file persistence mechanism that does not depend on native SurrealDB backends.
 
-A safe next shape is one of:
+Added:
 
-- an opt-in Cargo feature for local persistent Graph Memory that is disabled by default and has its own documented verification command;
-- a small crate-local persistence abstraction whose default implementation remains `kv-mem` and whose local file-backed implementation is gated and tested separately;
-- a pure-Rust, development-only snapshot/readback path for the FailureInsight demo, if that better preserves the focus-loop requirement for plain workspace verification.
+- `crates/graph-memory/src/demo_snapshot.rs`: `FailureInsightDemoSnapshot` struct with JSON serialize/deserialize, `write_to_file()` and `read_failure_insight_demo_snapshot()` functions.
+- `crates/cli/src/main.rs`: `--snapshot-path <path>` flag on `memory demo failure-insight`, and a new `memory demo snapshot-read <path>` subcommand for cross-invocation readback.
+
+Usage:
+
+```bash
+# Run the demo and save a snapshot
+cargo run -q --bin arpagona -- memory demo failure-insight --json --snapshot-path target/demo-snapshot.json
+
+# In a separate process, read the snapshot back
+cargo run -q --bin arpagona -- memory demo snapshot-read target/demo-snapshot.json
+```
+
+This proves cross-invocation readback without unstable cfg flags or native RocksDB/zstd dependencies. It is a development-only proof, not a production persistence mechanism.
+
+## Future safe implementation options
 
 Any implementation still must preserve:
 
@@ -61,3 +74,8 @@ ProposedAction -> DecisionGate -> Decision -> Audit -> controlled effect only if
 ```
 
 and must keep local readback proof non-authorizing.
+
+Future options (in priority order):
+
+1. **Opt-in Cargo feature** for local persistent Graph Memory that is disabled by default and has its own documented verification command.
+2. **Crate-local persistence abstraction** whose default implementation remains `kv-mem` and whose local file-backed implementation is gated and tested separately, once the RocksDB/zstd-sys build story is resolved (e.g., via `LIBCLANG_PATH` or system package).
