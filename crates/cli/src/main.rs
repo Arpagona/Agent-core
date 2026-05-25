@@ -364,6 +364,13 @@ struct MemoryDemoFailureInsightArgs {
     /// When provided, the demo writes the readback state to disk after the in-memory demo succeeds.
     #[arg(long = "snapshot-path")]
     snapshot_path: Option<String>,
+    /// Emit structured JSON instead of human-oriented text.
+    #[arg(long)]
+    json: bool,
+    /// A custom failure description to use instead of the hardcoded default.
+    /// When provided, the demo constructs a FailureInsight from this description.
+    #[arg(long = "description")]
+    description: Option<String>,
 }
 
 #[derive(Debug, Args)]
@@ -1423,16 +1430,9 @@ async fn memory_proposal(
 async fn memory_demo_failure_insight(
     args: MemoryDemoFailureInsightArgs,
 ) -> Result<(), Box<dyn Error>> {
-    let readback = memory_demo_failure_insight_readback(args.inspect_id.clone()).await?;
-
-    // Persist the demo snapshot for cross-invocation readback if requested.
-    if let Some(snapshot_path) = &args.snapshot_path {
-        let json = serde_json::to_value(&readback)?;
-        let snapshot = arpagona_graph_memory::demo_snapshot::FailureInsightDemoSnapshot::new(json);
-        snapshot
-            .write_to_file(snapshot_path)
-            .map_err(|e| format!("Failed to write demo snapshot to '{}': {e}", snapshot_path))?;
-    }
+    let readback =
+        memory_demo_failure_insight_readback(args.inspect_id.clone(), args.description.clone())
+            .await?;
 
     if args.json {
         println!("{}", serde_json::to_string_pretty(&readback)?);
@@ -1475,6 +1475,7 @@ async fn memory_demo_failure_insight(
 
 async fn memory_demo_failure_insight_readback(
     inspect_id: Option<String>,
+    description: Option<String>,
 ) -> Result<MemoryDemoFailureInsightReadback, Box<dyn Error>> {
     let workspace_id = WorkspaceId::new("workspace-demo-failure-insight");
     let task_id = TaskId::new("task-demo-failure-insight");
@@ -1482,9 +1483,27 @@ async fn memory_demo_failure_insight_readback(
     let proposed_action_id = ProposedActionId::new("action-demo-create-failure-insight-memory");
     let failure_insight_id = FailureInsightId::new("insight-demo-governed-learning-loop");
     let created_at = Utc::now();
+
+    let (custom_signal_summary, custom_failure_summary, custom_impact, custom_root_cause, custom_action) = match &description {
+        Some(desc) => (
+            format!("safe bounded FailureInsight learning signal from operator: {desc}"),
+            desc.clone(),
+            format!("Operator reported: {desc}"),
+            format!("Operator provided description: {desc}"),
+            format!("Exercise the governed loop with operator-supplied description: {desc}"),
+        ),
+        None => (
+            "safe bounded FailureInsight learning signal".to_owned(),
+            "Governed FailureInsight learning loop needs repeatable local readback proof.".to_owned(),
+            "Without an end-to-end local demo, operators must infer whether proposal, decision, audit, persistence, and readback remain connected.".to_owned(),
+            "Human supervisors have weaker evidence that approved FailureInsights can be inspected without widening mutation authority.".to_owned(),
+            "Exercise the loop with in-memory Graph Memory and explicit non-authorizing readback output.".to_owned(),
+        ),
+    };
+
     let signal = DetectionSignal::new(
         DetectionSignalType::RuntimeObservation,
-        "Local focus-loop demo observed a safe, bounded FailureInsight learning signal.",
+        &custom_signal_summary,
     );
 
     let base_insight = FailureInsight::new(
@@ -1492,10 +1511,10 @@ async fn memory_demo_failure_insight_readback(
         FailureClass::InsufficientObservability,
         InsightSeverity::Low,
         CorrectionTarget::Memory,
-        "Governed FailureInsight learning loop needs repeatable local readback proof.",
-        "Without an end-to-end local demo, operators must infer whether proposal, decision, audit, persistence, and readback remain connected.",
-        "Human supervisors have weaker evidence that approved FailureInsights can be inspected without widening mutation authority.",
-        "Exercise the loop with in-memory Graph Memory and explicit non-authorizing readback output.",
+        &custom_failure_summary,
+        &custom_impact,
+        &custom_root_cause,
+        &custom_action,
         "Graph Memory / Decision Gate alpha demo",
         signal.clone(),
         0.92,
@@ -1621,9 +1640,9 @@ fn memory_demo_failure_insight_inspection_from_readback(
 }
 
 fn memory_demo_snapshot_read(args: MemoryDemoSnapshotReadArgs) -> Result<(), Box<dyn Error>> {
-    let snapshot = arpagona_graph_memory::demo_snapshot::read_failure_insight_demo_snapshot(
-        &args.snapshot_path,
-    )?;
+    let snapshot =
+        FailureInsightDemoSnapshot::read_from_file(std::path::Path::new(&args.snapshot_path))
+            .map_err(|e| format!("failed to read snapshot: {e}"))?;
 
     if args.json {
         println!("{}", serde_json::to_string_pretty(&snapshot)?);
@@ -3787,9 +3806,36 @@ mod tests {
         }
     }
 
+    #[test]
+    fn cli_parses_memory_demo_failure_insight_with_description() {
+        let cli = Cli::parse_from([
+            "arpagona",
+            "memory",
+            "demo",
+            "failure-insight",
+            "--description",
+            "the proposal lacked a confidence field",
+        ]);
+        match cli.command {
+            Command::Memory(MemoryCommand {
+                command:
+                    MemorySubcommand::Demo(MemoryDemoCommand {
+                        command: MemoryDemoSubcommand::FailureInsight(args),
+                    }),
+            }) => {
+                assert_eq!(
+                    args.description.as_deref(),
+                    Some("the proposal lacked a confidence field")
+                );
+                assert!(!args.json);
+            }
+            _ => panic!("expected memory demo failure-insight with description"),
+        }
+    }
+
     #[tokio::test]
     async fn memory_demo_failure_insight_readback_proves_governed_loop_without_authorizing() {
-        let readback = memory_demo_failure_insight_readback(None)
+        let readback = memory_demo_failure_insight_readback(None, None)
             .await
             .expect("demo readback succeeds");
 
@@ -3824,9 +3870,10 @@ mod tests {
 
     #[tokio::test]
     async fn memory_demo_failure_insight_inspect_id_proves_persisted_artifact_readback() {
-        let readback = memory_demo_failure_insight_readback(Some(
-            "insight-demo-governed-learning-loop".to_owned(),
-        ))
+        let readback = memory_demo_failure_insight_readback(
+            Some("insight-demo-governed-learning-loop".to_owned()),
+            None,
+        )
         .await
         .expect("demo inspection readback succeeds");
 
@@ -3855,7 +3902,7 @@ mod tests {
     #[tokio::test]
     async fn memory_demo_failure_insight_inspect_id_reports_missing_artifact_without_authorizing() {
         let readback =
-            memory_demo_failure_insight_readback(Some("insight-demo-missing".to_owned()))
+            memory_demo_failure_insight_readback(Some("insight-demo-missing".to_owned()), None)
                 .await
                 .expect("demo missing inspection readback succeeds");
 
