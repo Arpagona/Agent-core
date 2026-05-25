@@ -493,7 +493,7 @@ struct MemoryDemoFailureInsightReadback {
 #[derive(Debug, Serialize)]
 struct MemoryDemoSignalReadback {
     signal_type: &'static str,
-    summary: &'static str,
+    summary: String,
     correction_target: &'static str,
     provenance: &'static str,
 }
@@ -1685,7 +1685,7 @@ async fn memory_demo_failure_insight_readback(
     Ok(MemoryDemoFailureInsightReadback {
         signal: MemoryDemoSignalReadback {
             signal_type: "runtime_observation",
-            summary: "safe bounded FailureInsight learning signal",
+            summary: custom_signal_summary,
             correction_target: "memory",
             provenance: "local in-memory demo",
         },
@@ -2172,7 +2172,7 @@ fn format_memory_demo_failure_insight_readback(
     let mut output = String::new();
     push_readback_line(&mut output, &style_info("FailureInsight memory demo"));
     push_readback_field(&mut output, "signal_type:", readback.signal.signal_type);
-    push_readback_field(&mut output, "signal_summary:", readback.signal.summary);
+    push_readback_field(&mut output, "signal_summary:", &readback.signal.summary);
     push_readback_field(
         &mut output,
         "correction_target:",
@@ -4323,6 +4323,69 @@ mod tests {
         assert!(formatted.contains(FAILURE_INSIGHT_DEMO_COMMAND));
         assert!(formatted.contains("repeatable_demo_recipe"));
         assert!(formatted.contains("Readback only"));
+    }
+
+    #[tokio::test]
+    async fn memory_demo_description_propagates_through_governed_loop_signal_to_readback() {
+        // End-to-end proof that operator-supplied --description text flows through the full
+        // governed path: signal -> proposal -> DecisionGate -> audit -> persistence -> readback.
+        // Asserts the custom description appears in both the signal summary and the inspected
+        // FailureInsight fields. This is the functional-alpha chain's description propagation proof.
+        let custom_desc = "custom test governed loop description";
+        let readback = memory_demo_failure_insight_readback(
+            Some("insight-demo-governed-learning-loop".to_owned()),
+            Some(custom_desc.to_owned()),
+        )
+        .await
+        .expect("demo readback with description succeeds");
+
+        // 1. Signal summary reflects the custom description
+        assert!(
+            readback.signal.summary.contains(custom_desc),
+            "signal summary should contain custom description: expected to contain '{}', got '{}'",
+            custom_desc,
+            readback.signal.summary
+        );
+
+        // 2. The full governed path still works with description (decision approved, persisted)
+        assert_eq!(readback.memory_write_kind, "create_failure_insight_memory");
+        assert_eq!(readback.decision_status, "approved");
+        assert!(readback.readback_found, "readback_found should be true");
+        assert_eq!(
+            readback.persisted_failure_insight_id.as_deref(),
+            Some("insight-demo-governed-learning-loop")
+        );
+        assert_eq!(readback.readback_audit_event_count, 1);
+        assert_eq!(readback.readback_relation_count, 2);
+
+        // 3. Inspected FailureInsight summary also contains the custom description
+        let inspection = readback
+            .inspected_failure_insight
+            .as_ref()
+            .expect("requested inspection is included when inspect_id is provided");
+        assert!(inspection.found);
+        assert_eq!(
+            inspection.inspected_failure_insight_id.as_deref(),
+            Some("insight-demo-governed-learning-loop")
+        );
+        assert!(
+            inspection
+                .summary
+                .as_deref()
+                .unwrap_or("")
+                .contains(custom_desc),
+            "inspected FailureInsight summary should contain custom description: got '{:?}'",
+            inspection.summary
+        );
+
+        // 4. Formatted text readback also contains the description
+        let formatted = format_memory_demo_failure_insight_readback(&readback);
+        assert!(formatted.contains(custom_desc));
+
+        // 5. Warning and evidence-only guards remain present despite custom description
+        assert!(readback.readback_warning.contains("Readback only"));
+        assert!(readback.warning.contains("Local demo only"));
+        assert!(inspection.warning.contains("Readback only"));
     }
 
     #[tokio::test]

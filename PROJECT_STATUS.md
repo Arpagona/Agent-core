@@ -513,4 +513,44 @@ Alpha experimental. All 3 tools are proven by unit tests (13 tests in tool-runti
 
 ### Recommended next step
 
-Connect `ToolExecutionResult` to the Audit system and Failure-to-Insight pipeline, so that failed observations automatically produce candidate `FailureInsight` records. Then add the `search_text` and `list_files` results to the Working Memory / Reservoir vocabulary for context-grounded agent behaviour.
+## Latest Session Update (2026-05-25 — E2E description-propagation governed-loop integration test)
+
+This session proved that operator-supplied `--description` text flows through the full governed FailureInsight learning loop (signal → proposal → DecisionGate → audit → persistence → readback) and appears in both the signal summary and the inspected FailureInsight fields.
+
+Changed:
+- Changed `MemoryDemoSignalReadback.summary` from `&'static str` to `String` so it can carry dynamic operator-supplied content instead of the hardcoded static string.
+- Wired `custom_signal_summary` into the readback struct's `signal.summary` field, so `--description` text is reflected in the signal-level readback.
+- Added `memory_demo_description_propagates_through_governed_loop_signal_to_readback` integration test that:
+  1. Calls `memory_demo_failure_insight_readback` with both `inspect_id` and a custom description;
+  2. Asserts the custom description appears in `signal.summary`;
+  3. Asserts the full governed path still works (decision approved, fact persisted, readback found);
+  4. Asserts the inspected FailureInsight summary contains the custom description;
+  5. Asserts the formatted text readback contains the description;
+  6. Asserts warning/evidence-only guards remain present despite custom input.
+
+Files changed:
+- `crates/cli/src/main.rs` — struct type change, signal-summary wiring, new integration test
+
+Verification:
+- `cargo fmt -- --check`: clean
+- `cargo check`: clean
+- `cargo test`: 167 tests pass, including the new `memory_demo_description_propagates_through_governed_loop_signal_to_readback` test
+- Manual CLI demo: `cargo run -- memory demo failure-insight --json --description "..."` shows the description in signal.summary
+
+Stability level: alpha CLI demo/readback. The `--description` flag is a read-only input to an already-bounded local demo; the signal.summary field change makes it visible in the readback output where it was previously invisible.
+
+Limits:
+- no broad CLI mutation command was added;
+- no API endpoint was added;
+- no new Graph Memory persistence helper was added;
+- no Decision Gate behavior was changed;
+- no SurrealDB backend change was made;
+- no LLM/provider/runtime direct memory mutation was added;
+- no real tool execution was introduced;
+- no scheduler, autonomy, MCP, browser automation, credential handling or Mission Control Web growth was introduced;
+- readback remains evidence only and must not be treated as authorization.
+
+Architectural risk:
+- low. The signal.summary type change from `&'static str` to `String` is a bounded internal change that only affects the readback output for the existing `--description` flag, which was already implemented but produced invisible output. All existing tests continue to pass without modification.
+
+Recommended next step: add a cross-invocation integration test that proves the `--description` text survives through the demo snapshot path (failure-insight --json --snapshot-path → separate process snapshot-read --json → description field visible in readback).
