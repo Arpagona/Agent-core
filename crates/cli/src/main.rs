@@ -10,6 +10,7 @@ use arpagona_graph_memory::{
     demo_snapshot::{FailureInsightDemoSnapshot, EVIDENCE_ONLY_TOKEN},
     in_memory_graph_memory_store, AsyncGraphMemoryStore, GRAPH_MEMORY_SCHEMA,
 };
+use arpagona_tool_runtime::{ToolRuntime, ToolRuntimeConfig};
 use chrono::Utc;
 use clap::{Args, Parser, Subcommand, ValueEnum};
 use reqwest::Client;
@@ -68,6 +69,8 @@ enum Command {
     Insight(InsightCommand),
     /// Inspect Graph Memory alpha status and readback conventions.
     Memory(MemoryCommand),
+    /// Inspect and demo the alpha read-only cognitive tool runtime.
+    Tool(ToolCommand),
 }
 
 #[derive(Debug, Args)]
@@ -377,6 +380,89 @@ struct MemoryDemoFailureInsightArgs {
 struct MemoryDemoSnapshotReadArgs {
     /// Path to the demo snapshot JSON file to read.
     snapshot_path: String,
+    /// Emit structured JSON instead of human-oriented text.
+    #[arg(long)]
+    json: bool,
+}
+
+// ---------------------------------------------------------------------------
+// Tool — alpha read-only tool runtime demo commands
+// ---------------------------------------------------------------------------
+
+#[derive(Debug, Args)]
+struct ToolCommand {
+    #[command(subcommand)]
+    command: ToolSubcommand,
+}
+
+#[derive(Debug, Subcommand)]
+enum ToolSubcommand {
+    /// List all available tools in the alpha runtime.
+    List(ToolListArgs),
+    /// Show detailed information about a specific tool.
+    Inspect(ToolInspectArgs),
+    /// Run a read-only demo tool execution.
+    Demo(ToolDemoCommand),
+}
+
+#[derive(Debug, Args)]
+struct ToolListArgs {
+    /// Emit structured JSON instead of human-oriented text.
+    #[arg(long)]
+    json: bool,
+}
+
+#[derive(Debug, Args)]
+struct ToolInspectArgs {
+    /// Name of the tool to inspect.
+    tool_name: String,
+    /// Emit structured JSON instead of human-oriented text.
+    #[arg(long)]
+    json: bool,
+}
+
+#[derive(Debug, Args)]
+struct ToolDemoCommand {
+    #[command(subcommand)]
+    command: ToolDemoSubcommand,
+}
+
+#[derive(Debug, Subcommand)]
+enum ToolDemoSubcommand {
+    /// Demo the read_file tool.
+    ReadFile(ToolDemoReadFileArgs),
+    /// Demo the list_files tool.
+    ListFiles(ToolDemoListFilesArgs),
+    /// Demo the search_text tool.
+    SearchText(ToolDemoSearchTextArgs),
+}
+
+#[derive(Debug, Args)]
+struct ToolDemoReadFileArgs {
+    /// Path to the file to read (relative to workspace).
+    path: String,
+    /// Emit structured JSON instead of human-oriented text.
+    #[arg(long)]
+    json: bool,
+}
+
+#[derive(Debug, Args)]
+struct ToolDemoListFilesArgs {
+    /// Path to the directory to list (relative to workspace, default: .).
+    #[arg(default_value = ".")]
+    path: String,
+    /// Emit structured JSON instead of human-oriented text.
+    #[arg(long)]
+    json: bool,
+}
+
+#[derive(Debug, Args)]
+struct ToolDemoSearchTextArgs {
+    /// Text to search for.
+    query: String,
+    /// Path to search in (relative to workspace, default: .).
+    #[arg(default_value = ".")]
+    path: String,
     /// Emit structured JSON instead of human-oriented text.
     #[arg(long)]
     json: bool,
@@ -866,6 +952,15 @@ async fn run() -> Result<(), Box<dyn Error>> {
                     memory_demo_failure_insight(args).await?
                 }
                 MemoryDemoSubcommand::SnapshotRead(args) => memory_demo_snapshot_read(args)?,
+            },
+        },
+        Command::Tool(tool) => match tool.command {
+            ToolSubcommand::List(args) => tool_list(args)?,
+            ToolSubcommand::Inspect(args) => tool_inspect(args)?,
+            ToolSubcommand::Demo(demo) => match demo.command {
+                ToolDemoSubcommand::ReadFile(args) => tool_demo_read_file(args)?,
+                ToolDemoSubcommand::ListFiles(args) => tool_demo_list_files(args)?,
+                ToolDemoSubcommand::SearchText(args) => tool_demo_search_text(args)?,
             },
         },
     }
@@ -1673,6 +1768,368 @@ fn memory_demo_snapshot_read(args: MemoryDemoSnapshotReadArgs) -> Result<(), Box
         output.push_str(&truncated);
         output.push('\n');
         print!("{output}");
+    }
+    Ok(())
+}
+
+// ---------------------------------------------------------------------------
+// Tool runtime command implementations — alpha, read-only, local-only
+// ---------------------------------------------------------------------------
+
+const DEMO_TOOL_WARNING: &str = "⚠️  Alpha demo tool runtime — local read-only execution only. No authorization, no governance bypass. ⚠️";
+
+fn tool_list(args: ToolListArgs) -> Result<(), Box<dyn Error>> {
+    let tools = vec![
+        (
+            "read_file",
+            "Read a file within the workspace",
+            "Perception / Inspection",
+        ),
+        (
+            "list_files",
+            "List files and directories in a workspace path",
+            "Perception",
+        ),
+        (
+            "search_text",
+            "Search for text patterns in workspace files",
+            "Inspection",
+        ),
+    ];
+
+    if args.json {
+        let output: Vec<serde_json::Value> = tools
+            .iter()
+            .map(|(name, desc, role)| {
+                serde_json::json!({
+                    "name": name,
+                    "description": desc,
+                    "cognitive_role": role,
+                    "read_only": true,
+                    "alpha": true,
+                })
+            })
+            .collect();
+        println!("{}", serde_json::to_string_pretty(&output)?);
+    } else {
+        println!("{DEMO_TOOL_WARNING}");
+        println!();
+        println!("Available tools (alpha read-only runtime):");
+        println!();
+        for (name, desc, role) in &tools {
+            println!("  {name}");
+            println!("    Description:  {desc}");
+            println!("    Cognitive role: {role}");
+            println!("    Read-only:    yes");
+            println!("    Alpha:        yes");
+            println!();
+        }
+        println!("Use 'arpagona tool inspect <name>' for details.");
+        println!("Use 'arpagona tool demo <name>' to execute.");
+    }
+    Ok(())
+}
+
+fn tool_inspect(args: ToolInspectArgs) -> Result<(), Box<dyn Error>> {
+    let _runtime = ToolRuntime::new(ToolRuntimeConfig::new("."));
+
+    match args.tool_name.as_str() {
+        "read_file" => {
+            let info = serde_json::json!({
+                "name": "read_file",
+                "description": "Read a file within the workspace",
+                "cognitive_role": ["Perception", "Inspection"],
+                "read_only": true,
+                "alpha": true,
+                "arguments": {
+                    "path": {
+                        "type": "string",
+                        "description": "Path to the file (relative to workspace)",
+                        "required": true
+                    }
+                },
+                "security": {
+                    "absolute_paths": "blocked",
+                    "parent_traversal": "blocked",
+                    "sensitive_files": "blocked (.env, .ssh, id_rsa, id_ed25519)",
+                    "max_file_size": "1 MiB"
+                },
+                "workspace": "current directory"
+            });
+            if args.json {
+                println!("{}", serde_json::to_string_pretty(&info)?);
+            } else {
+                println!("{DEMO_TOOL_WARNING}");
+                println!();
+                println!("Tool: read_file");
+                println!("  Description:   Read a file within the workspace");
+                println!("  Cognitive role: Perception, Inspection");
+                println!("  Read-only:     yes");
+                println!("  Workspace:     current directory");
+                println!();
+                println!("Arguments:");
+                println!("  path (required): Path to the file (relative to workspace)");
+                println!();
+                println!("Security:");
+                println!("  Absolute paths:           blocked");
+                println!("  Parent traversal (..):    blocked");
+                println!("  Sensitive files:          blocked (.env, .ssh, id_rsa, id_ed25519)");
+                println!("  Max file size:            1 MiB");
+            }
+        }
+        "list_files" => {
+            let info = serde_json::json!({
+                "name": "list_files",
+                "description": "List files and directories in a workspace path",
+                "cognitive_role": ["Perception"],
+                "read_only": true,
+                "alpha": true,
+                "arguments": {
+                    "path": {
+                        "type": "string",
+                        "description": "Directory path (relative to workspace, default: .)",
+                        "required": false,
+                        "default": "."
+                    }
+                },
+                "security": {
+                    "ignored_dirs": ".git, target, node_modules, .env, .ssh",
+                    "max_results": 200,
+                    "max_depth": 5
+                },
+                "workspace": "current directory"
+            });
+            if args.json {
+                println!("{}", serde_json::to_string_pretty(&info)?);
+            } else {
+                println!("{DEMO_TOOL_WARNING}");
+                println!();
+                println!("Tool: list_files");
+                println!("  Description:   List files and directories in a workspace path");
+                println!("  Cognitive role: Perception");
+                println!("  Read-only:     yes");
+                println!("  Workspace:     current directory");
+                println!();
+                println!("Arguments:");
+                println!("  path (optional): Directory path (default: .)");
+                println!();
+                println!("Security:");
+                println!("  Ignored directories: .git, target, node_modules, .env, .ssh");
+                println!("  Max results:         200");
+                println!("  Max directory depth: 5");
+            }
+        }
+        "search_text" => {
+            let info = serde_json::json!({
+                "name": "search_text",
+                "description": "Search for text patterns in workspace files",
+                "cognitive_role": ["Inspection"],
+                "read_only": true,
+                "alpha": true,
+                "arguments": {
+                    "query": {
+                        "type": "string",
+                        "description": "Text to search for",
+                        "required": true
+                    },
+                    "path": {
+                        "type": "string",
+                        "description": "Directory to search (relative to workspace, default: .)",
+                        "required": false,
+                        "default": "."
+                    }
+                },
+                "security": {
+                    "ignored_dirs": ".git, target, node_modules, .env, .ssh",
+                    "max_results": 100,
+                    "max_file_size": "500 KiB"
+                },
+                "workspace": "current directory"
+            });
+            if args.json {
+                println!("{}", serde_json::to_string_pretty(&info)?);
+            } else {
+                println!("{DEMO_TOOL_WARNING}");
+                println!();
+                println!("Tool: search_text");
+                println!("  Description:   Search for text patterns in workspace files");
+                println!("  Cognitive role: Inspection");
+                println!("  Read-only:     yes");
+                println!("  Workspace:     current directory");
+                println!();
+                println!("Arguments:");
+                println!("  query (required): Text to search for");
+                println!("  path (optional):  Directory to search (default: .)");
+                println!();
+                println!("Security:");
+                println!("  Ignored directories: .git, target, node_modules, .env, .ssh");
+                println!("  Max results:         100");
+                println!("  Max file size:       500 KiB");
+            }
+        }
+        other => {
+            return Err(format!(
+                "Unknown tool: {other}. Use 'arpagona tool list' to see available tools."
+            )
+            .into());
+        }
+    }
+    Ok(())
+}
+
+fn tool_demo_read_file(args: ToolDemoReadFileArgs) -> Result<(), Box<dyn Error>> {
+    let config = ToolRuntimeConfig::new(".");
+    let runtime = ToolRuntime::new(config);
+
+    let result = runtime.execute("read_file", &serde_json::json!({"path": args.path}));
+
+    if args.json {
+        println!("{}", serde_json::to_string_pretty(&result)?);
+    } else {
+        println!("{DEMO_TOOL_WARNING}");
+        println!();
+        println!("🧰 Tool demo: read_file");
+        println!("   Path: {}", args.path);
+        println!();
+        match result.status {
+            arpagona_agent_core::ToolExecutionStatus::Success => {
+                println!("✅ Status: Success");
+                println!("   {}", result.output_summary);
+                println!();
+                let payload = &result.observation.payload;
+                if let Some(preview) = payload["content_preview"].as_str() {
+                    println!("Preview (first 500 chars):");
+                    println!("{}", preview);
+                }
+            }
+            arpagona_agent_core::ToolExecutionStatus::Blocked => {
+                println!("🔒 Status: Blocked (security)");
+                if let Some(error) = &result.error {
+                    println!("   Reason: {}", error.message);
+                }
+            }
+            arpagona_agent_core::ToolExecutionStatus::Failed => {
+                println!("❌ Status: Failed");
+                if let Some(error) = &result.error {
+                    println!("   Error: {}", error.message);
+                }
+            }
+            arpagona_agent_core::ToolExecutionStatus::Warning => {
+                println!("⚠️  Status: Warning");
+                println!("   {}", result.output_summary);
+            }
+            arpagona_agent_core::ToolExecutionStatus::Skipped => {
+                println!("⏭️  Status: Skipped");
+            }
+        }
+        println!();
+        println!("Full result available with --json");
+    }
+    Ok(())
+}
+
+fn tool_demo_list_files(args: ToolDemoListFilesArgs) -> Result<(), Box<dyn Error>> {
+    let config = ToolRuntimeConfig::new(".");
+    let runtime = ToolRuntime::new(config);
+
+    let result = runtime.execute("list_files", &serde_json::json!({"path": args.path}));
+
+    if args.json {
+        println!("{}", serde_json::to_string_pretty(&result)?);
+    } else {
+        println!("{DEMO_TOOL_WARNING}");
+        println!();
+        println!("🧰 Tool demo: list_files");
+        println!("   Path: {}", args.path);
+        println!();
+        match result.status {
+            arpagona_agent_core::ToolExecutionStatus::Success
+            | arpagona_agent_core::ToolExecutionStatus::Warning => {
+                println!(
+                    "✅ Status: {}",
+                    if result.status == arpagona_agent_core::ToolExecutionStatus::Success {
+                        "Success"
+                    } else {
+                        "Warning (truncated)"
+                    }
+                );
+                println!("   {}", result.output_summary);
+                println!();
+                let payload = &result.observation.payload;
+                if let Some(entries) = payload["entries"].as_array() {
+                    for entry in entries {
+                        let name = entry["name"].as_str().unwrap_or("?");
+                        let is_dir = entry["is_directory"].as_bool().unwrap_or(false);
+                        let icon = if is_dir { "📁" } else { "📄" };
+                        println!("   {icon} {name}");
+                    }
+                }
+            }
+            arpagona_agent_core::ToolExecutionStatus::Failed => {
+                println!("❌ Status: Failed");
+                if let Some(error) = &result.error {
+                    println!("   Error: {}", error.message);
+                }
+            }
+            _ => {}
+        }
+        println!();
+        println!("Full result available with --json");
+    }
+    Ok(())
+}
+
+fn tool_demo_search_text(args: ToolDemoSearchTextArgs) -> Result<(), Box<dyn Error>> {
+    let config = ToolRuntimeConfig::new(".");
+    let runtime = ToolRuntime::new(config);
+
+    let result = runtime.execute(
+        "search_text",
+        &serde_json::json!({"query": args.query, "path": args.path}),
+    );
+
+    if args.json {
+        println!("{}", serde_json::to_string_pretty(&result)?);
+    } else {
+        println!("{DEMO_TOOL_WARNING}");
+        println!();
+        println!("🧰 Tool demo: search_text");
+        println!("   Query: {}", args.query);
+        println!("   Path: {}", args.path);
+        println!();
+        match result.status {
+            arpagona_agent_core::ToolExecutionStatus::Success
+            | arpagona_agent_core::ToolExecutionStatus::Warning => {
+                let status_label =
+                    if result.status == arpagona_agent_core::ToolExecutionStatus::Success {
+                        "Success"
+                    } else {
+                        "Warning (truncated)"
+                    };
+                println!("✅ Status: {status_label}");
+                println!("   {}", result.output_summary);
+                println!();
+                let payload = &result.observation.payload;
+                if let Some(matches) = payload["matches"].as_array() {
+                    for m in matches {
+                        let file = m["file"].as_str().unwrap_or("?");
+                        let line = m["line"].as_u64().unwrap_or(0);
+                        let snippet = m["snippet"].as_str().unwrap_or("");
+                        println!("   📄 {file}:{line}");
+                        println!("      {snippet}");
+                        println!();
+                    }
+                }
+            }
+            arpagona_agent_core::ToolExecutionStatus::Failed => {
+                println!("❌ Status: Failed");
+                if let Some(error) = &result.error {
+                    println!("   Error: {}", error.message);
+                }
+            }
+            _ => {}
+        }
+        println!("Full result available with --json");
     }
     Ok(())
 }

@@ -40,12 +40,101 @@ pub enum ToolKind {
 #[serde(rename_all = "snake_case")]
 pub enum ToolCapability {
     ReadOnlyLookup,
+    ReadFile,
+    ListFiles,
+    SearchText,
     DataTransformation,
     HumanNotificationDraft,
     FileReadDeclaration,
     FileWriteDeclaration,
     NetworkRequestDeclaration,
     ExternalServiceDeclaration,
+    ShellAccess,
+    EmailSend,
+    BrowserAutomation,
+    MCPAccess,
+}
+
+/// Cognitive role a tool can play in the agent loop.
+///
+/// These roles separate *what a tool does* (its kind/capability) from
+/// *why it is used* (its cognitive role). The same tool could serve
+/// Perception today and Validation tomorrow depending on context.
+///
+/// The following roles are considered safe for alpha read-only execution:
+/// - Perception
+/// - Inspection
+/// - Validation
+///
+/// These roles exist as concepts but must remain **non-executable** in the
+/// current alpha tool runtime:
+/// - Transformation
+/// - Execution
+/// - Communication
+#[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ToolCognitiveRole {
+    /// Observe the environment (list files, read metadata).
+    Perception,
+    /// Retrieve previously stored information.
+    Recall,
+    /// Inspect content in detail (read file content, search text).
+    Inspection,
+    /// Modify or transform data (write files, rename).
+    Transformation,
+    /// Verify assumptions or assert invariants.
+    Validation,
+    /// Execute a side-effecting operation.
+    Execution,
+    /// Send messages, notifications, emails.
+    Communication,
+    /// Reflect on execution outcomes.
+    Reflection,
+}
+
+impl ToolCognitiveRole {
+    /// Whether this role is safe for alpha read-only execution.
+    pub fn is_safe_for_read_only(&self) -> bool {
+        matches!(
+            self,
+            ToolCognitiveRole::Perception
+                | ToolCognitiveRole::Inspection
+                | ToolCognitiveRole::Validation
+        )
+    }
+
+    /// Whether this role is currently non-executable by design.
+    pub fn is_non_executable(&self) -> bool {
+        matches!(
+            self,
+            ToolCognitiveRole::Transformation
+                | ToolCognitiveRole::Execution
+                | ToolCognitiveRole::Communication
+        )
+    }
+}
+
+/// Risk profile for a tool declaration.
+///
+/// This is a declarative annotation that helps tool selection and audit.
+/// It does not authorise execution or bypass the Decision Gate.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ToolRiskProfile {
+    pub default_risk: ToolRiskLevel,
+    pub requires_human_approval: bool,
+    pub requires_decision_gate: bool,
+    pub audit_required: bool,
+}
+
+impl Default for ToolRiskProfile {
+    fn default() -> Self {
+        Self {
+            default_risk: ToolRiskLevel::Low,
+            requires_human_approval: false,
+            requires_decision_gate: true,
+            audit_required: true,
+        }
+    }
 }
 
 /// Declarative schema bundle for a tool.
@@ -93,6 +182,8 @@ pub struct RegisteredTool {
     pub definition: ToolDefinition,
     pub kind: ToolKind,
     pub capabilities: Vec<ToolCapability>,
+    pub cognitive_role: Option<ToolCognitiveRole>,
+    pub risk_profile: Option<ToolRiskProfile>,
     pub schema: ToolSchema,
     pub governance: ToolGovernance,
     pub tags: Vec<String>,
@@ -100,11 +191,19 @@ pub struct RegisteredTool {
 }
 
 impl RegisteredTool {
-    pub fn new(definition: ToolDefinition, kind: ToolKind, schema: ToolSchema) -> Self {
+    pub fn new(
+        definition: ToolDefinition,
+        kind: ToolKind,
+        schema: ToolSchema,
+        cognitive_role: Option<ToolCognitiveRole>,
+        risk_profile: Option<ToolRiskProfile>,
+    ) -> Self {
         Self {
             definition,
             kind,
             capabilities: Vec::new(),
+            cognitive_role,
+            risk_profile,
             schema,
             governance: ToolGovernance::default(),
             tags: Vec::new(),
@@ -250,6 +349,8 @@ pub fn declare_tool(
     schema: ToolSchema,
     required_permissions: Vec<ToolPermission>,
     default_risk_level: ToolRiskLevel,
+    cognitive_role: Option<ToolCognitiveRole>,
+    risk_profile: Option<ToolRiskProfile>,
 ) -> RegisteredTool {
     RegisteredTool::new(
         ToolDefinition {
@@ -262,6 +363,8 @@ pub fn declare_tool(
         },
         kind,
         schema,
+        cognitive_role,
+        risk_profile,
     )
 }
 
@@ -297,6 +400,13 @@ mod tests {
             schema(),
             Vec::new(),
             RiskLevel::Low,
+            Some(ToolCognitiveRole::Recall),
+            Some(ToolRiskProfile {
+                default_risk: ToolRiskLevel::Low,
+                requires_human_approval: false,
+                requires_decision_gate: true,
+                audit_required: true,
+            }),
         );
         tool.definition.status = status;
         tool.capabilities = vec![ToolCapability::ReadOnlyLookup];
@@ -398,5 +508,78 @@ mod tests {
         assert!(!encoded.contains("scheduler"));
         assert!(!encoded.contains("mcp"));
         assert!(!encoded.contains("browser"));
+    }
+
+    #[test]
+    fn read_only_tool_can_have_perception_role() {
+        let tool = RegisteredTool::new(
+            ToolDefinition {
+                id: ToolId::new("read_file"),
+                name: "Read file".to_owned(),
+                description: "Read a file in workspace".to_owned(),
+                required_permissions: vec![],
+                default_risk_level: RiskLevel::Low,
+                status: ToolStatus::Available,
+            },
+            ToolKind::FileOperation,
+            schema(),
+            Some(ToolCognitiveRole::Perception),
+            Some(ToolRiskProfile::default()),
+        );
+
+        assert!(tool.cognitive_role.is_some());
+        assert_eq!(tool.cognitive_role.unwrap(), ToolCognitiveRole::Perception);
+    }
+
+    #[test]
+    fn dangerous_tool_can_exist_as_concept_but_remain_non_executable() {
+        let write_tool = ToolCognitiveRole::Transformation;
+        let exec_tool = ToolCognitiveRole::Execution;
+        let comm_tool = ToolCognitiveRole::Communication;
+
+        assert!(write_tool.is_non_executable());
+        assert!(exec_tool.is_non_executable());
+        assert!(comm_tool.is_non_executable());
+    }
+
+    #[test]
+    fn safe_roles_are_marked_read_only_ready() {
+        assert!(ToolCognitiveRole::Perception.is_safe_for_read_only());
+        assert!(ToolCognitiveRole::Inspection.is_safe_for_read_only());
+        assert!(ToolCognitiveRole::Validation.is_safe_for_read_only());
+    }
+
+    #[test]
+    fn unsafe_roles_are_not_marked_read_only_ready() {
+        assert!(!ToolCognitiveRole::Transformation.is_safe_for_read_only());
+        assert!(!ToolCognitiveRole::Execution.is_safe_for_read_only());
+        assert!(!ToolCognitiveRole::Communication.is_safe_for_read_only());
+    }
+
+    #[test]
+    fn registry_does_not_produce_authorization() {
+        let tool = RegisteredTool::new(
+            ToolDefinition {
+                id: ToolId::new("search_text"),
+                name: "Search text".to_owned(),
+                description: "Search text in workspace files".to_owned(),
+                required_permissions: vec![],
+                default_risk_level: RiskLevel::Low,
+                status: ToolStatus::Available,
+            },
+            ToolKind::DataLookup,
+            schema(),
+            Some(ToolCognitiveRole::Inspection),
+            None,
+        );
+        let mut registry = ToolRegistry::new();
+        registry.register(tool).expect("tool should register");
+
+        let lookup = registry.lookup(&ToolId::new("search_text"));
+
+        assert_eq!(lookup.status, ToolLookupStatus::Found);
+        assert!(!lookup.reason.contains("approved"));
+        assert!(!lookup.reason.contains("executed"));
+        assert!(lookup.reason.contains("does not approve"));
     }
 }

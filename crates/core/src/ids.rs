@@ -51,5 +51,6 @@ id_type!(PolicyId);
 id_type!(ProposedActionId);
 id_type!(SourceId);
 id_type!(TaskId);
+id_type!(ToolExecutionId);
 id_type!(ToolId);
 id_type!(WorkspaceId);
