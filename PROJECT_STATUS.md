@@ -440,3 +440,33 @@ Architectural risk:
 - low. The `--description` flag is pure CLI input parsing. The demo uses `FailureInsight::new()` which is a pure domain constructor with no side effects. All existing tests continue to pass without modification (the `None` default preserves backward compatibility).
 
 Recommended next step: add an end-to-end integration test proving that `--description` text flows through the full governed path (signal → proposal → decision → audit → persistence → readback) and appears in the readback output.
+
+## 13. Latest Session Update
+
+This session added a self-contained `arpagona memory demo governed-loop` CLI command that runs the full governed FailureInsight learning loop end-to-end in one command and prints the chain (signal → proposal → decision → audit → persistence → readback) including any operator-supplied `--description`.
+
+Changed:
+- Added `GovernedLoop(MemoryDemoGovernedLoopArgs)` variant to `MemoryDemoSubcommand` enum
+- Added `MemoryDemoGovernedLoopArgs` struct with `--json` and `--description` flags (reuses the existing `MemoryDemoGovernedLoopArgs` struct pattern and the existing `memory_demo_failure_insight_readback` core logic)
+- Added `memory_demo_governed_loop` async function that calls `memory_demo_failure_insight_readback` and formats output as an operator-friendly tree of the functional alpha chain
+- Added `cli_parses_memory_demo_governed_loop` parser test (4 sub-cases: basic, --json, --description, both)
+- Formatting uses tree markers (├─/└─), status-colored labels (READBACK_OK, approved), and dim hints
+
+Stability level: alpha CLI demo command. The governed-loop command reuses the existing governed FailureInsight demo logic (`memory_demo_failure_insight_readback`) with a new operator-facing command name and output formatting. It does not add mutation, authorization, persistence, or external effects.
+
+Limits:
+- no broad CLI mutation command was added;
+- no API endpoint was added;
+- no new Graph Memory persistence helper was added;
+- no Decision Gate behavior was changed;
+- no SurrealDB backend change was made;
+- no LLM/provider/runtime direct memory mutation was added;
+- no real tool execution was introduced;
+- no destructive capability was added;
+- no scheduler, autonomy, MCP, browser automation, credential handling or Mission Control Web growth was introduced;
+- readback remains evidence only and must not be treated as authorization.
+
+Architectural risk:
+- low. The governed-loop command is a thin wrapper around the existing `memory_demo_failure_insight_readback`. The `--description` flag is handled by the existing args struct and core logic. All 144 workspace tests continue to pass without modification.
+
+Recommended next step: add an end-to-end async test verifying that `--description` text propagates through the `governed-loop` path and appears in the FailureInsight readback fields.

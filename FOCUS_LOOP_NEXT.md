@@ -8,11 +8,11 @@ This file does not override safety, governance, `PROJECT_OBJECTIVES.md`, `PROJEC
 
 ## Current next-pass instruction
 
-Next pass should: add an end-to-end integration test proving that `--description` text flows through the full governed path (signal → proposal → decision → audit → persistence → readback) and appears in the readback output.
+Next pass should: add an end-to-end async test proving the `governed-loop` command's `--description` text flows through the full chain and appears in the readback output.
 
-Why: the `--description` flag was added this session, but there is no test verifying that operator-supplied text actually propagates through the full FailureInsight → ProposedAction → Decision Gate → Audit → persistence → readback chain. The parser test only verifies CLI argument parsing.
+Why: the `--description` flag is supported by the `governed-loop` command and flows through `memory_demo_failure_insight_readback`, but there is no test verifying that operator-supplied text propagates through the full FailureInsight → ProposedAction → Decision Gate → Audit → persistence → readback chain when invoked via the governed-loop CLI path.
 
-Proof to seek: a new test in the existing `#[cfg(test)] mod tests {}` block in `main.rs` that calls `memory_demo_failure_insight_readback(Some("inspect-id"), Some("custom description"))` and asserts the readback JSON/text contains the custom description in the signal summary, failure summary, and relevant fields.
+Proof to seek: a new async test in `main.rs` that calls `memory_demo_governed_loop` (or `memory_demo_failure_insight_readback(None, Some("custom description"))`) and asserts the custom description appears in the FailureInsight fields of the persisted readback.
 
 Do not: add broad autonomous memory writing, provider/runtime direct memory mutation, external effects, scheduler expansion, Mission Control Web, MCP/browser automation, personal/sensitive memory, readback-as-authorization behavior, or always-on native/unstable backend requirements.
 

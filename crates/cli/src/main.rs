@@ -323,6 +323,9 @@ enum MemoryDemoSubcommand {
     FailureInsight(MemoryDemoFailureInsightArgs),
     /// Read a FailureInsight demo snapshot from a JSON file for cross-invocation inspection.
     SnapshotRead(MemoryDemoSnapshotReadArgs),
+    /// Run the full governed FailureInsight learning loop end-to-end in one command.
+    /// Prints the chain: signal -> proposal -> decision -> audit -> persistence -> readback.
+    GovernedLoop(MemoryDemoGovernedLoopArgs),
 }
 
 #[derive(Debug, Args)]
@@ -380,6 +383,17 @@ struct MemoryDemoSnapshotReadArgs {
     /// Emit structured JSON instead of human-oriented text.
     #[arg(long)]
     json: bool,
+}
+
+#[derive(Debug, Args)]
+struct MemoryDemoGovernedLoopArgs {
+    /// Emit structured JSON instead of human-oriented text.
+    #[arg(long)]
+    json: bool,
+    /// A custom failure description to use instead of the hardcoded default.
+    /// When provided, the governed loop constructs a FailureInsight from this description.
+    #[arg(long = "description")]
+    description: Option<String>,
 }
 
 #[derive(Debug, Serialize)]
@@ -866,6 +880,7 @@ async fn run() -> Result<(), Box<dyn Error>> {
                     memory_demo_failure_insight(args).await?
                 }
                 MemoryDemoSubcommand::SnapshotRead(args) => memory_demo_snapshot_read(args)?,
+                MemoryDemoSubcommand::GovernedLoop(args) => memory_demo_governed_loop(args).await?,
             },
         },
     }
@@ -1807,6 +1822,61 @@ fn format_memory_demo_failure_insight_readback(
     push_readback_line(&mut output, &style_dim(readback.readback_warning));
     push_readback_line(&mut output, &style_dim(readback.warning));
     output
+}
+
+async fn memory_demo_governed_loop(args: MemoryDemoGovernedLoopArgs) -> Result<(), Box<dyn Error>> {
+    let readback = memory_demo_failure_insight_readback(None, args.description.clone()).await?;
+
+    if args.json {
+        println!("{}", serde_json::to_string_pretty(&readback)?);
+    } else {
+        let mut output = String::new();
+        push_readback_line(
+            &mut output,
+            &style_info("Governed FailureInsight Learning Loop"),
+        );
+        output.push('\n');
+        output.push_str(&format!(
+            "{ANSI_BOLD}Functional alpha chain achieved:{ANSI_RESET}\n"
+        ));
+        for (i, step) in readback.functional_alpha_chain.iter().enumerate() {
+            let marker = if i < readback.functional_alpha_chain.len() - 1 {
+                "├─"
+            } else {
+                "└─"
+            };
+            output.push_str(&format!("  {} {}\n", marker, style_dim(step)));
+        }
+        output.push('\n');
+        output.push_str(&format!(
+            "{ANSI_BOLD}Result:{ANSI_RESET} {} / {}\n",
+            style_status(if readback.readback_found {
+                "READBACK_OK"
+            } else {
+                "READBACK_MISSING"
+            },),
+            style_dim(&format!(
+                "audit_events={}, relations={}",
+                readback.readback_audit_event_count, readback.readback_relation_count,
+            )),
+        ));
+        output.push_str(&format!(
+            "{ANSI_BOLD}Decision:{ANSI_RESET} {} / {}\n",
+            style_status(&readback.decision_status),
+            style_dim(&readback.decision_reason),
+        ));
+        output.push('\n');
+        output.push_str(&format!(
+            "{} {} --description \"<text>\"\n",
+            style_dim("Run again with"),
+            style_command("cargo run -q --bin arpagona -- memory demo governed-loop"),
+        ));
+        output.push('\n');
+        push_readback_line(&mut output, &style_dim(readback.readback_warning));
+        push_readback_line(&mut output, &style_dim(readback.warning));
+        print!("{output}");
+    }
+    Ok(())
 }
 
 fn memory_proposals_readback_from_actions(actions: Vec<ProposedAction>) -> MemoryProposalsReadback {
@@ -3830,6 +3900,82 @@ mod tests {
                 assert!(!args.json);
             }
             _ => panic!("expected memory demo failure-insight with description"),
+        }
+    }
+
+    #[test]
+    fn cli_parses_memory_demo_governed_loop() {
+        let basic = Cli::parse_from(["arpagona", "memory", "demo", "governed-loop"]);
+        match basic.command {
+            Command::Memory(MemoryCommand {
+                command:
+                    MemorySubcommand::Demo(MemoryDemoCommand {
+                        command: MemoryDemoSubcommand::GovernedLoop(args),
+                    }),
+            }) => {
+                assert!(!args.json);
+                assert!(args.description.is_none());
+            }
+            _ => panic!("expected memory demo governed-loop"),
+        }
+
+        let with_json = Cli::parse_from(["arpagona", "memory", "demo", "governed-loop", "--json"]);
+        match with_json.command {
+            Command::Memory(MemoryCommand {
+                command:
+                    MemorySubcommand::Demo(MemoryDemoCommand {
+                        command: MemoryDemoSubcommand::GovernedLoop(args),
+                    }),
+            }) => {
+                assert!(args.json);
+            }
+            _ => panic!("expected memory demo governed-loop with --json"),
+        }
+
+        let with_description = Cli::parse_from([
+            "arpagona",
+            "memory",
+            "demo",
+            "governed-loop",
+            "--description",
+            "operator test description",
+        ]);
+        match with_description.command {
+            Command::Memory(MemoryCommand {
+                command:
+                    MemorySubcommand::Demo(MemoryDemoCommand {
+                        command: MemoryDemoSubcommand::GovernedLoop(args),
+                    }),
+            }) => {
+                assert_eq!(
+                    args.description.as_deref(),
+                    Some("operator test description")
+                );
+                assert!(!args.json);
+            }
+            _ => panic!("expected memory demo governed-loop with description"),
+        }
+
+        let with_both = Cli::parse_from([
+            "arpagona",
+            "memory",
+            "demo",
+            "governed-loop",
+            "--json",
+            "--description",
+            "test",
+        ]);
+        match with_both.command {
+            Command::Memory(MemoryCommand {
+                command:
+                    MemorySubcommand::Demo(MemoryDemoCommand {
+                        command: MemoryDemoSubcommand::GovernedLoop(args),
+                    }),
+            }) => {
+                assert!(args.json);
+                assert_eq!(args.description.as_deref(), Some("test"));
+            }
+            _ => panic!("expected memory demo governed-loop with both flags"),
         }
     }
 
