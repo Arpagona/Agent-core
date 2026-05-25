@@ -440,3 +440,77 @@ Architectural risk:
 - low. The `--description` flag is pure CLI input parsing. The demo uses `FailureInsight::new()` which is a pure domain constructor with no side effects. All existing tests continue to pass without modification (the `None` default preserves backward compatibility).
 
 Recommended next step: add an end-to-end integration test proving that `--description` text flows through the full governed path (signal → proposal → decision → audit → persistence → readback) and appears in the readback output.
+
+## 13. Cognitive Tool Runtime — Alpha Read-Only Foundation
+
+This session created the first operational bridge between ARPAGONA's cognitive vocabulary and real filesystem perception.
+
+### What was added
+
+**`crates/tool-runtime`** — new crate providing an alpha read-only tool runtime with 3 tools:
+
+- **`read_file`** — read a file within the workspace (blocked: absolute paths, parent traversal, sensitive files, large files)
+- **`list_files`** — list directory entries (skips `.git`, `target`, `node_modules`, `.env`, `.ssh`)
+- **`search_text`** — search for text patterns in workspace files (bounded results, bounded file sizes)
+
+All tools are:
+- read-only
+- locally scoped to the workspace
+- size-limited and count-limited
+- returning structured `ToolExecutionResult` with observation, error, audit hint and failure-insight-candidate flags
+
+**`crates/core`** — new cognitive vocabulary types:
+
+- `ToolIntent` — full tool intention with rationale, purpose, risk, fallback
+- `ToolExecutionRequest` — concrete execution request
+- `ToolExecutionResult` — structured result with status, observation, error
+- `ToolExecutionStatus` — Success, Warning, Failed, Blocked, Skipped
+- `ToolExecutionError` — typed error with security flag
+- `ToolObservation` — observation with actionable/failure-insight-candidate markers
+- `ToolUseRationale` — justification, expected observation, downstream use, risk assessment
+- `ToolExecutionMode` — Simulate, Execute, RequireHumanConfirmation
+- `ToolRiskLevel` — None, Low, Medium, High, Critical
+- `CognitivePurpose` — Perception, Recall, Inspection, Transformation, Validation, Execution, Communication, Reflection
+- `FallbackStrategy` — Retry, UseAlternative, ReportOnly, EscalateToHuman
+
+**`crates/tool-registry`** — extended with cognitive concepts:
+
+- `ToolCognitiveRole` — Perception, Recall, Inspection, Transformation, Validation, Execution, Communication, Reflection
+- `ToolRiskProfile` — risk profile for tool declarations
+- Extended `ToolCapability` with ReadFile, ListFiles, SearchText, ShellAccess, EmailSend, BrowserAutomation, MCPAccess
+- `is_safe_for_read_only()` and `is_non_executable()` methods on roles
+- `ToolCognitiveRole::Transformation`, `Execution`, `Communication` are marked non-executable
+
+**CLI** — new `arpagona tool` commands:
+
+- `arpagona tool list` — list available tools
+- `arpagona tool inspect <name>` — show tool details
+- `arpagona tool demo read-file <path>` — execute read-only read_file
+- `arpagona tool demo list-files [path]` — execute read-only list_files
+- `arpagona tool demo search-text <query> [path]` — execute read-only search_text
+- All commands support `--json` for structured output
+
+**Documentation**:
+
+- `docs/cognitive-tool-runtime.md` — comprehensive design document explaining why tools are necessary for cognition, why execution must be controlled, the architecture overview, each tool's cognitive role, how Hermes inspired the selection, why read-only first, what remains non-executable, and what comes next
+
+### What was NOT added
+
+- No scheduler, browser, shell-free, write, email, MCP, secrets, API endpoint, self-modification, autonomy, multi-agent runtime, Holographic Memory vector store, SurrealDB persistence, or LLM integration
+- No Decision Gate bypass — the runtime is a local demo layer; governance integration is architectural preparation only
+- The `ToolExecutionResult` carries `failure_insight_candidate` flags but does not auto-generate FailureInsights
+
+### Stability level
+
+Alpha experimental. All 3 tools are proven by unit tests (13 tests in tool-runtime). The core vocabulary has 7 new tests, the tool-registry has 5 new tests. The CLI commands compile and dispatch correctly.
+
+### Test count
+
+- `arpagona-agent-core`: 42 tests (35 existing + 7 new)
+- `arpagona-tool-registry`: 11 tests (6 existing + 5 new)
+- `arpagona-tool-runtime`: 13 tests (all new)
+- **Total**: 66 tests across the 3 crates
+
+### Recommended next step
+
+Connect `ToolExecutionResult` to the Audit system and Failure-to-Insight pipeline, so that failed observations automatically produce candidate `FailureInsight` records. Then add the `search_text` and `list_files` results to the Working Memory / Reservoir vocabulary for context-grounded agent behaviour.
