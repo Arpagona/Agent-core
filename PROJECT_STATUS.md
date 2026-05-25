@@ -554,3 +554,48 @@ Architectural risk:
 - low. The signal.summary type change from `&'static str` to `String` is a bounded internal change that only affects the readback output for the existing `--description` flag, which was already implemented but produced invisible output. All existing tests continue to pass without modification.
 
 Recommended next step: add a cross-invocation integration test that proves the `--description` text survives through the demo snapshot path (failure-insight --json --snapshot-path → separate process snapshot-read --json → description field visible in readback).
+
+## Latest Session Update (2026-05-25 — Cross-invocation description propagation test)
+
+This session cherry-picked the description-propagation in-process proof onto a fresh branch and added the missing cross-invocation integration test.
+
+**Cherry-picked from `feat/description-propagation-e2e-test` (commit `2e85049`):**
+- Changed `MemoryDemoSignalReadback.summary` from `&'static str` to `String`
+- Wired `custom_signal_summary` into the readback struct's `signal.summary` field
+- Added `memory_demo_description_propagates_through_governed_loop_signal_to_readback` test
+
+**New work this session:**
+- Added `cross_invocation_description_survives_snapshot_path_across_processes` integration test in `crates/cli/tests/snapshot_integration.rs`
+- The new test proves operator-supplied `--description` text survives through the demo snapshot path across separate process invocations:
+  1. Spawns `arpagona memory demo failure-insight --description "cross-invocation description propagation" --json --snapshot-path <path>`
+  2. Verifies snapshot file was created
+  3. Spawns `arpagona memory demo snapshot-read <path> --json` in a separate process
+  4. Asserts the custom description appears in the readback output
+  5. Asserts `evidence_only_token` remains present
+- Deleted stale remote branch `feat/description-propagation-e2e-test`
+
+Files changed:
+- `crates/cli/tests/snapshot_integration.rs` — cross-invocation description integration test
+- `PROJECT_STATUS.md` — session update
+- `FOCUS_LOOP_NEXT.md` — next-pass handoff
+
+Verification:
+- `cargo fmt -- --check`: clean
+- `cargo check`: clean
+- `cargo test`: 168 tests pass (3 snapshot integration tests all passing, including the new cross-invocation description test)
+
+Stability level: alpha CLI integration test. The new test uses the same cross-process binary invocation pattern (`CARGO_BIN_EXE_arpagona`) as the existing snapshot integration tests. It runs in ~0.03s and requires no SurrealDB backend, no unstable cfg flags, no native dependencies.
+
+Limits:
+- no broad CLI mutation command was added;
+- no API endpoint was added;
+- no new Graph Memory persistence helper was added;
+- no Decision Gate behavior was changed;
+- no SurrealDB backend change was made;
+- no LLM/provider/runtime direct memory mutation was added;
+- no real tool execution was introduced;
+- no scheduler, autonomy, MCP, browser automation, credential handling or Mission Control Web growth was introduced;
+- readback remains evidence only and must not be treated as authorization.
+
+Architectural risk:
+- low. The test follows the established cross-process binary invocation pattern. The description text is already serialized in the snapshot's `readback_json` field after the cherry-picked commit — the test merely proves it survives across process boundaries.
