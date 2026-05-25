@@ -7,7 +7,7 @@ use arpagona_agent_core::{
 };
 use arpagona_decision_gate::{audit_event_for_decision, evaluate_proposed_action};
 use arpagona_graph_memory::{
-    demo_snapshot::{FailureInsightDemoSnapshot, EVIDENCE_ONLY_TOKEN},
+    demo_snapshot::{list_snapshots_in_directory, FailureInsightDemoSnapshot, EVIDENCE_ONLY_TOKEN},
     in_memory_graph_memory_store, AsyncGraphMemoryStore, GRAPH_MEMORY_SCHEMA,
 };
 use arpagona_tool_runtime::{ToolRuntime, ToolRuntimeConfig};
@@ -29,6 +29,7 @@ const DEFAULT_TARGET: &str = "client@example.com";
 const DEFAULT_RATIONALE: &str = "Préparer un brouillon sans l’envoyer";
 const DEFAULT_PROVIDER: &str = "openai";
 const DEFAULT_CHAT_PROVIDER: &str = "mock";
+const DEFAULT_SNAPSHOT_DIR: &str = "target/demo-snapshots";
 
 const ANSI_RESET: &str = "\x1b[0m";
 const ANSI_BOLD: &str = "\x1b[1m";
@@ -326,6 +327,8 @@ enum MemoryDemoSubcommand {
     FailureInsight(MemoryDemoFailureInsightArgs),
     /// Read a FailureInsight demo snapshot from a JSON file for cross-invocation inspection.
     SnapshotRead(MemoryDemoSnapshotReadArgs),
+    /// List all available demo snapshots in the snapshot directory.
+    SnapshotList(MemoryDemoSnapshotListArgs),
 }
 
 #[derive(Debug, Args)]
@@ -380,6 +383,16 @@ struct MemoryDemoFailureInsightArgs {
 struct MemoryDemoSnapshotReadArgs {
     /// Path to the demo snapshot JSON file to read.
     snapshot_path: String,
+    /// Emit structured JSON instead of human-oriented text.
+    #[arg(long)]
+    json: bool,
+}
+
+#[derive(Debug, Args)]
+struct MemoryDemoSnapshotListArgs {
+    /// Directory to scan for demo snapshot JSON files.
+    #[arg(long = "snapshot-dir", default_value = DEFAULT_SNAPSHOT_DIR, env = "ARPAGONA_SNAPSHOT_DIR")]
+    snapshot_dir: String,
     /// Emit structured JSON instead of human-oriented text.
     #[arg(long)]
     json: bool,
@@ -952,6 +965,7 @@ async fn run() -> Result<(), Box<dyn Error>> {
                     memory_demo_failure_insight(args).await?
                 }
                 MemoryDemoSubcommand::SnapshotRead(args) => memory_demo_snapshot_read(args)?,
+                MemoryDemoSubcommand::SnapshotList(args) => memory_demo_snapshot_list(args)?,
             },
         },
         Command::Tool(tool) => match tool.command {
@@ -1767,6 +1781,51 @@ fn memory_demo_snapshot_read(args: MemoryDemoSnapshotReadArgs) -> Result<(), Box
         };
         output.push_str(&truncated);
         output.push('\n');
+        print!("{output}");
+    }
+    Ok(())
+}
+
+fn memory_demo_snapshot_list(args: MemoryDemoSnapshotListArgs) -> Result<(), Box<dyn Error>> {
+    let dir = std::path::Path::new(&args.snapshot_dir);
+    let list = list_snapshots_in_directory(dir);
+
+    if args.json {
+        println!("{}", serde_json::to_string_pretty(&list)?);
+    } else {
+        let mut output = String::new();
+        output.push_str(&format!("📁 Demo Snapshots in: {}\n\n", args.snapshot_dir));
+        if list.is_empty() {
+            output.push_str("No demo snapshots found.\n");
+            output.push_str(&format!(
+                "Run `{}` in this project first.\n",
+                "cargo run -q --bin arpagona -- memory demo failure-insight --snapshot-path target/demo-snapshots/demo.snapshot.json"
+            ));
+        } else {
+            output.push_str(&format!("Found {} snapshot(s):\n\n", list.len()));
+            for (i, (_path, listing)) in list.iter().enumerate() {
+                output.push_str(&format!(
+                    "{}. \u{1b}[1m{}\u{1b}[0m\n",
+                    i + 1,
+                    listing.file_name
+                ));
+                if let Some(preview) = &listing.description_preview {
+                    output.push_str(&format!("   Description: {preview}\n"));
+                }
+                output.push_str(&format!(
+                    "   Alpha chain steps: {}\n",
+                    listing.chain_step_count
+                ));
+                if let Some(preview) = &listing.content_preview {
+                    output.push_str(&format!("   Content: {preview}\n"));
+                }
+                output.push('\n');
+            }
+            output.push_str(&format!(
+                "Use `{}` to inspect a specific snapshot.\n",
+                "cargo run -q --bin arpagona -- memory demo snapshot-read <filename> --json"
+            ));
+        }
         print!("{output}");
     }
     Ok(())
@@ -4287,6 +4346,89 @@ mod tests {
                 assert!(!args.json);
             }
             _ => panic!("expected memory demo failure-insight with description"),
+        }
+    }
+
+    #[test]
+    fn cli_parses_memory_demo_snapshot_list() {
+        let cli = Cli::parse_from(["arpagona", "memory", "demo", "snapshot-list"]);
+        match cli.command {
+            Command::Memory(MemoryCommand {
+                command:
+                    MemorySubcommand::Demo(MemoryDemoCommand {
+                        command: MemoryDemoSubcommand::SnapshotList(args),
+                    }),
+            }) => {
+                assert!(!args.json);
+                assert_eq!(args.snapshot_dir, DEFAULT_SNAPSHOT_DIR);
+            }
+            _ => panic!("expected memory demo snapshot-list"),
+        }
+    }
+
+    #[test]
+    fn cli_parses_memory_demo_snapshot_list_json() {
+        let cli = Cli::parse_from(["arpagona", "memory", "demo", "snapshot-list", "--json"]);
+        match cli.command {
+            Command::Memory(MemoryCommand {
+                command:
+                    MemorySubcommand::Demo(MemoryDemoCommand {
+                        command: MemoryDemoSubcommand::SnapshotList(args),
+                    }),
+            }) => {
+                assert!(args.json);
+                assert_eq!(args.snapshot_dir, DEFAULT_SNAPSHOT_DIR);
+            }
+            _ => panic!("expected memory demo snapshot-list --json"),
+        }
+    }
+
+    #[test]
+    fn cli_parses_memory_demo_snapshot_list_with_custom_dir() {
+        let cli = Cli::parse_from([
+            "arpagona",
+            "memory",
+            "demo",
+            "snapshot-list",
+            "--snapshot-dir",
+            "/tmp/snapshots",
+        ]);
+        match cli.command {
+            Command::Memory(MemoryCommand {
+                command:
+                    MemorySubcommand::Demo(MemoryDemoCommand {
+                        command: MemoryDemoSubcommand::SnapshotList(args),
+                    }),
+            }) => {
+                assert!(!args.json);
+                assert_eq!(args.snapshot_dir, "/tmp/snapshots");
+            }
+            _ => panic!("expected memory demo snapshot-list --snapshot-dir"),
+        }
+    }
+
+    #[test]
+    fn cli_parses_memory_demo_snapshot_list_json_with_custom_dir() {
+        let cli = Cli::parse_from([
+            "arpagona",
+            "memory",
+            "demo",
+            "snapshot-list",
+            "--json",
+            "--snapshot-dir",
+            "/tmp/snapshots",
+        ]);
+        match cli.command {
+            Command::Memory(MemoryCommand {
+                command:
+                    MemorySubcommand::Demo(MemoryDemoCommand {
+                        command: MemoryDemoSubcommand::SnapshotList(args),
+                    }),
+            }) => {
+                assert!(args.json);
+                assert_eq!(args.snapshot_dir, "/tmp/snapshots");
+            }
+            _ => panic!("expected memory demo snapshot-list --json --snapshot-dir"),
         }
     }
 

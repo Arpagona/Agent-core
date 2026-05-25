@@ -514,3 +514,68 @@ Alpha experimental. All 3 tools are proven by unit tests (13 tests in tool-runti
 ### Recommended next step
 
 Connect `ToolExecutionResult` to the Audit system and Failure-to-Insight pipeline, so that failed observations automatically produce candidate `FailureInsight` records. Then add the `search_text` and `list_files` results to the Working Memory / Reservoir vocabulary for context-grounded agent behaviour.
+
+## 14. Snapshot List — CLI Snapshot Discovery
+
+This session added the missing snapshot discovery command for the governed FailureInsight demo path.
+
+### What was added
+
+**`crates/graph-memory/src/demo_snapshot.rs`**:
+
+- `SnapshotListing` struct with `file_name`, `description_preview`, `chain_step_count`, `content_preview`
+- `list_snapshots_in_directory(dir)` — scans a directory for `.json` files, deserializes valid `FailureInsightDemoSnapshot` instances, returns sorted metadata
+
+**`crates/cli/src/main.rs`**:
+
+- New CLI command: `arpagona memory demo snapshot-list [--json] [--snapshot-dir <dir>]`
+- Default snapshot directory: `target/demo-snapshots` (configurable via `ARPAGONA_SNAPSHOT_DIR` env var)
+- Human-readable output with snapshot count, file names, description previews, alpha chain step counts, content previews
+- JSON output via `--json` for programmatic consumption
+- 4 parser tests: basic parse, `--json`, `--snapshot-dir`, combined flags
+
+### Verification
+
+- `cargo fmt -- --check`: clean
+- `cargo test`: 41 CLI tests + 2 integration tests → all pass (0 new failures)
+- `cargo run -- memory demo failure-insight --snapshot-path target/demo-snapshots/demo.snapshot.json`: writes snapshot
+- `cargo run -- memory demo snapshot-list --snapshot-dir target/demo-snapshots`: shows 1 snapshot with 7 alpha chain steps
+- `cargo run -- memory demo snapshot-list --snapshot-dir target/demo-snapshots --json`: returns structured JSON with file path and listing metadata
+
+### Functional-alpha chain advancement
+
+This completes the CLI discovery surface for the demo snapshot path:
+
+```
+signal → proposal → decision → audit → approved persistence → snapshot-write → snapshot-read → snapshot-list (NEW) → repeatable demo
+```
+
+Before this session: operators needed to know exact file paths to inspect snapshots.
+After this session: `snapshot-list` discovers all available snapshots, names, and metadata.
+
+### What was NOT added
+
+- No SurrealDB persistence changes
+- No scheduler, browser, write, email, MCP, secrets, API endpoint, self-modification, autonomy, multi-agent runtime, or LLM integration
+- No Decision Gate bypass
+
+### Files changed
+
+| File | Change |
+|------|--------|
+| crates/graph-memory/src/demo_snapshot.rs | Added `SnapshotListing` struct and `list_snapshots_in_directory()` |
+| crates/cli/src/main.rs | Added `SnapshotList` variant, args struct, dispatch, handler function, 4 parser tests |
+
+### Stability level
+
+Stable alpha extension. Pure file I/O, no native deps or SurrealDB feature flags. All snapshot operations (write, read, list) now have CLI surfaces.
+
+### Test count
+
+- `arpagona-cli`: 41 tests (37 existing + 4 new)
+- `arpagona-graph-memory`: 24 tests (20 existing + 4 existing)
+- **Total**: 65+ tests across the workspace
+
+### Recommended next step
+
+Create a self-contained demo script (`scripts/demo-full-loop.sh`) that runs the complete governed FailureInsight demo path end-to-end, proving the full chain in one repeatable invocation.
