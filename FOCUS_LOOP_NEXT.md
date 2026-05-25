@@ -7,12 +7,20 @@ Every focus-loop run must read this file after the canonical context files, use 
 This file does not override safety, governance, `PROJECT_OBJECTIVES.md`, `PROJECT_STATUS.md` or `AGENT_FOCUS_LOOP.md`. It only captures the most concrete next step discovered by the previous run.
 
 ## Current next-pass instruction
+## Current next-pass instruction
 
-Next pass should: document the cross-invocation demo snapshot readback procedure in `docs/failure-to-insight.md` and make it the standard operator demo recipe.
+Next pass should: transition the demo snapshot approach to a Cargo feature-gated SurrealDB `kv-surrealkv` backend when the `surrealdb_unstable` cfg flag becomes stable or explore an alternative pure-Rust key-value backend.
 
-Why: the snapshot path now has passing unit tests and a CLI integration test. The next operator-facing step is to document the full verification procedure — `cargo run memory demo failure-insight --snapshot-path target/demo.json && cargo run memory demo snapshot-read target/demo.json` — as the standard way to prove the governed learning loop output survives serialization, file I/O, process restart and deserialization.
+Why: the demo snapshot path proves cross-invocation readback for the governed FailureInsight learning loop, but is limited to JSON file I/O. A real persistent backend would remove the snapshot intermediate step and make the persistence path native.
 
-Proof to seek: a `docs/failure-to-insight.md` section titled "Cross-invocation readback verification" describing the exact one-liner command sequence and what to look for in the readback output.
+Proof to seek: `cargo test -- cross_invocation` passing (proves the current cross-process demo snapshot path works), plus either a feature-gated SurrealDB-backed test or an alternative pures-Rust KV backend test that also passes the cross-invocation proof.
+
+Do not: add broad autonomous memory writing, provider/runtime direct memory mutation, external effects, scheduler expansion, Mission Control Web, MCP/browser automation, personal/sensitive memory, readback-as-authorization behavior, or always-on native/unstable backend requirements.
+
+Why: the demo snapshot path proves cross-invocation readback for the governed FailureInsight learning loop, but is limited to JSON file I/O. A real persistent backend would remove the snapshot intermediate step and make the persistence path native.
+
+Proof to seek: `cargo test -- cross_invocation` passing (proves the current cross-process demo snapshot path works), plus either a feature-gated SurrealDB-backed test or an alternative pures-Rust KV backend test that also passes the cross-invocation proof.
+>>>>>>> origin/main
 
 Do not: add broad autonomous memory writing, provider/runtime direct memory mutation, external effects, scheduler expansion, Mission Control Web, MCP/browser automation, personal/sensitive memory, readback-as-authorization behavior, or always-on native/unstable backend requirements.
 

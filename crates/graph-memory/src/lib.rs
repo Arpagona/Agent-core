@@ -1,3 +1,5 @@
+pub mod demo_snapshot;
+
 use arpagona_core::{
     AuditEvent, AuditTraceSummary, Decision, DecisionId, DecisionStatus, Episode, EpisodeId, Fact,
     FactId, FactStatus, FailureInsight, FailureInsightId, GraphNodeType, GraphRef, GraphRelation,

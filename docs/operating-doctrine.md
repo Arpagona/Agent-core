@@ -248,9 +248,52 @@ Each work loop should follow this protocol:
    - LOCO/Ollama delegation note for non-trivial loops;
    - Failure-to-Insight report block;
    - why a CLI supervision increment was or was not chosen.
-11. Update `PROJECT_STATUS.md` only when implementation status, behavior, architecture, roadmap or safety assumptions actually changed.
+11. Verify the PR after creation using GitHub, not by inferring from a pushed branch or from a `/pull/new/<branch>` URL.
+12. Update `PROJECT_STATUS.md` only when implementation status, behavior, architecture, roadmap or safety assumptions actually changed.
 
-## 9. Preferred Near-Term Direction
+## 9. Pull Request Verification Rule
+
+A pushed branch is not a pull request.
+
+A GitHub `/pull/new/<branch>` URL is only a PR creation page. It must never be reported as a created PR, a PR link, or proof that a PR exists.
+
+A pull request may be reported as created only when GitHub returns a real PR number and a canonical URL of this form:
+
+```text
+https://github.com/<owner>/<repo>/pull/<number>
+```
+
+After pushing a branch, agents must run a verification command equivalent to:
+
+```bash
+gh pr list --head <branch> --json number,title,url,state,headRefName,baseRefName
+```
+
+If no PR exists, agents may try to create one:
+
+```bash
+gh pr create --base main --head <branch> --title "<title>" --body "<body>"
+```
+
+After creating a PR, agents must verify it again with `gh pr list --head <branch>` or `gh pr view <number>`.
+
+Final reports must use exactly one of these states:
+
+```text
+PR created: #<number> <https://github.com/<owner>/<repo>/pull/<number>>
+```
+
+or:
+
+```text
+Branch pushed, PR not created: <reason>. PR creation URL: https://github.com/<owner>/<repo>/pull/new/<branch>
+```
+
+Agents must not write `PR link` unless the URL is a canonical `/pull/<number>` URL.
+
+No PR number means no PR.
+
+## 10. Preferred Near-Term Direction
 
 The next useful increments should bias toward making the core usable and inspectable, not merely adding abstract structure.
 
@@ -270,7 +313,7 @@ The system should become easier to ask:
 - which decision approved or rejected it?
 - what should be done next?
 
-## 10. Anti-Patterns
+## 11. Anti-Patterns
 
 Avoid:
 
@@ -284,9 +327,10 @@ Avoid:
 - changing `PROJECT_STATUS.md` for trivial or test-only changes;
 - adding long-lived backend logic in a non-Rust language without documenting the reason;
 - using cloud reasoning for large low-risk reading or summarization tasks that could be delegated locally;
-- choosing another test-only Audit/Graph Memory guard when a bounded CLI supervision improvement would deliver more usable value.
+- choosing another test-only Audit/Graph Memory guard when a bounded CLI supervision improvement would deliver more usable value;
+- reporting a GitHub `/pull/new/<branch>` creation page as if it were an opened pull request.
 
-## 11. Working Heuristic
+## 12. Working Heuristic
 
 When choosing between two tasks, prefer the one that makes the system more usable while preserving traceability.
 
