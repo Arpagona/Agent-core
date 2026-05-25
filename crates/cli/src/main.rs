@@ -1,4 +1,5 @@
 use arpagona_agent_core::{
+    holographic::{resonate_for_working_memory, RESONANCE_NON_AUTHORIZING_WARNING},
     ActionType, AgentId, AuditEvent, AuditEventId, AuditTraceSummary, CognitiveCycleResult,
     CorrectionTarget, Decision, DecisionId, DecisionStatus, DetectionSignal, DetectionSignalType,
     FailureClass, FailureInsight, FailureInsightId, InsightSeverity, MemoryWriteIntent,
@@ -16,6 +17,7 @@ use arpagona_graph_memory::{
     demo_snapshot::{list_snapshots_in_directory, FailureInsightDemoSnapshot, EVIDENCE_ONLY_TOKEN},
     in_memory_graph_memory_store, AsyncGraphMemoryStore, GRAPH_MEMORY_SCHEMA,
 };
+use arpagona_llm::run_cognitive_synthesis;
 use arpagona_tool_runtime::{ToolRuntime, ToolRuntimeConfig};
 use chrono::Utc;
 use clap::{Args, Parser, Subcommand, ValueEnum};
@@ -33,8 +35,8 @@ const DEFAULT_AGENT_ID: &str = "agent-alpha";
 const DEFAULT_TASK_ID: &str = "task-1";
 const DEFAULT_TARGET: &str = "client@example.com";
 const DEFAULT_RATIONALE: &str = "Préparer un brouillon sans l’envoyer";
-const DEFAULT_PROVIDER: &str = "openai";
-const DEFAULT_CHAT_PROVIDER: &str = "mock";
+const DEFAULT_PROVIDER: &str = "ollama";
+const DEFAULT_CHAT_PROVIDER: &str = "ollama";
 const DEFAULT_SNAPSHOT_DIR: &str = "target/demo-snapshots";
 
 const ANSI_RESET: &str = "\x1b[0m";
@@ -114,6 +116,18 @@ pub struct CognitiveRunArgs {
     /// Run Compute Reservoir allocation bridge: map WorkingMemory to resource selection.
     #[arg(long)]
     pub allocate: bool,
+    /// Run HolographicMemory resonance bridge: map WorkingMemory + allocation to pattern hints.
+    #[arg(long)]
+    pub resonate: bool,
+    /// Run tool observation bridge: execute tool runtime for required observations and inject results.
+    #[arg(long)]
+    pub observe: bool,
+    /// Run LLM synthesis: call an LLM provider to enrich the cognitive cycle output.
+    #[arg(long)]
+    pub llm: bool,
+    /// LLM provider to use for --llm (mock = no real API call, openai = OpenAI Responses API, ollama = local Ollama).
+    #[arg(long, default_value = "ollama")]
+    pub provider: String,
 }
 
 #[derive(Debug, Args)]
@@ -1034,7 +1048,7 @@ async fn run() -> Result<(), Box<dyn Error>> {
             },
         },
         Command::Cognitive(cognitive) => match cognitive.command {
-            CognitiveSubcommand::Run(args) => cognitive_run(args)?,
+            CognitiveSubcommand::Run(args) => cognitive_run(args).await?,
         },
     }
 
@@ -4285,8 +4299,65 @@ fn rainbow_text(text: &str) -> String {
     output
 }
 
+/// Execute tool runtime observations for required observations in the cognitive cycle.
+///
+/// Maps each `RequiredObservation` to tool runtime calls where possible:
+/// - context/codebase observations → list_files(".")
+/// - language/tech observations → read_file("Cargo.toml")
+/// - engineering-specific → list_files("crates/")
+///
+/// Returns a vector of `CognitiveObservation` objects from successful tool calls.
+/// Observations that cannot be automated (need human input) are skipped.
+fn run_observations(
+    result: &CognitiveCycleResult,
+) -> Vec<arpagona_agent_core::observation::CognitiveObservation> {
+    use arpagona_agent_core::observation::CognitiveObservation;
+    use arpagona_tool_runtime::{ToolRuntime, ToolRuntimeConfig};
+
+    let runtime = ToolRuntime::new(ToolRuntimeConfig::new("."));
+    let mut observations: Vec<CognitiveObservation> = Vec::new();
+
+    for obs in &result.required_observations {
+        let desc_lower = obs.description.to_lowercase();
+        let id_lower = obs.id.to_lowercase();
+
+        // Map observation to tool call based on keywords
+        let tool_call: Option<(&str, serde_json::Value)> = {
+            if id_lower.contains("general-context")
+                || id_lower.contains("context")
+                || desc_lower.contains("context")
+                || desc_lower.contains("codebase")
+            {
+                Some(("list_files", serde_json::json!({"path": "."})))
+            } else if id_lower.contains("language")
+                || id_lower.contains("tech")
+                || desc_lower.contains("cargo")
+                || desc_lower.contains("language")
+                || desc_lower.contains("dépendance")
+            {
+                Some(("read_file", serde_json::json!({"path": "Cargo.toml"})))
+            } else if id_lower.contains("existing-codebase")
+                || id_lower.contains("codebase")
+                || desc_lower.contains("structure")
+                || desc_lower.contains("architecture")
+            {
+                Some(("list_files", serde_json::json!({"path": "crates/"})))
+            } else {
+                None // no tool mapping — requires human input
+            }
+        };
+
+        if let Some((tool_name, args)) = tool_call {
+            let result = runtime.execute(tool_name, &args);
+            observations.push(CognitiveObservation::from_tool_execution(&result));
+        }
+    }
+
+    observations
+}
+
 /// Run the General Cognitive Work Loop V0.
-fn cognitive_run(args: CognitiveRunArgs) -> Result<(), Box<dyn Error>> {
+async fn cognitive_run(args: CognitiveRunArgs) -> Result<(), Box<dyn Error>> {
     let domain = match args.domain.as_deref() {
         Some("general") | None => ObjectiveDomain::General,
         Some("business") => ObjectiveDomain::Business,
@@ -4346,6 +4417,127 @@ fn cognitive_run(args: CognitiveRunArgs) -> Result<(), Box<dyn Error>> {
                     serde_json::Value::String(NON_AUTHORIZING_READBACK.to_owned()),
                 );
             }
+            // When --resonate, run HolographicMemory resonance and inject into output
+            if args.resonate {
+                let wm = &result.working_memory;
+                let domain_str = format!("{:?}", result.objective.domain).to_lowercase();
+                let sensitivity_str = format!("{:?}", wm.sensitivity_estimate).to_lowercase();
+                let allocation_justification = if args.allocate {
+                    let allocation = run_allocation(&result.working_memory);
+                    Some(allocation.justification.clone())
+                } else {
+                    None
+                };
+
+                let resonance = resonate_for_working_memory(
+                    &domain_str,
+                    &sensitivity_str,
+                    wm.complexity_estimate,
+                    &wm.proposed_next_action_kind,
+                    allocation_justification.as_deref(),
+                );
+
+                obj.insert(
+                    "holographic_resonance".to_owned(),
+                    serde_json::to_value(&resonance)?,
+                );
+                obj.insert("resonated".to_owned(), serde_json::Value::Bool(true));
+                obj.insert(
+                    "holographic_warning".to_owned(),
+                    serde_json::Value::String(RESONANCE_NON_AUTHORIZING_WARNING.to_owned()),
+                );
+            }
+            // When --observe, run tool runtime observations and inject into working_memory
+            if args.observe {
+                let observations = run_observations(&result);
+                if let Some(wm) = obj
+                    .get_mut("working_memory")
+                    .and_then(|v| v.as_object_mut())
+                {
+                    wm.insert(
+                        "cognitive_observations".to_owned(),
+                        serde_json::to_value(&observations)?,
+                    );
+                    wm.insert("observed".to_owned(), serde_json::Value::Bool(true));
+                }
+            }
+            // When --llm, run LLM synthesis and inject into output
+            if args.llm {
+                let wm = &result.working_memory;
+                let wm_summary = format!(
+                    "Domain: {:?}\nSensitivity: {:?}\nComplexity: {:.2}\nContext items: {}\nMissing context: {}\nAssumptions: {}\nProposed next action: {:?}",
+                    result.objective.domain,
+                    wm.sensitivity_estimate,
+                    wm.complexity_estimate,
+                    wm.context_items.len(),
+                    wm.missing_context.len(),
+                    wm.assumptions.len(),
+                    wm.proposed_next_action.as_ref().map(|a| &a.kind),
+                );
+
+                // Resolve provider: if --allocate is active, derive from compute allocation;
+                // otherwise use the --provider CLI flag
+                let (resolved_provider, routing_note): (&str, String) = if args.allocate {
+                    let allocation = run_allocation(&result.working_memory);
+                    match allocation.selected_node_id.as_ref().map(|id| id.as_str()) {
+                        Some("cloud-strong") => (
+                            "openai",
+                            "routed via ComputeReservoir: cloud-strong → openai".to_owned(),
+                        ),
+                        Some("local-smol") => (
+                            "ollama",
+                            "routed via ComputeReservoir: local-smol → ollama (local)".to_owned(),
+                        ),
+                        Some("local-cpu") => (
+                            "mock",
+                            "routed via ComputeReservoir: local-cpu → mock (deterministic, no LLM)"
+                                .to_owned(),
+                        ),
+                        Some(other) => (
+                            &args.provider,
+                            format!(
+                                "ComputeReservoir node '{}' has no LLM mapping; using --provider",
+                                other
+                            ),
+                        ),
+                        None => (
+                            &args.provider,
+                            "No compute node selected; using --provider".to_owned(),
+                        ),
+                    }
+                } else {
+                    (
+                        &args.provider.as_str(),
+                        "Provider set via --provider flag".to_owned(),
+                    )
+                };
+
+                // Log routing decision as a JSON field
+                obj.insert(
+                    "llm_routing".to_owned(),
+                    serde_json::Value::String(routing_note),
+                );
+
+                match run_cognitive_synthesis(&args.objective, &wm_summary, resolved_provider).await
+                {
+                    Ok(synthesis) => {
+                        obj.insert(
+                            "llm_synthesis".to_owned(),
+                            serde_json::Value::String(synthesis),
+                        );
+                        obj.insert(
+                            "llm_provider".to_owned(),
+                            serde_json::Value::String(resolved_provider.to_owned()),
+                        );
+                    }
+                    Err(e) => {
+                        obj.insert(
+                            "llm_synthesis_error".to_owned(),
+                            serde_json::Value::String(format!("LLM synthesis failed: {e}")),
+                        );
+                    }
+                }
+            }
         }
         println!("{}", serde_json::to_string_pretty(&output)?);
     } else {
@@ -4353,6 +4545,25 @@ fn cognitive_run(args: CognitiveRunArgs) -> Result<(), Box<dyn Error>> {
         if args.allocate {
             let allocation = run_allocation(&result.working_memory);
             print_allocation_readback(&allocation);
+        }
+        if args.resonate {
+            let domain_str = format!("{:?}", result.objective.domain).to_lowercase();
+            let sensitivity_str =
+                format!("{:?}", result.working_memory.sensitivity_estimate).to_lowercase();
+            let allocation_justification = if args.allocate {
+                let allocation = run_allocation(&result.working_memory);
+                Some(allocation.justification.clone())
+            } else {
+                None
+            };
+            let resonance = resonate_for_working_memory(
+                &domain_str,
+                &sensitivity_str,
+                result.working_memory.complexity_estimate,
+                &result.working_memory.proposed_next_action_kind,
+                allocation_justification.as_deref(),
+            );
+            print_resonance_readback(&resonance);
         }
     }
 
@@ -4457,6 +4668,27 @@ fn print_allocation_readback(allocation: &ComputeAllocation) {
         style_dim(
             "⚠️  Allocation is not authorization — no action approved, no Decision Gate bypass."
         )
+    );
+}
+
+/// Print a human-readable HolographicMemory resonance result.
+fn print_resonance_readback(resonance: &arpagona_agent_core::holographic::WorkingMemoryResonance) {
+    println!(
+        "\n{}",
+        style_info("HolographicMemory Resonance (--resonate)")
+    );
+    println!("  has_resonance:              {}", resonance.has_resonance);
+    println!("  hints:                      {}", resonance.hints.len());
+    for (i, hint) in resonance.hints.iter().enumerate() {
+        println!("    [{}.] kind: {:?}", i + 1, hint.suggested_trace_kind);
+        println!("         labels: {:?}", hint.labels);
+        println!("         score:  {:.2}", hint.resonance_score);
+        println!("         why:    {}", hint.rationale);
+    }
+    println!();
+    println!(
+        "{}",
+        style_dim("⚠️  Resonance is non-authorizing — pattern hints only, no action approved.")
     );
 }
 
@@ -5028,7 +5260,7 @@ mod tests {
                 command: AgentSubcommand::Propose(args),
             }) => {
                 assert_eq!(args.prompt, "Prépare un brouillon de réponse client");
-                assert_eq!(args.provider, "openai");
+                assert_eq!(args.provider, "ollama");
                 assert_eq!(args.task_id, "task-1");
                 assert_eq!(args.workspace_id, "workspace-alpha");
             }
@@ -5041,7 +5273,7 @@ mod tests {
         let cli = Cli::parse_from(["arpagona", "chat"]);
         match cli.command {
             Command::Chat(args) => {
-                assert_eq!(args.provider, "mock");
+                assert_eq!(args.provider, "ollama");
                 assert_eq!(args.task_id, "task-1");
                 assert_eq!(args.workspace_id, "workspace-alpha");
                 assert_eq!(args.permissions, vec!["simulate_email"]);

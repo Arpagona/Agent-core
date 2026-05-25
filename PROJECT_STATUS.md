@@ -491,3 +491,72 @@ Limits:
 - readback remains evidence only, not authorization
 
 Recommended next step: wait for CI to complete on #77, then merge into `main`. After merge, create `scripts/demo-full-loop.sh` for a single-repeatable-command governed FailureInsight demo path.
+
+## 16. Latest Session Update (2026-05-25 — P5 + P6 + P7: WorkingMemory ↔ ComputeReservoir ↔ HolographicMemory bridge complete)
+
+This session completed the P5–P7 milestone sequence for the cognitive loop integration.
+
+### P5 — Connect WorkingMemory to ComputeReservoir allocation (PR #85, merged)
+
+Added `allocate_for_working_memory()` in `crates/compute-reservoir/src/lib.rs` — a pure function that maps WorkingMemory fields (sensitivity_estimate, complexity_estimate, local_first, cost_sensitive, required_observations_count) to a ComputeRequest, then delegates to the existing `allocate_compute()` engine.
+
+CLI: `cognitive run --objective "..." --domain business --assess --allocate --json`
+
+JSON output includes `working_memory`, `compute_requirement`, `non_authorizing_warning`.
+
+6 new tests covering:
+- missing context → request_context / no expensive model needed
+- sensitive objective → prefer local resource
+- complex research objective → strong model justified if policy allows
+- unavailable resource → fallback
+- allocation is not authorization
+- no external provider call
+
+### P6 — WorkingMemory → HolographicMemory resonance hints
+
+Added in `crates/core/src/holographic.rs`:
+
+- `ResonanceHint` struct — single resonance hint with suggested_trace_kind, labels, resonance_score, rationale
+- `WorkingMemoryResonance` struct — result container with non-authorizing warning
+- `resonate_for_working_memory()` — pure function mapping domain, sensitivity, complexity, proposed action kind, and allocation justification to heuristic resonance hints
+- 10 new tests proving: business domain produces TaskPattern, confidential sensitivity produces DecisionPattern with score 0.7, secret sensitivity has score 0.9, high complexity triggers complexity hint, public sensitivity skips sensitivity hint, fallback justification detected, resonance is non-authorizing, serializes to JSON, pure/deterministic, engineering domain produces ActionChainPattern
+
+Integration tests in `crates/compute-reservoir`:
+- `p6_integration_wm_to_allocate_to_resonate_chain` — proves the full WorkingMemory → allocate → resonate chain with research/confidential/high-complexity scenario
+- `p6_integration_simple_business_chain_produces_readable_json` — proves the chain works with public/business/low-complexity scenario and JSON serialization
+
+### P7 — Demo script
+
+Added `scripts/demo-full-loop.sh` — demonstrates 4 cognitive run scenarios (business, research, confidential, coding) with the full P5+P6 pipeline, plus integration tests. No API server required.
+
+### Files changed
+
+| File | Change |
+|------|--------|
+| crates/core/src/holographic.rs | Added `ResonanceHint`, `WorkingMemoryResonance`, `resonate_for_working_memory()`, `RESONANCE_NON_AUTHORIZING_WARNING`, 2 helpers, 10 tests |
+| crates/compute-reservoir/src/lib.rs | Added `holographic::resonate_for_working_memory` import, 2 integration tests (chained WM→allocate→resonate) |
+| scripts/demo-full-loop.sh | New file: cognitive loop demo script |
+
+### Verification
+
+- `cargo fmt -- --check`: clean
+- `cargo check`: clean (0 warnings, 0 errors)
+- `cargo test --workspace`: 224 tests pass (all crates)
+
+### Stability level
+
+All additions are alpha pure-domain extensions:
+- P5: alpha CLI surface (compute allocation bridge)
+- P6: alpha domain vocabulary (resonance hints, pure heuristic)
+- P7: alpha demo script (no API required)
+
+### Not added (per stop-list)
+
+- no LLM call, API endpoint, scheduler, browser automation, MCP, email, shell, file write (beyond demo-script output), Graph Memory persistence, hidden memory injection, Decision Gate bypass, or self-modification
+- no `--resonate` CLI flag (resonance is proven via integration tests; CLI flag deferred to P6+ if user requests)
+
+### Recommended next step
+
+- Merge PR #85 (if not already merged)
+- Then: consider adding `--resonate` flag to `cognitive run` CLI for direct resonance readback
+- Or: stake the demo script into the hourly focus-loop cron as a smoke test

@@ -292,6 +292,260 @@ impl HolographicQuery {
 }
 
 // ---------------------------------------------------------------------------
+// P6 — WorkingMemory + ComputeAllocation resonance bridge
+// ---------------------------------------------------------------------------
+//
+// These types and functions connect cognitive cycle state to Holographic
+// Memory resonance hints. They are pure heuristics — no vector database,
+// no embeddings, no persistence, no authorization.
+//
+// The function `resonate_for_working_memory` maps cognitive state fields
+// (domain, sensitivity, complexity, proposed action kind, allocation
+// justification) to resonance hints. This enables pattern recall without
+// a vector store: labels and keywords act as surrogate pattern signatures
+// in V0.
+
+/// A single resonance hint produced from cognitive cycle state.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct ResonanceHint {
+    /// Suggested trace kind this hint most closely matches.
+    pub suggested_trace_kind: HolographicTraceKind,
+    /// Labels derived from the cognitive state.
+    pub labels: Vec<String>,
+    /// Heuristic resonance score (0.0–1.0).
+    pub resonance_score: f32,
+    /// Human-readable explanation of why this hint was produced.
+    pub rationale: String,
+}
+
+/// Result of resonating cognitive cycle state with Holographic Memory.
+///
+/// This is a non-authorizing readback — it does not approve, reject,
+/// execute, or bypass any governance layer.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct WorkingMemoryResonance {
+    /// Resonance hints produced from the cognitive state.
+    pub hints: Vec<ResonanceHint>,
+    /// Whether any resonance was detected (hints non-empty).
+    pub has_resonance: bool,
+    /// Future: number of patterns available in the store.
+    pub available_pattern_count: u32,
+    /// Static non-authorizing warning.
+    pub non_authorizing_warning: String,
+}
+
+/// Static warning embedded in every WorkingMemoryResonance result.
+pub const RESONANCE_NON_AUTHORIZING_WARNING: &str =
+    "Resonance readback only — hints are non-authorizing pattern suggestions, \
+     not approvals, not execution triggers, and not a Decision Gate bypass. \
+     Review before acting.";
+
+/// Resonate cognitive cycle state with Holographic Memory patterns.
+///
+/// This pure function maps WorkingMemory-derived fields and an optional
+/// ComputeAllocation justification to heuristic resonance hints. It is
+/// NOT a vector similarity search — it uses keyword/label heuristics as
+/// a V0 surrogate for pattern matching.
+///
+/// # Parameters
+///
+/// * `domain_label` — a string label for the cognitive domain (e.g. "business", "research")
+/// * `sensitivity_label` — a string label for data sensitivity (e.g. "public", "confidential")
+/// * `complexity` — heuristic complexity score (0.0–1.0)
+/// * `proposed_action_kind` — the kind of next action proposed (e.g. "requestcontext", "stopwithreport")
+/// * `allocation_justification` — optional justification text from ComputeReservoir allocation
+///
+/// # Returns
+///
+/// A `WorkingMemoryResonance` containing heuristic hints, labels, and
+/// a resonance score. This is a non-authorizing readback.
+///
+/// # Safety
+///
+/// * Pure function: no I/O, no LLM calls, no persistence, no side effects.
+/// * The returned hints are non-authorizing (warning embedded).
+pub fn resonate_for_working_memory(
+    domain_label: &str,
+    sensitivity_label: &str,
+    complexity: f32,
+    proposed_action_kind: &str,
+    allocation_justification: Option<&str>,
+) -> WorkingMemoryResonance {
+    let mut hints: Vec<ResonanceHint> = Vec::new();
+
+    // 1. Domain-based resonance hint
+    let (domain_trace_kind, domain_labels) = classify_domain_for_resonance(domain_label);
+    hints.push(ResonanceHint {
+        suggested_trace_kind: domain_trace_kind,
+        labels: domain_labels,
+        resonance_score: 0.5,
+        rationale: format!(
+            "Domain '{}' suggests a cognitive cycle pattern in this domain.",
+            domain_label
+        ),
+    });
+
+    // 2. Sensitivity-based resonance hint
+    if !sensitivity_label.is_empty() && sensitivity_label != "public" {
+        let (sens_trace_kind, sens_labels) = classify_sensitivity_for_resonance(sensitivity_label);
+        let sens_score = if sensitivity_label == "secret" {
+            0.9
+        } else {
+            0.7
+        };
+        hints.push(ResonanceHint {
+            suggested_trace_kind: sens_trace_kind,
+            labels: sens_labels,
+            resonance_score: sens_score,
+            rationale: format!(
+                "Sensitivity '{}' suggests a pattern involving sensitive or restricted data handling.",
+                sensitivity_label
+            ),
+        });
+    }
+
+    // 3. Complexity-based resonance hint
+    if complexity >= 0.7 {
+        let comp_labels = vec!["high_complexity".to_owned(), "complex".to_owned()];
+        hints.push(ResonanceHint {
+            suggested_trace_kind: HolographicTraceKind::TaskPattern,
+            labels: comp_labels,
+            resonance_score: complexity,
+            rationale: format!(
+                "Complexity score of {:.1} suggests a complex task pattern that may require stronger reasoning resources.",
+                complexity
+            ),
+        });
+    }
+
+    // 4. Allocation justification-based resonance hint
+    if let Some(justification) = allocation_justification {
+        if !justification.is_empty() {
+            let lower = justification.to_lowercase();
+            let mut alloc_labels = vec!["compute_routing".to_owned()];
+            if lower.contains("local") {
+                alloc_labels.push("local_resource".to_owned());
+            }
+            if lower.contains("fallback") {
+                alloc_labels.push("fallback_selected".to_owned());
+            }
+            if lower.contains("cloud") {
+                alloc_labels.push("cloud_resource".to_owned());
+            }
+            hints.push(ResonanceHint {
+                suggested_trace_kind: HolographicTraceKind::ComputeRoutingPattern,
+                labels: alloc_labels,
+                resonance_score: 0.6,
+                rationale: format!(
+                    "Compute allocation justification suggests a compute-routing pattern: '{}...'",
+                    &justification[..justification.len().min(80)]
+                ),
+            });
+        }
+    }
+
+    // 5. Proposed-action-based resonance hint
+    if !proposed_action_kind.is_empty() {
+        let action_labels = match proposed_action_kind.to_lowercase().as_str() {
+            "requestcontext" | "request_context" => {
+                vec![
+                    "context_gathering".to_owned(),
+                    proposed_action_kind.to_owned(),
+                ]
+            }
+            "stopwithreport" | "stop_with_report" => {
+                vec!["reporting".to_owned(), proposed_action_kind.to_owned()]
+            }
+            "proposeplan" | "propose_plan" => {
+                vec!["planning".to_owned(), proposed_action_kind.to_owned()]
+            }
+            "usetool" | "use_tool" => {
+                vec!["tool_use".to_owned(), proposed_action_kind.to_owned()]
+            }
+            _ => {
+                vec![proposed_action_kind.to_owned()]
+            }
+        };
+        hints.push(ResonanceHint {
+            suggested_trace_kind: HolographicTraceKind::CognitiveCyclePattern,
+            labels: action_labels,
+            resonance_score: 0.4,
+            rationale: format!(
+                "Proposed next action '{}' suggests a cognitive-cycle pattern.",
+                proposed_action_kind
+            ),
+        });
+    }
+
+    WorkingMemoryResonance {
+        non_authorizing_warning: RESONANCE_NON_AUTHORIZING_WARNING.to_owned(),
+        has_resonance: !hints.is_empty(),
+        available_pattern_count: 0,
+        hints,
+    }
+}
+
+/// Map a domain label to a heuristic trace kind and labels.
+fn classify_domain_for_resonance(domain: &str) -> (HolographicTraceKind, Vec<String>) {
+    let lower = domain.to_lowercase();
+    let mut labels = vec![format!("domain:{}", lower)];
+    let kind = match lower.as_str() {
+        "business" => {
+            labels.push("business".to_owned());
+            labels.push("strategy".to_owned());
+            HolographicTraceKind::TaskPattern
+        }
+        "research" => {
+            labels.push("research".to_owned());
+            labels.push("investigation".to_owned());
+            HolographicTraceKind::CognitiveCyclePattern
+        }
+        "teaching" => {
+            labels.push("teaching".to_owned());
+            labels.push("pedagogy".to_owned());
+            HolographicTraceKind::TaskPattern
+        }
+        "coding" | "engineering" => {
+            labels.push("engineering".to_owned());
+            labels.push("technical".to_owned());
+            HolographicTraceKind::ActionChainPattern
+        }
+        _ => {
+            labels.push("general".to_owned());
+            HolographicTraceKind::CognitiveCyclePattern
+        }
+    };
+    (kind, labels)
+}
+
+/// Map a sensitivity label to a heuristic trace kind and labels.
+fn classify_sensitivity_for_resonance(sensitivity: &str) -> (HolographicTraceKind, Vec<String>) {
+    let lower = sensitivity.to_lowercase();
+    let mut labels = vec![format!("sensitivity:{}", lower)];
+    let kind = match lower.as_str() {
+        "secret" => {
+            labels.push("secret".to_owned());
+            labels.push("restricted".to_owned());
+            HolographicTraceKind::DecisionPattern
+        }
+        "confidential" | "confidentiel" => {
+            labels.push("confidential".to_owned());
+            labels.push("restricted".to_owned());
+            HolographicTraceKind::DecisionPattern
+        }
+        "internal" => {
+            labels.push("internal".to_owned());
+            HolographicTraceKind::ComputeRoutingPattern
+        }
+        _ => {
+            labels.push("public".to_owned());
+            HolographicTraceKind::TaskPattern
+        }
+    };
+    (kind, labels)
+}
+
+// ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
 
@@ -496,5 +750,233 @@ mod tests {
         assert_eq!(decoded.workspace_id, WorkspaceId::new("ws-1"));
         assert_eq!(decoded.top_k, 5);
         assert_eq!(decoded.min_similarity, 0.75);
+    }
+
+    // ─── P6 — WorkingMemory resonance tests ────────────────────────────
+
+    #[test]
+    fn p6_resonate_business_public_low_complexity_produces_domain_hints() {
+        // Simulate a simple business objective with public data and low complexity
+        let resonance = resonate_for_working_memory(
+            "business",
+            "public",
+            0.3,
+            "stopwithreport",
+            Some("Selected compute resource 'Local small model' for processing only; this is not action approval."),
+        );
+
+        // Should have multiple hints (domain + proposed action + allocation)
+        assert!(resonance.has_resonance);
+        assert!(resonance.hints.len() >= 3);
+
+        // Check domain hint
+        let domain_hint = &resonance.hints[0];
+        assert_eq!(
+            domain_hint.suggested_trace_kind,
+            HolographicTraceKind::TaskPattern
+        );
+        assert!(domain_hint.labels.contains(&"domain:business".to_owned()));
+
+        // Check allocation hint
+        let alloc_hint = resonance
+            .hints
+            .iter()
+            .find(|h| h.suggested_trace_kind == HolographicTraceKind::ComputeRoutingPattern);
+        assert!(alloc_hint.is_some());
+        assert!(alloc_hint
+            .unwrap()
+            .labels
+            .contains(&"local_resource".to_owned()));
+
+        // Check proposed action hint
+        let action_hint = resonance
+            .hints
+            .iter()
+            .find(|h| h.labels.contains(&"reporting".to_owned()));
+        assert!(action_hint.is_some());
+
+        // Verify non-authorizing warning is present
+        assert!(resonance
+            .non_authorizing_warning
+            .contains("non-authorizing"));
+    }
+
+    #[test]
+    fn p6_resonate_sensitive_objective_produces_sensitivity_hints() {
+        // Confidential sensitivity should produce a DecisionPattern hint
+        let resonance =
+            resonate_for_working_memory("business", "confidential", 0.5, "requestcontext", None);
+
+        assert!(resonance.has_resonance);
+
+        // Find sensitivity hint
+        let sens_hint = resonance
+            .hints
+            .iter()
+            .find(|h| h.suggested_trace_kind == HolographicTraceKind::DecisionPattern);
+        assert!(sens_hint.is_some());
+        assert!(sens_hint
+            .unwrap()
+            .labels
+            .contains(&"confidential".to_owned()));
+        assert_eq!(sens_hint.unwrap().resonance_score, 0.7);
+    }
+
+    #[test]
+    fn p6_resonate_secret_sensitivity_has_higher_score() {
+        // Secret sensitivity should have resonance_score 0.9
+        let resonance =
+            resonate_for_working_memory("general", "secret", 0.5, "stopwithreport", None);
+
+        let sens_hint = resonance
+            .hints
+            .iter()
+            .find(|h| h.labels.contains(&"secret".to_owned()));
+        assert!(sens_hint.is_some());
+        assert_eq!(sens_hint.unwrap().resonance_score, 0.9);
+    }
+
+    #[test]
+    fn p6_resonate_high_complexity_triggers_complexity_hint() {
+        // Complexity >= 0.7 should produce an additional hint
+        let resonance = resonate_for_working_memory(
+            "research",
+            "public",
+            0.9,
+            "proposeplan",
+            Some("Selected complex reasoning resource for investigation."),
+        );
+
+        assert!(resonance.has_resonance);
+
+        // Find complexity hint
+        let comp_hint = resonance
+            .hints
+            .iter()
+            .find(|h| h.labels.contains(&"high_complexity".to_owned()));
+        assert!(comp_hint.is_some());
+        assert!(comp_hint.unwrap().resonance_score >= 0.7);
+    }
+
+    #[test]
+    fn p6_resonate_public_sensitivity_skips_sensitivity_hint() {
+        // Public sensitivity should NOT produce a sensitivity hint (skipped)
+        let resonance =
+            resonate_for_working_memory("general", "public", 0.3, "stopwithreport", None);
+
+        // No sensitivity hints for public data
+        let sens_hints: Vec<_> = resonance
+            .hints
+            .iter()
+            .filter(|h| h.labels.iter().any(|l| l.starts_with("sensitivity:")))
+            .collect();
+        assert!(
+            sens_hints.is_empty(),
+            "Public sensitivity should not produce sensitivity hints"
+        );
+    }
+
+    #[test]
+    fn p6_resonate_with_fallback_justification_detects_fallback_label() {
+        // Allocation justification containing "fallback" should produce fallback label.
+        // Use public sensitivity to avoid conflict with internal->ComputeRoutingPattern.
+        let resonance = resonate_for_working_memory(
+            "business",
+            "public",
+            0.5,
+            "stopwithreport",
+            Some("FallbackSelected: Ideal capability match was unavailable; selected compatible local fallback for processing only."),
+        );
+
+        // Find the allocation hint (ComputeRoutingPattern from justification, not sensitivity)
+        let alloc_hint = resonance
+            .hints
+            .iter()
+            .find(|h| h.labels.iter().any(|l| l == "compute_routing"));
+        assert!(
+            alloc_hint.is_some(),
+            "Expected a compute_routing hint from allocation justification in {:?}",
+            resonance.hints
+        );
+
+        let hint = alloc_hint.unwrap();
+        assert!(
+            hint.labels.contains(&"fallback_selected".to_owned()),
+            "Expected 'fallback_selected' in labels {:?}",
+            hint.labels
+        );
+        assert!(hint.labels.contains(&"local_resource".to_owned()));
+    }
+
+    #[test]
+    fn p6_resonance_is_non_authorizing() {
+        // Verify that resonance output contains non-authorizing warning
+        let resonance =
+            resonate_for_working_memory("business", "public", 0.3, "stopwithreport", None);
+
+        let encoded = serde_json::to_string(&resonance).expect("resonance should serialize");
+        assert!(encoded.contains("non-authorizing"));
+        assert!(encoded.contains("not approvals"));
+        assert!(encoded.contains("Decision Gate"));
+        assert!(resonance
+            .non_authorizing_warning
+            .contains("non-authorizing"));
+    }
+
+    #[test]
+    fn p6_resonance_serializes_to_json() {
+        let resonance = resonate_for_working_memory(
+            "research",
+            "confidential",
+            0.8,
+            "proposeplan",
+            Some("Selected resource for complex research task."),
+        );
+
+        let encoded =
+            serde_json::to_string_pretty(&resonance).expect("resonance should serialize to JSON");
+        assert!(encoded.contains("hints"));
+        assert!(encoded.contains("has_resonance"));
+        assert!(encoded.contains("non_authorizing_warning"));
+        assert!(encoded.contains("suggested_trace_kind"));
+
+        // Round-trip
+        let decoded: WorkingMemoryResonance =
+            serde_json::from_str(&encoded).expect("resonance should deserialize");
+        assert_eq!(decoded.hints.len(), resonance.hints.len());
+        assert_eq!(decoded.has_resonance, resonance.has_resonance);
+    }
+
+    #[test]
+    fn p6_resonance_is_pure_no_external_provider() {
+        // Same inputs produce same outputs (deterministic)
+        let r1 = resonate_for_working_memory("engineering", "internal", 0.6, "usetool", None);
+        let r2 = resonate_for_working_memory("engineering", "internal", 0.6, "usetool", None);
+
+        assert_eq!(r1.hints.len(), r2.hints.len());
+        assert_eq!(r1.has_resonance, r2.has_resonance);
+        assert_eq!(r1.non_authorizing_warning, r2.non_authorizing_warning);
+
+        // Verify all hints are identical
+        for (h1, h2) in r1.hints.iter().zip(r2.hints.iter()) {
+            assert_eq!(h1.suggested_trace_kind, h2.suggested_trace_kind);
+            assert_eq!(h1.labels, h2.labels);
+            assert_eq!(h1.resonance_score, h2.resonance_score);
+        }
+    }
+
+    #[test]
+    fn p6_resonance_engineering_domain_produces_action_chain_pattern() {
+        let resonance =
+            resonate_for_working_memory("engineering", "public", 0.5, "requestcontext", None);
+
+        assert!(resonance.has_resonance);
+
+        let domain_hint = &resonance.hints[0];
+        assert_eq!(
+            domain_hint.suggested_trace_kind,
+            HolographicTraceKind::ActionChainPattern
+        );
+        assert!(domain_hint.labels.contains(&"technical".to_owned()));
     }
 }
