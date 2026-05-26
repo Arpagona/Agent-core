@@ -6,13 +6,34 @@ It must contain one concrete next action only. The runtime milestone queue and l
 
 ## Next action
 
-Implement executor readiness states / disabled-by-default executor slots.
+Complete execution audit query coverage.
 
-Why: the audit trail now has dedicated event types for every execution activity. The next step is to define states like `Disabled`, `Ready`, `Blocked` for executor instances, and add a slot-based system where multiple executors can be registered but remain disabled by default. This prepares for the eventual enabling of specific executors without global risk.
+Why: the execution pipeline now emits dedicated execution-related audit events, but every execution, sandbox, and dry-run request/completion/blocking event must be recognized by audit trace summaries and query helpers before adding executor readiness states.
 
-Proof to seek: `ExecutorState` enum exists; `ExecutorRegistry::register()` accepts an optional state; `resolve()` filters disabled executors; tests prove disabled executors cannot execute and blocked executors produce `ExecutionBlocked`.
+Proof to seek: `cargo test --workspace` passes and tests prove every execution-related `AuditEventType` is recognized by `AuditTraceSummary::has_execution_event`, sandbox/dry-run events appear in operator trace summaries, blocked policy events appear in execution audit queries, and generic `DecisionCreated` is no longer required to detect execution activity.
 
-Do not: add real execution, modify files/tools/systems, call LLMs, or enable autonomous execution. Executors remain disabled by default.
+Do not: add real execution, add LLM calls, add endpoints unless strictly required for readback, or change PolicyEngine, Decision Gate, Executor, or ExecutorRegistry behavior.
+
+## Requirements
+
+- Verify all execution-related variants are included in `AuditTraceSummary::has_execution_event`.
+- Add missing variants if needed, especially:
+  - `ExecutionRequested`
+  - `ExecutionStarted`, if present or needed
+  - `ExecutionBlocked`
+  - `ExecutionDisabled`
+  - `DryRunRequested`, if present or needed
+  - `DryRunCompleted`, if present or needed
+  - `DryRunBlocked`, if present or needed
+- Add tests proving:
+  - each execution-related audit variant is recognized by `has_execution_event`;
+  - sandbox/dry-run events appear in operator trace summaries;
+  - blocked policy events appear in execution audit queries;
+  - generic `DecisionCreated` is no longer required to detect execution activity.
+- Keep changes limited to audit event recognition, tests, and documentation.
+- Update `PROJECT_STATUS.md`.
+- Update this file with the next step:
+  - executor readiness states / disabled-by-default executor slots.
 
 ## Required update at the end of every run
 
