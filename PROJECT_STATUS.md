@@ -937,3 +937,98 @@ This session added the deterministic dry-run execution sandbox for approved prop
 ### Recommended next step
 
 Execution capability registry: declarative mapping from ActionType + RiskLevel to executors.
+
+## 23. Latest Session Update (2026-05-28 — P13: Execution Capability Registry)
+
+This session added the deterministic execution capability registry.
+
+**New module:** `crates/core/src/execution_registry.rs`
+
+**Core types:**
+- `ExecutionCapability` struct with: `action_type`, `executor_id`, `supports_dry_run`, `supports_real_execution`, `required_permissions`, `touched_resource_kinds`, `max_allowed_risk`, `reversibility`, `human_approval_required`, `notes`, `safety_warning`
+- `execution_capability(&ActionType) → ExecutionCapability` — deterministic single-type lookup
+- `list_execution_capabilities() → Vec<ExecutionCapability>` — all known types
+- `risk_exceeds_max_allowed(RiskLevel, RiskLevel) → bool` — helper for policy checks
+
+**Capability design per ActionType:**
+
+| ActionType | dry-run | real-exec | max_risk | approval |
+|---|---|---|---|---|
+| ReadMemory | ✓ | ✗ | Low | auto |
+| ReadTasks | ✓ | ✗ | Informational | auto |
+| ReadProposedActions / ReadPendingActions | ✓ | ✗ | Informational | auto |
+| ReadDecisions | ✓ | ✗ | Informational | auto |
+| ReadAudit | ✓ | ✗ | Informational | auto |
+| ReadStatus | ✓ | ✗ | Informational | auto |
+| SystemCheck | ✓ | ✗ | Low | auto |
+| WriteMemory / CreateMemoryFact / LinkMemoryFact / InvalidateMemoryFact / CreateFailureInsightMemory | ✓ | ✗ | Medium | auto/human |
+| ReadDocument | ✓ | ✗ | Low | auto |
+| WriteDocument | ✓ | ✗ | Medium | human |
+| ProposeToolUse | ✓ | ✗ | Medium | human |
+| SimulateEmail | ✓ | ✗ | Medium | human |
+| ManageTask | ✓ | ✗ | Medium | human |
+| Custom(unknown) | ✗ | ✗ | Informational | human |
+
+**Integration into DryRunResult:**
+- `DryRunResult.execution_capability: Option<serde_json::Value>` — capability metadata included in every dry-run output for approved proposals
+- The dry-run handler calls `execution_capability(&action.action_type)` and serialises the result into the dry-run response
+
+**API endpoints (new):**
+- `GET /execution-capabilities` — list all capabilities
+- `GET /execution-capabilities/{action_type}` — show one capability
+
+**CLI subcommand (new):**
+- `arpagona action capability list [--json]` — list all execution capabilities
+- `arpagona action capability show <action_type> [--json]` — show capability for one type
+
+**FromStr for ActionType (added to `crates/core/src/action.rs`):**
+- Parses snake_case strings (e.g. `"read_memory"`, `"simulate_email"`) to ActionType variants
+- Unknown strings return `ActionType::Custom(name)` without error
+
+**Test coverage (18 new tests in `crates/core/src/execution_registry.rs`):**
+- Known ActionType values return deterministic capabilities
+- Custom/unknown ActionType is blocked (no dry-run, no execution)
+- High/Critical risk actions are not execution-eligible per max_allowed_risk
+- Real execution remains disabled for all types
+- Risk comparison works correctly (ordinal monotonic, threshold checks)
+- `list_execution_capabilities()` returns every known type
+
+**Verification:**
+- `cargo test --workspace`: 273 tests pass (all crates)
+- 0 compiler warnings
+
+**Stability level:** alpha declarative registry.
+
+### Key invariants
+
+- No real execution — `supports_real_execution` is `false` for all types
+- No LLM calls — all capabilities are deterministic hardcoded maps
+- No Decision Gate bypass — registry is purely descriptive
+- `Approved` remains non-executing — only dry-run is available
+- Unknown action types return a blocked capability
+
+### Files changed
+
+| File | Change |
+|------|--------|
+| `crates/core/src/execution_registry.rs` | **New file** — registry types, functions, 18 tests |
+| `crates/core/src/action.rs` | Added `FromStr` for `ActionType`, added `execution_capability` field to `DryRunResult` |
+| `crates/core/src/lib.rs` | Added `pub mod execution_registry` + `pub use execution_registry::*` |
+| `apps/api-server/src/main.rs` | Added `GET /execution-capabilities` and `GET /execution-capabilities/{action_type}`; capability injected into dry-run output |
+| `crates/cli/src/main.rs` | Added `action capability {list|show}` subcommand |
+| `PROJECT_STATUS.md` | Updated with section 23 |
+| `FOCUS_LOOP_NEXT.md` | Updated to permission model / policy checks |
+
+### What was NOT added
+
+- No real execution — no executor, no tool registration
+- No LLM calls or provider changes
+- No autonomous execution or scheduling
+- No Decision Gate bypass
+- No file/network/shell side effects
+- No tool execution of any kind
+- No modification of core governance invariants
+
+### Recommended next step
+
+Permission model / policy checks before any real executor: define policy rules that gate dry-run and future execution based on context, risk level, permissions, and resource kinds. The registry has the data; the next step is a `PolicyEngine` that consumes it.

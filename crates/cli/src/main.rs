@@ -241,6 +241,8 @@ enum ActionSubcommand {
     Sandbox(SandboxActionCommand),
     /// Dry-run an approved proposal: simulate execution without side effects.
     DryRun(DryRunActionArgs),
+    /// Query the execution capability registry.
+    Capability(CapabilityCommand),
 }
 
 #[derive(Debug, Args)]
@@ -333,6 +335,36 @@ struct SandboxListArgs {
 struct DryRunActionArgs {
     /// Proposed action ID to dry-run.
     action_id: String,
+    /// Emit structured JSON instead of human-oriented text.
+    #[arg(long)]
+    json: bool,
+}
+
+#[derive(Debug, Args)]
+struct CapabilityCommand {
+    #[command(subcommand)]
+    command: CapabilitySubcommand,
+}
+
+#[derive(Debug, Subcommand)]
+enum CapabilitySubcommand {
+    /// List all execution capabilities.
+    List(CapabilityListArgs),
+    /// Show capability for a specific action type.
+    Show(CapabilityShowArgs),
+}
+
+#[derive(Debug, Args)]
+struct CapabilityListArgs {
+    /// Emit structured JSON instead of human-oriented text.
+    #[arg(long)]
+    json: bool,
+}
+
+#[derive(Debug, Args)]
+struct CapabilityShowArgs {
+    /// Action type (e.g. read_memory, simulate_email).
+    action_type: String,
     /// Emit structured JSON instead of human-oriented text.
     #[arg(long)]
     json: bool,
@@ -1115,6 +1147,7 @@ async fn run() -> Result<(), Box<dyn Error>> {
             ActionSubcommand::Review(args) => review_action(&client, &api_url, args).await?,
             ActionSubcommand::Sandbox(args) => sandbox_action(&client, &api_url, args).await?,
             ActionSubcommand::DryRun(args) => dry_run_action(&client, &api_url, args).await?,
+            ActionSubcommand::Capability(args) => capability_action(&client, &api_url, args).await?,
         },
         Command::Agent(agent) => match agent.command {
             AgentSubcommand::Propose(args) => propose_agent_action(&client, &api_url, args).await?,
@@ -3572,6 +3605,132 @@ async fn dry_run_action(
             .and_then(|v| v.as_str())
         {
             println!("{} {}", style_dim("  reversibility:"), reversibility);
+        }
+    }
+    Ok(())
+}
+
+/// Query the execution capability registry: list all or show one.
+async fn capability_action(
+    client: &Client,
+    api_url: &str,
+    cmd: CapabilityCommand,
+) -> Result<(), Box<dyn Error>> {
+    match cmd.command {
+        CapabilitySubcommand::List(args) => {
+            let caps: Vec<serde_json::Value> = get_json(
+                client
+                    .get(format!("{api_url}/execution-capabilities"))
+                    .send()
+                    .await?,
+            )
+            .await?;
+
+            if args.json {
+                println!("{}", serde_json::to_string_pretty(&caps)?);
+            } else {
+                println!("{}", style_info("Execution Capabilities"));
+                println!(
+                    "{}",
+                    style_dim("  {:<24} dry-run  real-exec  max_risk          approval")
+                );
+                for cap in &caps {
+                    let at = cap["action_type"].as_str().unwrap_or("?");
+                    let dry_run = cap["supports_dry_run"].as_bool().unwrap_or(false);
+                    let real_exec = cap["supports_real_execution"].as_bool().unwrap_or(false);
+                    let max_risk = cap["max_allowed_risk"].as_str().unwrap_or("?");
+                    let horiz = cap["human_approval_required"].as_bool().unwrap_or(false);
+                    println!(
+                        "  {:<24} {:<7} {:<10} {:<18} {}",
+                        at,
+                        if dry_run { "✓" } else { "✗" },
+                        if real_exec { "✓" } else { "✗" },
+                        max_risk,
+                        if horiz { "human" } else { "auto" },
+                    );
+                }
+                println!();
+                println!(
+                    "{} Use `action capability show <action_type>` for details.",
+                    style_dim("Tip:")
+                );
+            }
+        }
+        CapabilitySubcommand::Show(args) => {
+            let cap: serde_json::Value = get_json(
+                client
+                    .get(format!(
+                        "{api_url}/execution-capabilities/{}",
+                        args.action_type
+                    ))
+                    .send()
+                    .await?,
+            )
+            .await?;
+
+            if args.json {
+                println!("{}", serde_json::to_string_pretty(&cap)?);
+            } else {
+                println!("{}", style_info("Execution Capability Detail"));
+                println!(
+                    "{} {}",
+                    style_dim("  action_type:"),
+                    cap["action_type"].as_str().unwrap_or("?")
+                );
+                println!(
+                    "{} {}",
+                    style_dim("  executor_id:"),
+                    cap["executor_id"].as_str().unwrap_or("(none)")
+                );
+                println!(
+                    "{} {}",
+                    style_dim("  supports_dry_run:"),
+                    cap["supports_dry_run"].as_bool().unwrap_or(false)
+                );
+                println!(
+                    "{} {}",
+                    style_dim("  supports_real_execution:"),
+                    cap["supports_real_execution"].as_bool().unwrap_or(false)
+                );
+                println!(
+                    "{} {}",
+                    style_dim("  max_allowed_risk:"),
+                    cap["max_allowed_risk"].as_str().unwrap_or("?")
+                );
+                println!(
+                    "{} {}",
+                    style_dim("  human_approval_required:"),
+                    cap["human_approval_required"].as_bool().unwrap_or(false)
+                );
+                println!(
+                    "{} {}",
+                    style_dim("  reversibility:"),
+                    cap["reversibility"].as_str().unwrap_or("?")
+                );
+                if let Some(kinds) = cap["touched_resource_kinds"].as_array() {
+                    let kinds_str: Vec<&str> = kinds.iter().filter_map(|v| v.as_str()).collect();
+                    println!(
+                        "{} {}",
+                        style_dim("  touched_resource_kinds:"),
+                        kinds_str.join(", ")
+                    );
+                }
+                if let Some(perms) = cap["required_permissions"].as_array() {
+                    let perms_str: Vec<&str> =
+                        perms.iter().filter_map(|v| v.as_str()).collect();
+                    println!(
+                        "{} {}",
+                        style_dim("  required_permissions:"),
+                        perms_str.join(", ")
+                    );
+                }
+                if let Some(notes) = cap["notes"].as_str() {
+                    println!("{} {}", style_dim("  notes:"), notes);
+                }
+                if let Some(warn) = cap["safety_warning"].as_str() {
+                    println!("{} {}", style_warning("  safety_warning:"), warn);
+                }
+            }
         }
     }
     Ok(())

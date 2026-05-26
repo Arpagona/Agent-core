@@ -236,6 +236,9 @@ pub enum DryRunStatus {
 /// Dry-run is non-destructive: it describes what *would* happen without
 /// actually executing tools, modifying files, or calling external systems.
 /// Every dry-run attempt creates an audit event.
+///
+/// The [`execution_capability`] field provides deterministic capability
+/// metadata from the execution capability registry.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct DryRunResult {
     pub proposal_id: ProposedActionId,
@@ -247,7 +250,36 @@ pub struct DryRunResult {
     pub reversibility: String,
     pub human_readable_summary: String,
     pub status: DryRunStatus,
+    pub execution_capability: Option<serde_json::Value>,
     pub created_at: DateTime<Utc>,
+}
+
+impl std::str::FromStr for ActionType {
+    type Err = String;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            "read_memory" => Ok(ActionType::ReadMemory),
+            "read_tasks" => Ok(ActionType::ReadTasks),
+            "read_proposed_actions" => Ok(ActionType::ReadProposedActions),
+            "read_pending_actions" => Ok(ActionType::ReadPendingActions),
+            "read_decisions" => Ok(ActionType::ReadDecisions),
+            "read_audit" => Ok(ActionType::ReadAudit),
+            "read_status" => Ok(ActionType::ReadStatus),
+            "system_check" => Ok(ActionType::SystemCheck),
+            "write_memory" => Ok(ActionType::WriteMemory),
+            "create_memory_fact" => Ok(ActionType::CreateMemoryFact),
+            "link_memory_fact" => Ok(ActionType::LinkMemoryFact),
+            "invalidate_memory_fact" => Ok(ActionType::InvalidateMemoryFact),
+            "create_failure_insight_memory" => Ok(ActionType::CreateFailureInsightMemory),
+            "read_document" => Ok(ActionType::ReadDocument),
+            "write_document" => Ok(ActionType::WriteDocument),
+            "propose_tool_use" => Ok(ActionType::ProposeToolUse),
+            "simulate_email" => Ok(ActionType::SimulateEmail),
+            "manage_task" => Ok(ActionType::ManageTask),
+            other => Ok(ActionType::Custom(other.to_owned())),
+        }
+    }
 }
 
 #[cfg(test)]

@@ -6,13 +6,13 @@ It must contain one concrete next action only. The runtime milestone queue and l
 
 ## Next action
 
-Implement execution capability registry.
+Implement permission model / policy checks before any real executor.
 
-Why: the dry-run sandbox now simulates approved proposals. The next step is a declarative registry mapping `ActionType` + `RiskLevel` to the actual executors that would handle them outside sandbox mode. This creates a formal contract between the Decision Gate, the human reviewer, and the future execution runtime.
+Why: the execution capability registry now provides deterministic metadata for every action type. The next step is a `PolicyEngine` that consumes registry data (risk level, required permissions, resource kinds) plus context (agent role, workspace scope, user intent) to gate dry-run eligibility and future execution. This is the last missing layer before any executor can be designed.
 
-Proof to seek: `arpagona capability list` shows available executors per action type and risk level, with a `sandbox_only` flag.
+Proof to seek: `arpagona action capability list` shows available executors; a `policy check` command can evaluate "can agent-X dry-run action-type-Y with risk-level-Z on workspace-W".
 
-Do not: add real execution, modify files/tools/systems, call LLMs, or enable autonomous execution. The registry is purely declarative.
+Do not: add real execution, modify files/tools/systems, call LLMs, or enable autonomous execution. The policy engine is purely declarative.
 
 ## Required update at the end of every run
 

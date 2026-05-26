@@ -2,6 +2,7 @@ use std::net::SocketAddr;
 use std::sync::{Arc, Mutex};
 
 use arpagona_agent_core::{
+    execution_capability, list_execution_capabilities, ExecutionCapability,
     ActionType, ActorRef, AgentId, AuditEvent, AuditEventId, AuditEventType, Decision,
     DecisionStatus, DryRunResult, DryRunStatus, Permission, ProposedAction, ProposedActionId,
     ProposedActionStatus, RiskLevel, Task, TaskId, TaskPriority, TaskStatus, WorkspaceId,
@@ -149,6 +150,11 @@ fn app(state: AppState) -> Router {
         .route("/sandbox-runs", get(list_sandbox_runs))
         .route("/proposed-actions/{id}/dry-run", post(dry_run_proposal))
         .route("/dry-run-results", get(list_dry_run_results))
+        .route("/execution-capabilities", get(list_execution_capabilities_handler))
+        .route(
+            "/execution-capabilities/{action_type}",
+            get(get_execution_capability_handler),
+        )
         .with_state(state)
 }
 
@@ -504,6 +510,21 @@ async fn list_sandbox_runs(
     Ok(Json(state.lock()?.sandbox_runs.clone()))
 }
 
+/// List all execution capabilities.
+async fn list_execution_capabilities_handler() -> Json<Vec<ExecutionCapability>> {
+    Json(list_execution_capabilities())
+}
+
+/// Get execution capability for a specific action type.
+async fn get_execution_capability_handler(
+    Path(action_type): Path<String>,
+) -> Result<Json<ExecutionCapability>, ApiError> {
+    let at = ActionType::from_str(&action_type)
+        .map_err(|_| ApiError::bad_request(format!("unknown action type: '{}'", action_type)))?;
+    let cap = execution_capability(&at);
+    Ok(Json(cap))
+}
+
 /// Describe expected effects of an action type without executing anything.
 fn describe_action_effects(action: &ProposedAction) -> (Vec<String>, Vec<String>, String, String) {
     match &action.action_type {
@@ -589,6 +610,7 @@ async fn dry_run_proposal(
     let (expected_effects, touched_resources, reversibility, summary) =
         describe_action_effects(&action);
 
+    let capability = execution_capability(&action.action_type);
     let result = DryRunResult {
         proposal_id: action.id.clone(),
         action_type: action.action_type.clone(),
@@ -599,6 +621,7 @@ async fn dry_run_proposal(
         reversibility,
         human_readable_summary: summary,
         status: DryRunStatus::DryRunCompleted,
+        execution_capability: Some(serde_json::to_value(&capability).unwrap_or_default()),
         created_at: Utc::now(),
     };
 
