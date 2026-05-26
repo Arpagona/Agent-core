@@ -191,8 +191,7 @@ pub fn execution_capability(action_type: &ActionType) -> ExecutionCapability {
             human_approval_required: true,
             notes: Some("Document writes are simulated only — no files are modified.".to_owned()),
             safety_warning: Some(
-                "Document writes could overwrite files if real execution is enabled."
-                    .to_owned(),
+                "Document writes could overwrite files if real execution is enabled.".to_owned(),
             ),
         },
         ActionType::ProposeToolUse => ExecutionCapability {
@@ -205,10 +204,11 @@ pub fn execution_capability(action_type: &ActionType) -> ExecutionCapability {
             max_allowed_risk: RiskLevel::Medium,
             reversibility: "Fully reversible — proposal only, no execution.".to_owned(),
             human_approval_required: true,
-            notes: Some("Proposing tool use is a meta-action: it creates a new proposal.".to_owned()),
+            notes: Some(
+                "Proposing tool use is a meta-action: it creates a new proposal.".to_owned(),
+            ),
             safety_warning: Some(
-                "Tool use may have side effects. Real execution is disabled."
-                    .to_owned(),
+                "Tool use may have side effects. Real execution is disabled.".to_owned(),
             ),
         },
         ActionType::SimulateEmail => ExecutionCapability {
@@ -249,8 +249,7 @@ pub fn execution_capability(action_type: &ActionType) -> ExecutionCapability {
             required_permissions: vec![],
             touched_resource_kinds: vec!["unknown".to_owned()],
             max_allowed_risk: RiskLevel::Informational,
-            reversibility: "Unknown — custom action type has no declared capability."
-                .to_owned(),
+            reversibility: "Unknown — custom action type has no declared capability.".to_owned(),
             human_approval_required: true,
             notes: Some(format!(
                 "Custom action type '{name}' has no registered capability entry."
@@ -287,7 +286,10 @@ pub fn list_execution_capabilities() -> Vec<ExecutionCapability> {
         SimulateEmail,
         ManageTask,
     ];
-    known.into_iter().map(|at| execution_capability(&at)).collect()
+    known
+        .into_iter()
+        .map(|at| execution_capability(&at))
+        .collect()
 }
 
 /// Check whether a risk level exceeds the maximum allowed for an action type.
@@ -372,7 +374,9 @@ mod tests {
 
     #[test]
     fn risk_ordinal_monotonic() {
-        assert!(risk_level_ordinal(&RiskLevel::Informational) < risk_level_ordinal(&RiskLevel::Low));
+        assert!(
+            risk_level_ordinal(&RiskLevel::Informational) < risk_level_ordinal(&RiskLevel::Low)
+        );
         assert!(risk_level_ordinal(&RiskLevel::Low) < risk_level_ordinal(&RiskLevel::Medium));
         assert!(risk_level_ordinal(&RiskLevel::Medium) < risk_level_ordinal(&RiskLevel::High));
         assert!(risk_level_ordinal(&RiskLevel::High) < risk_level_ordinal(&RiskLevel::Critical));
@@ -380,27 +384,51 @@ mod tests {
 
     #[test]
     fn risk_exceeds_low_threshold() {
-        assert!(!risk_exceeds_max_allowed(&RiskLevel::Informational, &RiskLevel::Low));
+        assert!(!risk_exceeds_max_allowed(
+            &RiskLevel::Informational,
+            &RiskLevel::Low
+        ));
         assert!(!risk_exceeds_max_allowed(&RiskLevel::Low, &RiskLevel::Low));
-        assert!(risk_exceeds_max_allowed(&RiskLevel::Medium, &RiskLevel::Low));
+        assert!(risk_exceeds_max_allowed(
+            &RiskLevel::Medium,
+            &RiskLevel::Low
+        ));
         assert!(risk_exceeds_max_allowed(&RiskLevel::High, &RiskLevel::Low));
-        assert!(risk_exceeds_max_allowed(&RiskLevel::Critical, &RiskLevel::Low));
+        assert!(risk_exceeds_max_allowed(
+            &RiskLevel::Critical,
+            &RiskLevel::Low
+        ));
     }
 
     #[test]
     fn risk_within_medium_threshold() {
-        assert!(!risk_exceeds_max_allowed(&RiskLevel::Informational, &RiskLevel::Medium));
-        assert!(!risk_exceeds_max_allowed(&RiskLevel::Low, &RiskLevel::Medium));
-        assert!(!risk_exceeds_max_allowed(&RiskLevel::Medium, &RiskLevel::Medium));
-        assert!(risk_exceeds_max_allowed(&RiskLevel::High, &RiskLevel::Medium));
-        assert!(risk_exceeds_max_allowed(&RiskLevel::Critical, &RiskLevel::Medium));
+        assert!(!risk_exceeds_max_allowed(
+            &RiskLevel::Informational,
+            &RiskLevel::Medium
+        ));
+        assert!(!risk_exceeds_max_allowed(
+            &RiskLevel::Low,
+            &RiskLevel::Medium
+        ));
+        assert!(!risk_exceeds_max_allowed(
+            &RiskLevel::Medium,
+            &RiskLevel::Medium
+        ));
+        assert!(risk_exceeds_max_allowed(
+            &RiskLevel::High,
+            &RiskLevel::Medium
+        ));
+        assert!(risk_exceeds_max_allowed(
+            &RiskLevel::Critical,
+            &RiskLevel::Medium
+        ));
     }
 
     #[test]
     fn high_critical_actions_not_execution_eligible_via_risk() {
         let high_actions = [
-            ActionType::ReadMemory,   // max_allowed=Low
-            ActionType::ReadTasks,    // max_allowed=Informational
+            ActionType::ReadMemory,          // max_allowed=Low
+            ActionType::ReadTasks,           // max_allowed=Informational
             ActionType::ReadProposedActions, // max_allowed=Informational
         ];
         for at in &high_actions {

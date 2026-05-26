@@ -5,11 +5,56 @@
 //!
 //! **All real execution is globally disabled.** The only registered executor
 //! is [`NoopExecutor`], which always returns `ExecutionDisabled`.
+//!
+//! Executor instances have a readiness [`ExecutorState`]:
+//! - `Disabled` — the executor exists but cannot execute (default for new registrations).
+//! - `Ready` — the executor is enabled and ready to execute approved actions.
+//! - `Blocked` — the executor is blocked and produces `ExecutionBlocked`.
 
 use crate::execution_registry::ExecutionCapability;
 use crate::policy_engine::PolicyEngineResult;
 use crate::{ActionType, AuditEventId, ProposedActionId, RiskLevel};
 use serde::{Deserialize, Serialize};
+
+/// Readiness state of an executor instance.
+///
+/// All executors are registered as `Disabled` by default. State must be
+/// explicitly promoted to `Ready` before the executor can resolve actions.
+///
+/// ```text
+/// Disabled → Ready → (execution allowed)
+/// Disabled → Blocked → (execution blocked)
+/// Ready    → Blocked → (execution blocked)
+/// Blocked  → Ready   → (execution allowed)
+/// ```
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ExecutorState {
+    /// Executor exists but is disabled — cannot execute or resolve actions.
+    Disabled,
+    /// Executor is ready and may execute approved, policy-checked actions.
+    Ready,
+    /// Executor is explicitly blocked — attempts produce `ExecutionBlocked`.
+    Blocked,
+}
+
+impl Default for ExecutorState {
+    fn default() -> Self {
+        Self::Disabled
+    }
+}
+
+impl ExecutorState {
+    /// Returns `true` if this state allows execution.
+    pub fn allows_execution(&self) -> bool {
+        matches!(self, Self::Ready)
+    }
+
+    /// Returns `true` if this state is a terminal block.
+    pub fn is_blocked(&self) -> bool {
+        matches!(self, Self::Blocked)
+    }
+}
 
 /// Status of an execution attempt.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -68,7 +113,11 @@ pub struct ExecutionResult {
 }
 
 impl ExecutionResult {
-    fn disabled(proposal_id: ProposedActionId, action_type: ActionType, reason: impl Into<String>) -> Self {
+    pub(crate) fn disabled(
+        proposal_id: ProposedActionId,
+        action_type: ActionType,
+        reason: impl Into<String>,
+    ) -> Self {
         Self {
             status: ExecutionStatus::ExecutionDisabled,
             reason: reason.into(),
@@ -80,7 +129,7 @@ impl ExecutionResult {
         }
     }
 
-    fn blocked(
+    pub(crate) fn blocked(
         proposal_id: ProposedActionId,
         action_type: ActionType,
         reason: impl Into<String>,

@@ -1339,3 +1339,97 @@ This session added dedicated `AuditEventType` variants for execution, sandbox, a
 ### Recommended next step
 
 Executor readiness states / disabled-by-default executor slots: define states like `Disabled`, `Ready`, `Blocked` for executor instances, and add a slot-based system where multiple executors can be registered but remain disabled by default. This prepares for the eventual enabling of specific executors without global risk.
+
+## 28. Latest Session Update (2026-05-26 — P18: Executor readiness states / disabled-by-default slots)
+
+This session added `ExecutorState` with `Disabled`, `Ready`, and `Blocked` variants, and refactored the `ExecutorRegistry` to wrap executors in `ExecutorSlot` instances that carry state.
+
+**Core types added:**
+
+`crates/core/src/executor.rs`:
+- `ExecutorState` enum: `Disabled`, `Ready`, `Blocked`
+- `ExecutorState::default()` returns `Disabled`
+- `ExecutorState::allows_execution()` — true only for `Ready`
+- `ExecutorState::is_blocked()` — true for `Blocked`
+
+`crates/core/src/executor_registry.rs`:
+- `ExecutorSlot` struct — wraps `Box<dyn Executor>` + `ExecutorState`
+- `register()` now takes `Option<ExecutorState>` — `None` defaults to `Disabled`
+- `set_state(id, state)` — promote/demote executor readiness
+- `get_state(id)` — query current state
+- `resolve()` filters disabled and blocked executors (returns `None`)
+- `execute()` returns `ExecutionBlocked` for disabled/blocked executors, `ExecutionDisabled` for ready-but-noop executors
+
+**Behavior changes:**
+
+- `NoopExecutor` starts as `Disabled` — cannot resolve or execute until explicitly promoted to `Ready`
+- `resolve()` only returns executors in `Ready` state — this is a breaking change from previous behavior where all executors resolved regardless of state
+- `execute()` returns `ExecutionBlocked` (not `ExecutionDisabled`) when the executor is `Disabled` or `Blocked`
+
+**Test coverage (28 tests in executor_registry.rs + 4 ExecutorState tests in executor.rs = 32 new tests):**
+
+1. `noop_executor_registered_by_default` ✓ kept
+2. `noop_executor_default_state_is_disabled` — verifies default is Disabled
+3. `disabled_executor_does_not_resolve_read_memory` — core invariant
+4. `disabled_executor_does_not_resolve_system_check` — core invariant
+5. `disabled_executor_does_not_resolve_any_type` — all 18 known types
+6. `ready_executor_resolves_read_memory` — Ready → can resolve
+7. `ready_executor_resolves_all_known_types` — all 18 known types
+8. `blocked_executor_does_not_resolve` — Blocked → cannot resolve
+9. `state_transition_disabled_to_ready` — state lifecycle
+10. `state_transition_ready_to_blocked` — state lifecycle with resolve test
+11. `execute_against_disabled_executor_returns_blocked` — status propagation
+12. `execute_against_blocked_executor_returns_blocked` — status propagation
+13. `execute_against_ready_executor_returns_executor_result` — Ready passes through
+14. `register_with_explicit_state` — optional state parameter
+15. `register_without_state_defaults_to_disabled` — default invariant
+16. `slot_default_cannot_resolve` — ExecutorSlot helper
+17. `slot_ready_can_resolve` — ExecutorSlot helper
+18. `slot_blocked_cannot_resolve` — ExecutorSlot helper
+19. `ExecutorState::default` — defaults to Disabled
+20. `executor_state_allows_execution` — Only Ready allows
+21. `executor_state_is_blocked` — Only Blocked is blocked
+22. `executor_state_serialization` — JSON round-trip
+
+(plus carry-over tests: `can_get`, `get_unknown`, `resolve_custom`, `execute_custom`, `list_returns_only`, `list_is_sorted`, `execute_passes_audit_id`, `ready_executor_still_disabled_globally`, `set_state_unknown`, `register_ready_in_new_slot`)
+
+**Verification:**
+- `cargo fmt -- --check`: clean (0 differences)
+- `cargo check`: clean (0 errors, pre-existing warnings only)
+- `cargo test --workspace`: 337 tests pass (all crates, up from 324)
+
+**Stability level:** alpha executor slot system.
+
+### Key invariants
+
+- No real execution — NoopExecutor still returns `ExecutionDisabled` when Ready
+- Disabled and Blocked executors cannot resolve or execute
+- All executors registered as `Disabled` by default (must be explicitly promoted)
+- State transitions preserve executor identity — `set_state()` does not replace the executor
+- Custom/unknown action types never resolve regardless of state
+- API server integration unchanged (executor registry default now prevents accidental resolution)
+
+### Files changed
+
+| File | Change |
+|------|--------|
+| `crates/core/src/executor.rs` | Added `ExecutorState` enum with `Disabled`/`Ready`/`Blocked`, 4 tests; made `ExecutionResult::disabled()`/`blocked()` pub(crate) |
+| `crates/core/src/executor_registry.rs` | Full rewrite: `ExecutorSlot` wrapper, state-aware `register()`/`resolve()`/`execute()`, 28 tests |
+| `PROJECT_STATUS.md` | Updated with section 28 |
+| `FOCUS_LOOP_NEXT.md` | Updated handoff to API server state integration |
+
+### What was NOT added
+
+- No real execution — NoopExecutor still disabled globally
+- No LLM calls or provider changes
+- No autonomous execution or scheduling
+- No Decision Gate bypass
+- No file/network/shell side effects
+- No tool execution of any kind
+- No API endpoint changes (behavior change is in the registry layer)
+- No modification of core governance invariants
+
+### Recommended next step
+
+API server executor state integration: expose the `ExecutorRegistry::set_state()` and `get_state()` through API endpoints so operators can promote/demote executor readiness at runtime. Add `POST /executors/{id}/state` and `GET /executors` endpoints that surface slot state.
+

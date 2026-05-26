@@ -806,8 +806,17 @@ mod tests {
             created_at: Utc::now(),
         };
         let summary = AuditTraceSummary::from_events(&[event]);
-        assert!(!summary.has_execution_event, "DecisionCreated should not count as execution event");
-        assert!(!summary.has_dry_run_event, "DecisionCreated should not count as dry-run event");
-        assert!(!summary.has_sandbox_event, "DecisionCreated should not count as sandbox event");
+        assert!(
+            !summary.has_execution_event,
+            "DecisionCreated should not count as execution event"
+        );
+        assert!(
+            !summary.has_dry_run_event,
+            "DecisionCreated should not count as dry-run event"
+        );
+        assert!(
+            !summary.has_sandbox_event,
+            "DecisionCreated should not count as sandbox event"
+        );
     }
 }

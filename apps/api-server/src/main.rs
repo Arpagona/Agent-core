@@ -2,13 +2,12 @@ use std::net::SocketAddr;
 use std::sync::{Arc, Mutex};
 
 use arpagona_agent_core::{
-    execution_capability, list_execution_capabilities, ExecutionCapability,
-    PolicyEngine, PolicyInput, PolicyDecision, PolicyEngineResult,
-    ExecutionRequest, ExecutionResult, ExecutionStatus, NoopExecutor, Executor,
-    ExecutorRegistry,
-    ActionType, ActorRef, AgentId, AuditEvent, AuditEventId, AuditEventType, Decision,
-    DecisionStatus, DryRunResult, DryRunStatus, Permission, ProposedAction, ProposedActionId,
-    ProposedActionStatus, RiskLevel, Task, TaskId, TaskPriority, TaskStatus, WorkspaceId,
+    execution_capability, list_execution_capabilities, ActionType, ActorRef, AgentId, AuditEvent,
+    AuditEventId, AuditEventType, Decision, DecisionStatus, DryRunResult, DryRunStatus,
+    ExecutionCapability, ExecutionRequest, ExecutionResult, ExecutionStatus, Executor,
+    ExecutorRegistry, NoopExecutor, Permission, PolicyDecision, PolicyEngine, PolicyEngineResult,
+    PolicyInput, ProposedAction, ProposedActionId, ProposedActionStatus, RiskLevel, Task, TaskId,
+    TaskPriority, TaskStatus, WorkspaceId,
 };
 use arpagona_decision_gate::{audit_event_for_decision, evaluate_proposed_action};
 use arpagona_llm::{
@@ -154,7 +153,10 @@ fn app(state: AppState) -> Router {
         .route("/sandbox-runs", get(list_sandbox_runs))
         .route("/proposed-actions/{id}/dry-run", post(dry_run_proposal))
         .route("/dry-run-results", get(list_dry_run_results))
-        .route("/execution-capabilities", get(list_execution_capabilities_handler))
+        .route(
+            "/execution-capabilities",
+            get(list_execution_capabilities_handler),
+        )
         .route(
             "/execution-capabilities/{action_type}",
             get(get_execution_capability_handler),
@@ -163,10 +165,7 @@ fn app(state: AppState) -> Router {
             "/proposed-actions/{id}/policy-check",
             post(policy_check_proposal),
         )
-        .route(
-            "/proposed-actions/{id}/execute",
-            post(execute_proposal),
-        )
+        .route("/proposed-actions/{id}/execute", post(execute_proposal))
         .with_state(state)
 }
 
@@ -571,7 +570,10 @@ fn describe_action_effects(action: &ProposedAction) -> (Vec<String>, Vec<String>
                 vec![format!("Would propose using tool: {}", target)],
                 vec![format!("tool:{}", target)],
                 "Fully reversible — proposal only, no execution.".to_owned(),
-                format!("Would create a new ProposedAction for tool '{}' through the Decision Gate.", target),
+                format!(
+                    "Would create a new ProposedAction for tool '{}' through the Decision Gate.",
+                    target
+                ),
             )
         }
         ActionType::SimulateEmail => (
@@ -588,9 +590,16 @@ fn describe_action_effects(action: &ProposedAction) -> (Vec<String>, Vec<String>
         ),
         _ => (
             vec![format!("Would perform {:?} action.", action.action_type)],
-            vec![format!("resource:{}", action.target.as_deref().unwrap_or("unknown"))],
+            vec![format!(
+                "resource:{}",
+                action.target.as_deref().unwrap_or("unknown")
+            )],
             "Reversibility depends on action type.".to_owned(),
-            format!("Would execute a {:?} action on target '{}'.", action.action_type, action.target.as_deref().unwrap_or("none")),
+            format!(
+                "Would execute a {:?} action on target '{}'.",
+                action.action_type,
+                action.target.as_deref().unwrap_or("none")
+            ),
         ),
     }
 }
@@ -635,13 +644,26 @@ async fn dry_run_proposal(
 
     let capability = execution_capability(&action.action_type);
 
-    let (dry_run_status, policy_blocked_reason): (DryRunStatus, Option<String>) = match &policy_result.decision {
-        PolicyDecision::Allowed => (DryRunStatus::DryRunCompleted, None),
-        PolicyDecision::NeedsDryRun => (DryRunStatus::DryRunCompleted, None),
-        PolicyDecision::NeedsHumanApproval => (DryRunStatus::DryRunCompleted, Some("NeedsHumanApproval: action requires human approval before proceeding.".to_owned())),
-        PolicyDecision::Blocked => (DryRunStatus::DryRunBlocked, Some(policy_result.reason.clone())),
-        PolicyDecision::UnsupportedCapability => (DryRunStatus::DryRunBlocked, Some(policy_result.reason.clone())),
-    };
+    let (dry_run_status, policy_blocked_reason): (DryRunStatus, Option<String>) =
+        match &policy_result.decision {
+            PolicyDecision::Allowed => (DryRunStatus::DryRunCompleted, None),
+            PolicyDecision::NeedsDryRun => (DryRunStatus::DryRunCompleted, None),
+            PolicyDecision::NeedsHumanApproval => (
+                DryRunStatus::DryRunCompleted,
+                Some(
+                    "NeedsHumanApproval: action requires human approval before proceeding."
+                        .to_owned(),
+                ),
+            ),
+            PolicyDecision::Blocked => (
+                DryRunStatus::DryRunBlocked,
+                Some(policy_result.reason.clone()),
+            ),
+            PolicyDecision::UnsupportedCapability => (
+                DryRunStatus::DryRunBlocked,
+                Some(policy_result.reason.clone()),
+            ),
+        };
 
     let is_blocked = dry_run_status == DryRunStatus::DryRunBlocked;
 
@@ -671,7 +693,11 @@ async fn dry_run_proposal(
             result.proposal_id.as_str(),
             store.audit_events.len() + 1
         )),
-        event_type: if is_blocked { AuditEventType::DryRunBlocked } else { AuditEventType::DryRunCompleted },
+        event_type: if is_blocked {
+            AuditEventType::DryRunBlocked
+        } else {
+            AuditEventType::DryRunCompleted
+        },
         actor: ActorRef::System,
         workspace_id: Some(action.workspace_id.clone()),
         task_id: action.task_id.clone(),
@@ -833,7 +859,9 @@ async fn execute_proposal(
         action.id.as_str(),
         store.audit_events.len() + 1
     ));
-    let mut result = store.executor_registry.execute(&execution_request, Some(audit_id.clone()));
+    let mut result = store
+        .executor_registry
+        .execute(&execution_request, Some(audit_id.clone()));
 
     // Step 4: Create audit event
     let audit_event = AuditEvent {

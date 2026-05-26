@@ -6,34 +6,10 @@ It must contain one concrete next action only. The runtime milestone queue and l
 
 ## Next action
 
-Complete execution audit query coverage.
-
-Why: the execution pipeline now emits dedicated execution-related audit events, but every execution, sandbox, and dry-run request/completion/blocking event must be recognized by audit trace summaries and query helpers before adding executor readiness states.
-
-Proof to seek: `cargo test --workspace` passes and tests prove every execution-related `AuditEventType` is recognized by `AuditTraceSummary::has_execution_event`, sandbox/dry-run events appear in operator trace summaries, blocked policy events appear in execution audit queries, and generic `DecisionCreated` is no longer required to detect execution activity.
-
-Do not: add real execution, add LLM calls, add endpoints unless strictly required for readback, or change PolicyEngine, Decision Gate, Executor, or ExecutorRegistry behavior.
-
-## Requirements
-
-- Verify all execution-related variants are included in `AuditTraceSummary::has_execution_event`.
-- Add missing variants if needed, especially:
-  - `ExecutionRequested`
-  - `ExecutionStarted`, if present or needed
-  - `ExecutionBlocked`
-  - `ExecutionDisabled`
-  - `DryRunRequested`, if present or needed
-  - `DryRunCompleted`, if present or needed
-  - `DryRunBlocked`, if present or needed
-- Add tests proving:
-  - each execution-related audit variant is recognized by `has_execution_event`;
-  - sandbox/dry-run events appear in operator trace summaries;
-  - blocked policy events appear in execution audit queries;
-  - generic `DecisionCreated` is no longer required to detect execution activity.
-- Keep changes limited to audit event recognition, tests, and documentation.
-- Update `PROJECT_STATUS.md`.
-- Update this file with the next step:
-  - executor readiness states / disabled-by-default executor slots.
+Next pass should: expose executor state management through API server endpoints.
+Why: the `ExecutorRegistry` now supports `set_state()` and `get_state()` for managing executor readiness (Disabled → Ready → Blocked), but operators have no runtime API surface to query or change executor states. Adding `POST /executors/{id}/state` and `GET /executors` endpoints will allow manual promotion/demotion of executor readiness at runtime.
+Proof to seek: `curl -X POST localhost:3000/executors/noop-executor/state -H 'Content-Type: application/json' -d '{"state":"ready"}'` returns 200 and `executor_state` is `"ready"` in the response; `GET /executors` lists all registered executors with their current state.
+Do not: add real execution, modify NoopExecutor behavior, add autonomous state transitions, or introduce API endpoints that could bypass the policy engine or Decision Gate.
 
 ## Required update at the end of every run
 
