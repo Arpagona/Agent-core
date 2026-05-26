@@ -1272,3 +1272,70 @@ This session added the `ExecutorRegistry` — a deterministic registry that maps
 ### Recommended next step
 
 Execution attempt audit hardening / executor policy alignment: ensure that every execution attempt (blocked, disabled, or future real execution) produces a rich audit trail with policy decision, executor id, capability metadata, and the full pipeline trace. Consider aligning the `AuditEventType` enum to have a dedicated `ExecutionBlocked` variant instead of reusing `DecisionCreated`.
+
+## 27. Latest Session Update (2026-05-28 — P17: Execution audit query coverage)
+
+This session added dedicated `AuditEventType` variants for execution, sandbox, and dry-run events, and updated `AuditTraceSummary` to recognise them.
+
+**New `AuditEventType` variants:**
+- `ExecutionBlocked` — execution attempt blocked by policy
+- `ExecutionDisabled` — execution attempted while globally disabled
+- `DryRunCompleted` — dry-run simulation completed
+- `DryRunBlocked` — dry-run blocked by policy or constraints
+- `SandboxCompleted` — sandbox simulation completed
+
+**Updated `AuditTraceSummary`:**
+- `has_execution_event` now recognises `ExecutionBlocked` and `ExecutionDisabled` in addition to `ExecutionStarted`, `ExecutionSucceeded`, `ExecutionFailed`
+- New `has_dry_run_event` field recognises `DryRunCompleted` and `DryRunBlocked`
+- New `has_sandbox_event` field recognises `SandboxCompleted` and `ExecutionStarted` (backward compat)
+
+**Updated API server event emission:**
+- `POST /proposed-actions/{id}/dry-run` → `DryRunCompleted` or `DryRunBlocked`
+- `POST /proposed-actions/{id}/execute` (blocked by policy) → `ExecutionBlocked`
+- `POST /proposed-actions/{id}/execute` (executor disabled) → `ExecutionDisabled`
+- `POST /proposed-actions/{id}/sandbox` (blocked) → `ExecutionBlocked`
+- `POST /proposed-actions/{id}/sandbox` (completed) → `SandboxCompleted`
+- `AuditEventType::DecisionCreated` is no longer used for any execution/dry-run/sandbox event
+
+**Test coverage (10 new tests in `crates/core/src/audit.rs`):**
+- Each execution variant: `ExecutionStarted`, `ExecutionBlocked`, `ExecutionDisabled`, `ExecutionSucceeded`, `ExecutionFailed` is correctly detected by `has_execution_event`
+- Dry-run variants: `DryRunCompleted`, `DryRunBlocked` detected by `has_dry_run_event`
+- `SandboxCompleted` detected by `has_sandbox_event`
+- `DecisionCreated` is NOT counted as any of execution/dry-run/sandbox
+
+**Verification:**
+- `cargo test --workspace`: 324 tests pass (all crates)
+- 3 warnings (unused items — `ProposedActionId` import, `blocked` constructor, `needs_dry_run` constructor)
+
+**Stability level:** alpha audit coverage.
+
+### Key invariants
+
+- No real execution — no executor behavior changed
+- No LLM calls
+- No Decision Gate or PolicyEngine changes
+- `AuditEventType::DecisionCreated` no longer required for execution activity detection
+- All dry-run/sandbox/execute endpoints emit dedicated event types
+- Backward compatible: `has_sandbox_event` still catches old `ExecutionStarted` events
+
+### Files changed
+
+| File | Change |
+|------|--------|
+| `crates/core/src/audit.rs` | Added 5 `AuditEventType` variants; updated `AuditTraceSummary` with `has_dry_run_event`/`has_sandbox_event`; added 10 tests |
+| `apps/api-server/src/main.rs` | Updated dry-run/execute/sandbox endpoints to use dedicated event types |
+| `PROJECT_STATUS.md` | Updated with section 27 |
+| `FOCUS_LOOP_NEXT.md` | Updated to executor readiness states |
+
+### What was NOT added
+
+- No real execution
+- No LLM calls or provider changes
+- No autonomous execution or scheduling
+- No Decision Gate bypass
+- No file/network/shell side effects
+- No tool execution of any kind
+
+### Recommended next step
+
+Executor readiness states / disabled-by-default executor slots: define states like `Disabled`, `Ready`, `Blocked` for executor instances, and add a slot-based system where multiple executors can be registered but remain disabled by default. This prepares for the eventual enabling of specific executors without global risk.

@@ -18,6 +18,11 @@ pub enum AuditEventType {
     ExecutionStarted,
     ExecutionSucceeded,
     ExecutionFailed,
+    ExecutionBlocked,
+    ExecutionDisabled,
+    DryRunCompleted,
+    DryRunBlocked,
+    SandboxCompleted,
     PolicyChanged,
 }
 
@@ -58,6 +63,8 @@ pub struct AuditTraceSummary {
     pub has_human_approval_request: bool,
     pub has_human_outcome: bool,
     pub has_execution_event: bool,
+    pub has_dry_run_event: bool,
+    pub has_sandbox_event: bool,
 }
 
 impl AuditTraceSummary {
@@ -99,6 +106,20 @@ impl AuditTraceSummary {
                     AuditEventType::ExecutionStarted
                         | AuditEventType::ExecutionSucceeded
                         | AuditEventType::ExecutionFailed
+                        | AuditEventType::ExecutionBlocked
+                        | AuditEventType::ExecutionDisabled
+                )
+            }),
+            has_dry_run_event: events.iter().any(|event| {
+                matches!(
+                    event.event_type,
+                    AuditEventType::DryRunCompleted | AuditEventType::DryRunBlocked
+                )
+            }),
+            has_sandbox_event: events.iter().any(|event| {
+                matches!(
+                    event.event_type,
+                    AuditEventType::SandboxCompleted | AuditEventType::ExecutionStarted
                 )
             }),
         }
@@ -622,5 +643,171 @@ mod tests {
         assert_eq!(summary.decision_id, Some(DecisionId::new("decision-1")));
         assert!(!summary.has_human_outcome);
         assert!(!summary.has_execution_event);
+    }
+
+    // -- Execution-related audit event recognition -------------------------
+
+    #[test]
+    fn execution_started_event_detected_by_has_execution_event() {
+        let event = AuditEvent {
+            id: AuditEventId::new("audit-1"),
+            event_type: AuditEventType::ExecutionStarted,
+            actor: ActorRef::System,
+            workspace_id: None,
+            task_id: None,
+            proposed_action_id: None,
+            decision_id: None,
+            payload: json!({}),
+            created_at: Utc::now(),
+        };
+        let summary = AuditTraceSummary::from_events(&[event]);
+        assert!(summary.has_execution_event);
+        assert!(!summary.has_dry_run_event);
+        // ExecutionStarted also matches has_sandbox_event for backward compat
+    }
+
+    #[test]
+    fn execution_blocked_event_detected_by_has_execution_event() {
+        let event = AuditEvent {
+            id: AuditEventId::new("audit-1"),
+            event_type: AuditEventType::ExecutionBlocked,
+            actor: ActorRef::System,
+            workspace_id: None,
+            task_id: None,
+            proposed_action_id: None,
+            decision_id: None,
+            payload: json!({}),
+            created_at: Utc::now(),
+        };
+        let summary = AuditTraceSummary::from_events(&[event]);
+        assert!(summary.has_execution_event);
+        assert!(!summary.has_dry_run_event);
+    }
+
+    #[test]
+    fn execution_disabled_event_detected_by_has_execution_event() {
+        let event = AuditEvent {
+            id: AuditEventId::new("audit-1"),
+            event_type: AuditEventType::ExecutionDisabled,
+            actor: ActorRef::System,
+            workspace_id: None,
+            task_id: None,
+            proposed_action_id: None,
+            decision_id: None,
+            payload: json!({}),
+            created_at: Utc::now(),
+        };
+        let summary = AuditTraceSummary::from_events(&[event]);
+        assert!(summary.has_execution_event);
+        assert!(!summary.has_dry_run_event);
+    }
+
+    #[test]
+    fn execution_failed_event_detected_by_has_execution_event() {
+        let event = AuditEvent {
+            id: AuditEventId::new("audit-1"),
+            event_type: AuditEventType::ExecutionFailed,
+            actor: ActorRef::System,
+            workspace_id: None,
+            task_id: None,
+            proposed_action_id: None,
+            decision_id: None,
+            payload: json!({}),
+            created_at: Utc::now(),
+        };
+        let summary = AuditTraceSummary::from_events(&[event]);
+        assert!(summary.has_execution_event);
+    }
+
+    #[test]
+    fn execution_succeeded_event_detected_by_has_execution_event() {
+        let event = AuditEvent {
+            id: AuditEventId::new("audit-1"),
+            event_type: AuditEventType::ExecutionSucceeded,
+            actor: ActorRef::System,
+            workspace_id: None,
+            task_id: None,
+            proposed_action_id: None,
+            decision_id: None,
+            payload: json!({}),
+            created_at: Utc::now(),
+        };
+        let summary = AuditTraceSummary::from_events(&[event]);
+        assert!(summary.has_execution_event);
+    }
+
+    #[test]
+    fn dry_run_completed_event_detected_by_has_dry_run_event() {
+        let event = AuditEvent {
+            id: AuditEventId::new("audit-1"),
+            event_type: AuditEventType::DryRunCompleted,
+            actor: ActorRef::System,
+            workspace_id: None,
+            task_id: None,
+            proposed_action_id: None,
+            decision_id: None,
+            payload: json!({}),
+            created_at: Utc::now(),
+        };
+        let summary = AuditTraceSummary::from_events(&[event]);
+        assert!(summary.has_dry_run_event);
+        assert!(!summary.has_execution_event);
+        assert!(!summary.has_sandbox_event);
+    }
+
+    #[test]
+    fn dry_run_blocked_event_detected_by_has_dry_run_event() {
+        let event = AuditEvent {
+            id: AuditEventId::new("audit-1"),
+            event_type: AuditEventType::DryRunBlocked,
+            actor: ActorRef::System,
+            workspace_id: None,
+            task_id: None,
+            proposed_action_id: None,
+            decision_id: None,
+            payload: json!({}),
+            created_at: Utc::now(),
+        };
+        let summary = AuditTraceSummary::from_events(&[event]);
+        assert!(summary.has_dry_run_event);
+        assert!(!summary.has_execution_event);
+    }
+
+    #[test]
+    fn sandbox_completed_event_detected_by_has_sandbox_event() {
+        let event = AuditEvent {
+            id: AuditEventId::new("audit-1"),
+            event_type: AuditEventType::SandboxCompleted,
+            actor: ActorRef::System,
+            workspace_id: None,
+            task_id: None,
+            proposed_action_id: None,
+            decision_id: None,
+            payload: json!({}),
+            created_at: Utc::now(),
+        };
+        let summary = AuditTraceSummary::from_events(&[event]);
+        assert!(summary.has_sandbox_event);
+        assert!(!summary.has_execution_event);
+        assert!(!summary.has_dry_run_event);
+    }
+
+    #[test]
+    fn decision_created_not_counted_as_execution_or_dry_run_or_sandbox() {
+        let event = AuditEvent {
+            id: AuditEventId::new("audit-1"),
+            event_type: AuditEventType::DecisionCreated,
+            actor: ActorRef::System,
+            workspace_id: None,
+            task_id: None,
+            proposed_action_id: None,
+            decision_id: None,
+            payload: json!({}),
+            created_at: Utc::now(),
+        };
+        let summary = AuditTraceSummary::from_events(&[event]);
+        assert!(!summary.has_execution_event, "DecisionCreated should not count as execution event");
+        assert!(!summary.has_dry_run_event, "DecisionCreated should not count as dry-run event");
+        assert!(!summary.has_sandbox_event, "DecisionCreated should not count as sandbox event");
     }
 }

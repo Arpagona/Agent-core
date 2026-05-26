@@ -6,13 +6,13 @@ It must contain one concrete next action only. The runtime milestone queue and l
 
 ## Next action
 
-Execution attempt audit hardening / executor policy alignment.
+Implement executor readiness states / disabled-by-default executor slots.
 
-Why: the executor registry, capability registry, policy engine, and dry-run layer form a complete pipeline. However, audit events for execution attempts currently reuse the generic `AuditEventType::DecisionCreated` variant. The next step is to add dedicated `AuditEventType` variants (`ExecutionBlocked`, `ExecutionDisabled`, `ExecutionRequested`) and ensure every pipeline step (policy check, executor resolution, dry-run, execution attempt) produces a rich, queryable audit trail with full metadata.
+Why: the audit trail now has dedicated event types for every execution activity. The next step is to define states like `Disabled`, `Ready`, `Blocked` for executor instances, and add a slot-based system where multiple executors can be registered but remain disabled by default. This prepares for the eventual enabling of specific executors without global risk.
 
-Proof to seek: `AuditEventType` has variants `ExecutionBlocked` and `ExecutionDisabled`; an `arpagona audit list` for an execute attempt shows dedicated event types with `executor_id`, `policy_decision`, and `capability` metadata.
+Proof to seek: `ExecutorState` enum exists; `ExecutorRegistry::register()` accepts an optional state; `resolve()` filters disabled executors; tests prove disabled executors cannot execute and blocked executors produce `ExecutionBlocked`.
 
-Do not: add real execution, modify files/tools/systems, call LLMs, or enable autonomous execution. This is purely audit hardening.
+Do not: add real execution, modify files/tools/systems, call LLMs, or enable autonomous execution. Executors remain disabled by default.
 
 ## Required update at the end of every run
 

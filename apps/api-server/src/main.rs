@@ -462,6 +462,25 @@ async fn sandbox_run_proposal(
 
     // Validate: only Approved proposals can be sandboxed
     if action.status != ProposedActionStatus::Approved {
+        let audit_event = AuditEvent {
+            id: AuditEventId::new(format!(
+                "audit-sandbox-blocked-{}-{}",
+                action.id.as_str(),
+                store.audit_events.len() + 1
+            )),
+            event_type: AuditEventType::ExecutionBlocked,
+            actor: ActorRef::System,
+            workspace_id: Some(action.workspace_id.clone()),
+            task_id: action.task_id.clone(),
+            proposed_action_id: Some(action.id.clone()),
+            decision_id: None,
+            payload: serde_json::json!({
+                "sandbox_run_status": "blocked",
+                "reason": format!("Proposal status is {:?}, must be Approved", action.status),
+            }),
+            created_at: Utc::now(),
+        };
+        store.audit_events.push(audit_event);
         return Err(ApiError::bad_request(format!(
             "Proposed action must be 'approved' to run sandbox (current: {:?})",
             action.status
@@ -497,7 +516,7 @@ async fn sandbox_run_proposal(
     // Create an audit event for the sandbox run
     let audit_event = AuditEvent {
         id: AuditEventId::new(format!("audit-sandbox-{}", store.audit_events.len() + 1)),
-        event_type: AuditEventType::ExecutionStarted,
+        event_type: AuditEventType::SandboxCompleted,
         actor: ActorRef::System,
         workspace_id: Some(action.workspace_id),
         task_id: action.task_id,
@@ -626,6 +645,10 @@ async fn dry_run_proposal(
 
     let is_blocked = dry_run_status == DryRunStatus::DryRunBlocked;
 
+    let (expected_effects, touched_resources, reversibility, summary) =
+        describe_action_effects(&action);
+
+    let capability = execution_capability(&action.action_type);
     let result = DryRunResult {
         proposal_id: action.id.clone(),
         action_type: action.action_type.clone(),
@@ -648,7 +671,7 @@ async fn dry_run_proposal(
             result.proposal_id.as_str(),
             store.audit_events.len() + 1
         )),
-        event_type: AuditEventType::DecisionCreated,
+        event_type: if is_blocked { AuditEventType::DryRunBlocked } else { AuditEventType::DryRunCompleted },
         actor: ActorRef::System,
         workspace_id: Some(action.workspace_id.clone()),
         task_id: action.task_id.clone(),
@@ -764,7 +787,7 @@ async fn execute_proposal(
                 action.id.as_str(),
                 store.audit_events.len() + 1
             )),
-            event_type: AuditEventType::DecisionCreated,
+            event_type: AuditEventType::ExecutionBlocked,
             actor: ActorRef::System,
             workspace_id: Some(action.workspace_id.clone()),
             task_id: action.task_id.clone(),
@@ -815,7 +838,7 @@ async fn execute_proposal(
     // Step 4: Create audit event
     let audit_event = AuditEvent {
         id: audit_id.clone(),
-        event_type: AuditEventType::DecisionCreated,
+        event_type: AuditEventType::ExecutionDisabled,
         actor: ActorRef::System,
         workspace_id: Some(action.workspace_id.clone()),
         task_id: action.task_id.clone(),
