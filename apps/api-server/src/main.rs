@@ -9,7 +9,7 @@ use arpagona_agent_core::{
 use arpagona_decision_gate::{audit_event_for_decision, evaluate_proposed_action};
 use arpagona_llm::{
     deterministic_turn_for_prompt, AgentTurnDraft, LlmActionRequest, LlmProvider, MockProvider,
-    OllamaProvider, OpenAiProvider,
+    OpenAiProvider,
 };
 use axum::extract::State;
 use axum::http::StatusCode;
@@ -205,14 +205,6 @@ async fn agent_propose(
                     .await?
             }
         },
-        "ollama" => match deterministic_turn {
-            Some(turn) => turn,
-            None => {
-                OllamaProvider::from_env()
-                    .propose_turn(llm_request)
-                    .await?
-            }
-        },
         "mock" => AgentTurnDraft::ProposedAction {
             action: MockProvider::safe_default()
                 .propose_action(llm_request)
@@ -220,7 +212,7 @@ async fn agent_propose(
         },
         other => {
             return Err(ApiError::bad_request(format!(
-                "unsupported agent proposer provider '{other}' (expected 'openai', 'ollama', or 'mock')"
+                "unsupported agent proposer provider '{other}' (expected 'openai' or 'mock')"
             )))
         }
     };

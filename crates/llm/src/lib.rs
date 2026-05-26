@@ -256,12 +256,6 @@ impl LlmProvider for OpenAiProvider {
     }
 }
 
-<<<<<<< HEAD
-/// Ollama-based LLM provider that connects to a local Ollama instance.
-///
-/// Uses the Ollama `/api/chat` endpoint with a structured JSON output format.
-/// No API key required — Ollama runs locally.
-=======
 // ─── Ollama provider ───────────────────────────────────────────────────────
 
 /// Provider that calls a local Ollama instance for LLM inference.
@@ -272,7 +266,6 @@ impl LlmProvider for OpenAiProvider {
 /// # Safety
 /// - No tool execution, no persistence, no authorization.
 /// - The output is evidence-only.
->>>>>>> 4873141 (feat: add OllamaProvider as default LLM backend (gemma4:26b))
 #[derive(Clone, Debug)]
 pub struct OllamaProvider {
     client: Client,
@@ -281,18 +274,11 @@ pub struct OllamaProvider {
 }
 
 impl OllamaProvider {
-<<<<<<< HEAD
-=======
     /// Construct from environment variables.
->>>>>>> 4873141 (feat: add OllamaProvider as default LLM backend (gemma4:26b))
     pub fn from_env() -> Self {
         let endpoint =
             env::var("OLLAMA_ENDPOINT").unwrap_or_else(|_| DEFAULT_OLLAMA_ENDPOINT.to_owned());
         let model = env::var("OLLAMA_MODEL").unwrap_or_else(|_| DEFAULT_OLLAMA_MODEL.to_owned());
-<<<<<<< HEAD
-
-=======
->>>>>>> 4873141 (feat: add OllamaProvider as default LLM backend (gemma4:26b))
         Self {
             client: Client::new(),
             endpoint,
@@ -300,10 +286,7 @@ impl OllamaProvider {
         }
     }
 
-<<<<<<< HEAD
-=======
     /// Construct with explicit parameters.
->>>>>>> 4873141 (feat: add OllamaProvider as default LLM backend (gemma4:26b))
     pub fn new(endpoint: impl Into<String>, model: impl Into<String>) -> Self {
         Self {
             client: Client::new(),
@@ -311,73 +294,6 @@ impl OllamaProvider {
             model: model.into(),
         }
     }
-<<<<<<< HEAD
-}
-
-impl OllamaProvider {
-    pub fn propose_turn(
-        &self,
-        request: LlmActionRequest,
-    ) -> impl Future<Output = Result<AgentTurnDraft, LlmError>> + Send {
-        let client = self.client.clone();
-        let endpoint = self.endpoint.clone();
-        let model = self.model.clone();
-
-        async move {
-            if let Some(turn) = deterministic_turn_for_prompt(&request.prompt) {
-                return Ok(turn);
-            }
-
-            let body = json!({
-                "model": model,
-                "messages": [
-                    {
-                        "role": "system",
-                        "content": provider_system_prompt()
-                    },
-                    {
-                        "role": "user",
-                        "content": request.prompt
-                    }
-                ],
-                "stream": false,
-                "format": "json"
-            });
-
-            let response = client
-                .post(&endpoint)
-                .json(&body)
-                .send()
-                .await
-                .map_err(|err| LlmError::Transport(err.to_string()))?;
-
-            let status = response.status();
-            let value: Value = response.json().await.map_err(|err| {
-                LlmError::InvalidResponse(format!("invalid JSON response from Ollama: {err}"))
-            })?;
-
-            if !status.is_success() {
-                let message = value
-                    .pointer("/error")
-                    .and_then(Value::as_str)
-                    .unwrap_or("Ollama API returned an error");
-                return Err(LlmError::Provider(format!(
-                    "Ollama error {status}: {message}"
-                )));
-            }
-
-            let text = value
-                .pointer("/message/content")
-                .and_then(Value::as_str)
-                .ok_or_else(|| {
-                    LlmError::InvalidResponse(
-                        "missing /message/content in Ollama response".to_owned(),
-                    )
-                })?;
-
-            parse_agent_turn(text)
-        }
-=======
 
     /// Call Ollama for free-form text synthesis (non-authorizing).
     pub async fn synthesize(
@@ -429,7 +345,6 @@ impl OllamaProvider {
             })?;
 
         Ok(content.to_owned())
->>>>>>> 4873141 (feat: add OllamaProvider as default LLM backend (gemma4:26b))
     }
 }
 
@@ -438,17 +353,6 @@ impl LlmProvider for OllamaProvider {
         &self,
         request: LlmActionRequest,
     ) -> impl Future<Output = Result<ProposedActionDraft, LlmError>> + Send {
-<<<<<<< HEAD
-        let turn = self.propose_turn(request);
-        async move {
-            match turn.await? {
-                AgentTurnDraft::ProposedAction { action } => Ok(action),
-                AgentTurnDraft::DirectReply { .. } => Err(LlmError::InvalidResponse(
-                    "provider returned direct_reply where proposed_action was required".to_owned(),
-                )),
-                AgentTurnDraft::ClarifyingQuestion { .. } => Err(LlmError::InvalidResponse(
-                    "provider returned clarifying_question where proposed_action was required"
-=======
         let self_clone = self.clone();
         async move {
             let text = self_clone
@@ -461,7 +365,6 @@ impl LlmProvider for OllamaProvider {
                 )),
                 AgentTurnDraft::ClarifyingQuestion { .. } => Err(LlmError::InvalidResponse(
                     "Ollama returned clarifying_question where proposed_action was required"
->>>>>>> 4873141 (feat: add OllamaProvider as default LLM backend (gemma4:26b))
                         .to_owned(),
                 )),
             }
