@@ -1181,7 +1181,9 @@ async fn run() -> Result<(), Box<dyn Error>> {
             ActionSubcommand::Review(args) => review_action(&client, &api_url, args).await?,
             ActionSubcommand::Sandbox(args) => sandbox_action(&client, &api_url, args).await?,
             ActionSubcommand::DryRun(args) => dry_run_action(&client, &api_url, args).await?,
-            ActionSubcommand::Capability(args) => capability_action(&client, &api_url, args).await?,
+            ActionSubcommand::Capability(args) => {
+                capability_action(&client, &api_url, args).await?
+            }
             ActionSubcommand::Policy(args) => policy_action(&client, &api_url, args).await?,
             ActionSubcommand::Execute(args) => execute_action(&client, &api_url, args).await?,
         },
@@ -3614,10 +3616,7 @@ async fn dry_run_action(
         {
             println!("{} {}", style_dim("  summary:"), summary);
         }
-        if let Some(effects) = response
-            .get("expected_effects")
-            .and_then(|v| v.as_array())
-        {
+        if let Some(effects) = response.get("expected_effects").and_then(|v| v.as_array()) {
             println!("{}", style_dim("  expected effects:"));
             for effect in effects {
                 if let Some(text) = effect.as_str() {
@@ -3625,10 +3624,7 @@ async fn dry_run_action(
                 }
             }
         }
-        if let Some(resources) = response
-            .get("touched_resources")
-            .and_then(|v| v.as_array())
-        {
+        if let Some(resources) = response.get("touched_resources").and_then(|v| v.as_array()) {
             println!("{}", style_dim("  touched resources:"));
             for resource in resources {
                 if let Some(text) = resource.as_str() {
@@ -3636,10 +3632,7 @@ async fn dry_run_action(
                 }
             }
         }
-        if let Some(reversibility) = response
-            .get("reversibility")
-            .and_then(|v| v.as_str())
-        {
+        if let Some(reversibility) = response.get("reversibility").and_then(|v| v.as_str()) {
             println!("{} {}", style_dim("  reversibility:"), reversibility);
         }
     }
@@ -3752,8 +3745,7 @@ async fn capability_action(
                     );
                 }
                 if let Some(perms) = cap["required_permissions"].as_array() {
-                    let perms_str: Vec<&str> =
-                        perms.iter().filter_map(|v| v.as_str()).collect();
+                    let perms_str: Vec<&str> = perms.iter().filter_map(|v| v.as_str()).collect();
                     println!(
                         "{} {}",
                         style_dim("  required_permissions:"),
@@ -3793,12 +3785,8 @@ async fn policy_action(
             if args.json {
                 println!("{}", serde_json::to_string_pretty(&result)?);
             } else {
-                let decision = result["decision"]
-                    .as_str()
-                    .unwrap_or("unknown");
-                let reason = result["reason"]
-                    .as_str()
-                    .unwrap_or("");
+                let decision = result["decision"].as_str().unwrap_or("unknown");
+                let reason = result["reason"].as_str().unwrap_or("");
 
                 let icon = match decision {
                     "allowed" => style_success("✓"),
@@ -3828,11 +3816,7 @@ async fn policy_action(
 
                 if let Some(cap) = result["capability"].as_object() {
                     if let Some(at) = cap.get("action_type").and_then(|v| v.as_str()) {
-                        println!(
-                            "{} {}",
-                            style_dim("  action_type:"),
-                            at
-                        );
+                        println!("{} {}", style_dim("  action_type:"), at);
                     }
                     if let Some(dry) = cap.get("supports_dry_run").and_then(|v| v.as_bool()) {
                         println!(

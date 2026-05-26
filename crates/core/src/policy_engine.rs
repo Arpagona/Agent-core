@@ -7,7 +7,9 @@
 //! The policy engine is **declarative**: it contains no tool execution logic,
 //! no LLM calls, no side effects, and no Decision Gate bypass.
 
-use crate::execution_registry::{execution_capability, risk_exceeds_max_allowed, ExecutionCapability};
+use crate::execution_registry::{
+    execution_capability, risk_exceeds_max_allowed, ExecutionCapability,
+};
 use crate::{ActionType, ProposedActionStatus, RiskLevel};
 use serde::{Deserialize, Serialize};
 
@@ -95,7 +97,11 @@ impl PolicyEngineResult {
         }
     }
 
-    fn blocked(reason: impl Into<String>, rules: Vec<&str>, cap: Option<ExecutionCapability>) -> Self {
+    fn blocked(
+        reason: impl Into<String>,
+        rules: Vec<&str>,
+        cap: Option<ExecutionCapability>,
+    ) -> Self {
         Self {
             decision: PolicyDecision::Blocked,
             reason: reason.into(),
@@ -106,7 +112,11 @@ impl PolicyEngineResult {
         }
     }
 
-    fn needs_human(reason: impl Into<String>, rules: Vec<&str>, cap: Option<ExecutionCapability>) -> Self {
+    fn needs_human(
+        reason: impl Into<String>,
+        rules: Vec<&str>,
+        cap: Option<ExecutionCapability>,
+    ) -> Self {
         Self {
             decision: PolicyDecision::NeedsHumanApproval,
             reason: reason.into(),
@@ -303,7 +313,9 @@ mod tests {
             "pending proposal should be blocked: {}",
             result.reason
         );
-        assert!(result.matched_rules.contains(&"policy_engine:non_approved_proposal".to_owned()));
+        assert!(result
+            .matched_rules
+            .contains(&"policy_engine:non_approved_proposal".to_owned()));
     }
 
     #[test]
