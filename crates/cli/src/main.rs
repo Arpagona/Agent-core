@@ -17,6 +17,10 @@ use arpagona_graph_memory::{
     demo_snapshot::{list_snapshots_in_directory, FailureInsightDemoSnapshot, EVIDENCE_ONLY_TOKEN},
     in_memory_graph_memory_store, AsyncGraphMemoryStore, GRAPH_MEMORY_SCHEMA,
 };
+use arpagona_holographic_memory::{
+    HolographicMemoryError, HolographicMemoryStore, HolographicQuery, HolographicTrace,
+    InMemoryHolographicMemoryStore, SourceKind,
+};
 use arpagona_llm::run_cognitive_synthesis;
 use arpagona_tool_runtime::{ToolRuntime, ToolRuntimeConfig};
 use chrono::Utc;
@@ -621,6 +625,8 @@ enum MemorySubcommand {
     Proposal(MemoryProposalArgs),
     /// Run local Graph Memory demos that exercise governed alpha paths.
     Demo(MemoryDemoCommand),
+    /// Exercise holographic memory: add traces and search by resonance.
+    Holographic(HolographicCommand),
 }
 
 #[derive(Debug, Args)]
@@ -701,6 +707,77 @@ struct MemoryDemoSnapshotListArgs {
     /// Directory to scan for demo snapshot JSON files.
     #[arg(long = "snapshot-dir", default_value = DEFAULT_SNAPSHOT_DIR, env = "ARPAGONA_SNAPSHOT_DIR")]
     snapshot_dir: String,
+    /// Emit structured JSON instead of human-oriented text.
+    #[arg(long)]
+    json: bool,
+}
+
+// ---------------------------------------------------------------------------
+// Holographic Memory — alpha CLI holographic memory commands
+// ---------------------------------------------------------------------------
+
+#[derive(Debug, Args)]
+struct HolographicCommand {
+    #[command(subcommand)]
+    command: HolographicSubcommand,
+}
+
+#[derive(Debug, Subcommand)]
+enum HolographicSubcommand {
+    /// Add a trace to the holographic memory store and persist to file.
+    Add(HolographicAddArgs),
+    /// Search holographic memory by resonance with a query.
+    Search(HolographicSearchArgs),
+}
+
+#[derive(Debug, Args)]
+struct HolographicAddArgs {
+    /// Trace identifier (must be unique within the store).
+    #[arg(long)]
+    trace_id: String,
+    /// Project scope for the trace.
+    #[arg(long, default_value = "default")]
+    project_id: String,
+    /// Comma-separated keywords for the trace.
+    #[arg(long)]
+    keywords: String,
+    /// Comma-separated concepts for the trace.
+    #[arg(long)]
+    concepts: String,
+    /// Comma-separated entities for the trace.
+    #[arg(long)]
+    entities: String,
+    /// Path to the holographic memory JSON file (created if not found).
+    #[arg(long, default_value = "target/holographic-store.json")]
+    file: String,
+    /// Emit structured JSON instead of human-oriented text.
+    #[arg(long)]
+    json: bool,
+}
+
+#[derive(Debug, Args)]
+struct HolographicSearchArgs {
+    /// Project scope for the query.
+    #[arg(long, default_value = "default")]
+    project_id: String,
+    /// Query text to describe what you're looking for.
+    #[arg(long)]
+    query: String,
+    /// Comma-separated keywords to match against stored traces.
+    #[arg(long)]
+    keywords: String,
+    /// Comma-separated concepts to match against stored traces.
+    #[arg(long)]
+    concepts: String,
+    /// Comma-separated entities to match against stored traces.
+    #[arg(long)]
+    entities: String,
+    /// Maximum number of resonance matches to return.
+    #[arg(long, default_value = "10")]
+    limit: usize,
+    /// Path to the holographic memory JSON file.
+    #[arg(long, default_value = "target/holographic-store.json")]
+    file: String,
     /// Emit structured JSON instead of human-oriented text.
     #[arg(long)]
     json: bool,
@@ -1295,6 +1372,10 @@ async fn run() -> Result<(), Box<dyn Error>> {
                 }
                 MemoryDemoSubcommand::SnapshotRead(args) => memory_demo_snapshot_read(args)?,
                 MemoryDemoSubcommand::SnapshotList(args) => memory_demo_snapshot_list(args)?,
+            },
+            MemorySubcommand::Holographic(h) => match h.command {
+                HolographicSubcommand::Add(args) => memory_holographic_add(args)?,
+                HolographicSubcommand::Search(args) => memory_holographic_search(args)?,
             },
         },
         Command::Tool(tool) => match tool.command {
@@ -2166,6 +2247,194 @@ fn memory_demo_snapshot_list(args: MemoryDemoSnapshotListArgs) -> Result<(), Box
         }
         print!("{output}");
     }
+    Ok(())
+}
+
+// ---------------------------------------------------------------------------
+// Holographic Memory handlers — alpha CLI for the holographic memory crate
+// ---------------------------------------------------------------------------
+
+fn memory_holographic_add(args: HolographicAddArgs) -> Result<(), Box<dyn Error>> {
+    // Load or create the store
+    let mut store = match InMemoryHolographicMemoryStore::load_from_file(&args.file) {
+        Ok(s) => s,
+        Err(HolographicMemoryError::PersistenceError(_)) => InMemoryHolographicMemoryStore::new(),
+        Err(e) => {
+            return Err(format!("Failed to load holographic store: {}", e).into());
+        }
+    };
+
+    // Parse comma-separated fields
+    let keywords: Vec<String> = args
+        .keywords
+        .split(',')
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty())
+        .collect();
+    let concepts: Vec<String> = args
+        .concepts
+        .split(',')
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty())
+        .collect();
+    let entities: Vec<String> = args
+        .entities
+        .split(',')
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty())
+        .collect();
+
+    // Build the trace with a distributed signature
+    let trace = HolographicTrace::new(
+        args.trace_id.clone(),    // id
+        args.project_id.clone(),  // project_id
+        SourceKind::ManualNote,   // source_kind
+        "cli-manual".to_string(), // source_id
+        vec![],                   // source_turn_ids
+        format!(
+            // content_summary
+            "keywords: {}, concepts: {}, entities: {}",
+            args.keywords, args.concepts, args.entities
+        ),
+        keywords.clone(),                // keywords
+        concepts.clone(),                // concepts
+        entities.clone(),                // entities
+        vec![],                          // linked_memory_ids
+        vec![],                          // linked_decision_ids
+        1.0,                             // importance
+        0.5,                             // confidence
+        0.0,                             // emotional_weight
+        0.0,                             // strategic_weight
+        chrono::Utc::now().to_rfc3339(), // created_at
+    );
+
+    // Add and save
+    store
+        .add_trace(trace)
+        .map_err(|e| format!("Holographic memory error: {}", e))?;
+    store
+        .save_to_file(&args.file)
+        .map_err(|e| format!("Save failed: {}", e))?;
+
+    if args.json {
+        let output = serde_json::json!({
+            "status": "added",
+            "trace_id": args.trace_id,
+            "project_id": args.project_id,
+            "store_path": args.file,
+            "keyword_count": keywords.len(),
+            "concept_count": concepts.len(),
+            "entity_count": entities.len(),
+            "total_traces": store.len(),
+        });
+        println!("{}", serde_json::to_string_pretty(&output)?);
+    } else {
+        println!("✓ Holographic trace added");
+        println!("  Trace ID:  {}", args.trace_id);
+        println!("  Project:   {}", args.project_id);
+        println!("  Keywords:  {}", keywords.join(", "));
+        println!("  Concepts:  {}", concepts.join(", "));
+        println!("  Entities:  {}", entities.join(", "));
+        println!("  Store:     {}", args.file);
+        println!("  Total traces: {}", store.len());
+        println!();
+        println!(
+            "⚠️  Holographic memory is recall evidence only. It does not authorize any action."
+        );
+    }
+
+    Ok(())
+}
+
+fn memory_holographic_search(args: HolographicSearchArgs) -> Result<(), Box<dyn Error>> {
+    // Load the store
+    let mut store = match InMemoryHolographicMemoryStore::load_from_file(&args.file) {
+        Ok(s) => s,
+        Err(HolographicMemoryError::PersistenceError(_)) => {
+            eprintln!("No holographic store found at: {}", args.file);
+            eprintln!("Add some traces first with `memory holographic add`.");
+            return Ok(());
+        }
+        Err(e) => {
+            return Err(format!("Failed to load holographic store: {}", e).into());
+        }
+    };
+
+    // Parse comma-separated query fields
+    let keywords: Vec<String> = args
+        .keywords
+        .split(',')
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty())
+        .collect();
+    let concepts: Vec<String> = args
+        .concepts
+        .split(',')
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty())
+        .collect();
+    let entities: Vec<String> = args
+        .entities
+        .split(',')
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty())
+        .collect();
+
+    if keywords.is_empty() && concepts.is_empty() && entities.is_empty() {
+        eprintln!("At least one of --keywords, --concepts, or --entities is required for resonance search.");
+        return Ok(());
+    }
+
+    // Build query
+    let query = HolographicQuery::new(
+        args.project_id.clone(),
+        args.query.clone(),
+        keywords,
+        concepts,
+        entities,
+    );
+
+    // Search by resonance
+    let context = store.retrieve_by_resonance(&args.project_id, query, args.limit);
+
+    if args.json {
+        println!("{}", serde_json::to_string_pretty(&context)?);
+    } else {
+        if context.matches.is_empty() {
+            println!(
+                "🔍 No resonance matches found for project '{}'.",
+                args.project_id
+            );
+            println!("  Query: {}", args.query);
+        } else {
+            println!("🔍 Resonance matches for project '{}':", args.project_id);
+            println!("  Query: {}", args.query);
+            println!();
+            for (i, m) in context.matches.iter().enumerate() {
+                println!(
+                    "{}. {} (score: {:.2})",
+                    i + 1,
+                    m.trace.content_summary,
+                    m.score.total
+                );
+                if !m.matched_keywords.is_empty() {
+                    println!("   Matched keywords: {}", m.matched_keywords.join(", "));
+                }
+                if !m.trace.keywords.is_empty() {
+                    println!("   Trace keywords: {}", m.trace.keywords.join(", "));
+                }
+            }
+            println!();
+            if !context.activated_trace_ids.is_empty() {
+                println!("  Activated traces: {}", context.activated_trace_ids.len());
+            }
+        }
+        println!();
+        println!(
+            "⚠️  Holographic memory is recall evidence only. It does not authorize any action."
+        );
+    }
+
     Ok(())
 }
 
