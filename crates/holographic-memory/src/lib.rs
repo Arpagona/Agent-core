@@ -40,6 +40,8 @@ pub enum HolographicMemoryError {
     EmptySignature,
     /// Invalid threshold value (must be in 0.0–1.0 range).
     InvalidThreshold(f32),
+    /// I/O or serialization error during persistence operations.
+    PersistenceError(String),
     /// Generic internal error.
     Internal(String),
 }
@@ -58,6 +60,9 @@ impl std::fmt::Display for HolographicMemoryError {
             }
             HolographicMemoryError::InvalidThreshold(t) => {
                 write!(f, "Invalid threshold {}: must be in 0.0–1.0", t)
+            }
+            HolographicMemoryError::PersistenceError(msg) => {
+                write!(f, "Persistence error: {}", msg)
             }
             HolographicMemoryError::Internal(msg) => {
                 write!(f, "Internal error: {}", msg)
@@ -667,6 +672,34 @@ impl InMemoryHolographicMemoryStore {
     /// Returns true if the store contains no traces.
     pub fn is_empty(&self) -> bool {
         self.traces.is_empty()
+    }
+
+    /// Save all traces to a JSON file.
+    ///
+    /// The file contains a JSON object keyed by trace ID. The serialized
+    /// form uses `serde_json` and is human-readable (pretty-printed).
+    pub fn save_to_file(&self, path: &str) -> Result<(), HolographicMemoryError> {
+        let json = serde_json::to_string_pretty(&self.traces).map_err(|e| {
+            HolographicMemoryError::PersistenceError(format!("serialization failed: {}", e))
+        })?;
+        std::fs::write(path, &json).map_err(|e| {
+            HolographicMemoryError::PersistenceError(format!("write failed: {}", e))
+        })?;
+        Ok(())
+    }
+
+    /// Load traces from a JSON file previously written by `save_to_file`.
+    ///
+    /// Returns a new store pre-populated with the deserialized traces.
+    /// If the file does not exist or is invalid, returns a `PersistenceError`.
+    pub fn load_from_file(path: &str) -> Result<Self, HolographicMemoryError> {
+        let json = std::fs::read_to_string(path)
+            .map_err(|e| HolographicMemoryError::PersistenceError(format!("read failed: {}", e)))?;
+        let traces: HashMap<String, HolographicTrace> =
+            serde_json::from_str(&json).map_err(|e| {
+                HolographicMemoryError::PersistenceError(format!("deserialization failed: {}", e))
+            })?;
+        Ok(Self { traces })
     }
 }
 
@@ -1658,5 +1691,178 @@ mod tests {
             sig_a.symbolic_bits, sig_b.symbolic_bits,
             "normalization should treat '  Rust ', 'rust', and '' the same as 'rust'"
         );
+    }
+
+    // -----------------------------------------------------------------------
+    // Persistence tests
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn save_and_load_roundtrip() {
+        let mut store = InMemoryHolographicMemoryStore::new();
+
+        let trace = make_trace(
+            "persist-1",
+            "proj",
+            SourceKind::ConversationTurn,
+            vec!["hello".to_owned()],
+            vec!["greeting".to_owned()],
+            vec!["world".to_owned()],
+            vec!["decision-1".to_owned()],
+            vec!["mem-1".to_owned()],
+            0.5,
+            0.8,
+        );
+        store.add_trace(trace).unwrap();
+
+        let tmp = std::env::temp_dir().join("holographic-test-roundtrip.json");
+        let path = tmp.to_str().unwrap().to_owned();
+
+        // Save
+        store.save_to_file(&path).expect("save should succeed");
+
+        // Load into a new store
+        let loaded =
+            InMemoryHolographicMemoryStore::load_from_file(&path).expect("load should succeed");
+
+        assert_eq!(loaded.len(), 1, "loaded store should have 1 trace");
+        let loaded_trace = loaded.get_trace("persist-1").expect("trace should exist");
+        assert_eq!(loaded_trace.content_summary, "Summary for persist-1");
+        assert_eq!(loaded_trace.keywords, vec!["hello"]);
+        assert_eq!(loaded_trace.concepts, vec!["greeting"]);
+        assert_eq!(loaded_trace.entities, vec!["world"]);
+        assert!(loaded_trace
+            .linked_decision_ids
+            .contains(&"decision-1".to_owned()));
+        assert!(loaded_trace.linked_memory_ids.contains(&"mem-1".to_owned()));
+        assert_eq!(loaded_trace.source_kind, SourceKind::ConversationTurn);
+        assert_eq!(loaded_trace.importance, 0.5);
+        assert_eq!(loaded_trace.confidence, 0.8);
+        assert_eq!(loaded_trace.activation_count, 0);
+
+        // Cleanup
+        let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
+    fn save_and_load_preserves_multiple_traces() {
+        let mut store = InMemoryHolographicMemoryStore::new();
+
+        let t1 = make_trace(
+            "t1",
+            "proj",
+            SourceKind::ConversationTurn,
+            vec!["alpha".to_owned()],
+            vec![],
+            vec![],
+            vec![],
+            vec![],
+            0.5,
+            0.8,
+        );
+        let t2 = make_trace(
+            "t2",
+            "proj",
+            SourceKind::ArchitectureDecision,
+            vec!["beta".to_owned()],
+            vec![],
+            vec![],
+            vec![],
+            vec![],
+            0.3,
+            0.6,
+        );
+        let t3 = make_trace(
+            "t3",
+            "other-proj",
+            SourceKind::MemoryCandidate,
+            vec!["gamma".to_owned()],
+            vec![],
+            vec![],
+            vec![],
+            vec![],
+            0.7,
+            0.9,
+        );
+        store.add_trace(t1).unwrap();
+        store.add_trace(t2).unwrap();
+        store.add_trace(t3).unwrap();
+
+        let tmp = std::env::temp_dir().join("holographic-test-multi.json");
+        let path = tmp.to_str().unwrap().to_owned();
+
+        store.save_to_file(&path).expect("save should succeed");
+        let loaded =
+            InMemoryHolographicMemoryStore::load_from_file(&path).expect("load should succeed");
+
+        assert_eq!(loaded.len(), 3);
+        assert_eq!(loaded.list_traces("proj").len(), 2);
+        assert_eq!(loaded.list_traces("other-proj").len(), 1);
+
+        let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
+    fn load_nonexistent_file_returns_error() {
+        let tmp = std::env::temp_dir().join("holographic-test-nonexistent.json");
+        let path = tmp.to_str().unwrap().to_owned();
+
+        let result = InMemoryHolographicMemoryStore::load_from_file(&path);
+        assert!(
+            matches!(result, Err(HolographicMemoryError::PersistenceError(_))),
+            "loading a nonexistent file should return PersistenceError"
+        );
+    }
+
+    #[test]
+    fn save_empty_store_and_load() {
+        let store = InMemoryHolographicMemoryStore::new();
+
+        let tmp = std::env::temp_dir().join("holographic-test-empty.json");
+        let path = tmp.to_str().unwrap().to_owned();
+
+        store.save_to_file(&path).expect("save should succeed");
+        let loaded =
+            InMemoryHolographicMemoryStore::load_from_file(&path).expect("load should succeed");
+
+        assert_eq!(loaded.len(), 0);
+        assert!(loaded.is_empty());
+
+        let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
+    fn save_and_load_preserves_signature() {
+        let mut store = InMemoryHolographicMemoryStore::new();
+
+        let trace = make_trace(
+            "sig-test",
+            "proj",
+            SourceKind::ConversationTurn,
+            vec!["rust".to_owned(), "performance".to_owned()],
+            vec!["systems".to_owned()],
+            vec!["compiler".to_owned()],
+            vec!["dec-1".to_owned()],
+            vec![],
+            0.5,
+            0.8,
+        );
+        let orig_sig = trace.distributed_signature.clone();
+        store.add_trace(trace).unwrap();
+
+        let tmp = std::env::temp_dir().join("holographic-test-sig.json");
+        let path = tmp.to_str().unwrap().to_owned();
+
+        store.save_to_file(&path).expect("save should succeed");
+        let loaded =
+            InMemoryHolographicMemoryStore::load_from_file(&path).expect("load should succeed");
+
+        let loaded_trace = loaded.get_trace("sig-test").expect("trace should exist");
+        assert_eq!(
+            loaded_trace.distributed_signature, orig_sig,
+            "distributed signature should survive save/load roundtrip"
+        );
+
+        let _ = std::fs::remove_file(&path);
     }
 }

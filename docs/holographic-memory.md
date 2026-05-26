@@ -11,8 +11,8 @@ limited in V0:
 
 - ✅ **No LLM** — all encoding and retrieval is deterministic hashing
 - ✅ **No vector database** — signatures are `Vec<u64>`, not `Vec<f32>`
-- ✅ **No persistence** — `InMemoryHolographicMemoryStore` only (volatile)
-- ✅ **No tool execution** — pure data operations, no shell/FS/network
+- ✅ **Persistence via JSON file** — `save_to_file()` / `load_from_file()` (serde_json, std::fs)
+- ✅ **No tool execution** — pure data operations, no shell/FS/network (beyond persistence I/O)
 - ✅ **No authorization** — retrieval is evidence-only, never an action approval
 - ✅ **No replacement of Graph Memory** — Graph Memory remains the source of truth
 - ✅ **No replacement of Decision Gate** — all actions still require governance
@@ -194,19 +194,12 @@ pub struct ReconstructedContext {
 
 ## Limites actuelles
 
-1. **Store in-memory uniquement** : pas de persistance entre les
-   redémarrages.
-2. **Pas d'embeddings locaux** : la signature est purement symbolique
-   (hachage de termes), pas sémantique (pas de généralisation à des
-   termes proches non listés).
-3. **Pas de graphe mémoire** : les liens entre traces sont explicites
-   (`linked_memory_ids`) mais pas explorés récursivement.
-4. **Pas de consolidation** : les traces ne sont pas fusionnées,
-   résumées ou nettoyées automatiquement.
-5. **Pas d'intégration avec le Decision Gate** : la mémoire ne peut
-   pas encore être consultée pendant l'évaluation des décisions.
-6. **Recherche linéaire** : `retrieve_by_resonance` scanne toutes les
-   traces du projet à chaque requête. Pas d'index.
+1. **Signature purement symbolique** : la signature est basée sur du hachage de termes, pas sur une généralisation sémantique (pas de correspondance entre "voiture" et "automobile").
+2. **Pas de graphe mémoire** : les liens entre traces sont explicites (`linked_memory_ids`) mais pas explorés récursivement.
+3. **Pas de consolidation** : les traces ne sont pas fusionnées, résumées ou nettoyées automatiquement.
+4. **Pas d'intégration avec le Decision Gate** : la mémoire ne peut pas encore être consultée pendant l'évaluation des décisions.
+5. **Recherche linéaire** : `retrieve_by_resonance` scanne toutes les traces du projet à chaque requête. Pas d'index.
+6. **Persistance fichier synchrone** : `save_to_file()` / `load_from_file()` fonctionnent avec le filesystem local, pas de base de données transactionnelle.
 
 ---
 
