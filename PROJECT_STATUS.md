@@ -560,3 +560,45 @@ All additions are alpha pure-domain extensions:
 - Merge PR #85 (if not already merged)
 - Then: consider adding `--resonate` flag to `cognitive run` CLI for direct resonance readback
 - Or: stake the demo script into the hourly focus-loop cron as a smoke test
+
+## 17. Latest Session Update (2026-05-26 — P6 `--resonate` CLI flag complete with parser tests)
+
+This session completed the P6 `--resonate` CLI flag for direct HolographicMemory resonance readback on `arpagona cognitive run`.
+
+Changed:
+- Added 9 parser tests for `arpagona cognitive run` covering all CLI flags: basic parse, domain, `--assess`, `--allocate`, `--resonate`, context, combined flags, `--json` combinations, and the full `--assess --allocate --resonate` pipeline.
+- Verified `--resonate` works end-to-end:
+  - JSON output: `holographic_resonance` block contains hints, has_resonance, non_authorizing_warning
+  - Human-readable output: formatted resonance section with hint details and non-authorizing warning
+- Updated `FOCUS_LOOP_NEXT.md` with P3 as the next milestone (connect `--observe` → assessment → governed learning proposal path)
+
+Note: the `--resonate` flag implementation (parser field, JSON output path, human-readable output) was already present in the codebase from the P6 integration commit. This session added the missing parser tests and end-to-end verification.
+
+Verification:
+- `cargo fmt -- --check`: clean
+- `cargo check`: clean (0 new warnings, pre-existing Rust edition linter noise only)
+- `cargo test --workspace`: 246 tests pass (all crates), including 9 new cognitive run parser tests
+
+Stability level: alpha CLI supervision surface (same as existing `--assess`, `--allocate` flags).
+
+Limits:
+- no endpoint was added
+- no server-side state was modified
+- no Graph Memory schema, query or mutation was added
+- no audit event creation or extraction behavior was added
+- no runtime behavior was added
+- no real tool execution was introduced
+- no LLM, provider, or API call was added
+- no Decision Gate behavior was changed
+- no scheduler, autonomy, MCP, browser automation, credential handling, or Mission Control Web growth
+
+### Files changed
+
+| File | Change |
+|------|--------|
+| crates/cli/src/main.rs | Added 9 parser tests for cognitive run command validation |
+| FOCUS_LOOP_NEXT.md | Updated handoff to P3 (observe → assess → governed learning) |
+
+### Recommended next step
+
+Connect `--observe` tool observation outputs into the `--assess` assessment pipeline so that tool observations produce governed learning proposals through the existing FailureInsightCandidate → ProposedAction → DecisionGate → Audit chain.

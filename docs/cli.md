@@ -347,10 +347,14 @@ Options :
 - `--domain <DOMAIN>` — Classification optionnelle du domaine (`coding`, `research`, `teaching`, `business`).
 - `--context <TEXT>` — Contexte supplémentaire au format `clé:valeur`, une par ligne.
 - `--json` — Sortie structurée JSON au lieu du texte lisible.
-- `--assess` — Pont d'évaluation : convertit les `ImprovementCandidates` en `FailureInsightCandidates`.
-- `--allocate` — Pont d'allocation Compute Reservoir : associe la mémoire de travail à une sélection de ressource.
+|- `--assess` — Pont d'évaluation : convertit les `ImprovementCandidates` en `FailureInsightCandidates`.
+|- `--allocate` — Pont d'allocation Compute Reservoir : associe la mémoire de travail à une sélection de ressource.
+|- `--resonate` — Pont de résonance HolographicMemory : génère des indices de motifs non autorisants à partir de l'état cognitif (domaine, sensibilité, complexité, prochaine action, allocation).
+|- `--observe` — Pont d'observation outil : exécute la lecture d'outils (read_file, list_files, search_text) pour les observations requises.
+|- `--llm` — Synthèse LLM : appelle un fournisseur LLM pour enrichir la sortie du cycle cognitif.
+|- `--provider <NAME>` — Fournisseur LLM (mock, openai, ollama). Défaut: ollama.
 
-Le Work Loop produit une mémoire de travail (WorkingMemory) complète avec objectif, contexte, hypothèses, contraintes, contexte manquant, estimation de sensibilité/complexité, candidats d'amélioration, plan et prochaine action proposée. La sortie est en lecture seule et non autorisante.
+Le Work Loop produit une mémoire de travail (WorkingMemory) complète avec objectif, contexte, hypothèses, contraintes, contexte manquant, estimation de sensibilité/complexité, candidats d'amélioration, plan et prochaine action proposée. Les flags `--assess`, `--allocate`, `--resonate`, `--observe` et `--llm` peuvent être combinés pour une exécution en pipeline unique.
 
 ### Graph Memory — Statut et démos
 
