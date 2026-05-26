@@ -317,6 +317,24 @@ impl FailureInsightCandidate {
             .map(Self::from_improvement_candidate)
             .collect()
     }
+
+    /// Convert a slice of [`ObservationAssessment`]s into `FailureInsightCandidate`s.
+    ///
+    /// This extracts the `.candidate` field from each assessment where present.
+    /// Assessments without candidates (e.g. successful observations with no
+    /// failure-insight signal) are skipped.
+    ///
+    /// # Safety
+    ///
+    /// - Pure domain conversion — no I/O, no execution, no authorization.
+    /// - The returned candidates do not create, persist, or route any
+    ///   FailureInsight record.
+    pub fn from_assessments(assessments: &[ObservationAssessment]) -> Vec<Self> {
+        assessments
+            .iter()
+            .filter_map(|a| a.candidate.clone())
+            .collect()
+    }
 }
 
 // ---------------------------------------------------------------------------
