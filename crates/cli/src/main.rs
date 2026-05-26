@@ -4454,7 +4454,7 @@ async fn run_proposals(
     cognitive_observations: &[serde_json::Value],
 ) -> Result<ProposalRunResult, Box<dyn Error>> {
     use arpagona_agent_core::{
-        ActionType, Permission, ProposedAction, RiskLevel,
+        ProposedAction,
     };
     use arpagona_decision_gate::{audit_event_for_decision, evaluate_proposed_action};
 
