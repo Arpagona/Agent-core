@@ -795,3 +795,73 @@ This session added deterministic deduplication to the `cognitive run --propose` 
 ### Recommended next step
 
 Human review queue / proposal lifecycle states: add a CLI surface to move proposals through states (PendingDecision → Approved → Blocked → NeedsHumanApproval) and track which human reviewed them.
+
+## 21. Latest Session Update (2026-05-27 — P11: Human review queue and proposal lifecycle states)
+
+This session added the full human review queue and proposal lifecycle states to the CLI and API server.
+
+**Core types changed:**
+
+`crates/core/src/action.rs`:
+- Extended `ProposedActionStatus` with `Rejected`, `Deferred`, `Superseded`
+
+`crates/core/src/audit.rs`:
+- Extended `AuditEventType` with `HumanDeferred`
+
+**API server (`apps/api-server/src/main.rs`):**
+- Added `ReviewActionRequest` and `ReviewActionResponse` structs
+- Added `POST /proposed-actions/{id}/review` endpoint with state transition validation
+- Added `valid_review_transition()` — accepts:
+  - `PendingDecision → Approved | Rejected | Deferred`
+  - `Deferred → PendingDecision | Approved | Rejected`
+  - `Approved → Superseded`
+  - All other transitions are rejected with a clear error
+- Added `review_proposed_action()` handler that updates status and creates audit event
+- Added `ActorRef`, `AuditEventId`, `AuditEventType` to API server imports
+
+**CLI (`crates/cli/src/main.rs`):**
+- Added `ReviewActionCommand`, `ReviewActionSubcommand` enum and args structs
+- Added `arpagona action review list [--status <filter>] [--json]`
+- Added `arpagona action review show <id> [--json]` with score, band, batched metadata display
+- Added `arpagona action review approve <id> [--reason "..."] [--actor "..."] [--json]`
+- Added `arpagona action review reject <id> [--reason "..."] [--actor "..."] [--json]`
+- Added `arpagona action review defer <id> [--reason "..."] [--actor "..."] [--json]`
+- Added `arpagona action review supersede <id> [--reason "..."] [--actor "..."] [--json]`
+- All transitions create audit events (HumanApproved, HumanRejected, HumanDeferred)
+- Invalid transitions are rejected by the API server
+
+**Key invariants:**
+- Approved ≠ Executed — no side effects, no execution
+- All new proposals still default to `PendingDecision`
+- Priority scores, bands, dedup/batch metadata preserved through review
+- Every lifecycle transition creates an immutable audit event
+
+**Verification:**
+- `cargo test --workspace`: 255 tests pass (all crates)
+- 0 compiler warnings
+- State transition rules are compile-time safe
+
+**Stability level:** alpha CLI supervision surface.
+
+### Files changed
+
+| File | Change |
+|------|--------|
+| `crates/core/src/action.rs` | Added `Rejected`, `Deferred`, `Superseded` variants |
+| `crates/core/src/audit.rs` | Added `HumanDeferred` variant |
+| `apps/api-server/src/main.rs` | Added `/proposed-actions/{id}/review` endpoint with validation |
+| `crates/cli/src/main.rs` | Added `ActionSubcommand::Review` + 6 subcommands + handler |
+| `PROJECT_STATUS.md` | Updated with section 21 |
+| `FOCUS_LOOP_NEXT.md` | Updated to dry-run sandbox |
+
+### What was NOT added
+
+- No LLM calls or provider changes
+- No autonomous execution or scheduling
+- No Decision Gate bypass
+- No removal of existing lifecycle safety invariants
+- No real tool execution
+
+### Recommended next step
+
+Dry-run execution sandbox for approved low-risk proposals: simulate execution without side effects.

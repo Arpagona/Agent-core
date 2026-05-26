@@ -43,6 +43,9 @@ pub enum ProposedActionStatus {
     Blocked,
     NeedsHumanApproval,
     Cancelled,
+    Rejected,
+    Deferred,
+    Superseded,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]

@@ -2,16 +2,16 @@ use std::net::SocketAddr;
 use std::sync::{Arc, Mutex};
 
 use arpagona_agent_core::{
-    ActionType, AgentId, AuditEvent, Decision, DecisionStatus, Permission, ProposedAction,
-    ProposedActionId, ProposedActionStatus, RiskLevel, Task, TaskId, TaskPriority, TaskStatus,
-    WorkspaceId,
+    ActionType, ActorRef, AgentId, AuditEvent, AuditEventId, AuditEventType, Decision,
+    DecisionStatus, Permission, ProposedAction, ProposedActionId, ProposedActionStatus, RiskLevel,
+    Task, TaskId, TaskPriority, TaskStatus, WorkspaceId,
 };
 use arpagona_decision_gate::{audit_event_for_decision, evaluate_proposed_action};
 use arpagona_llm::{
     deterministic_turn_for_prompt, AgentTurnDraft, LlmActionRequest, LlmProvider, MockProvider,
     OllamaProvider, OpenAiProvider,
 };
-use axum::extract::State;
+use axum::extract::{Path, State};
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post};
@@ -19,6 +19,7 @@ use axum::{Json, Router};
 use chrono::Utc;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
+use std::str::FromStr;
 
 #[derive(Clone, Default)]
 struct AppState {
@@ -80,6 +81,22 @@ struct AgentProposeRequest {
     provider: String,
 }
 
+#[derive(Deserialize)]
+struct ReviewActionRequest {
+    /// "approve", "reject", or "defer"
+    action: String,
+    /// Optional human-readable reason for the review decision
+    reason: Option<String>,
+    /// Actor identifier (e.g. "human-thibaud")
+    actor: String,
+}
+
+#[derive(Serialize)]
+struct ReviewActionResponse {
+    proposed_action: ProposedAction,
+    audit_event: AuditEvent,
+}
+
 #[derive(Debug, Serialize)]
 struct AgentProposeResponse {
     kind: &'static str,
@@ -118,6 +135,7 @@ fn app(state: AppState) -> Router {
             "/proposed-actions",
             post(create_proposed_action).get(list_proposed_actions),
         )
+        .route("/proposed-actions/{id}/review", post(review_proposed_action))
         .route("/agent/propose", post(agent_propose))
         .route("/decision-gate/evaluate", post(evaluate_decision_gate))
         .route("/decisions", get(list_decisions))
@@ -186,6 +204,99 @@ async fn list_proposed_actions(
     State(state): State<AppState>,
 ) -> Result<Json<Vec<ProposedAction>>, ApiError> {
     Ok(Json(state.lock()?.proposed_actions.clone()))
+}
+
+/// Valid state transitions for human review of proposed actions.
+fn valid_review_transition(
+    current: &ProposedActionStatus,
+    target: &ProposedActionStatus,
+) -> bool {
+    matches!(
+        (current, target),
+        (ProposedActionStatus::PendingDecision, ProposedActionStatus::Approved)
+            | (ProposedActionStatus::PendingDecision, ProposedActionStatus::Rejected)
+            | (ProposedActionStatus::PendingDecision, ProposedActionStatus::Deferred)
+            | (ProposedActionStatus::Deferred, ProposedActionStatus::PendingDecision)
+            | (ProposedActionStatus::Deferred, ProposedActionStatus::Approved)
+            | (ProposedActionStatus::Deferred, ProposedActionStatus::Rejected)
+            | (ProposedActionStatus::Approved, ProposedActionStatus::Superseded)
+    )
+}
+
+async fn review_proposed_action(
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+    Json(request): Json<ReviewActionRequest>,
+) -> Result<Json<ReviewActionResponse>, ApiError> {
+    let action_id = ProposedActionId::new(id);
+    let mut store = state.lock()?;
+
+    let idx = store
+        .proposed_actions
+        .iter()
+        .position(|a| a.id == action_id)
+        .ok_or_else(|| ApiError::not_found(format!("proposed action {} not found", action_id)))?;
+
+    let target_status = match request.action.as_str() {
+        "approve" => ProposedActionStatus::Approved,
+        "reject" => ProposedActionStatus::Rejected,
+        "defer" => ProposedActionStatus::Deferred,
+        "supersede" => ProposedActionStatus::Superseded,
+        _ => {
+            return Err(ApiError::bad_request(format!(
+                "invalid review action '{}' (expected 'approve', 'reject', 'defer', or 'supersede')",
+                request.action
+            )))
+        }
+    };
+
+    let current_status = store.proposed_actions[idx].status.clone();
+    if !valid_review_transition(&current_status, &target_status) {
+        return Err(ApiError::bad_request(format!(
+            "invalid transition from {:?} to {:?}",
+            current_status, target_status
+        )));
+    }
+
+    // Update the action status
+    store.proposed_actions[idx].status = target_status.clone();
+
+    // Map review action to audit event type
+    let event_type = match target_status {
+        ProposedActionStatus::Approved => AuditEventType::HumanApproved,
+        ProposedActionStatus::Rejected => AuditEventType::HumanRejected,
+        ProposedActionStatus::Deferred => AuditEventType::HumanDeferred,
+        ProposedActionStatus::Superseded => AuditEventType::HumanApproved, // supersede is still recorded as human action
+        _ => AuditEventType::DecisionCreated,
+    };
+
+    let audit_event = AuditEvent {
+        id: AuditEventId::new(format!(
+            "audit-review-{}-{}",
+            store.proposed_actions[idx].id.as_str(),
+            store.audit_events.len() + 1
+        )),
+        event_type,
+        actor: ActorRef::Human(request.actor),
+        workspace_id: Some(store.proposed_actions[idx].workspace_id.clone()),
+        task_id: store.proposed_actions[idx].task_id.clone(),
+        proposed_action_id: Some(store.proposed_actions[idx].id.clone()),
+        decision_id: None,
+        payload: json!({
+            "review_action": request.action,
+            "reason": request.reason,
+            "previous_status": current_status,
+            "new_status": target_status,
+        }),
+        created_at: Utc::now(),
+    };
+
+    store.audit_events.push(audit_event.clone());
+
+    Ok(Json(ReviewActionResponse {
+        proposed_action: store.proposed_actions[idx].clone(),
+        audit_event,
+    }))
 }
 
 async fn agent_propose(

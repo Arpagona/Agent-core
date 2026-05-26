@@ -235,6 +235,64 @@ enum ActionSubcommand {
     Propose(ProposeActionArgs),
     /// Evaluate a proposed action through the decision gate.
     Evaluate(EvaluateActionArgs),
+    /// Review proposed actions: list, show, approve, reject, defer.
+    Review(ReviewActionCommand),
+}
+
+#[derive(Debug, Args)]
+struct ReviewActionCommand {
+    #[command(subcommand)]
+    command: ReviewActionSubcommand,
+}
+
+#[derive(Debug, Subcommand)]
+enum ReviewActionSubcommand {
+    /// List proposed actions, optionally filtered by status.
+    List(ReviewActionListArgs),
+    /// Show a single proposed action by ID.
+    Show(ReviewActionShowArgs),
+    /// Approve a pending proposed action.
+    Approve(ReviewActionTransitionArgs),
+    /// Reject a pending proposed action.
+    Reject(ReviewActionTransitionArgs),
+    /// Defer a pending proposed action.
+    Defer(ReviewActionTransitionArgs),
+    /// Supersede an approved proposed action.
+    Supersede(ReviewActionTransitionArgs),
+}
+
+#[derive(Debug, Args)]
+struct ReviewActionListArgs {
+    /// Filter by status (e.g. pending_decision, approved, rejected, deferred).
+    #[arg(long)]
+    status: Option<String>,
+    /// Emit structured JSON instead of human-oriented text.
+    #[arg(long)]
+    json: bool,
+}
+
+#[derive(Debug, Args)]
+struct ReviewActionShowArgs {
+    /// Proposed action ID to show.
+    action_id: String,
+    /// Emit structured JSON instead of human-oriented text.
+    #[arg(long)]
+    json: bool,
+}
+
+#[derive(Debug, Args)]
+struct ReviewActionTransitionArgs {
+    /// Proposed action ID to transition.
+    action_id: String,
+    /// Optional human-readable reason.
+    #[arg(long)]
+    reason: Option<String>,
+    /// Actor identifier (default: human-cli).
+    #[arg(long, default_value = "human-cli")]
+    actor: String,
+    /// Emit structured JSON instead of human-oriented text.
+    #[arg(long)]
+    json: bool,
 }
 
 #[derive(Debug, Args)]
@@ -1011,6 +1069,7 @@ async fn run() -> Result<(), Box<dyn Error>> {
         Command::Action(action) => match action.command {
             ActionSubcommand::Propose(args) => propose_action(&client, &api_url, args).await?,
             ActionSubcommand::Evaluate(args) => evaluate_action(&client, &api_url, args).await?,
+            ActionSubcommand::Review(args) => review_action(&client, &api_url, args).await?,
         },
         Command::Agent(agent) => match agent.command {
             AgentSubcommand::Propose(args) => propose_agent_action(&client, &api_url, args).await?,
@@ -2599,6 +2658,13 @@ fn memory_proposal_next_action(status: &ProposedActionStatus) -> String {
                 .to_owned()
         }
         ProposedActionStatus::Cancelled => "No action; proposal was cancelled.".to_owned(),
+        ProposedActionStatus::Rejected => "Proposal was rejected by human reviewer.".to_owned(),
+        ProposedActionStatus::Deferred => {
+            "Proposal was deferred; re-evaluate when context changes.".to_owned()
+        }
+        ProposedActionStatus::Superseded => {
+            "Proposal was superseded by a more recent decision.".to_owned()
+        }
     }
 }
 
@@ -3116,6 +3182,168 @@ fn print_decision(response: &EvaluateResponse) -> Result<(), Box<dyn Error>> {
         style_status(&response.decision.status)
     );
     println!("{} {}", style_info("Audit:"), response.audit_event.id);
+    Ok(())
+}
+
+/// Review command handler: list, show, approve, reject, defer, supersede.
+async fn review_action(
+    client: &Client,
+    api_url: &str,
+    cmd: ReviewActionCommand,
+) -> Result<(), Box<dyn Error>> {
+    match cmd.command {
+        ReviewActionSubcommand::List(args) => {
+            let all_actions: Vec<ProposedAction> = get_json(
+                client
+                    .get(format!("{api_url}/proposed-actions"))
+                    .send()
+                    .await?,
+            )
+            .await?;
+
+            let filtered: Vec<_> = if let Some(ref status_filter) = args.status {
+                all_actions
+                    .into_iter()
+                    .filter(|a| {
+                        format!("{:?}", a.status).to_lowercase() == status_filter.to_lowercase()
+                    })
+                    .collect()
+            } else {
+                all_actions
+            };
+
+            if args.json {
+                println!(
+                    "{}",
+                    serde_json::to_string_pretty(&filtered)?
+                );
+            } else {
+                if filtered.is_empty() {
+                    println!("{}", style_dim("No proposed actions matching filter."));
+                    return Ok(());
+                }
+                println!("{}", style_info("Proposed actions"));
+                for action in &filtered {
+                    let p = &action.payload;
+                    let score = p
+                        .get("priority_score")
+                        .and_then(|v| v.as_f64())
+                        .unwrap_or(0.0);
+                    let band = p
+                        .get("priority_band")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("?");
+                    let batched = p
+                        .get("batched")
+                        .and_then(|v| v.as_bool())
+                        .unwrap_or(false);
+                    println!(
+                        "{} {} | {} | score={:.2} ({}){}",
+                        style_dim("- id:"),
+                        action.id,
+                        style_dim(&format!("{:?}", action.status)),
+                        score,
+                        band,
+                        if batched { " [batched]" } else { "" },
+                    );
+                }
+            }
+        }
+        ReviewActionSubcommand::Show(args) => {
+            let all_actions: Vec<ProposedAction> = get_json(
+                client
+                    .get(format!("{api_url}/proposed-actions"))
+                    .send()
+                    .await?,
+            )
+            .await?;
+
+            let action = all_actions
+                .into_iter()
+                .find(|a| a.id.as_str() == args.action_id)
+                .ok_or_else(|| format!("Proposed action '{}' not found", args.action_id))?;
+
+            if args.json {
+                println!("{}", serde_json::to_string_pretty(&action)?);
+            } else {
+                println!("{} {}", style_dim("id:"), action.id);
+                println!("{} {:?}", style_dim("status:"), action.status);
+                println!("{} {:?}", style_dim("action_type:"), action.action_type);
+                println!("{} {}", style_dim("risk_level:"), format!("{:?}", action.risk_level));
+                println!("{} {}", style_dim("rationale:"), action.rationale);
+                println!("{} {}", style_dim("created_at:"), action.created_at);
+                if action.target.is_some() {
+                    println!("{} {}", style_dim("target:"), action.target.as_ref().unwrap());
+                }
+                // Print payload fields
+                if let Some(score) = action.payload.get("priority_score").and_then(|v| v.as_f64()) {
+                    println!("{} {:.2}", style_dim("priority_score:"), score);
+                }
+                if let Some(band) = action.payload.get("priority_band").and_then(|v| v.as_str()) {
+                    println!("{} {}", style_dim("priority_band:"), band);
+                }
+                if let Some(batched) = action.payload.get("batched").and_then(|v| v.as_bool()) {
+                    println!("{} {}", style_dim("batched:"), batched);
+                    if let Some(count) = action.payload.get("merged_count").and_then(|v| v.as_u64()) {
+                        println!("{} {}", style_dim("merged_count:"), count);
+                    }
+                }
+                if let Some(source_kind) = action.payload.get("source_kind").and_then(|v| v.as_str()) {
+                    println!("{} {}", style_dim("source_kind:"), source_kind);
+                }
+                if let Some(benefit) = action.payload.get("expected_benefit").and_then(|v| v.as_str()) {
+                    println!("{} {}", style_dim("expected_benefit:"), benefit);
+                }
+            }
+        }
+        ReviewActionSubcommand::Approve(ref args)
+        | ReviewActionSubcommand::Reject(ref args)
+        | ReviewActionSubcommand::Defer(ref args)
+        | ReviewActionSubcommand::Supersede(ref args) => {
+            let action_name = match cmd.command {
+                ReviewActionSubcommand::Approve(_) => "approve",
+                ReviewActionSubcommand::Reject(_) => "reject",
+                ReviewActionSubcommand::Defer(_) => "defer",
+                ReviewActionSubcommand::Supersede(_) => "supersede",
+                _ => unreachable!(),
+            };
+
+            let response: serde_json::Value = client
+                .post(format!(
+                    "{api_url}/proposed-actions/{}/review",
+                    args.action_id
+                ))
+                .json(&serde_json::json!({
+                    "action": action_name,
+                    "reason": args.reason,
+                    "actor": args.actor,
+                }))
+                .send()
+                .await?
+                .json()
+                .await?;
+
+            if args.json {
+                println!("{}", serde_json::to_string_pretty(&response)?);
+            } else {
+                if let Some(action_val) = response.get("proposed_action") {
+                    if let Some(status) = action_val.get("status").and_then(|v| v.as_str()) {
+                        println!(
+                            "{} Proposed action '{}' → {}",
+                            style_info("✓"),
+                            args.action_id,
+                            status,
+                        );
+                    }
+                }
+                if let Some(audit) = response.get("audit_event") {
+                    if let Some(event_id) = audit.get("id").and_then(|v| v.as_str()) {
+                        println!("{} Audit event: {}", style_dim("  audit:"), event_id);
+                    }
+                }
+            }
+        }
+    }
     Ok(())
 }
 

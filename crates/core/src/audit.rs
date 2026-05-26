@@ -14,6 +14,7 @@ pub enum AuditEventType {
     HumanApprovalRequested,
     HumanApproved,
     HumanRejected,
+    HumanDeferred,
     ExecutionStarted,
     ExecutionSucceeded,
     ExecutionFailed,
