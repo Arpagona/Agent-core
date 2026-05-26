@@ -62,4 +62,7 @@ Rules:
 
 ## Closed / superseded candidates
 
-- None yet.
+- **DV-2026-05-26-002 — CLI documentation can drift behind CLI surface**
+  - fixed: 2026-05-26 focus loop
+  - summary: added `scripts/check-cli-docs-coverage.sh` (lightweight docs-coverage check validating all `arpagona --help` top-level commands have sections in `docs/cli.md`) and added the missing `auth` command documentation to `docs/cli.md`. The check script is now integrated as part of the docs-validation workflow; it can be run manually or wrapped into a CI step once the CLI surface stabilizes.
+  - evidence: `bash scripts/check-cli-docs-coverage.sh` passes with exit 0; `arpagona auth --help` command group is now documented in `docs/cli.md` under "### Auth — Statut et configuration OpenAI".

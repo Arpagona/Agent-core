@@ -127,6 +127,27 @@ Readback only: this summary is not approval, authorization, orchestration, or ex
 
 La commande ne crée aucun endpoint et ne modifie aucun état. Si l'API est indisponible, elle affiche une santé `unavailable` et des compteurs indisponibles sans transformer le readback en autorisation.
 
+### Auth — Statut et configuration OpenAI
+
+```bash
+cargo run -p arpagona-cli -- auth status
+cargo run -p arpagona-cli -- auth openai
+```
+
+Sous-commandes :
+
+- `status` — Vérifie si les variables d'environnement OpenAI sont configurées (`OPENAI_API_KEY`).
+- `openai` — Affiche les instructions sécurisées pour configurer l'authentification OpenAI.
+
+Exemple de sortie :
+
+```text
+ARPAGONA OpenAI Auth Status
+openai_api_key: not configured
+```
+
+L'authentification est limitée à la clé API en alpha. OAuth complet est post-alpha.
+
 ### Créer une tâche
 
 ```bash
