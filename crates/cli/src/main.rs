@@ -1117,13 +1117,13 @@ async fn chat(client: &Client, api_url: &str, args: ChatArgs) -> Result<(), Box<
                 print_decision(&response)?;
             }
             ChatLine::Provider(next_provider) => {
-                if matches!(next_provider.as_str(), "mock" | "openai") {
+                if matches!(next_provider.as_str(), "mock" | "openai" | "ollama") {
                     provider = next_provider;
                     println!("{} {}", style_success("Provider:"), provider);
                 } else {
                     println!(
                         "{}",
-                        style_error("Unsupported provider. Use mock or openai.")
+                        style_error("Unsupported provider. Use mock, openai, or ollama.")
                     );
                 }
             }
