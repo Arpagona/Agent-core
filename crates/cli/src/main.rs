@@ -122,6 +122,11 @@ pub struct CognitiveRunArgs {
     /// Run tool observation bridge: execute tool runtime for required observations and inject results.
     #[arg(long)]
     pub observe: bool,
+    /// Run proposal bridge: convert FailureInsightCandidates and observations into
+    /// context-rich ProposedActions via the API. Each proposal is PendingDecision
+    /// and carries metadata (objective, source_kind, rationale, risk, etc.).
+    #[arg(long)]
+    pub propose: bool,
     /// Run LLM synthesis: call an LLM provider to enrich the cognitive cycle output.
     #[arg(long)]
     pub llm: bool,
@@ -1048,7 +1053,7 @@ async fn run() -> Result<(), Box<dyn Error>> {
             },
         },
         Command::Cognitive(cognitive) => match cognitive.command {
-            CognitiveSubcommand::Run(args) => cognitive_run(args).await?,
+            CognitiveSubcommand::Run(args) => cognitive_run(&client, &api_url, args).await?,
         },
     }
 
@@ -4356,8 +4361,293 @@ fn run_observations(
     observations
 }
 
+/// Context-aware proposal metadata injected into each ProposedAction's payload.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+struct ProposalMetadata {
+    /// The objective that triggered this proposal.
+    originating_objective: String,
+    /// Where the signal came from: "failure_insight_candidate", "observation", "assessment".
+    source_kind: String,
+    /// Short summary of the original signal.
+    source_summary: String,
+    /// Why this action is proposed.
+    rationale: String,
+    /// Expected benefit of completing this action.
+    expected_benefit: String,
+    /// Risk level assigned to this proposal.
+    risk_level: String,
+    /// Suggested action type: test, fix, refactor, doc, research, governance.
+    suggested_action_type: String,
+    /// Confidence if available (0.0 = none, 1.0 = certain).
+    confidence: Option<f64>,
+    /// Warning: this is a non-authorizing proposal.
+    non_authorizing_warning: String,
+}
+
+/// Map a FailureInsightCandidateKind to a suggested action type.
+fn fic_kind_to_action(kind: &str) -> &'static str {
+    match kind {
+        "blocked_tool_use" | "tool_runtime_failure" => "fix",
+        "missing_context" | "insufficient_observation_quality" => "research",
+        "empty_search_result" | "truncated_result" => "test",
+        "ambiguous_result" | "documentation_mismatch" | "repeated_operator_friction" => "refactor",
+        "safety_boundary_triggered" => "governance",
+        _ => "research",
+    }
+}
+
+/// Map a FailureInsightCandidateKind to an expected benefit string.
+fn fic_kind_to_benefit(kind: &str) -> &'static str {
+    match kind {
+        "blocked_tool_use" => "Unblock a prevented operation so the agent can proceed safely.",
+        "tool_runtime_failure" => "Restore tool runtime reliability and reduce observation noise.",
+        "missing_context" => "Provide missing context so future cycles produce better plans.",
+        "insufficient_observation_quality" => "Improve observation quality for more reliable downstream assessments.",
+        "empty_search_result" => "Verify whether the expected data exists or adjust the search strategy.",
+        "truncated_result" => "Ensure full data visibility by widening the search or paginating results.",
+        "ambiguous_result" => "Clarify ambiguous signals to enable confident downstream decisions.",
+        "documentation_mismatch" => "Reconcile documentation and observed behaviour to reduce confusion.",
+        "repeated_operator_friction" => "Reduce repeated friction by improving the operator experience.",
+        "safety_boundary_triggered" => "Review and harden safety boundaries based on this trigger.",
+        _ => "Improve overall cognitive cycle quality.",
+    }
+}
+
+/// Map an observation's candidate_kind to a suggested action type.
+fn obs_kind_to_action(kind: &Option<String>) -> &'static str {
+    match kind.as_deref() {
+        Some("blocked_tool_use") | Some("tool_runtime_failure") => "fix",
+        Some("missing_context") | Some("insufficient_observation_quality") => "research",
+        Some("empty_search_result") | Some("truncated_result") => "test",
+        Some("ambiguous_result") | Some("documentation_mismatch")
+        | Some("repeated_operator_friction") => "refactor",
+        Some("safety_boundary_triggered") => "governance",
+        _ => "research",
+    }
+}
+
+/// Map an observation candidate kind to an expected benefit string.
+fn obs_kind_to_benefit(kind: &Option<String>) -> &'static str {
+    match kind.as_deref() {
+        Some("blocked_tool_use") => "Unblock a prevented operation so the agent can proceed safely.",
+        Some("tool_runtime_failure") => "Restore tool runtime reliability and reduce observation noise.",
+        Some("missing_context") => "Provide missing context so future cycles produce better plans.",
+        Some("insufficient_observation_quality") => "Improve observation quality for more reliable downstream assessments.",
+        Some("empty_search_result") => "Verify whether the expected data exists or adjust the search strategy.",
+        Some("truncated_result") => "Ensure full data visibility by widening the search or paginating results.",
+        Some("ambiguous_result") => "Clarify ambiguous signals to enable confident downstream decisions.",
+        Some("documentation_mismatch") => "Reconcile documentation and observed behaviour to reduce confusion.",
+        Some("repeated_operator_friction") => "Reduce repeated friction by improving the operator experience.",
+        Some("safety_boundary_triggered") => "Review and harden safety boundaries based on this trigger.",
+        _ => "Improve overall cognitive cycle quality.",
+    }
+}
+
+/// Convert FailureInsightCandidates and CognitiveObservations into context-rich
+/// ProposedActions via the API server, evaluate them through the Decision Gate,
+/// and return the created proposals, decisions, and audit events.
+async fn run_proposals(
+    client: &Client,
+    api_url: &str,
+    objective: &str,
+    failure_insight_candidates: &[serde_json::Value],
+    cognitive_observations: &[serde_json::Value],
+) -> Result<ProposalRunResult, Box<dyn Error>> {
+    use arpagona_agent_core::{
+        ActionType, Permission, ProposedAction, RiskLevel,
+    };
+    use arpagona_decision_gate::{audit_event_for_decision, evaluate_proposed_action};
+
+    let mut proposed_actions: Vec<ProposedAction> = Vec::new();
+    let mut decisions = Vec::new();
+    let mut audit_events = Vec::new();
+
+    // Helper to create a single proposal via the API
+    async fn create_one_proposal(
+        client: &Client,
+        api_url: &str,
+        action_type: &str,
+        risk_level: &str,
+        permissions: &[&str],
+        target: &str,
+        rationale: &str,
+        payload: &serde_json::Value,
+    ) -> Result<ProposedAction, Box<dyn Error>> {
+        let response: ProposedAction = get_json(
+            client
+                .post(format!("{api_url}/proposed-actions"))
+                .json(&serde_json::json!({
+                    "workspace_id": "workspace-alpha",
+                    "task_id": "task-cognitive-propose",
+                    "proposed_by": "agent-cognitive-proposer-v0",
+                    "action_type": action_type,
+                    "target": target,
+                    "risk_level": risk_level,
+                    "required_permissions": permissions,
+                    "rationale": rationale,
+                    "payload": payload,
+                }))
+                .send()
+                .await?,
+        )
+        .await?;
+        Ok(response)
+    }
+
+    // ── From FailureInsightCandidates ──────────────────────────────────────
+    for fic in failure_insight_candidates {
+        let kind = fic.get("kind").and_then(|v| v.as_str()).unwrap_or("unknown");
+        let summary = fic.get("summary").and_then(|v| v.as_str()).unwrap_or("");
+        let reason = fic.get("reason").and_then(|v| v.as_str()).unwrap_or("");
+        let tool_name = fic.get("tool_name").and_then(|v| v.as_str()).unwrap_or("");
+        let is_positive = fic
+            .get("is_positive_signal")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false);
+
+        let suggested_action = fic_kind_to_action(kind);
+        let benefit = fic_kind_to_benefit(kind);
+        let risk = if is_positive {
+            "informational"
+        } else {
+            "low"
+        };
+
+        let permissions: &[&str] = match suggested_action {
+            "fix" => &["propose_tool_use"],
+            "test" => &["read_document"],
+            "refactor" => &["propose_tool_use"],
+            "research" => &["read_document"],
+            "governance" => &["read_memory"],
+            _ => &["read_document"],
+        };
+
+        let metadata = ProposalMetadata {
+            originating_objective: objective.to_owned(),
+            source_kind: "failure_insight_candidate".to_owned(),
+            source_summary: summary.to_owned(),
+            rationale: format!("{} (tool: {})", reason, tool_name),
+            expected_benefit: benefit.to_owned(),
+            risk_level: risk.to_owned(),
+            suggested_action_type: suggested_action.to_owned(),
+            confidence: None,
+            non_authorizing_warning: "This proposal is pending Decision Gate review. No execution without explicit approval.".to_owned(),
+        };
+
+        let action = create_one_proposal(
+            client,
+            api_url,
+            "propose_tool_use",
+            risk,
+            permissions,
+            tool_name,
+            &format!("Proposal from {}: {}", kind, summary),
+            &serde_json::json!(metadata),
+        )
+        .await?;
+
+        proposed_actions.push(action);
+    }
+
+    // ── From CognitiveObservations ─────────────────────────────────────────
+    for obs in cognitive_observations {
+        let summary = obs.get("summary").and_then(|v| v.as_str()).unwrap_or("");
+        let detail = obs.get("detail").and_then(|v| v.as_str()).unwrap_or("");
+        let tool_name = obs.get("tool_name").and_then(|v| v.as_str()).unwrap_or("");
+        let candidate_kind = obs
+            .get("candidate_kind")
+            .and_then(|v| v.as_str())
+            .map(|s| s.to_owned());
+        let is_failure_candidate = obs
+            .get("failure_insight_candidate")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false);
+        let usefulness = obs
+            .get("usefulness")
+            .and_then(|v| v.as_str())
+            .unwrap_or("unknown");
+
+        // Only propose for observations that are failure candidates or have low usefulness
+        let obs_is_actionable = is_failure_candidate || usefulness == "low" || usefulness == "very_low";
+
+        if !obs_is_actionable {
+            continue;
+        }
+
+        let suggested_action = obs_kind_to_action(&candidate_kind);
+        let benefit = obs_kind_to_benefit(&candidate_kind);
+
+        let risk = match usefulness {
+            "very_low" => "informational",
+            _ => "low",
+        };
+
+        let permissions: &[&str] = match suggested_action {
+            "fix" => &["propose_tool_use"],
+            _ => &["read_document"],
+        };
+
+        let metadata = ProposalMetadata {
+            originating_objective: objective.to_owned(),
+            source_kind: "cognitive_observation".to_owned(),
+            source_summary: summary.to_owned(),
+            rationale: format!("Observation from tool '{}': {}", tool_name, detail),
+            expected_benefit: benefit.to_owned(),
+            risk_level: risk.to_owned(),
+            suggested_action_type: suggested_action.to_owned(),
+            confidence: None,
+            non_authorizing_warning: "This proposal is pending Decision Gate review. No execution without explicit approval.".to_owned(),
+        };
+
+        let action = create_one_proposal(
+            client,
+            api_url,
+            "propose_tool_use",
+            risk,
+            permissions,
+            tool_name,
+            &format!("Observation-based proposal: {}", summary),
+            &serde_json::json!(metadata),
+        )
+        .await?;
+
+        proposed_actions.push(action);
+    }
+
+    // ── Evaluate each proposal through the Decision Gate ────────────────────
+    for action in &proposed_actions {
+        let decision = evaluate_proposed_action(action, &[], &permissions_for_action(action));
+        let audit_event = audit_event_for_decision(action, &decision);
+        decisions.push(decision);
+        audit_events.push(audit_event);
+    }
+
+    Ok(ProposalRunResult {
+        proposed_actions,
+        decisions,
+        audit_events,
+    })
+}
+
+/// Extract the required permissions from a ProposedAction as a Vec<Permission>.
+fn permissions_for_action(action: &ProposedAction) -> Vec<Permission> {
+    action.required_permissions.clone()
+}
+
+/// Result of the proposal bridge run.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+struct ProposalRunResult {
+    proposed_actions: Vec<ProposedAction>,
+    decisions: Vec<arpagona_agent_core::Decision>,
+    audit_events: Vec<arpagona_agent_core::AuditEvent>,
+}
+
 /// Run the General Cognitive Work Loop V0.
-async fn cognitive_run(args: CognitiveRunArgs) -> Result<(), Box<dyn Error>> {
+async fn cognitive_run(
+    client: &Client,
+    api_url: &str,
+    args: CognitiveRunArgs,
+) -> Result<(), Box<dyn Error>> {
     let domain = match args.domain.as_deref() {
         Some("general") | None => ObjectiveDomain::General,
         Some("business") => ObjectiveDomain::Business,
@@ -4486,6 +4776,80 @@ async fn cognitive_run(args: CognitiveRunArgs) -> Result<(), Box<dyn Error>> {
                     );
                     wm.insert("observed".to_owned(), serde_json::Value::Bool(true));
                 }
+            }
+            // When --propose, collect FailureInsightCandidates and observations
+            // and create context-rich ProposedActions via the API.
+            if args.propose {
+                let objective = &args.objective;
+
+                // Collect FailureInsightCandidates from working_memory (injected by --assess)
+                let failure_insight_candidates: Vec<serde_json::Value> = obj
+                    .get("working_memory")
+                    .and_then(|wm| wm.get("failure_insight_candidates"))
+                    .and_then(|v| v.as_array())
+                    .map(|arr| arr.clone())
+                    .unwrap_or_default();
+
+                // Collect CognitiveObservations from working_memory (injected by --observe)
+                let cognitive_observations: Vec<serde_json::Value> = obj
+                    .get("working_memory")
+                    .and_then(|wm| wm.get("cognitive_observations"))
+                    .and_then(|v| v.as_array())
+                    .map(|arr| arr.clone())
+                    .unwrap_or_default();
+
+                // Only run the proposal bridge if there are candidates or observations
+                if !failure_insight_candidates.is_empty() || !cognitive_observations.is_empty() {
+                    match run_proposals(
+                        client,
+                        api_url,
+                        objective,
+                        &failure_insight_candidates,
+                        &cognitive_observations,
+                    )
+                    .await
+                    {
+                        Ok(proposal_result) => {
+                            obj.insert(
+                                "proposed_actions".to_owned(),
+                                serde_json::to_value(&proposal_result.proposed_actions)?,
+                            );
+                            obj.insert(
+                                "decisions".to_owned(),
+                                serde_json::to_value(&proposal_result.decisions)?,
+                            );
+                            obj.insert(
+                                "audit_events".to_owned(),
+                                serde_json::to_value(&proposal_result.audit_events)?,
+                            );
+                            obj.insert(
+                                "non_authorizing_warning".to_owned(),
+                                serde_json::Value::String(
+                                    "Readback only — these ProposedActions are PendingDecision. No execution without explicit Decision Gate approval."
+                                        .to_owned(),
+                                ),
+                            );
+                        }
+                        Err(e) => {
+                            obj.insert(
+                                "proposal_error".to_owned(),
+                                serde_json::Value::String(format!("Proposal bridge failed: {e}")),
+                            );
+                        }
+                    }
+                } else {
+                    obj.insert(
+                        "proposal_note".to_owned(),
+                        serde_json::Value::String(
+                            "No FailureInsightCandidates or observations to propose from. Run with --assess or --observe to generate proposals."
+                                .to_owned(),
+                        ),
+                    );
+                }
+                obj.insert(
+                    "proposed".to_owned(),
+                    serde_json::Value::Bool(true),
+                );
             }
             // When --llm, run LLM synthesis and inject into output
             if args.llm {

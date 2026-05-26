@@ -6,13 +6,13 @@ It must contain one concrete next action only. The runtime milestone queue and l
 
 ## Next action
 
-Next pass should: Add `--propose` flag to `cognitive run` that converts `failure_insight_candidates` (from merged improvement-candidate and observation sources) into `ProposedAction` objects through the Decision Gate, proving the full governed learning proposal path in one invocation.
+Implement proposal scoring and prioritization for `cognitive run --propose`.
 
-Why: P3 milestone now bridges observations through assessment into FailureInsightCandidates. The remaining gap is converting those candidates into governed proposals (ProposedAction → DecisionGate → Decision → Audit). A `--propose` flag would complete the chain.
+Why: the `--propose` bridge now produces context-rich ProposedActions with `expected_benefit`, `risk_level`, `suggested_action_type`, and `confidence` metadata. The next step is to rank proposals so the user sees the most impactful ones first — by expected_benefit × confidence, with risk_level as tiebreaker.
 
-Proof to seek: `cargo run -- cognitive run --objective "..." --domain research --assess --observe --propose --json` produces output containing `proposed_actions`, `decisions`, and `audit_events` alongside existing `failure_insight_candidates`. The proposed actions are non-authorizing and gated by the Decision Gate.
+Proof to seek: `cognitive run --objective "..." --assess --observe --propose --json` produces `proposed_actions` sorted by priority score, with a `priority_scored: true` flag and `priority_rationale` explaining the ranking.
 
-Do not: add LLM calls, persistence, shell execution, Decision Gate bypass, new tool execution, HolographicMemory vector store, or any autonomy/self-modification. Keep it pure Rust + existing Decision Gate + existing Audit types.
+Do not: modify any core types, add LLM calls, autonomous execution, or Decision Gate bypass. This is purely a CLI-level sorting + output enrichment.
 
 ## Required update at the end of every run
 

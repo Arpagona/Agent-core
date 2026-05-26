@@ -555,10 +555,53 @@ All additions are alpha pure-domain extensions:
 - no LLM call, API endpoint, scheduler, browser automation, MCP, email, shell, file write (beyond demo-script output), Graph Memory persistence, hidden memory injection, Decision Gate bypass, or self-modification
 - no `--resonate` CLI flag (resonance is proven via integration tests; CLI flag deferred to P6+ if user requests)
 
+### P8 — Context-aware governed proposals (--propose bridge)
+
+Added `--propose` flag to `cognitive run` that converts FailureInsightCandidates and CognitiveObservations into context-rich ProposedActions via the API server.
+
+Each proposal carries metadata in its `payload` field:
+- `originating_objective` — the objective that triggered the proposal
+- `source_kind` — where the signal came from (`failure_insight_candidate` or `cognitive_observation`)
+- `source_summary` — short summary of the original signal
+- `rationale` — why this action is proposed (with tool name context)
+- `expected_benefit` — derived from the candidate/observation kind
+- `risk_level` — informational/low based on signal type
+- `suggested_action_type` — one of: test, fix, refactor, doc, research, governance
+- `confidence` — None (available for future use)
+- `non_authorizing_warning` — embedded governance guard
+
+The proposal bridge:
+1. Collects FailureInsightCandidates from working_memory (injected by `--assess`)
+2. Collects CognitiveObservations from working_memory (injected by `--observe`)
+3. For each actionable signal, creates a `ProposedAction` via `POST /proposed-actions` (API)
+4. Evaluates each proposal through the Decision Gate (`evaluate_proposed_action`)
+5. Records audit events (`audit_event_for_decision`)
+6. Injects `proposed_actions`, `decisions`, `audit_events`, `non_authorizing_warning` into the JSON output
+
+### Files changed
+
+| File | Change |
+|------|--------|
+| crates/cli/src/main.rs | Added `--propose` flag, `ProposalMetadata` struct, `run_proposals()` async bridge, `permissions_for_action()` helper, mapping functions for action type/benefit |
+| crates/cli/tests/snapshot_integration.rs | Added `cognitive_propose_pipeline_produces_governed_proposals` end-to-end test |
+
+### Verification
+
+- `cargo check --workspace`: clean (0 errors)
+- `cargo test --workspace`: 237 tests pass (all crates)
+- Live verification: `cognitive run --assess --observe --propose --json` produces proposed_actions (pending_decision), decisions, audit_events, non_authorizing_warning
+
+### Not added (per stop-list)
+
+- no autonomous execution or new LLM calls
+- no Decision Gate bypass — every proposal is PendingDecision
+- no tool execution beyond what --observe already uses (read_file, list_files)
+- no API endpoint changes (reuses existing POST /proposed-actions)
+
 ### Recommended next step
 
 - Merge PR #85 (if not already merged)
-- Then: consider adding `--resonate` flag to `cognitive run` CLI for direct resonance readback
+- Then: **proposal scoring and prioritization** — rank proposed_actions by expected_benefit, risk_level, and confidence so the user sees the most impactful proposals first
 - Or: stake the demo script into the hourly focus-loop cron as a smoke test
 
 ## 17. Latest Session Update (2026-05-26 — P6 `--resonate` CLI flag complete with parser tests)

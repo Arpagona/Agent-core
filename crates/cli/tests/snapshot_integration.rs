@@ -163,3 +163,189 @@ fn snapshot_read_reports_missing_file_error() {
         stderr
     );
 }
+
+/// End-to-end integration test for context-aware governed proposals.
+///
+/// Runs `cognitive run --objective "..." --assess --observe --propose --json`
+/// with the API server, then asserts the JSON output contains all required
+/// fields and that all proposed actions are PendingDecision.
+#[test]
+fn cognitive_propose_pipeline_produces_governed_proposals() {
+    // ── Start API server ──────────────────────────────────────────────────
+    let api_bin = std::env::current_exe()
+        .ok()
+        .and_then(|p| p.parent().map(|p| p.to_owned()))
+        .map(|p| {
+            // The test binary lives in target/debug/deps/; the API server
+            // binary is one level up at target/debug/arpagona-api-server
+            p.parent()
+                .expect("deps parent")
+                .join("arpagona-api-server")
+        })
+        .expect("api server path");
+
+    let mut server = std::process::Command::new(&api_bin)
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .spawn()
+        .expect("failed to start API server");
+
+    // Wait for server to be ready using a simple TCP connection check
+    use std::net::TcpStream;
+    use std::time::Duration;
+    let max_retries = 30;
+    let mut ready = false;
+    for _ in 0..max_retries {
+        std::thread::sleep(Duration::from_millis(200));
+        if TcpStream::connect_timeout(
+            &"127.0.0.1:3000".parse().expect("valid addr"),
+            Duration::from_millis(100),
+        )
+        .is_ok()
+        {
+            ready = true;
+            break;
+        }
+    }
+    assert!(ready, "API server did not become healthy in time");
+
+    // ── Run cognitive cycle with propose bridge ────────────────────────────
+    let output = std::process::Command::new(ARPAGONA_BIN)
+        .args([
+            "cognitive",
+            "run",
+            "--objective",
+            "Analyser le fichier Cargo.toml pour vérifier les dépendances Rust",
+            "--assess",
+            "--observe",
+            "--propose",
+            "--json",
+        ])
+        .output()
+        .expect("failed to run cognitive run");
+
+    // Cleanup: stop the API server
+    let _ = server.kill();
+    let _ = server.wait();
+
+    // ── Parse and assert JSON output ──────────────────────────────────────
+    assert!(
+        output.status.success(),
+        "cognitive run command failed:\nstdout: {}\nstderr: {}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr),
+    );
+
+    let stdout: String = String::from_utf8(output.stdout).expect("valid utf-8");
+    let parsed: serde_json::Value =
+        serde_json::from_str(&stdout).expect("output should be valid JSON");
+
+    // Working memory should contain failure_insight_candidates (from --assess)
+    let wm = parsed
+        .get("working_memory")
+        .expect("output should have working_memory");
+    let fic = wm
+        .get("failure_insight_candidates")
+        .expect("working_memory should have failure_insight_candidates (from --assess)");
+    assert!(
+        fic.as_array().map_or(false, |a| !a.is_empty()),
+        "failure_insight_candidates should not be empty"
+    );
+
+    // Cognitive observations should be present (from --observe)
+    let obs = wm
+        .get("cognitive_observations")
+        .expect("working_memory should have cognitive_observations (from --observe)");
+    assert!(
+        obs.as_array().map_or(false, |a| !a.is_empty()),
+        "cognitive_observations should not be empty"
+    );
+
+    // Proposed actions should be present (from --propose)
+    let proposed_actions = parsed
+        .get("proposed_actions")
+        .expect("output should have proposed_actions");
+    let pa_array = proposed_actions
+        .as_array()
+        .expect("proposed_actions should be an array");
+    assert!(!pa_array.is_empty(), "proposed_actions should not be empty");
+
+    // All proposed actions must be PendingDecision
+    for (i, pa) in pa_array.iter().enumerate() {
+        let status = pa
+            .get("status")
+            .and_then(|v| v.as_str())
+            .unwrap_or("missing");
+        assert_eq!(
+            status,
+            "pending_decision",
+            "proposed_action #{} should be pending_decision, got: {}",
+            i,
+            status
+        );
+    }
+
+    // Decisions should be present
+    let decisions = parsed
+        .get("decisions")
+        .expect("output should have decisions");
+    assert!(
+        decisions.as_array().map_or(false, |a| !a.is_empty()),
+        "decisions should not be empty"
+    );
+
+    // Audit events should be present
+    let audit_events = parsed
+        .get("audit_events")
+        .expect("output should have audit_events");
+    assert!(
+        audit_events.as_array().map_or(false, |a| !a.is_empty()),
+        "audit_events should not be empty"
+    );
+
+    // Non-authorizing warning should be present
+    let warning = parsed
+        .get("non_authorizing_warning")
+        .expect("output should have non_authorizing_warning");
+    assert!(
+        warning.as_str().map_or(false, |s| !s.is_empty()),
+        "non_authorizing_warning should be a non-empty string"
+    );
+
+    // Proposed flag should be true
+    assert_eq!(
+        parsed.get("proposed").and_then(|v| v.as_bool()),
+        Some(true),
+        "proposed flag should be true"
+    );
+
+    // Each proposed action should carry context-aware metadata in payload
+    for (i, pa) in pa_array.iter().enumerate() {
+        let payload = pa.get("payload").expect("proposed_action should have payload");
+        assert!(
+            payload.get("originating_objective").is_some(),
+            "proposed_action #{} payload should have originating_objective",
+            i
+        );
+        assert!(
+            payload.get("source_kind").is_some(),
+            "proposed_action #{} payload should have source_kind",
+            i
+        );
+        assert!(
+            payload.get("expected_benefit").is_some(),
+            "proposed_action #{} payload should have expected_benefit",
+            i
+        );
+        assert!(
+            payload.get("suggested_action_type").is_some(),
+            "proposed_action #{} payload should have suggested_action_type",
+            i
+        );
+        assert!(
+            payload.get("rationale").is_some(),
+            "proposed_action #{} payload should have rationale",
+            i
+        );
+    }
+}
