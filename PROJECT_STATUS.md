@@ -602,3 +602,48 @@ Limits:
 ### Recommended next step
 
 Connect `--observe` tool observation outputs into the `--assess` assessment pipeline so that tool observations produce governed learning proposals through the existing FailureInsightCandidate → ProposedAction → DecisionGate → Audit chain.
+
+## 18. Latest Session Update (2026-05-26 — P3 bridge: `--observe` → `--assess` observation-to-candidate pipeline)
+
+This session completed the P3 bridge: cognitive tool observations now flow through `assess_observation()` and merge into `failure_insight_candidates` when both `--observe` and `--assess` flags are active on `cognitive run`.
+
+**Code changes:**
+
+| File | Change |
+|------|--------|
+| `crates/core/src/observation.rs` | Added `FailureInsightCandidate::from_assessments()` — extracts candidates from `ObservationAssessment` slice |
+| `crates/cli/src/main.rs` | When `--assess --observe` are both active, runs observations, assesses each via `assess_observation()`, merges observation-derived FailureInsightCandidates alongside improvement-candidate-derived ones in `failure_insight_candidates` |
+| `crates/cli/src/main.rs` | Added 2 parser tests: `cli_parses_cognitive_run_assess_observe_json` and `cli_parses_cognitive_run_assess_observe_allocate_resonate` |
+
+**Verification:**
+- `cargo fmt -- --check`: clean
+- `cargo check`: clean (0 new errors, pre-existing E0670 linter noise only)
+- `cargo test --workspace`: 248 tests pass (all crates), including 2 new parser tests
+
+**Functional-alpha chain advancement:**
+```
+cognitive run --objective "..." --assess --observe --json
+  → cognitive_work_cycle → ImprovementCandidates → FailureInsightCandidates
+  → tool runtime observations → assess_observation() → more FailureInsightCandidates (NEW)
+  → merged failure_insight_candidates in JSON output
+```
+
+Before this session: `--assess` only produced candidates from improvement-candidates; observations were just injected raw.
+After this session: `--assess --observe` together produce failure_insight_candidates that include both improvement-candidate-derived and observation-derived entries (e.g. truncation, empty search results, safety boundary signals, runtime failures).
+
+**What was NOT added:**
+- No endpoint was added
+- No server-side state was modified
+- No Graph Memory schema, query or mutation was added
+- No audit event creation or extraction behavior was added
+- No runtime behavior was added
+- No real tool execution beyond the existing read-only tool runtime
+- No LLM, provider, or API call was added
+- No Decision Gate behavior was changed
+- No scheduler, autonomy, MCP, browser automation, credential handling, or Mission Control Web growth
+
+**Stability level:** alpha CLI supervision surface (same as existing `--assess`, `--observe` flags).
+
+### Recommended next step
+
+Add `--propose` flag to the `cognitive run` pipeline that converts `failure_insight_candidates` into `ProposedAction` objects through the Decision Gate, proving the full governed learning proposal path in one invocation.

@@ -4384,15 +4384,39 @@ async fn cognitive_run(args: CognitiveRunArgs) -> Result<(), Box<dyn Error>> {
     if args.json {
         let mut output = serde_json::to_value(&result)?;
         if let Some(obj) = output.as_object_mut() {
-            // When --assess, inject failure_insight_candidates into working_memory
+            // When --assess, inject failure_insight_candidates into working_memory.
+            // When --observe is also active, assess observations and merge their candidates.
             if args.assess {
                 if let Some(wm) = obj
                     .get_mut("working_memory")
                     .and_then(|v| v.as_object_mut())
                 {
-                    let fic = arpagona_agent_core::observation::FailureInsightCandidate::from_improvement_candidates(
-                        &result.improvement_candidates,
-                    );
+                    let mut fic =
+                        arpagona_agent_core::FailureInsightCandidate::from_improvement_candidates(
+                            &result.improvement_candidates,
+                        );
+
+                    // Bridge: when --observe is also active, assess observations and
+                    // merge their FailureInsightCandidates alongside the improvement-candidate-derived ones.
+                    if args.observe {
+                        let observations = run_observations(&result);
+                        let assessments: Vec<_> = observations
+                            .iter()
+                            .map(|o| arpagona_agent_core::assess_observation(o))
+                            .collect();
+                        let obs_fic =
+                            arpagona_agent_core::FailureInsightCandidate::from_assessments(
+                                &assessments,
+                            );
+                        fic.extend(obs_fic);
+                        // Inject cognitive observations into working_memory
+                        wm.insert(
+                            "cognitive_observations".to_owned(),
+                            serde_json::to_value(&observations)?,
+                        );
+                        wm.insert("observed".to_owned(), serde_json::Value::Bool(true));
+                    }
+
                     wm.insert(
                         "failure_insight_candidates".to_owned(),
                         serde_json::to_value(&fic)?,
@@ -4447,8 +4471,10 @@ async fn cognitive_run(args: CognitiveRunArgs) -> Result<(), Box<dyn Error>> {
                     serde_json::Value::String(RESONANCE_NON_AUTHORIZING_WARNING.to_owned()),
                 );
             }
-            // When --observe, run tool runtime observations and inject into working_memory
-            if args.observe {
+            // When --observe, run tool runtime observations and inject into working_memory.
+            // When --assess is also active, observations are handled inside the --assess
+            // block above (assessed and merged into failure_insight_candidates).
+            if args.observe && !args.assess {
                 let observations = run_observations(&result);
                 if let Some(wm) = obj
                     .get_mut("working_memory")
@@ -6338,6 +6364,62 @@ mod tests {
                 assert!(!args.observe);
             }
             _ => panic!("expected cognitive run with --assess --allocate --resonate"),
+        }
+    }
+
+    #[test]
+    fn cli_parses_cognitive_run_assess_observe_json() {
+        let cli = Cli::parse_from([
+            "arpagona",
+            "cognitive",
+            "run",
+            "--objective",
+            "Observe and assess pipeline",
+            "--assess",
+            "--observe",
+            "--json",
+        ]);
+        match cli.command {
+            Command::Cognitive(CognitiveCommand {
+                command: CognitiveSubcommand::Run(args),
+            }) => {
+                assert!(args.assess);
+                assert!(args.observe);
+                assert!(args.json);
+                assert!(!args.allocate);
+                assert!(!args.resonate);
+                assert!(!args.llm);
+            }
+            _ => panic!("expected cognitive run with --assess --observe --json"),
+        }
+    }
+
+    #[test]
+    fn cli_parses_cognitive_run_assess_observe_allocate_resonate() {
+        let cli = Cli::parse_from([
+            "arpagona",
+            "cognitive",
+            "run",
+            "--objective",
+            "Full pipeline with observe",
+            "--assess",
+            "--observe",
+            "--allocate",
+            "--resonate",
+            "--json",
+        ]);
+        match cli.command {
+            Command::Cognitive(CognitiveCommand {
+                command: CognitiveSubcommand::Run(args),
+            }) => {
+                assert!(args.assess);
+                assert!(args.observe);
+                assert!(args.allocate);
+                assert!(args.resonate);
+                assert!(args.json);
+                assert!(!args.llm);
+            }
+            _ => panic!("expected cognitive run with all flags including --observe"),
         }
     }
 
