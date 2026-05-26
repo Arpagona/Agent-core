@@ -6,10 +6,10 @@ It must contain one concrete next action only. The runtime milestone queue and l
 
 ## Next action
 
-Next pass should: add an `--offline` flag to `executor inspect` command (mirroring the pattern just added for `executor list`) and add an end-to-end integration test for the offline executor commands that constructs an `ExecutorRegistry`, registers a test executor in Ready state, and verifies both list and inspect produce correct output without requiring an API server.
-Why: the offline executor inspection support is complete for list but the inspect path hasn't been verified end-to-end in a replicable test, and the `inspect --offline` flag is consistent but the existing `inspect --offline` tests only cover parser parsing, not runtime behavior.
-Proof to seek: `cargo test --workspace` passes with a new integration test proving both `executor list --offline` and `executor inspect --offline` produce correct executor metadata without an API server running.
-Do not: add real execution to any executor, bypass the Decision Gate, or modify any executor behavior in the core crate.
+Next pass should: pick P2 (General Cognitive Work Loop V0) from the milestone queue — specifically add parser tests and documentation for the existing `cognitive run` CLI flags (--assess, --observe, --allocate, --resonate, --propose) and fill any gaps before starting deeper runtime work.
+Why: offline executor commands now have full end-to-end integration coverage and PR #99 is merged. P2 is the next unstarted milestone. Before adding new cognitive run behavior, existing flags should have parser parity with the rest of the CLI.
+Proof to seek: all `cognitive run` flags (--assess, --observe, --propose, --allocate, --resonate) have parser tests matching the pattern in existing executor tests.
+Do not: add real execution, modify cognitive runtime behavior, bypass Decision Gate, or add new flags in this session.
 
 ## Required update at the end of every run
 
