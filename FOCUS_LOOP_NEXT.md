@@ -6,13 +6,13 @@ It must contain one concrete next action only. The runtime milestone queue and l
 
 ## Next action
 
-Connect WorkingMemory + ComputeAllocation to Holographic Memory resonance hints.
+Add `--resonate` flag to `arpagona cognitive run` CLI for direct HolographicMemory resonance readback.
 
-Why: P5 (PR #85) ties WorkingMemory state to ComputeReservoir allocation — the next step is to feed these decisions into HolographicMemory::resonate() as contextual hints, closing the loop between cognitive state, resource selection, and pattern recall.
+Why: P6 (resonate_for_working_memory) is implemented and tested, but the CLI only exposes `--assess` and `--allocate`. Adding `--resonate` completes the cognitive chain in a single CLI command: WorkingMemory → ComputeReservoir → HolographicMemory resonance, all in one JSON output.
 
-Proof to seek: A test showing that a ComputeAllocation reason string or WorkingMemory sensitivity/complexity fields can be passed to HolographicMemory::resonate() and produce a non-authorizing MatchResult with hints.
+Proof to seek: `cargo run -- cognitive run --objective "..." --domain business --assess --allocate --resonate --json` produces a `holographic_resonance` block in the JSON output containing hints, has_resonance, and non_authorizing_warning.
 
-Do not: add LLM calls, persistence, shell execution, external effects, or Decision Gate bypass. P6 must remain pure readback — HolographicMemory is a non-authorizing resonance surface, not an action engine.
+Do not: modify any core types, add LLM calls, persistence, shell execution, external effects, or Decision Gate bypass. This is purely a CLI wiring change + JSON output field.
 
 ## Required update at the end of every run
 

@@ -935,4 +935,142 @@ mod tests {
         assert_eq!(allocation.selected_node_id, allocation2.selected_node_id);
         assert_eq!(allocation.justification, allocation2.justification);
     }
+
+    // ─── P6 — Integration test: WorkingMemory → allocate → resonate ─────
+
+    use arpagona_agent_core::holographic::resonate_for_working_memory;
+
+    #[test]
+    fn p6_integration_wm_to_allocate_to_resonate_chain() {
+        // Build a WorkingMemory-like context: research domain, high complexity, confidential
+        let wm = WorkingMemory {
+            objective: None,
+            context_items: vec![],
+            assumptions: vec![],
+            constraints: vec![],
+            missing_context: vec![],
+            sensitivity_estimate: SensitivityEstimate::Confidential,
+            complexity_estimate: 0.85,
+            local_first: true,
+            cost_sensitive: false,
+            proposed_next_action_kind: "proposeplan".to_owned(),
+            required_observations_count: 4,
+            required_observations: vec![],
+            cognitive_observations: vec![],
+            improvement_candidates: vec![],
+            failure_insight_candidates: vec![],
+            proposed_next_action: None,
+            cycle_status: arpagona_agent_core::cognitive_work::CycleStatus::Completed,
+            evidence_only_warning: String::new(),
+        };
+
+        // 1. Allocate compute resource from WorkingMemory
+        let allocation = allocate_for_working_memory(
+            &wm,
+            &[local_small(), cloud_strong()],
+            &ComputePolicy::default(),
+        );
+        assert!(allocation.selected_node_id.is_some());
+        assert!(allocation.justification.contains(NON_AUTHORIZING_READBACK));
+
+        // 2. Resonate WorkingMemory + allocation justification with HolographicMemory
+        let resonance = resonate_for_working_memory(
+            "research",
+            "confidential",
+            0.85,
+            "proposeplan",
+            Some(&allocation.justification),
+        );
+
+        // 3. Verify resonance results
+        assert!(resonance.has_resonance, "Resonance should produce hints");
+        assert!(
+            resonance.hints.len() >= 4,
+            "Should have domain + sensitivity + complexity + allocation hints, got {}: {:?}",
+            resonance.hints.len(),
+            resonance.hints
+        );
+
+        // Verify sensitivity hint (confidential → DecisionPattern)
+        let sens_hint = resonance
+            .hints
+            .iter()
+            .find(|h| h.labels.iter().any(|l| l == "confidential"));
+        assert!(
+            sens_hint.is_some(),
+            "Should have confidential sensitivity hint"
+        );
+
+        // Verify complexity hint (0.85 → high_complexity)
+        let comp_hint = resonance
+            .hints
+            .iter()
+            .find(|h| h.labels.iter().any(|l| l == "high_complexity"));
+        assert!(comp_hint.is_some(), "Should have complexity hint");
+
+        // Verify allocation hint (justification contains "local")
+        let alloc_hint = resonance
+            .hints
+            .iter()
+            .find(|h| h.labels.iter().any(|l| l == "compute_routing"));
+        assert!(
+            alloc_hint.is_some(),
+            "Should have allocation hint from justification"
+        );
+
+        // 4. Verify non-authorizing invariant
+        assert!(resonance
+            .non_authorizing_warning
+            .contains("non-authorizing"));
+    }
+
+    #[test]
+    fn p6_integration_simple_business_chain_produces_readable_json() {
+        // Test: simple business objective with public data and no allocation justification
+        let wm = WorkingMemory {
+            objective: None,
+            context_items: vec![],
+            assumptions: vec![],
+            constraints: vec![],
+            missing_context: vec![],
+            sensitivity_estimate: SensitivityEstimate::Public,
+            complexity_estimate: 0.3,
+            local_first: false,
+            cost_sensitive: true,
+            proposed_next_action_kind: "stopwithreport".to_owned(),
+            required_observations_count: 1,
+            required_observations: vec![],
+            cognitive_observations: vec![],
+            improvement_candidates: vec![],
+            failure_insight_candidates: vec![],
+            proposed_next_action: None,
+            cycle_status: arpagona_agent_core::cognitive_work::CycleStatus::Completed,
+            evidence_only_warning: String::new(),
+        };
+
+        // 1. Allocate
+        let allocation =
+            allocate_for_working_memory(&wm, &[local_small()], &ComputePolicy::default());
+        assert_eq!(
+            allocation.selected_node_id,
+            Some(ComputeNodeId::new("local-small"))
+        );
+
+        // 2. Resonate (no allocation justification → no ComputeRouting hint)
+        let resonance =
+            resonate_for_working_memory("business", "public", 0.3, "stopwithreport", None);
+
+        // No sensitivity hint for public, no allocation hint without justification
+        // But should have domain + proposed action hints
+        assert!(resonance.has_resonance);
+        // domain + action = at least 2 hints
+        assert!(resonance.hints.len() >= 2);
+
+        // Verify JSON serialization of the full chain
+        let alloc_json = serde_json::to_string(&allocation).expect("allocation should serialize");
+        let resonance_json = serde_json::to_string(&resonance).expect("resonance should serialize");
+        assert!(alloc_json.contains("local-small"));
+        assert!(resonance_json.contains("business"));
+        assert!(resonance_json.contains("non_authorizing_warning"));
+    }
 }
