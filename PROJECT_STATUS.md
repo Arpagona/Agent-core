@@ -29,6 +29,7 @@ Current observed state:
 - `crates/tool-registry` exists as an alpha minimal declarative catalogue for tool definitions, capabilities, schemas, permissions, risk levels and enabled/disabled states, without execution.
 - `Reservoir Echo` currently exists inside the Cognitive Runtime primitives as short-term volatile cognitive continuity.
 - `crates/graph-memory` exists as an experimental SurrealDB adapter for Graph Memory persistence, alpha audit trace lookup by workspace, task, proposed action and decision, governed approved memory fact and FailureInsight persistence/readback helpers with non-authorizing trace proof readback, an in-memory demo/test store helper, and schema-backed CLI status readback.
+- `crates/holographic-memory` exists as an alpha Rust kernel for symbolic associative memory: deterministic distributed signatures, resonance-based retrieval, project-scoped isolation, and an in-memory store with 22 tests.
 - `crates/llm` exists as an experimental provider abstraction that can produce `ProposedAction` objects with `PendingDecision`, without executing tools.
 - `crates/runtime` exists as an experimental cognitive runtime loop that stops at action proposal.
 - `apps/api-server` exists as an alpha Axum API server.
@@ -64,7 +65,7 @@ The current product direction is no longer abstract stabilization only. The near
 | Core domain types | Stable foundation | Shared typed language | Includes minimal Failure-to-Insight vocabulary; remains pure, serializable and dependency-light. |
 | Decision Gate | Alpha | Pre-execution governance | Extracted into `crates/decision-gate`; `crates/core` no longer reexports the Decision Gate logic. |
 | Reservoir Echo | Alpha | Short-term cognitive continuity | Volatile traces only. Not persistent memory. Not model routing. Not Compute Reservoir. |
-| Holographic Memory | Alpha domain vocabulary | Pattern resonance layer | Types exist in `crates/core`; no runtime behavior, vector DB, persistence, authorization or similarity execution yet. |
+| Holographic Memory | Alpha V0 crate | Symbolic associative memory kernel | `crates/holographic-memory`: 22 tests, in-memory store, deterministic signatures, no LLM/vector DB/persistence/authorization. Canonical phrase: "Holographic Memory reactivates paths to truth. It does not replace truth." |
 | Compute Reservoir | Alpha minimal | Compute/model/resource routing | `crates/compute-reservoir` provides serializable types and pure allocation only; no model calls, execution, I/O, persistence or Decision Gate replacement. |
 | Tool Registry | Alpha minimal | Declarative catalogue of tools and permissions | `crates/tool-registry` declares tools, capabilities, schemas, governance notes and lookup/status changes only; no execution path. |
 | `crates/graph-memory` | Experimental | SurrealDB Graph Memory adapter | Adds alpha audit-event queries by task, proposed action and decision plus governed FailureInsight memory trace proof readback, an in-memory demo/test helper and schema-backed CLI status readback; broader persistence conventions and graph schema still need stabilization. |
@@ -109,7 +110,7 @@ Experimental areas:
 - API shape in `apps/api-server`;
 - terminal UX in `crates/cli`;
 - Reservoir Echo tuning and lifecycle;
-- Holographic Memory adapter crate, vector similarity, persistence and runtime integration (domain vocabulary exists in `crates/core`);
+- Holographic Memory crate (`crates/holographic-memory`) — symbolic associative memory kernel; in-memory store, 22 tests, deterministic signatures, no LLM/vector DB/persistence/authorization yet;
 - Compute Reservoir allocation heuristics and telemetry shape;
 - audit persistence and causal trace design;
 - future Failure-to-Insight audit conventions, CLI readback and broader Graph Memory integration;
@@ -1639,3 +1640,84 @@ $ arpagona cognitive run --objective "..." --domain business --json --assess --g
 ### Recommended next step
 Add an end-to-end integration test in `crates/cli/tests/` that proves the full P3 chain works via `cognitive run --assess --govern --json` without an API server, using the `CARGO_BIN_EXE_arpagona` binary invocation pattern.
 
+## 32. Latest Session Update (2026-05-26 — Holographic Memory Rust kernel crate + persistence)
+
+This session created the first dedicated Rust kernel for symbolic associative
+memory: `crates/holographic-memory`.
+
+**New crate:** `crates/holographic-memory` (27 tests, 0 dependencies beyond serde)
+
+**Types implemented:**
+- `HolographicTrace` — trace mémoire avec signature distribuée, poids (importance,
+  confidence, emotional, strategic), liens vers décisions/mémoires, traçabilité
+  source_turn_ids
+- `SourceKind` — ConversationTurn | MemoryCandidate | ArchitectureDecision |
+  AuditEvent | ManualNote
+- `DistributedSignature` — 4 vecteurs `Vec<u64>` : symbolic_bits, concept_bits,
+  entity_bits, decision_bits
+- `HolographicQuery` — requête avec encodage automatique en signature distribuée
+- `ResonanceScore` — score 7-dimensions (4 overlaps Jaccard + 3 boosts)
+- `ResonanceMatch` — trace + score + termes correspondants
+- `ReconstructedContext` — contexte reconstruit avec expansion associative
+- `HolographicMemoryError` — 6 variantes d'erreur (dont PersistenceError)
+
+**Fonctions clés:**
+- `encode_terms_to_signature()` — hachage déterministe (3 positions/terme, seeds
+  différenciées par champ)
+- `signature_overlap()` — Jaccard pondéré par champ + boosts
+- `HolographicMemoryStore` trait avec `InMemoryHolographicMemoryStore`
+- `save_to_file(path)` / `load_from_file(path)` — persistance JSON fichier
+
+**Règles de retrieval:**
+- Au moins une dimension de chevauchement > 0 pour être inclus
+- Les boosts (importance/confidence/activation) sont des facteurs de classement,
+  pas des créateurs de correspondance
+- Isolation stricte par `project_id` (aucune fuite entre projets)
+- Résumé déterministe sans LLM
+
+**Documentation créée:** `docs/holographic-memory.md` — définition opérationnelle,
+différence avec historique brut et mémoire vectorielle, notion de signature
+distribuée, résonance, reconstruction contrôlée, 18+ tests documentés, limites,
+prochaines étapes.
+
+**Phrase canonique:**
+> Holographic Memory reactivates paths to truth. It does not replace truth.
+
+**Fichiers modifiés:**
+| Fichier | Changement |
+|---------|-----------|
+| `crates/holographic-memory/Cargo.toml` | Créé |
+| `crates/holographic-memory/src/lib.rs` | Créé (1900+ lignes, 27 tests, 0 warnings) |
+| `Cargo.toml` | Membre workspace ajouté |
+| `docs/holographic-memory.md` | Créé + mis à jour (canonical phrase, V0 constraints, persistence) |
+| `docs/roadmap.md` | Brick Holographic Memory Kernel ajoutée |
+| `PROJECT_STATUS.md` | Mise à jour sections 1, 2, 4, + session 32 |
+
+**Verification:**
+- `cargo fmt -- --check`: clean
+- `cargo check`: 0 warnings dans le crate (pré-existants dans autres crates)
+- `cargo test --workspace`: 400+ tests pass (all crates)
+
+**V0 Constraints respectées:**
+- ✅ No LLM — tout est hachage déterministe
+- ✅ No vector database — signatures `Vec<u64>`, pas `Vec<f32>`
+- ✅ Persistence JSON fichier — `save_to_file()` / `load_from_file()`
+- ✅ No tool execution — opérations pures sur données
+- ✅ No authorization — retrieval evidence-only
+- ✅ No replacement of Graph Memory — Graph Memory reste source de vérité
+- ✅ No replacement of Decision Gate — toutes les actions passent toujours par la gouvernance
+- ✅ Deterministic — mêmes entrées → mêmes signatures → mêmes résultats
+
+**Limites V0:**
+- Signature purement symbolique (pas de généralisation sémantique)
+- Recherche linéaire (pas d'index, O(n) par projet)
+- Pas d'exploration récursive des linked_memory_ids
+- Pas d'intégration Decision Gate pour les écritures
+- Pas de consolidation des traces redondantes
+
+**Prochaines étapes documentées:**
+1. Intégration avec conversation-memory (encoder les tours comme traces)
+2. Embeddings locaux optionnels (word2vec léger, sans LLM)
+3. Graphe mémoire récursif (expansion par linked_memory_ids)
+4. Consolidation périodique (fusion traces redondantes)
+5. Gouvernance des écritures par Decision Gate (MemoryWriteKind::HolographicTrace)

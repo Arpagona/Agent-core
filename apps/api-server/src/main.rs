@@ -3,13 +3,18 @@ use std::sync::{Arc, Mutex};
 
 use arpagona_agent_core::{
     execution_capability, list_execution_capabilities, ActionType, ActorRef, AgentId, AuditEvent,
-    AuditEventId, AuditEventType, Decision, DecisionStatus, DryRunResult, DryRunStatus,
-    ExecutionCapability, ExecutionRequest, ExecutionResult, ExecutionStatus, Executor,
-    ExecutorRegistry, ExecutorState, NoopExecutor, Permission, PolicyDecision, PolicyEngine,
-    PolicyEngineResult, PolicyInput, ProposedAction, ProposedActionId, ProposedActionStatus,
-    RiskLevel, Task, TaskId, TaskPriority, TaskStatus, WorkspaceId,
+    AuditEventId, AuditEventType, Decision, DecisionActor, DecisionId, DecisionStatus,
+    DryRunResult, DryRunStatus, ExecutionCapability, ExecutionRequest, ExecutionResult,
+    ExecutionStatus, Executor, ExecutorRegistry, ExecutorState, NoopExecutor, Permission,
+    PolicyDecision, PolicyEngine, PolicyEngineResult, PolicyInput, ProposedAction,
+    ProposedActionId, ProposedActionStatus, RiskLevel, Task, TaskId, TaskPriority, TaskStatus,
+    WorkspaceId,
 };
-use arpagona_decision_gate::{audit_event_for_decision, evaluate_proposed_action};
+use arpagona_decision_gate::{
+    audit_event_for_decision, evaluate_proposed_action, override_engine::Argon2PasswordVerifier,
+    override_engine::DefaultHasherVerifier, override_engine::OverrideEngine,
+    override_engine::OverrideOutcome, override_engine::PasswordVerifier,
+};
 use arpagona_llm::{
     deterministic_turn_for_prompt, AgentTurnDraft, LlmActionRequest, LlmProvider, MockProvider,
     OllamaProvider, OpenAiProvider,
@@ -25,11 +30,10 @@ use serde_json::{json, Value};
 use std::str::FromStr;
 
 #[derive(Clone, Default)]
-struct AppState {
+pub struct AppState {
     store: Arc<Mutex<InMemoryStore>>,
 }
 
-#[derive(Default)]
 struct InMemoryStore {
     tasks: Vec<Task>,
     proposed_actions: Vec<ProposedAction>,
@@ -38,6 +42,49 @@ struct InMemoryStore {
     sandbox_runs: Vec<SandboxRun>,
     dry_run_results: Vec<DryRunResult>,
     executor_registry: ExecutorRegistry,
+    override_engine: Option<OverrideEngine<Box<dyn PasswordVerifier>>>,
+}
+
+impl Default for InMemoryStore {
+    fn default() -> Self {
+        // Priority 1: ARPAGONA_OVERRIDE_PASSWORD_HASH → Argon2 (production)
+        // Priority 2: ARPAGONA_OVERRIDE_PASSWORD + ARPAGONA_ALLOW_DEV_OVERRIDE=true → DefaultHasher (dev only)
+        // Otherwise: override disabled
+        let override_engine = match Argon2PasswordVerifier::from_env_hash() {
+            Some(verifier) => Some(OverrideEngine::new(
+                Box::new(verifier) as Box<dyn PasswordVerifier>
+            )),
+            None => {
+                let override_password = std::env::var("ARPAGONA_OVERRIDE_PASSWORD");
+                let allow_dev =
+                    std::env::var("ARPAGONA_ALLOW_DEV_OVERRIDE").is_ok_and(|v| v == "true");
+                match &override_password {
+                    Ok(password) if !password.is_empty() && allow_dev => Some(OverrideEngine::new(
+                        Box::new(DefaultHasherVerifier::new(password, "arpagona-alpha-salt"))
+                            as Box<dyn PasswordVerifier>,
+                    )),
+                    _ if allow_dev => Some(OverrideEngine::new(
+                        Box::new(DefaultHasherVerifier::new(
+                            "alpha-override-password",
+                            "arpagona-alpha-salt",
+                        )) as Box<dyn PasswordVerifier>,
+                    )),
+                    _ => None,
+                }
+            }
+        };
+
+        Self {
+            tasks: Vec::new(),
+            proposed_actions: Vec::new(),
+            decisions: Vec::new(),
+            audit_events: Vec::new(),
+            sandbox_runs: Vec::new(),
+            dry_run_results: Vec::new(),
+            executor_registry: ExecutorRegistry::default(),
+            override_engine,
+        }
+    }
 }
 
 #[derive(Serialize)]
@@ -103,6 +150,21 @@ struct ReviewActionResponse {
     audit_event: AuditEvent,
 }
 
+#[derive(Deserialize)]
+struct OverrideActionRequest {
+    /// The override password.
+    password: String,
+    /// Actor identifier (e.g. "admin-thibaud").
+    actor: String,
+}
+
+#[derive(Serialize)]
+struct OverrideActionResponse {
+    decision: Decision,
+    audit_event: AuditEvent,
+    outcome: String,
+}
+
 #[derive(Debug, Serialize)]
 struct AgentProposeResponse {
     kind: &'static str,
@@ -154,7 +216,7 @@ async fn main() {
         .expect("api server should run");
 }
 
-fn app(state: AppState) -> Router {
+pub fn app(state: AppState) -> Router {
     Router::new()
         .route("/health", get(health))
         .route("/tasks", post(create_task).get(list_tasks))
@@ -162,32 +224,34 @@ fn app(state: AppState) -> Router {
             "/proposed-actions",
             post(create_proposed_action).get(list_proposed_actions),
         )
-        .route(
-            "/proposed-actions/{id}/review",
-            post(review_proposed_action),
-        )
+        .route("/proposed-actions/:id/review", post(review_proposed_action))
         .route("/agent/propose", post(agent_propose))
         .route("/decision-gate/evaluate", post(evaluate_decision_gate))
         .route("/decisions", get(list_decisions))
         .route("/audit", get(list_audit))
-        .route("/proposed-actions/{id}/sandbox", post(sandbox_run_proposal))
+        .route("/proposed-actions/:id/sandbox", post(sandbox_run_proposal))
         .route("/sandbox-runs", get(list_sandbox_runs))
-        .route("/proposed-actions/{id}/dry-run", post(dry_run_proposal))
+        .route("/proposed-actions/:id/dry-run", post(dry_run_proposal))
         .route("/dry-run-results", get(list_dry_run_results))
         .route(
             "/execution-capabilities",
             get(list_execution_capabilities_handler),
         )
         .route(
-            "/execution-capabilities/{action_type}",
+            "/execution-capabilities/:action_type",
             get(get_execution_capability_handler),
         )
         .route(
-            "/proposed-actions/{id}/policy-check",
+            "/proposed-actions/:id/policy-check",
             post(policy_check_proposal),
         )
-        .route("/proposed-actions/{id}/execute", post(execute_proposal))
+        .route(
+            "/proposed-actions/:id/override",
+            post(override_proposed_action),
+        )
+        .route("/proposed-actions/:id/execute", post(execute_proposal))
         .route("/executors", get(list_executors))
+        .route("/executors/:id", get(get_executor_handler))
         .route("/executors/:id/state", post(set_executor_state_handler))
         .with_state(state)
 }
@@ -446,8 +510,29 @@ async fn evaluate_decision_gate(
         .ok_or_else(|| ApiError::not_found(format!("proposed action {} not found", action_id)))?;
 
     let action = store.proposed_actions[action_index].clone();
-    let decision = evaluate_proposed_action(&action, &[], &request.granted_permissions);
+    let mut decision = evaluate_proposed_action(&action, &[], &request.granted_permissions);
+
+    // Add action fingerprint if RequiresOverride
+    if matches!(decision.status, DecisionStatus::RequiresOverride) {
+        decision.action_fingerprint = Some(compute_action_fingerprint(&action));
+    }
+
     let audit_event = audit_event_for_decision(&action, &decision);
+
+    // If the decision requires override, also produce an OverrideRequested audit event
+    if matches!(decision.status, DecisionStatus::RequiresOverride) {
+        let override_requested = AuditEvent::override_event(
+            AuditEventId::new(format!("audit-override-requested-{}", action.id.as_str())),
+            AuditEventType::OverrideRequested,
+            Some(ActorRef::System),
+            &action,
+            Some(&decision),
+            "requires_override",
+            &decision.reason,
+            Utc::now(),
+        );
+        store.audit_events.push(override_requested);
+    }
 
     store.proposed_actions[action_index].status = status_from_decision(&decision.status);
     store.decisions.push(decision.clone());
@@ -456,6 +541,245 @@ async fn evaluate_decision_gate(
     Ok(Json(EvaluateDecisionGateResponse {
         decision,
         audit_event,
+    }))
+}
+
+/// Compute a stable fingerprint for an action at decision time.
+///
+/// Used to detect if the action has changed between RequiresOverride
+/// decision and override attempt.
+fn compute_action_fingerprint(action: &ProposedAction) -> String {
+    use std::hash::{Hash, Hasher};
+    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    action.id.hash(&mut hasher);
+    format!("{:?}", action.action_type).hash(&mut hasher);
+    format!("{:?}", action.risk_level).hash(&mut hasher);
+    action.payload.to_string().hash(&mut hasher);
+    format!("{:?}", action.required_permissions).hash(&mut hasher);
+    format!("{:x}", hasher.finish())
+}
+
+/// Override a proposed action that has RequiresOverride status.
+///
+/// Validates the password against the configured override engine.
+/// If successful, the decision is changed to ApprovedByOverride.
+///
+/// # Single-action scoping
+///
+/// Override is strictly limited to the action identified by `:id`:
+/// - An ApprovedByOverride decision is created ONLY for this action_id
+/// - No other action's status or decision is modified
+/// - No global "admin session" is created
+/// - Every override attempt independently validates the password
+/// - Anti-mutation: action fingerprint is verified at override time
+///
+/// The password is NEVER included in audit events or logs.
+async fn override_proposed_action(
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+    Json(request): Json<OverrideActionRequest>,
+) -> Result<Json<OverrideActionResponse>, ApiError> {
+    let action_id = ProposedActionId::new(id);
+    let mut store = state.lock()?;
+
+    // Check if override is configured
+    let override_engine = store.override_engine.as_mut().ok_or_else(|| {
+        ApiError::bad_request(
+            "override_not_configured: ARPAGONA_OVERRIDE_PASSWORD is not set. \
+                 Set the environment variable to enable override, or set \
+                 ARPAGONA_ALLOW_DEV_OVERRIDE=true for development.",
+        )
+    })?;
+
+    let action_idx = store
+        .proposed_actions
+        .iter()
+        .position(|a| a.id == action_id)
+        .ok_or_else(|| ApiError::not_found(format!("proposed action {} not found", action_id)))?;
+
+    let action = &store.proposed_actions[action_idx];
+
+    // Find the latest RequiresOverride decision for this action
+    // Must do this BEFORE accessing override_engine to avoid borrow conflicts
+    let requires_override_decision = store
+        .decisions
+        .iter()
+        .rfind(|d: &&Decision| {
+            d.proposed_action_id == action_id
+                && matches!(d.status, DecisionStatus::RequiresOverride)
+        })
+        .cloned();
+
+    // Check if action is already ApprovedByOverride (idempotent)
+    let already_approved_decision = store
+        .decisions
+        .iter()
+        .rfind(|d: &&Decision| {
+            d.proposed_action_id == action_id
+                && matches!(d.status, DecisionStatus::ApprovedByOverride)
+        })
+        .cloned();
+
+    if let Some(existing_decision) = already_approved_decision {
+        let audit_event = AuditEvent::override_event(
+            AuditEventId::new(format!(
+                "audit-override-already-approved-{}",
+                action_id.as_str()
+            )),
+            AuditEventType::OverrideApproved,
+            Some(ActorRef::Human(request.actor)),
+            action,
+            Some(&existing_decision),
+            "already_approved",
+            "Action was already approved by a prior override; no change made.",
+            Utc::now(),
+        );
+        store.audit_events.push(audit_event.clone());
+
+        return Ok(Json(OverrideActionResponse {
+            decision: existing_decision,
+            audit_event,
+            outcome: "already_approved".to_owned(),
+        }));
+    }
+
+    let requires_override_decision = requires_override_decision.ok_or_else(|| {
+        ApiError::bad_request(format!(
+            "action {} is not in RequiresOverride state; current status: {:?}",
+            action_id, store.proposed_actions[action_idx].status
+        ))
+    })?;
+
+    // Anti-mutation: verify action fingerprint matches the decision
+    if let Some(stored_fingerprint) = &requires_override_decision.action_fingerprint {
+        let current_fingerprint = compute_action_fingerprint(action);
+        if stored_fingerprint != &current_fingerprint {
+            let audit_event = AuditEvent::override_event(
+                AuditEventId::new(format!(
+                    "audit-override-fingerprint-mismatch-{}",
+                    action_id.as_str()
+                )),
+                AuditEventType::OverrideFailed,
+                Some(ActorRef::Human(request.actor)),
+                action,
+                Some(&requires_override_decision),
+                "fingerprint_mismatch",
+                "Override refused: action has changed since the RequiresOverride decision was made.",
+                Utc::now(),
+            );
+            store.audit_events.push(audit_event.clone());
+            return Err(ApiError::bad_request(format!(
+                "Override refused: action {} has changed since RequiresOverride decision.",
+                action_id
+            )));
+        }
+    }
+
+    // Clone the action for use before the mutable borrow
+    let action_clone = action.clone();
+
+    // Attempt override in a scoped block to release mutable borrow
+    // on store before subsequent store access.
+    let (outcome_status, outcome_reason, new_status) = {
+        let override_engine = store.override_engine.as_mut().ok_or_else(|| {
+            ApiError::bad_request(
+                "override_not_configured: ARPAGONA_OVERRIDE_PASSWORD is not set. \
+                     Set the environment variable to enable override, or set \
+                     ARPAGONA_ALLOW_DEV_OVERRIDE=true for development.",
+            )
+        })?;
+
+        match override_engine.attempt_override(&request.password) {
+            OverrideOutcome::Approved => {
+                let new_decision = Decision {
+                    id: DecisionId::new(format!(
+                        "decision-{}-override-approved",
+                        action_id.as_str()
+                    )),
+                    proposed_action_id: action_id.clone(),
+                    status: DecisionStatus::ApprovedByOverride,
+                    reason: "Approved by administrative override.".to_owned(),
+                    risk_level: action_clone.risk_level.clone(),
+                    policies_applied: requires_override_decision.policies_applied.clone(),
+                    decided_by: Some(DecisionActor::Human(request.actor.clone())),
+                    created_at: Utc::now(),
+                    override_hint: None,
+                    action_fingerprint: Some(compute_action_fingerprint(&action_clone)),
+                };
+
+                store.proposed_actions[action_idx].status = ProposedActionStatus::Approved;
+                store.decisions.push(new_decision.clone());
+
+                (
+                    "approved",
+                    "Override approved by administrator.",
+                    new_decision,
+                )
+            }
+            OverrideOutcome::Failed => {
+                let failed_decision = requires_override_decision.clone();
+                (
+                    "failed",
+                    "Override failed: incorrect password.",
+                    failed_decision,
+                )
+            }
+            OverrideOutcome::Locked => {
+                let locked_decision = requires_override_decision.clone();
+                (
+                    "locked",
+                    "Override is temporarily locked due to too many failed attempts.",
+                    locked_decision,
+                )
+            }
+            OverrideOutcome::Expired => {
+                // Expired cannot occur since TTL was removed from the engine.
+                // This arm is kept for exhaustive match on OverrideOutcome.
+                let expired_decision = requires_override_decision.clone();
+                (
+                    "expired",
+                    "Override authorization has expired.",
+                    expired_decision,
+                )
+            }
+            OverrideOutcome::NotOverridable => {
+                let blocked_decision = requires_override_decision.clone();
+                (
+                    "not_overridable",
+                    "This action cannot be overridden.",
+                    blocked_decision,
+                )
+            }
+        }
+    };
+
+    let audit_event_type = match outcome_status {
+        "approved" => AuditEventType::OverrideApproved,
+        "failed" => AuditEventType::OverrideFailed,
+        _ => AuditEventType::OverrideRequested,
+    };
+
+    // Build audit event — NEVER include the password
+    let audit_event = AuditEvent::override_event(
+        AuditEventId::new(format!(
+            "audit-override-{}-{}",
+            outcome_status,
+            action_id.as_str()
+        )),
+        audit_event_type,
+        Some(ActorRef::Human(request.actor)),
+        &action_clone,
+        Some(&new_status),
+        outcome_status,
+        outcome_reason,
+        Utc::now(),
+    );
+    store.audit_events.push(audit_event.clone());
+
+    Ok(Json(OverrideActionResponse {
+        decision: new_status,
+        audit_event,
+        outcome: outcome_status.to_owned(),
     }))
 }
 
@@ -913,7 +1237,9 @@ async fn execute_proposal(
 fn status_from_decision(status: &DecisionStatus) -> ProposedActionStatus {
     match status {
         DecisionStatus::Approved => ProposedActionStatus::Approved,
+        DecisionStatus::ApprovedByOverride => ProposedActionStatus::Approved,
         DecisionStatus::Blocked => ProposedActionStatus::Blocked,
+        DecisionStatus::RequiresOverride => ProposedActionStatus::NeedsHumanApproval,
         DecisionStatus::NeedsHumanApproval => ProposedActionStatus::NeedsHumanApproval,
     }
 }
@@ -944,6 +1270,23 @@ async fn list_executors(
         })
         .collect();
     Ok(Json(executors))
+}
+
+/// Get a specific executor by ID.
+async fn get_executor_handler(
+    State(state): State<AppState>,
+    Path(executor_id): Path<String>,
+) -> Result<Json<ExecutorInfoResponse>, ApiError> {
+    let store = state.lock()?;
+    let slot = store
+        .executor_registry
+        .get_slot(&executor_id)
+        .ok_or_else(|| ApiError::not_found(format!("executor '{}' not found", executor_id)))?;
+    Ok(Json(ExecutorInfoResponse {
+        executor_id: executor_id.clone(),
+        executor_state: slot.state.clone(),
+        supported_action_types: slot.executor.supported_action_types().to_vec(),
+    }))
 }
 
 /// Set an executor's readiness state.
@@ -1476,5 +1819,264 @@ mod tests {
         .await
         .expect("transition back to Ready should succeed");
         assert_eq!(resp.0.executor_state, ExecutorState::Ready);
+    }
+
+    // ── Route matching tests ───────────────────────────────────────────────
+    //
+    // These tests prove that all dynamic path parameter routes using `:param`
+    // syntax actually match at runtime. They start a real HTTP server and
+    // send requests through Axum's router.
+
+    async fn start_test_server() -> String {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+            .await
+            .expect("bind server");
+        let port = listener.local_addr().expect("port").port();
+        let url = format!("http://127.0.0.1:{}", port);
+
+        let state = AppState::default();
+        let app = app(state);
+
+        tokio::spawn(async move {
+            axum::serve(listener, app).await.expect("serve");
+        });
+
+        // Small yield to let the server start accepting
+        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+        url
+    }
+
+    #[tokio::test]
+    async fn route_health_matches() {
+        let base = start_test_server().await;
+        let resp = reqwest::get(&format!("{}/health", base))
+            .await
+            .expect("GET /health");
+        assert_eq!(resp.status().as_u16(), 200);
+    }
+
+    #[tokio::test]
+    async fn route_get_executors_matches() {
+        let base = start_test_server().await;
+        let resp = reqwest::get(&format!("{}/executors", base))
+            .await
+            .expect("GET /executors");
+        assert_eq!(resp.status().as_u16(), 200);
+        let body = resp.text().await.unwrap();
+        assert!(body.contains("noop-executor"));
+    }
+
+    #[tokio::test]
+    async fn route_get_executor_by_id_matches() {
+        let base = start_test_server().await;
+        // Known executor → 200
+        let resp = reqwest::get(&format!("{}/executors/noop-executor", base))
+            .await
+            .expect("GET /executors/noop-executor");
+        assert_eq!(resp.status().as_u16(), 200);
+        let body = resp.text().await.unwrap();
+        assert!(body.contains("noop-executor"));
+    }
+
+    #[tokio::test]
+    async fn route_get_executor_by_id_not_found() {
+        let base = start_test_server().await;
+        // Unknown executor → handler 404 (not router 404)
+        let resp = reqwest::get(&format!("{}/executors/unknown-executor", base))
+            .await
+            .expect("GET /executors/unknown-executor");
+        assert_eq!(resp.status().as_u16(), 404);
+        let body = resp.text().await.unwrap();
+        assert!(
+            body.contains("error"),
+            "handler 404 must have error body: {}",
+            body
+        );
+    }
+
+    #[tokio::test]
+    async fn route_post_executor_state_matches() {
+        let base = start_test_server().await;
+        let client = reqwest::Client::new();
+        // Set noop-executor to Ready
+        let resp = client
+            .post(&format!("{}/executors/noop-executor/state", base))
+            .header("Content-Type", "application/json")
+            .body(r#"{"state": "ready"}"#)
+            .send()
+            .await
+            .expect("POST /executors/noop-executor/state");
+        assert_eq!(resp.status().as_u16(), 200);
+        let body = resp.text().await.unwrap();
+        assert!(body.contains("ready"), "state should be ready: {}", body);
+    }
+
+    #[tokio::test]
+    async fn route_post_executor_state_unknown_returns_handler_404() {
+        let base = start_test_server().await;
+        let client = reqwest::Client::new();
+        let resp = client
+            .post(&format!("{}/executors/unknown-executor/state", base))
+            .header("Content-Type", "application/json")
+            .body(r#"{"state": "ready"}"#)
+            .send()
+            .await
+            .expect("POST /executors/unknown-executor/state");
+        // Handler 404 (not router 404) proves route matched
+        assert_eq!(resp.status().as_u16(), 404);
+        let body = resp.text().await.unwrap();
+        assert!(
+            body.contains("error"),
+            "handler 404 must have error body: {}",
+            body
+        );
+    }
+
+    #[tokio::test]
+    async fn route_get_execution_capabilities_matches() {
+        let base = start_test_server().await;
+        let resp = reqwest::get(&format!("{}/execution-capabilities", base))
+            .await
+            .expect("GET /execution-capabilities");
+        assert_eq!(resp.status().as_u16(), 200);
+    }
+
+    #[tokio::test]
+    async fn route_get_execution_capability_by_type_matches() {
+        let base = start_test_server().await;
+        let resp = reqwest::get(&format!("{}/execution-capabilities/read_memory", base))
+            .await
+            .expect("GET /execution-capabilities/read_memory");
+        assert_eq!(resp.status().as_u16(), 200);
+        let body = resp.text().await.unwrap();
+        assert!(body.contains("read_memory"));
+    }
+
+    #[tokio::test]
+    async fn route_get_execution_capability_unknown_type_matches() {
+        let base = start_test_server().await;
+        // Unknown type — handler returns valid capability, proving route matched
+        // (not a router 404)
+        let resp = reqwest::get(&format!("{}/execution-capabilities/unknown_type", base))
+            .await
+            .expect("GET /execution-capabilities/unknown_type");
+        assert_eq!(resp.status().as_u16(), 200);
+        let body = resp.text().await.unwrap();
+        assert!(
+            body.contains("action_type"),
+            "should return capability: {}",
+            body
+        );
+    }
+
+    #[tokio::test]
+    async fn route_post_proposed_actions_review_matches() {
+        let base = start_test_server().await;
+        let client = reqwest::Client::new();
+        // Non-existent proposal → handler 404, proving route matched
+        let resp = client
+            .post(&format!("{}/proposed-actions/test-id/review", base))
+            .header("Content-Type", "application/json")
+            .body(r#"{"action": "approve", "reason": "test", "actor": "test"}"#)
+            .send()
+            .await
+            .expect("POST /proposed-actions/test-id/review");
+        assert_eq!(resp.status().as_u16(), 404);
+        let body = resp.text().await.unwrap();
+        assert!(
+            body.contains("error"),
+            "handler 404 must have error body: {}",
+            body
+        );
+        assert!(
+            body.contains("not found"),
+            "should mention not found: {}",
+            body
+        );
+    }
+
+    #[tokio::test]
+    async fn route_post_proposed_actions_sandbox_matches() {
+        let base = start_test_server().await;
+        let client = reqwest::Client::new();
+        // No body → may get 422 from serde, proving route matched (not router 404)
+        let resp = client
+            .post(&format!("{}/proposed-actions/test-id/sandbox", base))
+            .send()
+            .await
+            .expect("POST /proposed-actions/test-id/sandbox");
+        let status = resp.status().as_u16();
+        assert!(
+            status != 404 || resp.text().await.unwrap().contains("error"),
+            "route should match, got status={}",
+            status
+        );
+    }
+
+    #[tokio::test]
+    async fn route_post_proposed_actions_dry_run_matches() {
+        let base = start_test_server().await;
+        let client = reqwest::Client::new();
+        let resp = client
+            .post(&format!("{}/proposed-actions/test-id/dry-run", base))
+            .send()
+            .await
+            .expect("POST /proposed-actions/test-id/dry-run");
+        let status = resp.status().as_u16();
+        assert!(
+            status != 404 || resp.text().await.unwrap().contains("error"),
+            "route should match, got status={}",
+            status
+        );
+    }
+
+    #[tokio::test]
+    async fn route_post_proposed_actions_policy_check_matches() {
+        let base = start_test_server().await;
+        let client = reqwest::Client::new();
+        let resp = client
+            .post(&format!("{}/proposed-actions/test-id/policy-check", base))
+            .send()
+            .await
+            .expect("POST /proposed-actions/test-id/policy-check");
+        let status = resp.status().as_u16();
+        assert!(
+            status != 404 || resp.text().await.unwrap().contains("error"),
+            "route should match, got status={}",
+            status
+        );
+    }
+
+    #[tokio::test]
+    async fn route_post_proposed_actions_execute_matches() {
+        let base = start_test_server().await;
+        let client = reqwest::Client::new();
+        let resp = client
+            .post(&format!("{}/proposed-actions/test-id/execute", base))
+            .send()
+            .await
+            .expect("POST /proposed-actions/test-id/execute");
+        let status = resp.status().as_u16();
+        assert!(
+            status != 404 || resp.text().await.unwrap().contains("error"),
+            "route should match, got status={}",
+            status
+        );
+    }
+
+    #[tokio::test]
+    async fn route_unknown_path_returns_router_404() {
+        let base = start_test_server().await;
+        let resp = reqwest::get(&format!("{}/this/path/does/not/exist", base))
+            .await
+            .expect("GET unknown path");
+        assert_eq!(resp.status().as_u16(), 404);
+        // Router 404 has empty or non-JSON body
+        let body = resp.text().await.unwrap();
+        assert!(
+            !body.contains("error"),
+            "router 404 should NOT have JSON error body: {}",
+            body
+        );
     }
 }

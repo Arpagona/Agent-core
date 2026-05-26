@@ -2,10 +2,10 @@ use arpagona_agent_core::{
     holographic::{resonate_for_working_memory, RESONANCE_NON_AUTHORIZING_WARNING},
     ActionType, AgentId, AuditEvent, AuditEventId, AuditTraceSummary, CognitiveCycleResult,
     CorrectionTarget, Decision, DecisionId, DecisionStatus, DetectionSignal, DetectionSignalType,
-    ExecutorRegistry, FailureClass, FailureInsight, FailureInsightId, InsightSeverity,
-    MemoryWriteIntent, MemoryWriteKind, MemoryWriteProvenance, MemoryWriteTarget, ObjectiveDomain,
-    Permission, ProposedAction, ProposedActionId, ProposedActionStatus, RiskLevel, SourceId, Task,
-    TaskId, WorkspaceId,
+    ExecutorRegistry, ExecutorState, FailureClass, FailureInsight, FailureInsightId,
+    InsightSeverity, MemoryWriteIntent, MemoryWriteKind, MemoryWriteProvenance, MemoryWriteTarget,
+    ObjectiveDomain, Permission, ProposedAction, ProposedActionId, ProposedActionStatus, RiskLevel,
+    SourceId, Task, TaskId, WorkspaceId,
 };
 use arpagona_compute_reservoir::{
     allocate_for_working_memory, ComputeAllocation, ComputeCapability, ComputeNode, ComputeNodeId,
@@ -24,6 +24,7 @@ use clap::{Args, Parser, Subcommand, ValueEnum};
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
+use std::collections::HashMap;
 use std::env;
 use std::error::Error;
 use std::io::{self, Write};
@@ -117,9 +118,19 @@ pub struct ExecutorListArgs {
     /// Emit structured JSON instead of human-oriented text.
     #[arg(long)]
     pub json: bool,
-    /// Query executor state directly from the core crate without an API server.
+    /// Query executor state from the local core crate directly, without
+    /// connecting to the API server. Shows only the static default registry
+    /// state (NoopExecutor disabled). Combine with --state-file to load
+    /// persisted executor state transitions. The output explicitly indicates
+    /// that it is offline/local state, not live server state.
     #[arg(long)]
     pub offline: bool,
+    /// Path to a JSON file with persisted executor state, applied on top
+    /// of the default registry when --offline is set.
+    /// Format: {"executor_id": "disabled"|"ready"|"blocked"}
+    /// Example: {"noop-executor": "ready"}
+    #[arg(long)]
+    pub state_file: Option<String>,
 }
 
 #[derive(Debug, Args)]
@@ -129,9 +140,19 @@ pub struct ExecutorInspectArgs {
     /// Emit structured JSON instead of human-oriented text.
     #[arg(long)]
     pub json: bool,
-    /// Query executor state directly from the core crate without an API server.
+    /// Query executor state from the local core crate directly, without
+    /// connecting to the API server. Shows only the static default registry
+    /// state (NoopExecutor disabled). Combine with --state-file to load
+    /// persisted executor state transitions. The output explicitly indicates
+    /// that it is offline/local state, not live server state.
     #[arg(long)]
     pub offline: bool,
+    /// Path to a JSON file with persisted executor state, applied on top
+    /// of the default registry when --offline is set.
+    /// Format: {"executor_id": "disabled"|"ready"|"blocked"}
+    /// Example: {"noop-executor": "ready"}
+    #[arg(long)]
+    pub state_file: Option<String>,
 }
 
 #[derive(Debug, Args)]
@@ -5839,6 +5860,54 @@ struct ExecutorInfoResponse {
     executor_id: String,
     executor_state: String,
     supported_action_types: Vec<String>,
+    /// "offline" when queried from the core crate directly; empty/absent for live API responses.
+    #[serde(default)]
+    mode: String,
+}
+
+/// Build an executor info response for an offline registry query.
+fn build_offline_executor_info(
+    registry: &ExecutorRegistry,
+    executor_id: &str,
+) -> Option<ExecutorInfoResponse> {
+    registry.get_slot(executor_id).map(|slot| {
+        let state_str = serde_json::to_value(&slot.state)
+            .ok()
+            .and_then(|v| v.as_str().map(String::from))
+            .unwrap_or_else(|| format!("{:?}", slot.state));
+        let action_types: Vec<String> = slot
+            .executor
+            .supported_action_types()
+            .iter()
+            .map(|at| {
+                serde_json::to_value(at)
+                    .ok()
+                    .and_then(|v| v.as_str().map(String::from))
+                    .unwrap_or_else(|| format!("{at:?}"))
+            })
+            .collect();
+        ExecutorInfoResponse {
+            executor_id: executor_id.to_owned(),
+            executor_state: state_str,
+            supported_action_types: action_types,
+            mode: "offline".to_owned(),
+        }
+    })
+}
+
+/// Load persisted executor state from a JSON file and apply it to the registry.
+///
+/// Expected format: `{"executor_id": "disabled"|"ready"|"blocked"}`
+fn load_executor_state_file(
+    registry: &mut ExecutorRegistry,
+    state_file: &str,
+) -> Result<(), Box<dyn Error>> {
+    let content = std::fs::read_to_string(state_file)?;
+    let states: HashMap<String, ExecutorState> = serde_json::from_str(&content)?;
+    for (id, state) in states {
+        registry.set_state(&id, state);
+    }
+    Ok(())
 }
 
 /// List all registered executors with their current state.
@@ -5847,41 +5916,42 @@ async fn executor_list(
     api_url: &str,
     args: ExecutorListArgs,
 ) -> Result<(), Box<dyn Error>> {
-    let executors: Vec<ExecutorInfoResponse> = if args.offline {
-        let registry = ExecutorRegistry::new();
-        let mut executors = Vec::new();
+    let (executors, is_offline): (Vec<ExecutorInfoResponse>, bool) = if args.offline {
+        let mut registry = ExecutorRegistry::new();
+        if let Some(ref state_file) = args.state_file {
+            load_executor_state_file(&mut registry, state_file)
+                .map_err(|e| format!("failed to load state file '{}': {}", state_file, e))?;
+        }
+        let mut result = Vec::new();
         for id in registry.list() {
-            if let Some(slot) = registry.get_slot(&id) {
-                let state_str = serde_json::to_value(&slot.state)?
-                    .as_str()
-                    .unwrap_or("unknown")
-                    .to_owned();
-                let action_types: Vec<String> = slot
-                    .executor
-                    .supported_action_types()
-                    .iter()
-                    .map(|at| {
-                        serde_json::to_value(at)
-                            .ok()
-                            .and_then(|v| v.as_str().map(String::from))
-                            .unwrap_or_else(|| format!("{at:?}"))
-                    })
-                    .collect();
-                executors.push(ExecutorInfoResponse {
-                    executor_id: id,
-                    executor_state: state_str,
-                    supported_action_types: action_types,
-                });
+            if let Some(info) = build_offline_executor_info(&registry, &id) {
+                result.push(info);
             }
         }
-        executors
+        (result, true)
     } else {
-        get_json(client.get(format!("{api_url}/executors")).send().await?).await?
+        let result: Vec<ExecutorInfoResponse> =
+            get_json(client.get(format!("{api_url}/executors")).send().await?).await?;
+        (result, false)
     };
 
     if args.json {
-        println!("{}", serde_json::to_string_pretty(&executors)?);
+        let output = if is_offline {
+            serde_json::json!({
+                "mode": "offline",
+                "executors": executors
+            })
+        } else {
+            serde_json::json!({
+                "mode": "live",
+                "executors": executors
+            })
+        };
+        println!("{}", serde_json::to_string_pretty(&output)?);
     } else {
+        if is_offline {
+            println!("[offline mode — local registry state (not live server)]");
+        }
         println!("Registered executors:");
         for exec in &executors {
             println!(
@@ -5901,45 +5971,47 @@ async fn executor_inspect(
     api_url: &str,
     args: ExecutorInspectArgs,
 ) -> Result<(), Box<dyn Error>> {
-    let exec = if args.offline {
-        let registry = ExecutorRegistry::new();
-        registry.get_slot(&args.executor_id).map(|slot| {
-            let state_str = serde_json::to_value(&slot.state)
-                .ok()
-                .and_then(|v| v.as_str().map(String::from))
-                .unwrap_or_else(|| format!("{:?}", slot.state));
-            let action_types: Vec<String> = slot
-                .executor
-                .supported_action_types()
-                .iter()
-                .map(|at| {
-                    serde_json::to_value(at)
-                        .ok()
-                        .and_then(|v| v.as_str().map(String::from))
-                        .unwrap_or_else(|| format!("{at:?}"))
-                })
-                .collect();
-            ExecutorInfoResponse {
-                executor_id: args.executor_id.clone(),
-                executor_state: state_str,
-                supported_action_types: action_types,
-            }
-        })
+    let (exec, is_offline) = if args.offline {
+        let mut registry = ExecutorRegistry::new();
+        if let Some(ref state_file) = args.state_file {
+            load_executor_state_file(&mut registry, state_file)
+                .map_err(|e| format!("failed to load state file '{}': {}", state_file, e))?;
+        }
+        let info = build_offline_executor_info(&registry, &args.executor_id);
+        (info, true)
     } else {
         // Fetch the full executor list and filter for the requested ID
         let executors: Vec<ExecutorInfoResponse> =
             get_json(client.get(format!("{api_url}/executors")).send().await?).await?;
-        executors
+        let info = executors
             .iter()
             .find(|e| e.executor_id == args.executor_id)
-            .cloned()
+            .cloned();
+        (info, false)
     };
 
     match exec {
-        Some(info) => {
+        Some(mut info) => {
+            if is_offline {
+                info.mode = "offline".to_owned();
+            }
             if args.json {
-                println!("{}", serde_json::to_string_pretty(&info)?);
+                let output = if is_offline {
+                    serde_json::json!({
+                        "mode": "offline",
+                        "executor": info
+                    })
+                } else {
+                    serde_json::json!({
+                        "mode": "live",
+                        "executor": info
+                    })
+                };
+                println!("{}", serde_json::to_string_pretty(&output)?);
             } else {
+                if is_offline {
+                    println!("[offline mode — local registry state (not live server)]");
+                }
                 println!("Executor: {}", info.executor_id);
                 println!("  State: {}", info.executor_state);
                 println!(
@@ -5950,14 +6022,24 @@ async fn executor_inspect(
         }
         None => {
             if args.json {
-                println!(
-                    "{}",
+                let output = if is_offline {
                     serde_json::json!({
+                        "mode": "offline",
                         "error": "executor not found",
                         "executor_id": args.executor_id
                     })
-                );
+                } else {
+                    serde_json::json!({
+                        "mode": "live",
+                        "error": "executor not found",
+                        "executor_id": args.executor_id
+                    })
+                };
+                println!("{}", serde_json::to_string_pretty(&output)?);
             } else {
+                if is_offline {
+                    println!("[offline mode — local registry state (not live server)]");
+                }
                 println!("Executor '{}' not found", args.executor_id);
             }
         }
@@ -8937,6 +9019,72 @@ mod tests {
                 assert!(args.json);
             }
             _ => panic!("expected executor list --offline --json"),
+        }
+    }
+
+    #[test]
+    fn cli_parses_executor_list_offline_state_file() {
+        let cli = Cli::parse_from([
+            "arpagona",
+            "executor",
+            "list",
+            "--offline",
+            "--state-file",
+            "states.json",
+        ]);
+        match cli.command {
+            Command::Executor(ExecutorCommand {
+                command: ExecutorSubcommand::List(args),
+            }) => {
+                assert!(args.offline);
+                assert_eq!(args.state_file, Some("states.json".to_owned()));
+            }
+            _ => panic!("expected executor list --offline --state-file"),
+        }
+    }
+
+    #[test]
+    fn cli_parses_executor_list_offline_state_file_json() {
+        let cli = Cli::parse_from([
+            "arpagona",
+            "executor",
+            "list",
+            "--offline",
+            "--state-file",
+            "states.json",
+            "--json",
+        ]);
+        match cli.command {
+            Command::Executor(ExecutorCommand {
+                command: ExecutorSubcommand::List(args),
+            }) => {
+                assert!(args.offline);
+                assert!(args.json);
+                assert_eq!(args.state_file, Some("states.json".to_owned()));
+            }
+            _ => panic!("expected executor list --offline --state-file --json"),
+        }
+    }
+
+    #[test]
+    fn cli_parses_executor_inspect_offline_state_file() {
+        let cli = Cli::parse_from([
+            "arpagona",
+            "executor",
+            "inspect",
+            "noop-executor",
+            "--offline",
+            "--state-file",
+            "states.json",
+        ]);
+        match cli.command {
+            Command::Executor(ExecutorCommand {
+                command: ExecutorSubcommand::Inspect(args),
+            }) => {
+                assert!(args.offline);
+                assert_eq!(args.state_file, Some("states.json".to_owned()));
+            }
+            _ => panic!("expected executor inspect --offline --state-file"),
         }
     }
 }

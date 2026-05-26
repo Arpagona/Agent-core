@@ -96,6 +96,8 @@ mod tests {
             policies_applied: vec![PolicyId::new("policy-1")],
             decided_by: None,
             created_at: Utc::now(),
+            override_hint: None,
+            action_fingerprint: None,
         };
 
         assert_eq!(decision.status, DecisionStatus::NeedsHumanApproval);

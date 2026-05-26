@@ -354,6 +354,30 @@ Limites alpha / contraintes :
 
 Documentation dédiée : `docs/terminal-interface.md` et `docs/causal-trace.md`.
 
+### Holographic Memory Kernel
+
+**Crate:** `crates/holographic-memory` · **Statut:** Alpha V0
+
+**Objectif :** Implémenter un noyau de mémoire associative symbolique :
+- traces distribuées avec signatures déterministes ;
+- récupération par résonance (Jaccard entre bits) ;
+- contexte reconstruit lié aux sources (décisions, mémoires, tours) ;
+- isolation par `project_id` ;
+- store in-memory pour V0.
+
+**Phrase canonique :**
+> Holographic Memory reactivates paths to truth. It does not replace truth.
+
+**Contraintes V0 :**
+- Pas de LLM, pas de base vectorielle, pas de persistance, pas d'exécution.
+- Pas d'autorisation — le contexte reconstruit est une preuve, pas une approbation.
+- Ne remplace pas Graph Memory (source de vérité) ni le Decision Gate.
+- Code déterministe et testable.
+
+**Prochaines étapes :** intégration avec conversation-memory, embeddings locaux optionnels, graphe mémoire récursif, persistance, consolidation, gouvernance des écritures par Decision Gate.
+
+Documentation dédiée : `docs/holographic-memory.md`.
+
 ## Workers d'ingestion
 
 État : placeholder/deferred.

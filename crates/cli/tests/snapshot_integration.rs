@@ -168,7 +168,7 @@ fn snapshot_read_reports_missing_file_error() {
 ///
 /// Verifies that `executor list --offline` and `executor inspect --offline`
 /// produce correct executor metadata directly from the core crate without
-/// requiring an API server.
+/// requiring an API server, and that the output clearly indicates offline mode.
 #[test]
 fn offline_executor_commands_produce_correct_output() {
     let arpagona = ARPAGONA_BIN;
@@ -185,6 +185,11 @@ fn offline_executor_commands_produce_correct_output() {
         String::from_utf8_lossy(&list_out.stderr),
     );
     let list_stdout = String::from_utf8(list_out.stdout).expect("valid utf-8");
+    assert!(
+        list_stdout.contains("[offline mode"),
+        "executor list --offline should indicate offline mode\n{}",
+        list_stdout
+    );
     assert!(
         list_stdout.contains("noop-executor"),
         "executor list --offline should contain 'noop-executor'\n{}",
@@ -210,9 +215,16 @@ fn offline_executor_commands_produce_correct_output() {
     let list_json: serde_json::Value =
         serde_json::from_str(&String::from_utf8(list_json_out.stdout).expect("valid utf-8"))
             .expect("executor list --offline --json output should be valid JSON");
+    // Top-level wrapper with mode field
+    assert_eq!(
+        list_json.get("mode").and_then(|v| v.as_str()),
+        Some("offline"),
+        "JSON output should have mode=offline"
+    );
     let executors = list_json
-        .as_array()
-        .expect("JSON output should be an array");
+        .get("executors")
+        .and_then(|v| v.as_array())
+        .expect("JSON output should have an 'executors' array");
     assert!(
         !executors.is_empty(),
         "executor list should have at least one executor"
@@ -250,6 +262,11 @@ fn offline_executor_commands_produce_correct_output() {
     );
     let inspect_stdout = String::from_utf8(inspect_out.stdout).expect("valid utf-8");
     assert!(
+        inspect_stdout.contains("[offline mode"),
+        "executor inspect --offline should indicate offline mode\n{}",
+        inspect_stdout
+    );
+    assert!(
         inspect_stdout.contains("Executor: noop-executor"),
         "executor inspect should contain 'Executor: noop-executor'\n{}",
         inspect_stdout
@@ -281,22 +298,30 @@ fn offline_executor_commands_produce_correct_output() {
         serde_json::from_str(&String::from_utf8(inspect_json_out.stdout).expect("valid utf-8"))
             .expect("executor inspect --offline --json output should be valid JSON");
     assert_eq!(
-        inspect_json.get("executor_id").and_then(|v| v.as_str()),
+        inspect_json.get("mode").and_then(|v| v.as_str()),
+        Some("offline"),
+        "inspect JSON should have mode=offline"
+    );
+    let exec = inspect_json
+        .get("executor")
+        .expect("inspect JSON should have an 'executor' field");
+    assert_eq!(
+        exec.get("executor_id").and_then(|v| v.as_str()),
         Some("noop-executor"),
-        "inspect JSON should show executor_id=noop-executor"
+        "inspect executor should show executor_id=noop-executor"
     );
     assert_eq!(
-        inspect_json.get("executor_state").and_then(|v| v.as_str()),
+        exec.get("executor_state").and_then(|v| v.as_str()),
         Some("disabled"),
-        "inspect JSON should show state=disabled"
+        "inspect executor should show state=disabled"
     );
-    let inspect_action_types = inspect_json
+    let inspect_action_types = exec
         .get("supported_action_types")
         .and_then(|v| v.as_array())
-        .expect("inspect JSON should have supported_action_types");
+        .expect("inspect executor should have supported_action_types");
     assert!(
         !inspect_action_types.is_empty(),
-        "inspect JSON should show supported action types"
+        "inspect executor should show supported action types"
     );
 
     // ── executor inspect nonexistent --offline ───────────────────────────
@@ -306,10 +331,114 @@ fn offline_executor_commands_produce_correct_output() {
         .expect("failed to run executor inspect nonexistent --offline");
     let miss_stdout = String::from_utf8_lossy(&miss_out.stdout);
     assert!(
+        miss_stdout.contains("[offline mode"),
+        "nonexistent executor should still indicate offline mode\n{}",
+        miss_stdout
+    );
+    assert!(
         miss_stdout.contains("not found"),
         "missing executor should report 'not found'\n{}",
         miss_stdout
     );
+}
+
+/// End-to-end integration test for offline executor commands with --state-file.
+///
+/// Verifies that --state-file correctly applies persisted executor state
+/// transitions on top of the default registry.
+#[test]
+fn offline_executor_state_file_produces_ready_executor() {
+    let arpagona = ARPAGONA_BIN;
+    let dir = std::env::temp_dir().join("arpagona-executor-state-file-test");
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).expect("create temp dir");
+    let state_path = dir.join("executor_states.json");
+    let state_str = state_path.to_str().expect("valid utf-8 path").to_owned();
+
+    // Write a state file that promotes noop-executor to Ready
+    let state_content = r#"{"noop-executor": "ready"}"#;
+    std::fs::write(&state_path, state_content).expect("write state file");
+
+    // ── executor list --offline --state-file --json ──────────────────────
+    let list_out = std::process::Command::new(arpagona)
+        .args([
+            "executor",
+            "list",
+            "--offline",
+            "--state-file",
+            &state_str,
+            "--json",
+        ])
+        .output()
+        .expect("failed to run executor list --offline --state-file --json");
+    assert!(
+        list_out.status.success(),
+        "executor list --offline --state-file --json failed:\nstdout: {}\nstderr: {}",
+        String::from_utf8_lossy(&list_out.stdout),
+        String::from_utf8_lossy(&list_out.stderr),
+    );
+    let list_json: serde_json::Value =
+        serde_json::from_str(&String::from_utf8(list_out.stdout).expect("valid utf-8"))
+            .expect("output should be valid JSON");
+    assert_eq!(
+        list_json.get("mode").and_then(|v| v.as_str()),
+        Some("offline"),
+        "should indicate offline mode"
+    );
+    let executors = list_json
+        .get("executors")
+        .and_then(|v| v.as_array())
+        .expect("should have executors array");
+    let noop = executors
+        .iter()
+        .find(|e| e.get("executor_id").and_then(|v| v.as_str()) == Some("noop-executor"))
+        .expect("noop-executor should be present");
+    assert_eq!(
+        noop.get("executor_state").and_then(|v| v.as_str()),
+        Some("ready"),
+        "noop-executor should be 'ready' after --state-file load, got: {:?}",
+        noop.get("executor_state")
+    );
+
+    // ── executor inspect noop-executor --offline --state-file --json ─────
+    let inspect_out = std::process::Command::new(arpagona)
+        .args([
+            "executor",
+            "inspect",
+            "noop-executor",
+            "--offline",
+            "--state-file",
+            &state_str,
+            "--json",
+        ])
+        .output()
+        .expect("failed to run executor inspect --offline --state-file --json");
+    assert!(
+        inspect_out.status.success(),
+        "executor inspect --offline --state-file --json failed:\nstdout: {}\nstderr: {}",
+        String::from_utf8_lossy(&inspect_out.stdout),
+        String::from_utf8_lossy(&inspect_out.stderr),
+    );
+    let inspect_json: serde_json::Value =
+        serde_json::from_str(&String::from_utf8(inspect_out.stdout).expect("valid utf-8"))
+            .expect("output should be valid JSON");
+    assert_eq!(
+        inspect_json.get("mode").and_then(|v| v.as_str()),
+        Some("offline"),
+        "should indicate offline mode"
+    );
+    let exec = inspect_json
+        .get("executor")
+        .expect("should have executor field");
+    assert_eq!(
+        exec.get("executor_state").and_then(|v| v.as_str()),
+        Some("ready"),
+        "inspected noop-executor should be 'ready', got: {:?}",
+        exec.get("executor_state")
+    );
+
+    // Cleanup
+    let _ = std::fs::remove_dir_all(&dir);
 }
 
 #[test]

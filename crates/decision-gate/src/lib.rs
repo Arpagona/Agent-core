@@ -4,11 +4,50 @@
 //! execution logic. It turns proposed actions into explicit, auditable
 //! decisions according to domain policies and granted permissions.
 
+pub mod override_engine;
+
 use arpagona_agent_core::{
     ActionType, ActorRef, AuditEvent, AuditEventId, Decision, DecisionActor, DecisionId,
-    DecisionStatus, Permission, Policy, PolicyId, ProposedAction, RiskLevel,
+    DecisionStatus, OverridePolicy, Permission, Policy, PolicyId, ProposedAction, RiskLevel,
 };
 use chrono::Utc;
+
+/// Determine if an action is a read-only informational action that was explicitly
+/// requested by the user.
+///
+/// All of these must be true:
+/// 1. Action type is one of the read-only types (ReadMemory, ReadTasks, etc.)
+/// 2. Risk level is Informational
+/// 3. Payload explicitly marks the action as `read_only: true`
+///    (set by the deterministic `read_only_turn` when the user explicitly asks)
+///
+/// This distinguishes explicit user-requested reads from implicit/ambiguous
+/// proposals that should still go through the normal permission check.
+fn is_read_only_informational_action(action: &ProposedAction) -> bool {
+    if !matches!(action.risk_level, RiskLevel::Informational) {
+        return false;
+    }
+    if !matches!(
+        action.action_type,
+        ActionType::ReadMemory
+            | ActionType::ReadTasks
+            | ActionType::ReadProposedActions
+            | ActionType::ReadPendingActions
+            | ActionType::ReadDecisions
+            | ActionType::ReadAudit
+            | ActionType::ReadStatus
+    ) {
+        return false;
+    }
+    // The read_only_turn function sets this flag for explicitly requested reads.
+    // Without this flag, the action is treated as implicit/ambiguous and goes
+    // through the normal permission check.
+    action
+        .payload
+        .get("read_only")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false)
+}
 
 /// Evaluate a proposed action with pure domain rules.
 ///
@@ -26,18 +65,45 @@ pub fn evaluate_proposed_action(
         .map(|policy| policy.id.clone())
         .collect::<Vec<PolicyId>>();
 
-    let (status, reason) = if let Some(missing_permission) = action
+    let (status, reason) = if is_read_only_informational_action(action) {
+        // Auto-grant required permissions for explicitly requested read-only
+        // informational actions. These are harmless (no mutation), auditable,
+        // and explicitly user-requested. The required permissions are treated
+        // as implicitly granted for the purpose of this decision.
+        //
+        // This rule intentionally does NOT cover:
+        // - Actions without the read_only: true payload flag (implicit/ambiguous)
+        // - Higher risk levels (Low/Medium/High/Critical)
+        // - Non-read action types (WriteMemory, SimulateEmail, etc.)
+        (
+            DecisionStatus::Approved,
+            "Approved because the user explicitly requested an informational read-only action; this is harmless and fully auditable."
+                .to_owned(),
+        )
+    } else if let Some(missing_permission) = action
         .required_permissions
         .iter()
         .find(|required| !granted_permissions.contains(required))
     {
-        (
-            DecisionStatus::Blocked,
-            format!(
-                "Blocked because required permission {:?} was not granted.",
-                missing_permission
-            ),
-        )
+        // Check if this blocked action is eligible for administrative override
+        let policy = override_engine::classify_override_policy(action);
+        if matches!(policy, OverridePolicy::PasswordRequired) {
+            (
+                DecisionStatus::RequiresOverride,
+                format!(
+                    "Requires override because required permission {:?} was not granted; override is available for this action type.",
+                    missing_permission
+                ),
+            )
+        } else {
+            (
+                DecisionStatus::Blocked,
+                format!(
+                    "Blocked because required permission {:?} was not granted; override not available for this action type.",
+                    missing_permission
+                ),
+            )
+        }
     } else if matches!(action.action_type, ActionType::Custom(_))
         && !has_explicit_action_policy(action, policies)
     {
@@ -92,6 +158,15 @@ pub fn evaluate_proposed_action(
         }
     };
 
+    let override_hint = if matches!(status, DecisionStatus::RequiresOverride) {
+        Some(format!(
+            "{:?}",
+            override_engine::classify_override_policy(action)
+        ))
+    } else {
+        None
+    };
+
     Decision {
         id: DecisionId::new(format!("decision-{}", action.id.as_str())),
         proposed_action_id: action.id.clone(),
@@ -101,6 +176,8 @@ pub fn evaluate_proposed_action(
         policies_applied,
         decided_by: Some(DecisionActor::System),
         created_at: Utc::now(),
+        override_hint,
+        action_fingerprint: None,
     }
 }
 
@@ -266,13 +343,14 @@ mod tests {
     }
 
     #[test]
-    fn missing_permission_blocked() {
+    fn missing_permission_now_requires_override() {
         let action = proposed_action(ActionType::ReadDocument, RiskLevel::Low);
 
         let decision = evaluate_proposed_action(&action, &[], &[]);
 
-        assert_eq!(decision.status, DecisionStatus::Blocked);
-        assert!(decision.reason.contains("required permission"));
+        assert_eq!(decision.status, DecisionStatus::RequiresOverride);
+        assert!(decision.reason.contains("Requires override"));
+        assert!(decision.override_hint.is_some());
     }
 
     #[test]
@@ -404,5 +482,110 @@ mod tests {
             .as_str()
             .unwrap()
             .contains("human confirmation"));
+    }
+
+    // ── Read-only informational auto-grant tests ──────────────────────────
+
+    fn read_only_action(action_type: ActionType, risk_level: RiskLevel) -> ProposedAction {
+        let mut action = proposed_action(action_type, risk_level);
+        action.payload = json!({"read_only": true, "operation": "read_memory"});
+        action
+    }
+
+    #[test]
+    fn explicit_read_memory_informational_approved_without_granted_permissions() {
+        // (a) read_memory explicite + informational => allowed
+        let action = read_only_action(ActionType::ReadMemory, RiskLevel::Informational);
+
+        let decision = evaluate_proposed_action(&action, &[], &[]);
+
+        assert_eq!(
+            decision.status,
+            DecisionStatus::Approved,
+            "explicit informational read_memory should be approved: {}",
+            decision.reason
+        );
+        assert!(decision.reason.contains("read-only"));
+    }
+
+    #[test]
+    fn implicit_read_memory_without_read_only_flag_requires_override() {
+        // (b) read_memory implicite ou ambiguë => blocked
+        // Without read_only: true in payload, the action goes through the
+        // normal permission check and is requires_override (was Blocked before
+        // the override mechanism was added).
+        let action = proposed_action(ActionType::ReadMemory, RiskLevel::Informational);
+
+        let decision = evaluate_proposed_action(&action, &[], &[]);
+
+        assert_eq!(
+            decision.status,
+            DecisionStatus::RequiresOverride,
+            "implicit read_memory without read_only flag should require override: {}",
+            decision.reason
+        );
+        assert!(decision.reason.contains("Requires override"));
+        assert!(decision.override_hint.is_some());
+    }
+
+    #[test]
+    fn read_memory_low_risk_not_informational_requires_override() {
+        // (c) read_memory hors périmètre => requires override
+        // With Low risk (not Informational), the auto-grant doesn't apply.
+        // The override mechanism makes this RequiresOverride instead of Blocked.
+        let action = read_only_action(ActionType::ReadMemory, RiskLevel::Low);
+
+        let decision = evaluate_proposed_action(&action, &[], &[]);
+
+        assert_eq!(
+            decision.status,
+            DecisionStatus::RequiresOverride,
+            "read_memory with Low risk should require override without permission: {}",
+            decision.reason
+        );
+        assert!(decision.reason.contains("Requires override"));
+        assert!(decision.override_hint.is_some());
+    }
+
+    #[test]
+    fn non_read_action_with_read_only_flag_still_blocked() {
+        // (c) bis: A non-read action type (SimulateEmail) with read_only: true
+        // is not covered by the auto-grant rule — still blocked.
+        let mut action = proposed_action(ActionType::SimulateEmail, RiskLevel::Informational);
+        action.payload = json!({"read_only": true});
+
+        let decision = evaluate_proposed_action(&action, &[], &[]);
+
+        assert_eq!(
+            decision.status,
+            DecisionStatus::Blocked,
+            "SimulateEmail with read_only flag should be blocked: {}",
+            decision.reason
+        );
+    }
+
+    #[test]
+    fn approved_read_only_action_produces_audit_event() {
+        // (d) toute lecture autorisée doit générer un audit event
+        let action = read_only_action(ActionType::ReadMemory, RiskLevel::Informational);
+        let decision = evaluate_proposed_action(&action, &[], &[]);
+
+        assert_eq!(decision.status, DecisionStatus::Approved);
+
+        let event = audit_event_for_decision(&action, &decision);
+
+        assert_eq!(event.event_type, AuditEventType::DecisionCreated);
+        assert_eq!(event.actor, ActorRef::System);
+        assert!(event.proposed_action_id.is_some());
+        assert!(event.decision_id.is_some());
+        // Verify the causal trace records the auto-grant rule
+        assert_eq!(
+            event.payload["causal_trace"]["action_type"],
+            json!("read_memory")
+        );
+        assert_eq!(
+            event.payload["causal_trace"]["decision_status"],
+            json!("approved")
+        );
     }
 }

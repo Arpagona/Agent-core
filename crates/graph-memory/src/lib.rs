@@ -948,6 +948,8 @@ mod tests {
             policies_applied: vec![PolicyId::new("policy-local-project-memory")],
             decided_by: None,
             created_at: Utc::now(),
+            override_hint: None,
+            action_fingerprint: None,
         }
     }
 
@@ -1227,6 +1229,8 @@ mod tests {
             policies_applied: vec![PolicyId::new("policy-local-project-memory")],
             decided_by: None,
             created_at: Utc::now(),
+            override_hint: None,
+            action_fingerprint: None,
         };
         let audit_event = approved_memory_audit_event(&decision);
         let insight = sample_failure_insight(&decision, &audit_event);
@@ -1295,6 +1299,8 @@ mod tests {
             policies_applied: vec![PolicyId::new("policy-local-project-memory")],
             decided_by: None,
             created_at: Utc::now(),
+            override_hint: None,
+            action_fingerprint: None,
         };
         let audit_event = approved_memory_audit_event(&decision);
         let insight = sample_failure_insight(&decision, &audit_event);
@@ -1348,6 +1354,8 @@ mod tests {
             policies_applied: vec![PolicyId::new("policy-human-confirmation")],
             decided_by: None,
             created_at: Utc::now(),
+            override_hint: None,
+            action_fingerprint: None,
         };
         let audit_event = approved_memory_audit_event(&decision);
         let insight = sample_failure_insight(&decision, &audit_event);
@@ -1602,6 +1610,8 @@ mod tests {
             policies_applied: vec![PolicyId::new("policy-human-approval")],
             decided_by: None,
             created_at: Utc::now(),
+            override_hint: None,
+            action_fingerprint: None,
         };
         let event_at = Utc::now();
         let event = AuditEvent::decision_created(

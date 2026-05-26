@@ -24,6 +24,14 @@ pub enum AuditEventType {
     DryRunBlocked,
     SandboxCompleted,
     PolicyChanged,
+    /// An override was requested for a RequiresOverride decision.
+    OverrideRequested,
+    /// An override attempt was approved.
+    OverrideApproved,
+    /// An override attempt failed (wrong password).
+    OverrideFailed,
+    /// An override authorization has expired.
+    OverrideExpired,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -216,6 +224,45 @@ impl AuditEvent {
             created_at,
         }
     }
+
+    /// Build an audit event for an override attempt.
+    ///
+    /// The password is NEVER included in the payload, logs, or Debug output.
+    pub fn override_event(
+        id: AuditEventId,
+        event_type: AuditEventType,
+        actor: Option<ActorRef>,
+        action: &ProposedAction,
+        decision: Option<&Decision>,
+        status: &str,
+        reason: &str,
+        created_at: DateTime<Utc>,
+    ) -> Self {
+        let event_type = match event_type {
+            AuditEventType::OverrideRequested
+            | AuditEventType::OverrideApproved
+            | AuditEventType::OverrideFailed
+            | AuditEventType::OverrideExpired => event_type,
+            _ => AuditEventType::OverrideRequested,
+        };
+        Self {
+            id,
+            event_type,
+            actor: actor.unwrap_or(ActorRef::System),
+            workspace_id: Some(action.workspace_id.clone()),
+            task_id: action.task_id.clone(),
+            proposed_action_id: Some(action.id.clone()),
+            decision_id: decision.map(|d| d.id.clone()),
+            payload: json!({
+                "override_status": status,
+                "reason": reason,
+                "action_type": action.action_type,
+                "risk_level": action.risk_level,
+                "timestamp": created_at,
+            }),
+            created_at,
+        }
+    }
 }
 
 fn memory_write_intent_for_audit(action: &ProposedAction) -> Option<Value> {
@@ -302,7 +349,7 @@ fn fallback_rule_for_decision(action: &ProposedAction, decision: &Decision) -> &
 
 fn block_reason_category(action: &ProposedAction, decision: &Decision) -> Option<&'static str> {
     match decision.status {
-        DecisionStatus::Blocked => {
+        DecisionStatus::Blocked | DecisionStatus::RequiresOverride => {
             let reason = decision.reason.to_ascii_lowercase();
             if reason.contains("required permission") {
                 Some("missing_permission")
@@ -320,7 +367,7 @@ fn block_reason_category(action: &ProposedAction, decision: &Decision) -> Option
             Some("missing_policy")
         }
         DecisionStatus::NeedsHumanApproval => Some("required_confirmation"),
-        DecisionStatus::Approved => None,
+        DecisionStatus::Approved | DecisionStatus::ApprovedByOverride => None,
     }
 }
 
@@ -390,6 +437,8 @@ mod tests {
             policies_applied: vec![PolicyId::new("policy-human-approval")],
             decided_by: None,
             created_at: Utc::now(),
+            override_hint: None,
+            action_fingerprint: None,
         };
 
         let event = AuditEvent::decision_created(
@@ -435,7 +484,10 @@ mod tests {
             policies_applied: vec![PolicyId::new("policy-human-approval")],
             decided_by: None,
             created_at: Utc::now(),
+            override_hint: None,
+            action_fingerprint: None,
         };
+
         let proposed = AuditEvent {
             id: AuditEventId::new("audit-proposed"),
             event_type: AuditEventType::ActionProposed,
@@ -511,6 +563,8 @@ mod tests {
             policies_applied: vec![PolicyId::new("policy-memory-human-confirmation")],
             decided_by: None,
             created_at: proposed_at,
+            override_hint: None,
+            action_fingerprint: None,
         };
         let action = ProposedAction {
             id: ProposedActionId::new("action-memory-1"),
@@ -566,6 +620,8 @@ mod tests {
             policies_applied: vec![],
             decided_by: None,
             created_at,
+            override_hint: None,
+            action_fingerprint: None,
         };
         let action = ProposedAction {
             id: ProposedActionId::new("action-read-1"),

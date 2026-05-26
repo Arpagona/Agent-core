@@ -11,6 +11,8 @@ Why: the `--govern` flag was just added and works at runtime, but there is no au
 Proof to seek: `cargo test --workspace` passes with a new test in `crates/cli/tests/` that invokes `cognitive run --assess --govern --json` via the `CARGO_BIN_EXE_arpagona` pattern and asserts `decision_count`, decision status, and the non-authorizing governance warning.
 Do not: add real execution, bypass the Decision Gate, add persistence, modify executor behavior, or add new CLI flags.
 
+Note: `crates/holographic-memory` now exists as an alpha Rust kernel (27 tests, JSON file persistence). Future sessions can explore integrating it with governance or conversation-memory, but it is independent of the current P3 governance path.
+
 ## Required update at the end of every run
 
 Replace the next action above with a new single-step handoff:

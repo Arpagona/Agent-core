@@ -1,15 +1,13 @@
 [package]
-name = "arpagona-decision-gate"
+name = "arpagona-conversation-memory"
 version = "0.1.0"
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
 authors.workspace = true
-description = "Pure Decision Gate rules for ARPAGONA Agent Core"
+description = "Symbolic holographic conversation memory with resonance retrieval for ARPAGONA Agent Core"
 
 [dependencies]
-arpagona-agent-core = { path = "../core" }
-argon2 = "0.5"
 chrono.workspace = true
 serde.workspace = true
 serde_json.workspace = true
