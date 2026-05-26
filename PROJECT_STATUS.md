@@ -1032,3 +1032,95 @@ This session added the deterministic execution capability registry.
 ### Recommended next step
 
 Permission model / policy checks before any real executor: define policy rules that gate dry-run and future execution based on context, risk level, permissions, and resource kinds. The registry has the data; the next step is a `PolicyEngine` that consumes it.
+
+## 24. Latest Session Update (2026-05-28 — P14: Policy Engine for permission and policy checks)
+
+This session added the deterministic PolicyEngine that gates dry-run and future execution paths.
+
+**New module:** `crates/core/src/policy_engine.rs`
+
+**Core types:**
+- `PolicyDecision` enum: `Allowed`, `Blocked`, `NeedsHumanApproval`, `NeedsDryRun`, `UnsupportedCapability`
+- `PolicyInput` struct with: `action_type`, `proposal_status`, `risk_level`, `required_permissions`, `touched_resource_kinds`, `actor`, `workspace`, `dry_run_requested`, `real_execution_requested`
+- `PolicyEngineResult` struct: `decision`, `reason`, `matched_rules`, `dry_run_required`, `human_approval_required`, `capability`
+- `PolicyEngine::evaluate(&PolicyInput) → PolicyEngineResult` — main evaluation
+- `PolicyEngine::evaluate_dry_run(&PolicyInput) → PolicyEngineResult` — shortcut for dry-run mode
+
+**Policy rules (evaluated in order):**
+
+| Rule | Condition | Decision |
+|------|-----------|----------|
+| 1 | Custom/unknown ActionType | `UnsupportedCapability` |
+| 2 | `real_execution_requested == true` | `Blocked` (globally disabled) |
+| 3 | `proposal_status != Approved` | `Blocked` |
+| 4 | `dry_run_requested == true` AND `!cap.supports_dry_run` | `Blocked` |
+| 5 | `risk_level > cap.max_allowed_risk` | `Blocked` |
+| 6 | `cap.human_approval_required == true` | `NeedsHumanApproval` |
+| 7 | Fallthrough — all checks pass | `Allowed` |
+
+**Integration into DryRunResult:**
+- `DryRunResult.policy_decision: Option<serde_json::Value>` — policy metadata included in every dry-run attempt
+- The dry-run endpoint now calls `PolicyEngine::evaluate_dry_run()` before producing the result
+- Blocked dry-runs: `status: DryRunBlocked` + 400 error + audit event with policy metadata
+- Allowed/NeedsHumanApproval dry-runs: `status: DryRunCompleted` + policy metadata in output
+
+**API endpoint (new):**
+- `POST /proposed-actions/{id}/policy-check` — run a policy check without dry-run execution
+- Returns `PolicyEngineResult` JSON with decision, reason, matched rules, and capability metadata
+
+**CLI subcommand (new):**
+- `arpagona action policy check <proposal_id> [--json]` — run policy check on a proposal
+- Human-readable output shows: decision icon, reason, matched rules, capability metadata
+- JSON output via `--json` for programmatic consumption
+
+**Test coverage (18 new tests in `crates/core/src/policy_engine.rs`):**
+- Approved low-risk known action passes dry-run policy
+- Pending/Rejected/Deferred/Superseded proposals are all blocked
+- Custom/unknown ActionType is `UnsupportedCapability`
+- High/Critical risk actions are blocked (exceed max_allowed)
+- Real execution is globally blocked even with Approved status
+- Actions requiring human approval produce `NeedsHumanApproval`
+- `PolicyEngineResult` includes capability metadata
+- Blocked policy decisions include matched rule identifiers
+
+**Verification:**
+- `cargo test --workspace`: 291 tests pass (all crates)
+- 1 unused-method warning (`needs_dry_run` constructor — kept for future use)
+
+**Stability level:** alpha policy engine.
+
+### Key invariants
+
+- No real execution — `real_execution_requested` is always blocked
+- No LLM calls — all policies are deterministic hardcoded rules
+- No Decision Gate bypass — PolicyEngine is a separate layer
+- `Approved` remains non-executing — only dry-run is available
+- Unknown action types return `UnsupportedCapability`
+- Every blocked dry-run creates an audit event with policy metadata
+- `PolicyEngineResult` always includes the capability metadata used during evaluation
+
+### Files changed
+
+| File | Change |
+|------|--------|
+| `crates/core/src/policy_engine.rs` | **New file** — PolicyDecision, PolicyInput, PolicyEngine, 18 tests |
+| `crates/core/src/action.rs` | Added `policy_decision` field to `DryRunResult` |
+| `crates/core/src/lib.rs` | Added `pub mod policy_engine` + `pub use policy_engine::*` |
+| `apps/api-server/src/main.rs` | Integrated PolicyEngine into dry-run endpoint; added `POST /proposed-actions/{id}/policy-check` |
+| `crates/cli/src/main.rs` | Added `action policy check <proposal_id>` subcommand |
+| `PROJECT_STATUS.md` | Updated with section 24 |
+| `FOCUS_LOOP_NEXT.md` | Updated to executor interface, disabled by default |
+
+### What was NOT added
+
+- No real execution — no executor, no tool registration
+- No LLM calls or provider changes
+- No autonomous execution or scheduling
+- No Decision Gate bypass
+- No file/network/shell side effects
+- No tool execution of any kind
+- No modification of core governance invariants
+
+### Recommended next step
+
+Executor interface, disabled by default: define a trait/interface for executors that consume approved, policy-checked actions. Keep execution disabled at the trait level — the policy engine, capability registry, and dry-run layer exist; what's missing is the formal executor abstraction they would eventually feed into.

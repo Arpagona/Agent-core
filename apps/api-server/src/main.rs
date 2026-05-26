@@ -3,6 +3,7 @@ use std::sync::{Arc, Mutex};
 
 use arpagona_agent_core::{
     execution_capability, list_execution_capabilities, ExecutionCapability,
+    PolicyEngine, PolicyInput, PolicyDecision, PolicyEngineResult,
     ActionType, ActorRef, AgentId, AuditEvent, AuditEventId, AuditEventType, Decision,
     DecisionStatus, DryRunResult, DryRunStatus, Permission, ProposedAction, ProposedActionId,
     ProposedActionStatus, RiskLevel, Task, TaskId, TaskPriority, TaskStatus, WorkspaceId,
@@ -154,6 +155,10 @@ fn app(state: AppState) -> Router {
         .route(
             "/execution-capabilities/{action_type}",
             get(get_execution_capability_handler),
+        )
+        .route(
+            "/proposed-actions/{id}/policy-check",
+            post(policy_check_proposal),
         )
         .with_state(state)
 }
@@ -579,38 +584,41 @@ async fn dry_run_proposal(
 
     let action = store.proposed_actions[idx].clone();
 
-    // Only Approved proposals may be dry-run
-    if action.status != ProposedActionStatus::Approved {
-        let audit_event = AuditEvent {
-            id: AuditEventId::new(format!(
-                "audit-dry-run-blocked-{}-{}",
-                action.id.as_str(),
-                store.audit_events.len() + 1
-            )),
-            event_type: AuditEventType::DecisionCreated,
-            actor: ActorRef::System,
-            workspace_id: Some(action.workspace_id.clone()),
-            task_id: action.task_id.clone(),
-            proposed_action_id: Some(action.id.clone()),
-            decision_id: None,
-            payload: serde_json::json!({
-                "dry_run_status": "blocked",
-                "reason": format!("Proposal status is {:?}, must be Approved", action.status),
-            }),
-            created_at: Utc::now(),
-        };
-        store.audit_events.push(audit_event);
+    // Build policy input from the action
+    let policy_input = PolicyInput {
+        action_type: action.action_type.clone(),
+        proposal_status: action.status.clone(),
+        risk_level: action.risk_level.clone(),
+        required_permissions: action
+            .required_permissions
+            .iter()
+            .map(|p| format!("{:?}", p))
+            .collect(),
+        touched_resource_kinds: vec![], // filled below by describe_action_effects
+        actor: Some(format!("{:?}", action.proposed_by)),
+        workspace: Some(action.workspace_id.as_str().to_owned()),
+        dry_run_requested: true,
+        real_execution_requested: false,
+    };
 
-        return Err(ApiError::bad_request(format!(
-            "Cannot dry-run proposal with status {:?}. Only Approved proposals may be dry-run.",
-            action.status
-        )));
-    }
+    // Run policy check
+    let policy_result = PolicyEngine::evaluate_dry_run(&policy_input);
 
     let (expected_effects, touched_resources, reversibility, summary) =
         describe_action_effects(&action);
 
     let capability = execution_capability(&action.action_type);
+
+    let (dry_run_status, policy_blocked_reason): (DryRunStatus, Option<String>) = match &policy_result.decision {
+        PolicyDecision::Allowed => (DryRunStatus::DryRunCompleted, None),
+        PolicyDecision::NeedsDryRun => (DryRunStatus::DryRunCompleted, None),
+        PolicyDecision::NeedsHumanApproval => (DryRunStatus::DryRunCompleted, Some("NeedsHumanApproval: action requires human approval before proceeding.".to_owned())),
+        PolicyDecision::Blocked => (DryRunStatus::DryRunBlocked, Some(policy_result.reason.clone())),
+        PolicyDecision::UnsupportedCapability => (DryRunStatus::DryRunBlocked, Some(policy_result.reason.clone())),
+    };
+
+    let is_blocked = dry_run_status == DryRunStatus::DryRunBlocked;
+
     let result = DryRunResult {
         proposal_id: action.id.clone(),
         action_type: action.action_type.clone(),
@@ -620,12 +628,13 @@ async fn dry_run_proposal(
         risk_level: action.risk_level.clone(),
         reversibility,
         human_readable_summary: summary,
-        status: DryRunStatus::DryRunCompleted,
+        status: dry_run_status,
         execution_capability: Some(serde_json::to_value(&capability).unwrap_or_default()),
+        policy_decision: Some(serde_json::to_value(&policy_result).unwrap_or_default()),
         created_at: Utc::now(),
     };
 
-    // Create audit event for the dry-run
+    // Create audit event
     let audit_event = AuditEvent {
         id: AuditEventId::new(format!(
             "audit-dry-run-{}-{}",
@@ -639,16 +648,27 @@ async fn dry_run_proposal(
         proposed_action_id: Some(action.id.clone()),
         decision_id: None,
         payload: serde_json::json!({
-            "dry_run_status": "completed",
+            "dry_run_status": if is_blocked { "blocked" } else { "completed" },
             "action_type": result.action_type,
+            "policy_decision": policy_result.decision,
+            "policy_reason": policy_result.reason,
+            "policy_matched_rules": policy_result.matched_rules,
             "expected_effects": result.expected_effects,
             "touched_resources": result.touched_resources,
+            "block_reason": policy_blocked_reason,
         }),
         created_at: Utc::now(),
     };
 
     store.dry_run_results.push(result.clone());
     store.audit_events.push(audit_event);
+
+    if is_blocked {
+        return Err(ApiError::bad_request(format!(
+            "Dry-run blocked by policy: {}",
+            policy_blocked_reason.unwrap_or_else(|| "Unknown policy block.".to_owned())
+        )));
+    }
 
     Ok(Json(result))
 }
@@ -657,6 +677,42 @@ async fn list_dry_run_results(
     State(state): State<AppState>,
 ) -> Result<Json<Vec<DryRunResult>>, ApiError> {
     Ok(Json(state.lock()?.dry_run_results.clone()))
+}
+
+/// Run a policy check on a proposed action without executing anything.
+async fn policy_check_proposal(
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+) -> Result<Json<PolicyEngineResult>, ApiError> {
+    let action_id = ProposedActionId::new(id);
+    let store = state.lock()?;
+
+    let action = store
+        .proposed_actions
+        .iter()
+        .find(|a| a.id == action_id)
+        .ok_or_else(|| ApiError::not_found(format!("proposed action {} not found", action_id)))?
+        .clone();
+
+    let policy_input = PolicyInput {
+        action_type: action.action_type.clone(),
+        proposal_status: action.status.clone(),
+        risk_level: action.risk_level.clone(),
+        required_permissions: action
+            .required_permissions
+            .iter()
+            .map(|p| format!("{:?}", p))
+            .collect(),
+        touched_resource_kinds: vec![],
+        actor: Some(format!("{:?}", action.proposed_by)),
+        workspace: Some(action.workspace_id.as_str().to_owned()),
+        dry_run_requested: true,
+        real_execution_requested: false,
+    };
+
+    let result = PolicyEngine::evaluate_dry_run(&policy_input);
+
+    Ok(Json(result))
 }
 
 fn status_from_decision(status: &DecisionStatus) -> ProposedActionStatus {

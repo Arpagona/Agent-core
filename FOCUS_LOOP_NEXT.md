@@ -6,13 +6,13 @@ It must contain one concrete next action only. The runtime milestone queue and l
 
 ## Next action
 
-Implement permission model / policy checks before any real executor.
+Implement executor interface, disabled by default.
 
-Why: the execution capability registry now provides deterministic metadata for every action type. The next step is a `PolicyEngine` that consumes registry data (risk level, required permissions, resource kinds) plus context (agent role, workspace scope, user intent) to gate dry-run eligibility and future execution. This is the last missing layer before any executor can be designed.
+Why: the capability registry, policy engine, and dry-run layer now form a complete governance pipeline for action checking. What's missing is the formal executor abstraction — a trait/interface that consumes approved, policy-checked actions. Keep execution disabled at the trait level (`supports_real_execution: false` everywhere), but define the interface so the pipeline has a target.
 
-Proof to seek: `arpagona action capability list` shows available executors; a `policy check` command can evaluate "can agent-X dry-run action-type-Y with risk-level-Z on workspace-W".
+Proof to seek: a trait `Executor` with methods like `supports(action_type, risk_level) -> bool` and `dry_run(action) -> DryRunResult` exists; no real executor implementation exists.
 
-Do not: add real execution, modify files/tools/systems, call LLMs, or enable autonomous execution. The policy engine is purely declarative.
+Do not: add real execution, modify files/tools/systems, call LLMs, or enable autonomous execution. The executor trait is purely abstract.
 
 ## Required update at the end of every run
 

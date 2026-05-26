@@ -243,6 +243,8 @@ enum ActionSubcommand {
     DryRun(DryRunActionArgs),
     /// Query the execution capability registry.
     Capability(CapabilityCommand),
+    /// Run a policy check on a proposed action.
+    Policy(PolicyActionCommand),
 }
 
 #[derive(Debug, Args)]
@@ -365,6 +367,27 @@ struct CapabilityListArgs {
 struct CapabilityShowArgs {
     /// Action type (e.g. read_memory, simulate_email).
     action_type: String,
+    /// Emit structured JSON instead of human-oriented text.
+    #[arg(long)]
+    json: bool,
+}
+
+#[derive(Debug, Args)]
+struct PolicyActionCommand {
+    #[command(subcommand)]
+    command: PolicyActionSubcommand,
+}
+
+#[derive(Debug, Subcommand)]
+enum PolicyActionSubcommand {
+    /// Run a policy check on a proposed action.
+    Check(PolicyCheckArgs),
+}
+
+#[derive(Debug, Args)]
+struct PolicyCheckArgs {
+    /// Proposed action ID to check.
+    action_id: String,
     /// Emit structured JSON instead of human-oriented text.
     #[arg(long)]
     json: bool,
@@ -1148,6 +1171,7 @@ async fn run() -> Result<(), Box<dyn Error>> {
             ActionSubcommand::Sandbox(args) => sandbox_action(&client, &api_url, args).await?,
             ActionSubcommand::DryRun(args) => dry_run_action(&client, &api_url, args).await?,
             ActionSubcommand::Capability(args) => capability_action(&client, &api_url, args).await?,
+            ActionSubcommand::Policy(args) => policy_action(&client, &api_url, args).await?,
         },
         Command::Agent(agent) => match agent.command {
             AgentSubcommand::Propose(args) => propose_agent_action(&client, &api_url, args).await?,
@@ -3729,6 +3753,85 @@ async fn capability_action(
                 }
                 if let Some(warn) = cap["safety_warning"].as_str() {
                     println!("{} {}", style_warning("  safety_warning:"), warn);
+                }
+            }
+        }
+    }
+    Ok(())
+}
+
+/// Run a policy check on a proposed action via the API.
+async fn policy_action(
+    client: &Client,
+    api_url: &str,
+    cmd: PolicyActionCommand,
+) -> Result<(), Box<dyn Error>> {
+    match cmd.command {
+        PolicyActionSubcommand::Check(args) => {
+            let result: serde_json::Value = client
+                .post(format!(
+                    "{api_url}/proposed-actions/{}/policy-check",
+                    args.action_id
+                ))
+                .send()
+                .await?
+                .json()
+                .await?;
+
+            if args.json {
+                println!("{}", serde_json::to_string_pretty(&result)?);
+            } else {
+                let decision = result["decision"]
+                    .as_str()
+                    .unwrap_or("unknown");
+                let reason = result["reason"]
+                    .as_str()
+                    .unwrap_or("");
+
+                let icon = match decision {
+                    "allowed" => style_success("✓"),
+                    "needs_human_approval" => style_warning("◆"),
+                    "needs_dry_run" => style_info("◈"),
+                    _ => style_error("✗"),
+                };
+
+                println!(
+                    "{} Policy check for '{}': {}",
+                    icon,
+                    args.action_id,
+                    style_status(decision),
+                );
+                println!("{} {}", style_dim("  reason:"), reason);
+
+                if let Some(rules) = result["matched_rules"].as_array() {
+                    if !rules.is_empty() {
+                        println!("{}", style_dim("  matched rules:"));
+                        for rule in rules {
+                            if let Some(r) = rule.as_str() {
+                                println!("    - {}", r);
+                            }
+                        }
+                    }
+                }
+
+                if let Some(cap) = result["capability"].as_object() {
+                    if let Some(at) = cap.get("action_type").and_then(|v| v.as_str()) {
+                        println!(
+                            "{} {}",
+                            style_dim("  action_type:"),
+                            at
+                        );
+                    }
+                    if let Some(dry) = cap.get("supports_dry_run").and_then(|v| v.as_bool()) {
+                        println!(
+                            "{} {}",
+                            style_dim("  supports_dry_run:"),
+                            if dry { "yes" } else { "no" }
+                        );
+                    }
+                    if let Some(max) = cap.get("max_allowed_risk").and_then(|v| v.as_str()) {
+                        println!("{} {}", style_dim("  max_allowed_risk:"), max);
+                    }
                 }
             }
         }

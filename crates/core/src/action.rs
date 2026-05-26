@@ -251,6 +251,8 @@ pub struct DryRunResult {
     pub human_readable_summary: String,
     pub status: DryRunStatus,
     pub execution_capability: Option<serde_json::Value>,
+    /// The policy engine decision for this dry-run attempt.
+    pub policy_decision: Option<serde_json::Value>,
     pub created_at: DateTime<Utc>,
 }
 
