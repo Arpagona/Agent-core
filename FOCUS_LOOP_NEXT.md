@@ -6,13 +6,13 @@ It must contain one concrete next action only. The runtime milestone queue and l
 
 ## Next action
 
-Add `--resonate` flag to `arpagona cognitive run` CLI for direct HolographicMemory resonance readback.
+Add `--observe` tool observation bridge to the `--assess` pipeline so that cognitive tool observations flow through assessment → FailureInsightCandidates → governed learning proposal path.
 
-Why: P6 (resonate_for_working_memory) is implemented and tested, but the CLI only exposes `--assess` and `--allocate`. Adding `--resonate` completes the cognitive chain in a single CLI command: WorkingMemory → ComputeReservoir → HolographicMemory resonance, all in one JSON output.
+Why: P2 (cognitive run), P4 (working memory), P5 (compute allocation), P6 (holographic resonance) are all complete with CLI flags and parser tests. P3 is the next incomplete milestone: converting tool observations into governed learning proposals through the existing FailureInsightCandidate → ProposedAction → DecisionGate → Audit chain. The `--observe` flag exists but its results aren't piped into the assessment path.
 
-Proof to seek: `cargo run -- cognitive run --objective "..." --domain business --assess --allocate --resonate --json` produces a `holographic_resonance` block in the JSON output containing hints, has_resonance, and non_authorizing_warning.
+Proof to seek: `cargo run -- cognitive run --objective "..." --domain research --assess --observe --json` produces `failure_insight_candidates` that include observation-derived entries (e.g. tool observation results mapped to candidate insights), not only improvement-candidate-derived entries. The `cognitive_observations` in working_memory show real tool output.
 
-Do not: modify any core types, add LLM calls, persistence, shell execution, external effects, or Decision Gate bypass. This is purely a CLI wiring change + JSON output field.
+Do not: add LLM calls, persistence, shell execution, Decision Gate bypass, or HolographicMemory vector store. Keep it pure Rust + tool runtime.
 
 ## Required update at the end of every run
 

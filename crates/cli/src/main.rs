@@ -6121,6 +6121,227 @@ mod tests {
     }
 
     #[test]
+    fn cli_parses_cognitive_run_basic() {
+        let cli = Cli::parse_from([
+            "arpagona",
+            "cognitive",
+            "run",
+            "--objective",
+            "Test objective",
+        ]);
+        match cli.command {
+            Command::Cognitive(CognitiveCommand {
+                command: CognitiveSubcommand::Run(args),
+            }) => {
+                assert_eq!(args.objective, "Test objective");
+                assert!(args.domain.is_none());
+                assert!(!args.assess);
+                assert!(!args.allocate);
+                assert!(!args.resonate);
+                assert!(!args.observe);
+                assert!(!args.llm);
+                assert!(!args.json);
+            }
+            _ => panic!("expected cognitive run"),
+        }
+    }
+
+    #[test]
+    fn cli_parses_cognitive_run_with_domain() {
+        let cli = Cli::parse_from([
+            "arpagona",
+            "cognitive",
+            "run",
+            "--objective",
+            "Research quantum computing",
+            "--domain",
+            "research",
+        ]);
+        match cli.command {
+            Command::Cognitive(CognitiveCommand {
+                command: CognitiveSubcommand::Run(args),
+            }) => {
+                assert_eq!(args.objective, "Research quantum computing");
+                assert_eq!(args.domain.as_deref(), Some("research"));
+            }
+            _ => panic!("expected cognitive run"),
+        }
+    }
+
+    #[test]
+    fn cli_parses_cognitive_run_with_assess_flag() {
+        let cli = Cli::parse_from([
+            "arpagona",
+            "cognitive",
+            "run",
+            "--objective",
+            "Assess market risk",
+            "--assess",
+        ]);
+        match cli.command {
+            Command::Cognitive(CognitiveCommand {
+                command: CognitiveSubcommand::Run(args),
+            }) => {
+                assert_eq!(args.objective, "Assess market risk");
+                assert!(args.assess);
+                assert!(!args.allocate);
+                assert!(!args.resonate);
+            }
+            _ => panic!("expected cognitive run with --assess"),
+        }
+    }
+
+    #[test]
+    fn cli_parses_cognitive_run_with_allocate_flag() {
+        let cli = Cli::parse_from([
+            "arpagona",
+            "cognitive",
+            "run",
+            "--objective",
+            "Allocate resources",
+            "--allocate",
+        ]);
+        match cli.command {
+            Command::Cognitive(CognitiveCommand {
+                command: CognitiveSubcommand::Run(args),
+            }) => {
+                assert_eq!(args.objective, "Allocate resources");
+                assert!(!args.assess);
+                assert!(args.allocate);
+                assert!(!args.resonate);
+            }
+            _ => panic!("expected cognitive run with --allocate"),
+        }
+    }
+
+    #[test]
+    fn cli_parses_cognitive_run_with_resonate_flag() {
+        let cli = Cli::parse_from([
+            "arpagona",
+            "cognitive",
+            "run",
+            "--objective",
+            "Detect patterns",
+            "--resonate",
+        ]);
+        match cli.command {
+            Command::Cognitive(CognitiveCommand {
+                command: CognitiveSubcommand::Run(args),
+            }) => {
+                assert_eq!(args.objective, "Detect patterns");
+                assert!(!args.assess);
+                assert!(!args.allocate);
+                assert!(args.resonate);
+            }
+            _ => panic!("expected cognitive run with --resonate"),
+        }
+    }
+
+    #[test]
+    fn cli_parses_cognitive_run_with_all_flags() {
+        let cli = Cli::parse_from([
+            "arpagona",
+            "cognitive",
+            "run",
+            "--objective",
+            "Full cognitive pipeline",
+            "--domain",
+            "engineering",
+            "--assess",
+            "--allocate",
+            "--resonate",
+            "--json",
+        ]);
+        match cli.command {
+            Command::Cognitive(CognitiveCommand {
+                command: CognitiveSubcommand::Run(args),
+            }) => {
+                assert_eq!(args.objective, "Full cognitive pipeline");
+                assert_eq!(args.domain.as_deref(), Some("engineering"));
+                assert!(args.assess);
+                assert!(args.allocate);
+                assert!(args.resonate);
+                assert!(args.json);
+            }
+            _ => panic!("expected cognitive run with all flags"),
+        }
+    }
+
+    #[test]
+    fn cli_parses_cognitive_run_with_context() {
+        let cli = Cli::parse_from([
+            "arpagona",
+            "cognitive",
+            "run",
+            "--objective",
+            "Context-aware task",
+            "--context",
+            "budget: limited\nteam: small",
+        ]);
+        match cli.command {
+            Command::Cognitive(CognitiveCommand {
+                command: CognitiveSubcommand::Run(args),
+            }) => {
+                assert_eq!(args.objective, "Context-aware task");
+                assert_eq!(
+                    args.context.as_deref(),
+                    Some("budget: limited\nteam: small")
+                );
+            }
+            _ => panic!("expected cognitive run with context"),
+        }
+    }
+
+    #[test]
+    fn cli_parses_cognitive_run_allocate_json() {
+        let cli = Cli::parse_from([
+            "arpagona",
+            "cognitive",
+            "run",
+            "--objective",
+            "Allocate and output JSON",
+            "--allocate",
+            "--json",
+        ]);
+        match cli.command {
+            Command::Cognitive(CognitiveCommand {
+                command: CognitiveSubcommand::Run(args),
+            }) => {
+                assert!(args.allocate);
+                assert!(args.json);
+                assert!(!args.resonate);
+            }
+            _ => panic!("expected cognitive run with --allocate --json"),
+        }
+    }
+
+    #[test]
+    fn cli_parses_cognitive_run_assess_allocate_resonate() {
+        let cli = Cli::parse_from([
+            "arpagona",
+            "cognitive",
+            "run",
+            "--objective",
+            "Full pipeline",
+            "--assess",
+            "--allocate",
+            "--resonate",
+        ]);
+        match cli.command {
+            Command::Cognitive(CognitiveCommand {
+                command: CognitiveSubcommand::Run(args),
+            }) => {
+                assert!(args.assess);
+                assert!(args.allocate);
+                assert!(args.resonate);
+                assert!(!args.llm);
+                assert!(!args.observe);
+            }
+            _ => panic!("expected cognitive run with --assess --allocate --resonate"),
+        }
+    }
+
+    #[test]
     fn command_definition_is_valid() {
         Cli::command().debug_assert();
     }
