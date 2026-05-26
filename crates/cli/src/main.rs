@@ -2,10 +2,10 @@ use arpagona_agent_core::{
     holographic::{resonate_for_working_memory, RESONANCE_NON_AUTHORIZING_WARNING},
     ActionType, AgentId, AuditEvent, AuditEventId, AuditTraceSummary, CognitiveCycleResult,
     CorrectionTarget, Decision, DecisionId, DecisionStatus, DetectionSignal, DetectionSignalType,
-    FailureClass, FailureInsight, FailureInsightId, InsightSeverity, MemoryWriteIntent,
-    MemoryWriteKind, MemoryWriteProvenance, MemoryWriteTarget, ObjectiveDomain, Permission,
-    ProposedAction, ProposedActionId, ProposedActionStatus, RiskLevel, SourceId, Task, TaskId,
-    WorkspaceId,
+    ExecutorRegistry, FailureClass, FailureInsight, FailureInsightId, InsightSeverity,
+    MemoryWriteIntent, MemoryWriteKind, MemoryWriteProvenance, MemoryWriteTarget, ObjectiveDomain,
+    Permission, ProposedAction, ProposedActionId, ProposedActionStatus, RiskLevel, SourceId, Task,
+    TaskId, WorkspaceId,
 };
 use arpagona_compute_reservoir::{
     allocate_for_working_memory, ComputeAllocation, ComputeCapability, ComputeNode, ComputeNodeId,
@@ -117,6 +117,9 @@ pub struct ExecutorListArgs {
     /// Emit structured JSON instead of human-oriented text.
     #[arg(long)]
     pub json: bool,
+    /// Query executor state directly from the core crate without an API server.
+    #[arg(long)]
+    pub offline: bool,
 }
 
 #[derive(Debug, Args)]
@@ -126,6 +129,9 @@ pub struct ExecutorInspectArgs {
     /// Emit structured JSON instead of human-oriented text.
     #[arg(long)]
     pub json: bool,
+    /// Query executor state directly from the core crate without an API server.
+    #[arg(long)]
+    pub offline: bool,
 }
 
 #[derive(Debug, Args)]
@@ -5823,7 +5829,7 @@ struct ProposalRunResult {
     audit_events: Vec<arpagona_agent_core::AuditEvent>,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 struct ExecutorInfoResponse {
     executor_id: String,
     executor_state: String,
@@ -5836,8 +5842,37 @@ async fn executor_list(
     api_url: &str,
     args: ExecutorListArgs,
 ) -> Result<(), Box<dyn Error>> {
-    let executors: Vec<ExecutorInfoResponse> =
-        get_json(client.get(format!("{api_url}/executors")).send().await?).await?;
+    let executors: Vec<ExecutorInfoResponse> = if args.offline {
+        let registry = ExecutorRegistry::new();
+        let mut executors = Vec::new();
+        for id in registry.list() {
+            if let Some(slot) = registry.get_slot(&id) {
+                let state_str = serde_json::to_value(&slot.state)?
+                    .as_str()
+                    .unwrap_or("unknown")
+                    .to_owned();
+                let action_types: Vec<String> = slot
+                    .executor
+                    .supported_action_types()
+                    .iter()
+                    .map(|at| {
+                        serde_json::to_value(at)
+                            .ok()
+                            .and_then(|v| v.as_str().map(String::from))
+                            .unwrap_or_else(|| format!("{at:?}"))
+                    })
+                    .collect();
+                executors.push(ExecutorInfoResponse {
+                    executor_id: id,
+                    executor_state: state_str,
+                    supported_action_types: action_types,
+                });
+            }
+        }
+        executors
+    } else {
+        get_json(client.get(format!("{api_url}/executors")).send().await?).await?
+    };
 
     if args.json {
         println!("{}", serde_json::to_string_pretty(&executors)?);
@@ -5861,16 +5896,44 @@ async fn executor_inspect(
     api_url: &str,
     args: ExecutorInspectArgs,
 ) -> Result<(), Box<dyn Error>> {
-    // Fetch the full executor list and filter for the requested ID
-    let executors: Vec<ExecutorInfoResponse> =
-        get_json(client.get(format!("{api_url}/executors")).send().await?).await?;
-
-    let exec = executors.iter().find(|e| e.executor_id == args.executor_id);
+    let exec = if args.offline {
+        let registry = ExecutorRegistry::new();
+        registry.get_slot(&args.executor_id).map(|slot| {
+            let state_str = serde_json::to_value(&slot.state)
+                .ok()
+                .and_then(|v| v.as_str().map(String::from))
+                .unwrap_or_else(|| format!("{:?}", slot.state));
+            let action_types: Vec<String> = slot
+                .executor
+                .supported_action_types()
+                .iter()
+                .map(|at| {
+                    serde_json::to_value(at)
+                        .ok()
+                        .and_then(|v| v.as_str().map(String::from))
+                        .unwrap_or_else(|| format!("{at:?}"))
+                })
+                .collect();
+            ExecutorInfoResponse {
+                executor_id: args.executor_id.clone(),
+                executor_state: state_str,
+                supported_action_types: action_types,
+            }
+        })
+    } else {
+        // Fetch the full executor list and filter for the requested ID
+        let executors: Vec<ExecutorInfoResponse> =
+            get_json(client.get(format!("{api_url}/executors")).send().await?).await?;
+        executors
+            .iter()
+            .find(|e| e.executor_id == args.executor_id)
+            .cloned()
+    };
 
     match exec {
         Some(info) => {
             if args.json {
-                println!("{}", serde_json::to_string_pretty(info)?);
+                println!("{}", serde_json::to_string_pretty(&info)?);
             } else {
                 println!("Executor: {}", info.executor_id);
                 println!("  State: {}", info.executor_state);
@@ -8681,6 +8744,34 @@ mod tests {
                 assert_eq!(args.executor_id, "custom-exec");
             }
             _ => panic!("expected executor inspect custom-exec"),
+        }
+    }
+
+    #[test]
+    fn cli_parses_executor_list_offline() {
+        let cli = Cli::parse_from(["arpagona", "executor", "list", "--offline"]);
+        match cli.command {
+            Command::Executor(ExecutorCommand {
+                command: ExecutorSubcommand::List(args),
+            }) => {
+                assert!(args.offline);
+                assert!(!args.json);
+            }
+            _ => panic!("expected executor list --offline"),
+        }
+    }
+
+    #[test]
+    fn cli_parses_executor_list_offline_json() {
+        let cli = Cli::parse_from(["arpagona", "executor", "list", "--offline", "--json"]);
+        match cli.command {
+            Command::Executor(ExecutorCommand {
+                command: ExecutorSubcommand::List(args),
+            }) => {
+                assert!(args.offline);
+                assert!(args.json);
+            }
+            _ => panic!("expected executor list --offline --json"),
         }
     }
 }

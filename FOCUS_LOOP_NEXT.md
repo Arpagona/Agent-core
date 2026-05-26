@@ -6,10 +6,10 @@ It must contain one concrete next action only. The runtime milestone queue and l
 
 ## Next action
 
-Next pass should: integrate the executor list/inspect commands into the CLI's offline mode by allowing direct ExecutorRegistry construction from the core crate, so operators can inspect executor readiness without running the API server.
-Why: the CLI executor commands added in this session work via HTTP to the API server, but the handoff goal was offline inspection. After that, advance the P2 General Cognitive Work Loop by adding the `--observe` flag support to generate cognitive observations from the work cycle output.
-Proof to seek: `cargo run --bin arpagona -- executor list --json` works without the API server; `cargo run --bin arpagona -- cognitive run --objective "test" --observe --json` returns observations.
-Do not: add real execution, modify NoopExecutor behavior, bypass the Decision Gate, or add executor state mutation.
+Next pass should: add an `--offline` flag to `executor inspect` command (mirroring the pattern just added for `executor list`) and add an end-to-end integration test for the offline executor commands that constructs an `ExecutorRegistry`, registers a test executor in Ready state, and verifies both list and inspect produce correct output without requiring an API server.
+Why: the offline executor inspection support is complete for list but the inspect path hasn't been verified end-to-end in a replicable test, and the `inspect --offline` flag is consistent but the existing `inspect --offline` tests only cover parser parsing, not runtime behavior.
+Proof to seek: `cargo test --workspace` passes with a new integration test proving both `executor list --offline` and `executor inspect --offline` produce correct executor metadata without an API server running.
+Do not: add real execution to any executor, bypass the Decision Gate, or modify any executor behavior in the core crate.
 
 ## Required update at the end of every run
 

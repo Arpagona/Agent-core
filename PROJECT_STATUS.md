@@ -1501,3 +1501,63 @@ This completes the bridge between the `ExecutorRegistry::set_state()`/`get_state
 - No SurrealDB or persistence changes
 - No LLM, scheduler, MCP, browser automation, or security changes
 
+## 29. Latest Session Update (2026-05-26 — P19: Offline executor list/inspect CLI commands)
+
+This session added `--offline` flag support to the CLI executor list/inspect commands, enabling operators to inspect executor readiness without running the API server.
+
+**Changed in `crates/cli/src/main.rs`:**
+- Added `--offline` flag to `ExecutorListArgs` and `ExecutorInspectArgs`
+- Modified `executor_list()` — when `--offline` is set, constructs `ExecutorRegistry::new()` directly from the core crate and iterates slots, producing the same `ExecutorInfoResponse` shape as the HTTP path
+- Modified `executor_inspect()` — when `--offline` is set, constructs `ExecutorRegistry::new()` and looks up the slot by executor_id
+- Added `Clone` derive to `ExecutorInfoResponse` (needed for the offline inspect path)
+- Added `ExecutorRegistry` import to the top-level use block
+- Added 2 parser tests: `cli_parses_executor_list_offline` and `cli_parses_executor_list_offline_json`
+
+**Key invariants:**
+- No real execution — offline mode only reads state, never mutates
+- No API server dependency — pure core crate construction
+- Same output format as the online HTTP path (same `ExecutorInfoResponse` struct)
+- Both human-readable and `--json` output formats work offline
+- Executors remain disabled by default (NoopExecutor starts as Disabled)
+- No Decision Gate, PolicyEngine, or executor behavior changes
+
+**Verification:**
+- `cargo fmt -- --check`: clean
+- `cargo check`: clean (0 new errors)
+- `cargo test --workspace`: 33x+ tests pass across all crates (0 failures)
+- Manual verification:
+  - `cargo run -- executor list --offline` → shows noop-executor with state=disabled and all 18 supported action types
+  - `cargo run -- executor list --offline --json` → structured JSON with same data
+  - `cargo run -- executor inspect noop-executor --offline` → executor details with state
+
+**Stability level:** alpha CLI supervision surface (same as existing executor commands).
+
+**Deliberately not changed:**
+- No API endpoint changes
+- No CLI surface changes beyond the `--offline` flag
+- No new crate dependencies
+- No governance, Decision Gate, or policy engine changes
+- No executor execution behavior modified
+- No SurrealDB or persistence changes
+- No LLM, scheduler, MCP, browser automation, or security changes
+
+**Functional-alpha chain advancement:**
+```
+operator -> executor list --offline -> direct ExecutorRegistry::new() slot iteration -> executor metadata readback
+operator -> executor inspect <id> --offline -> direct ExecutorRegistry::new() slot lookup -> executor detail readback
+```
+
+Before this session: operators needed the API server running to inspect executor state.
+After this session: `executor list --offline` and `executor inspect --offline` work entirely from the core crate, no server required.
+
+### Files changed
+
+| File | Change |
+|------|--------|
+| `crates/cli/src/main.rs` | Added `--offline` flag to `ExecutorListArgs` and `ExecutorInspectArgs`; added offline code paths to `executor_list()` and `executor_inspect()`; added `Clone` derive to `ExecutorInfoResponse`; added `ExecutorRegistry` import; added 2 parser tests |
+| `PROJECT_STATUS.md` | Updated with section 29 |
+| `FOCUS_LOOP_NEXT.md` | Updated handoff to integration test for offline executor inspect |
+
+### Recommended next step
+
+Add `--offline` flag support to `executor inspect` command parser tests for `--offline` and `--offline --json` combinations. Add an end-to-end integration test that constructs an `ExecutorRegistry`, registers a test executor in Ready state, and verifies both `executor list --offline` and `executor inspect --offline` produce correct output without requiring an API server.
