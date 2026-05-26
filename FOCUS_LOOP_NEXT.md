@@ -6,10 +6,10 @@ It must contain one concrete next action only. The runtime milestone queue and l
 
 ## Next action
 
-Next pass should: pick P2 (General Cognitive Work Loop V0) from the milestone queue — specifically add parser tests and documentation for the existing `cognitive run` CLI flags (--assess, --observe, --allocate, --resonate, --propose) and fill any gaps before starting deeper runtime work.
-Why: offline executor commands now have full end-to-end integration coverage and PR #99 is merged. P2 is the next unstarted milestone. Before adding new cognitive run behavior, existing flags should have parser parity with the rest of the CLI.
-Proof to seek: all `cognitive run` flags (--assess, --observe, --propose, --allocate, --resonate) have parser tests matching the pattern in existing executor tests.
-Do not: add real execution, modify cognitive runtime behavior, bypass Decision Gate, or add new flags in this session.
+Next pass should: add an end-to-end integration test for `cognitive run --assess --govern --json` that proves the full P3 chain (CognitiveObservation -> FailureInsightCandidate -> ProposedAction -> DecisionGate -> Decision -> AuditEvent -> readback) works offline without the API server.
+Why: the `--govern` flag was just added and works at runtime, but there is no automated test proving the governance chain produces correct Decision Gate decisions and AuditEvents end-to-end from cognitive work loop output.
+Proof to seek: `cargo test --workspace` passes with a new test in `crates/cli/tests/` that invokes `cognitive run --assess --govern --json` via the `CARGO_BIN_EXE_arpagona` pattern and asserts `decision_count`, decision status, and the non-authorizing governance warning.
+Do not: add real execution, bypass the Decision Gate, add persistence, modify executor behavior, or add new CLI flags.
 
 ## Required update at the end of every run
 
