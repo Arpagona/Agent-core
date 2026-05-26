@@ -1561,3 +1561,38 @@ After this session: `executor list --offline` and `executor inspect --offline` w
 ### Recommended next step
 
 Add `--offline` flag support to `executor inspect` command parser tests for `--offline` and `--offline --json` combinations. Add an end-to-end integration test that constructs an `ExecutorRegistry`, registers a test executor in Ready state, and verifies both `executor list --offline` and `executor inspect --offline` produce correct output without requiring an API server.
+
+---
+
+## 30. Latest Session Update (2026-05-26 — Offline executor integration test)
+
+This session added an end-to-end integration test (`offline_executor_commands_produce_correct_output`) in `crates/cli/tests/snapshot_integration.rs` that verifies the `--offline` executor commands work correctly without an API server.
+
+**Test coverage:**
+- `executor list --offline` — human-readable output contains `noop-executor` with `state=disabled`
+- `executor list --offline --json` — parsed JSON array with `executor_id`, `executor_state`, `supported_action_types`
+- `executor inspect noop-executor --offline` — human-readable output shows executor details
+- `executor inspect noop-executor --offline --json` — parsed JSON with `executor_id=noop-executor`, `state=disabled`
+- `executor inspect nonexistent-executor --offline` — graceful `not found` message
+
+**Verification:**
+- `cargo fmt -- --check`: clean
+- `cargo check`: clean (pre-existing warnings only)
+- `cargo test --workspace`: 350 tests pass (0 failures)
+
+**Functional-alpha chain advancement:**
+```
+operator -> executor list --offline -> ExecutorRegistry::new() slot iteration -> verified metadata readback
+operator -> executor inspect <id> --offline -> ExecutorRegistry::new() slot lookup -> verified detail readback
+```
+
+Before this session: offline executor commands had parser tests but no end-to-end binary integration test.
+After this session: 5 sub-tests covering human-readable, JSON, and error paths — all running without an API server.
+
+### Deliberately not changed
+- No CLI surface changes (only tests)
+- No core crate changes
+- No executor behavior modified
+- No governance, Decision Gate, or policy engine changes
+- No SurrealDB or persistence changes
+- No build dependencies added

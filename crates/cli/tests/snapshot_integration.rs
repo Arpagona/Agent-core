@@ -164,11 +164,154 @@ fn snapshot_read_reports_missing_file_error() {
     );
 }
 
-/// End-to-end integration test for context-aware governed proposals.
+/// End-to-end integration test for offline executor commands.
 ///
-/// Runs `cognitive run --objective "..." --assess --observe --propose --json`
-/// with the API server, then asserts the JSON output contains all required
-/// fields and that all proposed actions are PendingDecision.
+/// Verifies that `executor list --offline` and `executor inspect --offline`
+/// produce correct executor metadata directly from the core crate without
+/// requiring an API server.
+#[test]
+fn offline_executor_commands_produce_correct_output() {
+    let arpagona = ARPAGONA_BIN;
+
+    // ── executor list --offline (human-readable) ──────────────────────────
+    let list_out = std::process::Command::new(arpagona)
+        .args(["executor", "list", "--offline"])
+        .output()
+        .expect("failed to run executor list --offline");
+    assert!(
+        list_out.status.success(),
+        "executor list --offline failed:\nstdout: {}\nstderr: {}",
+        String::from_utf8_lossy(&list_out.stdout),
+        String::from_utf8_lossy(&list_out.stderr),
+    );
+    let list_stdout = String::from_utf8(list_out.stdout).expect("valid utf-8");
+    assert!(
+        list_stdout.contains("noop-executor"),
+        "executor list --offline should contain 'noop-executor'\n{}",
+        list_stdout
+    );
+    assert!(
+        list_stdout.contains("state=disabled"),
+        "executor list --offline should show state=disabled\n{}",
+        list_stdout
+    );
+
+    // ── executor list --offline --json (parsed) ──────────────────────────
+    let list_json_out = std::process::Command::new(arpagona)
+        .args(["executor", "list", "--offline", "--json"])
+        .output()
+        .expect("failed to run executor list --offline --json");
+    assert!(
+        list_json_out.status.success(),
+        "executor list --offline --json failed:\nstdout: {}\nstderr: {}",
+        String::from_utf8_lossy(&list_json_out.stdout),
+        String::from_utf8_lossy(&list_json_out.stderr),
+    );
+    let list_json: serde_json::Value =
+        serde_json::from_str(&String::from_utf8(list_json_out.stdout).expect("valid utf-8"))
+            .expect("executor list --offline --json output should be valid JSON");
+    let executors = list_json
+        .as_array()
+        .expect("JSON output should be an array");
+    assert!(
+        !executors.is_empty(),
+        "executor list should have at least one executor"
+    );
+
+    let noop = executors
+        .iter()
+        .find(|e| e.get("executor_id").and_then(|v| v.as_str()) == Some("noop-executor"))
+        .expect("noop-executor should be in the list");
+    assert_eq!(
+        noop.get("executor_state").and_then(|v| v.as_str()),
+        Some("disabled"),
+        "noop-executor should have state 'disabled', got: {:?}",
+        noop.get("executor_state")
+    );
+    let action_types = noop
+        .get("supported_action_types")
+        .and_then(|v| v.as_array())
+        .expect("executor should have supported_action_types");
+    assert!(
+        !action_types.is_empty(),
+        "noop-executor should support action types"
+    );
+
+    // ── executor inspect noop-executor --offline (human-readable) ────────
+    let inspect_out = std::process::Command::new(arpagona)
+        .args(["executor", "inspect", "noop-executor", "--offline"])
+        .output()
+        .expect("failed to run executor inspect noop-executor --offline");
+    assert!(
+        inspect_out.status.success(),
+        "executor inspect --offline failed:\nstdout: {}\nstderr: {}",
+        String::from_utf8_lossy(&inspect_out.stdout),
+        String::from_utf8_lossy(&inspect_out.stderr),
+    );
+    let inspect_stdout = String::from_utf8(inspect_out.stdout).expect("valid utf-8");
+    assert!(
+        inspect_stdout.contains("Executor: noop-executor"),
+        "executor inspect should contain 'Executor: noop-executor'\n{}",
+        inspect_stdout
+    );
+    assert!(
+        inspect_stdout.contains("State: "),
+        "executor inspect should contain 'State:'\n{}",
+        inspect_stdout
+    );
+
+    // ── executor inspect noop-executor --offline --json (parsed) ─────────
+    let inspect_json_out = std::process::Command::new(arpagona)
+        .args([
+            "executor",
+            "inspect",
+            "noop-executor",
+            "--offline",
+            "--json",
+        ])
+        .output()
+        .expect("failed to run executor inspect noop-executor --offline --json");
+    assert!(
+        inspect_json_out.status.success(),
+        "executor inspect --offline --json failed:\nstdout: {}\nstderr: {}",
+        String::from_utf8_lossy(&inspect_json_out.stdout),
+        String::from_utf8_lossy(&inspect_json_out.stderr),
+    );
+    let inspect_json: serde_json::Value =
+        serde_json::from_str(&String::from_utf8(inspect_json_out.stdout).expect("valid utf-8"))
+            .expect("executor inspect --offline --json output should be valid JSON");
+    assert_eq!(
+        inspect_json.get("executor_id").and_then(|v| v.as_str()),
+        Some("noop-executor"),
+        "inspect JSON should show executor_id=noop-executor"
+    );
+    assert_eq!(
+        inspect_json.get("executor_state").and_then(|v| v.as_str()),
+        Some("disabled"),
+        "inspect JSON should show state=disabled"
+    );
+    let inspect_action_types = inspect_json
+        .get("supported_action_types")
+        .and_then(|v| v.as_array())
+        .expect("inspect JSON should have supported_action_types");
+    assert!(
+        !inspect_action_types.is_empty(),
+        "inspect JSON should show supported action types"
+    );
+
+    // ── executor inspect nonexistent --offline ───────────────────────────
+    let miss_out = std::process::Command::new(arpagona)
+        .args(["executor", "inspect", "nonexistent-executor", "--offline"])
+        .output()
+        .expect("failed to run executor inspect nonexistent --offline");
+    let miss_stdout = String::from_utf8_lossy(&miss_out.stdout);
+    assert!(
+        miss_stdout.contains("not found"),
+        "missing executor should report 'not found'\n{}",
+        miss_stdout
+    );
+}
+
 #[test]
 fn cognitive_propose_pipeline_produces_governed_proposals() {
     // ── Start API server ──────────────────────────────────────────────────
