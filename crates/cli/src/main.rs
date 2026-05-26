@@ -168,6 +168,11 @@ pub struct CognitiveRunArgs {
     /// Run LLM synthesis: call an LLM provider to enrich the cognitive cycle output.
     #[arg(long)]
     pub llm: bool,
+    /// Run offline governance bridge: convert FailureInsightCandidates into ProposedActions
+    /// through the local DecisionGate -> Decision -> AuditEvent path without requiring the
+    /// API server. Requires --assess (needs FailureInsightCandidates to govern).
+    #[arg(long)]
+    pub govern: bool,
     /// LLM provider to use for --llm (mock = no real API call, openai = OpenAI Responses API, ollama = local Ollama).
     #[arg(long, default_value = "ollama")]
     pub provider: String,
@@ -6183,6 +6188,62 @@ async fn cognitive_run(
                 }
                 obj.insert("proposed".to_owned(), serde_json::Value::Bool(true));
             }
+            // When --govern, run offline governance: convert FailureInsightCandidates
+            // into ProposedActions through DecisionGate -> Decision -> AuditEvent
+            // without requiring the API server.
+            if args.govern {
+                let failure_insight_candidates: Vec<serde_json::Value> = obj
+                    .get("working_memory")
+                    .and_then(|wm| wm.get("failure_insight_candidates"))
+                    .and_then(|v| v.as_array())
+                    .map(|arr| arr.clone())
+                    .unwrap_or_default();
+
+                if !failure_insight_candidates.is_empty() {
+                    match run_offline_governance(&failure_insight_candidates) {
+                        Ok(governance_results) => {
+                            let decisions: Vec<_> = governance_results
+                                .iter()
+                                .filter_map(|r| r.get("decision").cloned())
+                                .collect();
+                            let audit_events: Vec<_> = governance_results
+                                .iter()
+                                .filter_map(|r| r.get("audit_event").cloned())
+                                .collect();
+                            obj.insert(
+                                "governance_results".to_owned(),
+                                serde_json::to_value(&governance_results)?,
+                            );
+                            obj.insert("decision_count".to_owned(), json!(decisions.len()));
+                            obj.insert("audit_event_count".to_owned(), json!(audit_events.len()));
+                            obj.insert(
+                                "governance_warning".to_owned(),
+                                serde_json::Value::String(
+                                    "Offline governance readback — these Decision Gate decisions and AuditEvents are evidence only. No execution, no persistence, no external effects."
+                                        .to_owned(),
+                                ),
+                            );
+                        }
+                        Err(e) => {
+                            obj.insert(
+                                "governance_error".to_owned(),
+                                serde_json::Value::String(format!(
+                                    "Offline governance failed: {e}"
+                                )),
+                            );
+                        }
+                    }
+                } else {
+                    obj.insert(
+                        "governance_note".to_owned(),
+                        serde_json::Value::String(
+                            "No FailureInsightCandidates to govern. Run with --assess to generate candidates first."
+                                .to_owned(),
+                        ),
+                    );
+                }
+                obj.insert("governed".to_owned(), serde_json::Value::Bool(true));
+            }
             // When --llm, run LLM synthesis and inject into output
             if args.llm {
                 let wm = &result.working_memory;
@@ -6290,6 +6351,80 @@ async fn cognitive_run(
     }
 
     Ok(())
+}
+
+/// Run offline governance: convert FailureInsightCandidates from the cognitive work loop
+/// into local ProposedActions, run them through DecisionGate -> Decision -> AuditEvent,
+/// without requiring the API server.
+///
+/// # Safety
+///
+/// - All ProposedActions are `PendingDecision` — no execution authority.
+/// - The output is evidence-only, non-authorizing readback.
+/// - The DecisionGate is called with empty policies (alpha-safe default).
+fn run_offline_governance(
+    failure_insight_candidates: &[serde_json::Value],
+) -> Result<Vec<serde_json::Value>, Box<dyn Error>> {
+    let mut governance_results: Vec<serde_json::Value> = Vec::new();
+    let workspace_id = WorkspaceId::new("workspace-cognitive-govern");
+    let task_id = TaskId::new("task-cognitive-govern");
+    let agent_id = AgentId::new("agent-cognitive-governor");
+
+    for (i, fic) in failure_insight_candidates.iter().enumerate() {
+        let kind = fic
+            .get("kind")
+            .and_then(|v| v.as_str())
+            .unwrap_or("unknown");
+        let summary = fic.get("summary").and_then(|v| v.as_str()).unwrap_or("");
+        let reason = fic.get("reason").and_then(|v| v.as_str()).unwrap_or("");
+        let tool_name = fic
+            .get("tool_name")
+            .and_then(|v| v.as_str())
+            .unwrap_or("cognitive_work_loop");
+
+        let created_at = Utc::now();
+
+        let action = ProposedAction {
+            id: ProposedActionId::new(format!(
+                "action-govern-fic-{}-{}",
+                i,
+                created_at.timestamp()
+            )),
+            workspace_id: workspace_id.clone(),
+            task_id: Some(task_id.clone()),
+            proposed_by: agent_id.clone(),
+            action_type: ActionType::ProposeToolUse,
+            target: Some(tool_name.to_owned()),
+            payload: json!({
+                "source_kind": "failure_insight_candidate",
+                "kind": kind,
+                "summary": summary,
+                "reason": reason,
+                "non_authorizing_warning": "Offline governance proposal — pending Decision Gate review. No execution without explicit approval.",
+            }),
+            risk_level: RiskLevel::Low,
+            required_permissions: vec![Permission::ReadDocument],
+            rationale: format!(
+                "Offline governance from cognitive work loop: {} (kind: {}, tool: {})",
+                reason, kind, tool_name
+            ),
+            context_refs: vec![],
+            status: ProposedActionStatus::PendingDecision,
+            created_at,
+        };
+
+        let decision = evaluate_proposed_action(&action, &[], &[Permission::ReadDocument]);
+        let audit_event = audit_event_for_decision(&action, &decision);
+
+        governance_results.push(json!({
+            "proposed_action_id": action.id.to_string(),
+            "proposed_action": action,
+            "decision": decision,
+            "audit_event": audit_event,
+        }));
+    }
+
+    Ok(governance_results)
 }
 
 /// Build a demo compute inventory for the allocation bridge.
@@ -8114,8 +8249,38 @@ mod tests {
                 assert!(args.resonate);
                 assert!(args.json);
                 assert!(!args.llm);
+                assert!(!args.govern);
             }
             _ => panic!("expected cognitive run with all flags including --observe"),
+        }
+    }
+
+    #[test]
+    fn cli_parses_cognitive_run_assess_govern_json() {
+        let cli = Cli::parse_from([
+            "arpagona",
+            "cognitive",
+            "run",
+            "--objective",
+            "Govern this candidate",
+            "--assess",
+            "--govern",
+            "--json",
+        ]);
+        match cli.command {
+            Command::Cognitive(CognitiveCommand {
+                command: CognitiveSubcommand::Run(args),
+            }) => {
+                assert!(args.assess);
+                assert!(args.govern);
+                assert!(args.json);
+                assert!(!args.allocate);
+                assert!(!args.resonate);
+                assert!(!args.observe);
+                assert!(!args.propose);
+                assert!(!args.llm);
+            }
+            _ => panic!("expected cognitive run with --assess --govern --json"),
         }
     }
 

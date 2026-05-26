@@ -1596,3 +1596,46 @@ After this session: 5 sub-tests covering human-readable, JSON, and error paths �
 - No governance, Decision Gate, or policy engine changes
 - No SurrealDB or persistence changes
 - No build dependencies added
+
+## 31. Latest Session Update (2026-05-26 — P3: cognitive run offline governance `--govern` flag)
+
+This session added a `--govern` flag to `arpagona cognitive run` that bridges the cognitive work loop output through the offline governance path (FailureInsightCandidate -> ProposedAction -> DecisionGate -> Decision -> AuditEvent -> readback) without requiring the API server.
+
+**What was added:**
+- `--govern` flag to `CognitiveRunArgs` struct in `crates/cli/src/main.rs`
+- `run_offline_governance()` function that takes FailureInsightCandidates from the `--assess` bridge, creates local ProposedActions, runs them through `evaluate_proposed_action` and `audit_event_for_decision`
+- Governance handler in the JSON output path that reads FailureInsightCandidates from `working_memory.failure_insight_candidates`, runs them through the governance chain, and injects `governance_results`, `decision_count`, `audit_event_count`, and a `governance_warning` into the JSON output
+- Parser test `cli_parses_cognitive_run_assess_govern_json` asserting all flag combinations
+- Updated existing combo test to assert `!args.govern`
+
+**Runtime verification:**
+```
+$ arpagona cognitive run --objective "..." --domain business --json --assess --govern
+  → "governed": true
+  → "decision_count": 1
+  → "governance_results" with proposed_action, decision, audit_event for each FailureInsightCandidate
+  → "governance_warning": "evidence only"
+```
+
+**Safety invariants:**
+- All ProposedActions are `PendingDecision` — no execution authority
+- DecisionGate called with empty policies and `ReadDocument` permission only
+- Output is evidence-only, non-authorizing readback
+- No API server required, no network calls, no persistence
+- No executor behavior modified, no governance bypass
+
+**Verification:**
+- `cargo fmt -- --check`: clean
+- `cargo check`: clean (pre-existing warnings only)
+- `cargo test --workspace`: 350+ tests pass (0 failures)
+
+### Files changed
+| File | Change |
+|------|--------|
+| `crates/cli/src/main.rs` | Added `--govern` flag to args; added `run_offline_governance()` function; added governance handler in JSON output path; added parser test; updated combo test assertion |
+| `PROJECT_STATUS.md` | Updated with section 31 |
+| `FOCUS_LOOP_NEXT.md` | Updated handoff to integration test for offline governance |
+
+### Recommended next step
+Add an end-to-end integration test in `crates/cli/tests/` that proves the full P3 chain works via `cognitive run --assess --govern --json` without an API server, using the `CARGO_BIN_EXE_arpagona` binary invocation pattern.
+
