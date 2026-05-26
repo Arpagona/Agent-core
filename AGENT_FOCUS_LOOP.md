@@ -29,13 +29,14 @@ Every run must read:
 3. `PROJECT_STATUS.md`
 4. `AGENT_FOCUS_LOOP.md`
 5. `FOCUS_LOOP_NEXT.md`
-6. `docs/daily-agent-validation.md`
-7. files directly required by the selected milestone
+6. `DAILY_VALIDATION_BACKLOG.md`
+7. `docs/daily-agent-validation.md`
+8. files directly required by the selected milestone
 
 If files conflict:
 
 ```text
-safety/governance > AGENT_FOCUS_LOOP.md > FOCUS_LOOP_NEXT.md > PROJECT_OBJECTIVES.md > local opportunity
+safety/governance > AGENT_FOCUS_LOOP.md > DAILY_VALIDATION_BACKLOG.md > FOCUS_LOOP_NEXT.md > PROJECT_OBJECTIVES.md > local opportunity
 ```
 
 ## 3. Operating mode: major bounded increments
@@ -80,11 +81,32 @@ If duplicate or superseded PRs exist, clean them before feature work.
 
 When uncertain, do not delete. Report.
 
-## 5. Merge & run cycle (auto-merge policy)
+## 5. Morning use of the daily validation backlog
+
+At the 7am focus-loop run, before selecting a new runtime milestone, inspect `DAILY_VALIDATION_BACKLOG.md`.
+
+If it contains an open validation item that is:
+
+- evidenced by a midnight daily validation run;
+- safe and bounded;
+- directly related to runtime correctness, safety boundaries, CLI observability, model interaction quality, tests or documentation required for operator use;
+- small enough to complete as one coherent PR;
+
+then prefer fixing that item before starting new feature work, unless P0/P1 hygiene or an already-open major PR blocks it.
+
+Rules:
+
+- Process at most one backlog item per run.
+- If several items qualify, choose the highest severity, then the one most directly tied to safety or broken documented behavior.
+- If an item is fixed, update `DAILY_VALIDATION_BACKLOG.md` in the same PR with the fix evidence and status.
+- If an item is not chosen, briefly explain why in the report.
+- Do not treat backlog entries as authorization to add real execution, unrestricted shell, hidden autonomy, external effects or broad new capabilities.
+
+## 6. Merge & run cycle (auto-merge policy)
 
 This rule governs every cron run. It ensures the loop stays productive without requiring a human review step for every PR.
 
-### 5.1 At the start of every cron run
+### 6.1 At the start of every cron run
 
 1. **Fetch `origin/main`** and check for new commits.
 2. **Fetch the PR created by the previous run** (if any) using `gh pr list --state open --json number,headRefName,mergeable,title`.
@@ -100,7 +122,7 @@ This rule governs every cron run. It ensures the loop stays productive without r
 
 4. **Merge is unconditional when checks are green.** No human gate. Thibaud can always revert or close a PR after the fact.
 
-### 5.2 After merge — new feature
+### 6.2 After merge — new feature
 
 1. Rebase onto `origin/main`.
 2. Create a new branch named `feat/<milestone-key>`.
@@ -108,14 +130,14 @@ This rule governs every cron run. It ensures the loop stays productive without r
 4. `cargo fmt --check && cargo check && cargo test --workspace` before every commit.
 5. Push and create a PR via `gh pr create`.
 
-### 5.3 If checks fail before push
+### 6.3 If checks fail before push
 
 - **Do not push.** Do not create a PR.
 - Report the failure with full `cargo test` output in the Telegram report.
 - Set `FOCUS_LOOP_NEXT.md` to the same handoff (no progress made).
 - The next run will retry the same feature.
 
-## 6. Runtime milestone queue
+## 7. Runtime milestone queue
 
 Choose the first safe actionable milestone.
 
@@ -236,7 +258,7 @@ scripts/demo-full-loop.sh
 
 Do not choose this before P2/P3 unless it directly validates a merged major brick.
 
-## 7. Forbidden work
+## 8. Forbidden work
 
 Do not add:
 
@@ -255,7 +277,7 @@ Do not add:
 - self-modification without explicit governed proposal;
 - new strategic roadmap without human direction.
 
-## 8. Required verification
+## 9. Required verification
 
 For any code change:
 
@@ -271,7 +293,7 @@ For Tool Runtime or Observation changes, include safety-boundary tests for `.git
 
 For documentation-only changes, scan for conflict markers and explain why code tests were not required.
 
-## 9. Reporting format
+## 10. Reporting format
 
 Every run must report:
 
@@ -293,7 +315,7 @@ Focus Loop Report
 
 If no safe action is available, report `NO-OP` and explain the blocker.
 
-## 10. Handoff rule
+## 11. Handoff rule
 
 At the end of every successful run, update `FOCUS_LOOP_NEXT.md` with one concrete next action only.
 
