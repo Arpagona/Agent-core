@@ -4380,8 +4380,90 @@ struct ProposalMetadata {
     suggested_action_type: String,
     /// Confidence if available (0.0 = none, 1.0 = certain).
     confidence: Option<f64>,
+    /// Estimated implementation cost: low, medium, high. Defaults to medium.
+    #[serde(default = "default_implementation_cost")]
+    implementation_cost: String,
+    /// Deterministic priority score computed from benefit, confidence, risk, cost, and type.
+    #[serde(default)]
+    priority_score: f64,
+    /// Priority band derived from score: high, medium, low.
+    #[serde(default = "default_priority_band")]
+    priority_band: String,
     /// Warning: this is a non-authorizing proposal.
     non_authorizing_warning: String,
+}
+
+fn default_implementation_cost() -> String {
+    "medium".to_owned()
+}
+
+fn default_priority_band() -> String {
+    "medium".to_owned()
+}
+
+/// Deterministic priority scoring for proposed actions.
+///
+/// Computes a score from available metadata:
+/// - `expected_benefit` — maps to benefit score (0.3–1.0)
+/// - `confidence` — defaults to 0.5 if None
+/// - `risk_level` — penalty multiplier (risk MUST reduce priority: 0.0–1.0)
+/// - `implementation_cost` — cost penalty (0.4–1.0)
+/// - `suggested_action_type` — small bonus/penalty (-0.2 to +0.2)
+///
+/// Score = benefit × confidence × risk_penalty × cost_penalty + type_bonus
+/// Clamped to [0.0, 2.0].
+fn compute_priority_score(
+    expected_benefit: &str,
+    confidence: Option<f64>,
+    risk_level: &str,
+    suggested_action_type: &str,
+    implementation_cost: &str,
+) -> f64 {
+    let benefit_score = match expected_benefit {
+        s if s.contains("Unblock") || s.contains("Restore") || s.contains("safety") => 1.0,
+        s if s.contains("missing context") || s.contains("Provide missing") => 0.8,
+        s if s.contains("visibility") || s.contains("full data") => 0.7,
+        s if s.contains("Reduce repeated friction") || s.contains("observability") => 0.6,
+        s if s.contains("Clarify ambiguous") || s.contains("Reconcile") => 0.5,
+        _ => 0.3,
+    };
+    let conf = confidence.unwrap_or(0.5);
+    let risk_penalty = match risk_level {
+        "informational" => 1.0,
+        "low" => 0.8,
+        "medium" => 0.5,
+        "high" => 0.2,
+        "critical" => 0.0,
+        _ => 0.5,
+    };
+    let cost_penalty = match implementation_cost {
+        "low" => 1.0,
+        "medium" => 0.8,
+        "high" => 0.4,
+        _ => 0.8,
+    };
+    let type_bonus = match suggested_action_type {
+        "fix" => 0.2,
+        "governance" => 0.15,
+        "test" => 0.1,
+        "refactor" => 0.0,
+        "research" => -0.1,
+        "doc" => -0.2,
+        _ => 0.0,
+    };
+    let score = benefit_score * conf * risk_penalty * cost_penalty + type_bonus;
+    score.clamp(0.0, 2.0)
+}
+
+/// Map a priority score to a human-readable band.
+fn compute_priority_band(score: f64) -> &'static str {
+    if score >= 0.7 {
+        "high"
+    } else if score >= 0.4 {
+        "medium"
+    } else {
+        "low"
+    }
 }
 
 /// Map a FailureInsightCandidateKind to a suggested action type.
@@ -4531,6 +4613,12 @@ async fn run_proposals(
             risk_level: risk.to_owned(),
             suggested_action_type: suggested_action.to_owned(),
             confidence: None,
+            implementation_cost: "medium".to_owned(),
+            priority_score: compute_priority_score(benefit, None, risk, suggested_action, "medium"),
+            priority_band: compute_priority_band(compute_priority_score(
+                benefit, None, risk, suggested_action, "medium",
+            ))
+            .to_owned(),
             non_authorizing_warning: "This proposal is pending Decision Gate review. No execution without explicit approval.".to_owned(),
         };
 
@@ -4596,6 +4684,12 @@ async fn run_proposals(
             risk_level: risk.to_owned(),
             suggested_action_type: suggested_action.to_owned(),
             confidence: None,
+            implementation_cost: "medium".to_owned(),
+            priority_score: compute_priority_score(benefit, None, risk, suggested_action, "medium"),
+            priority_band: compute_priority_band(compute_priority_score(
+                benefit, None, risk, suggested_action, "medium",
+            ))
+            .to_owned(),
             non_authorizing_warning: "This proposal is pending Decision Gate review. No execution without explicit approval.".to_owned(),
         };
 
@@ -4810,9 +4904,26 @@ async fn cognitive_run(
                     .await
                     {
                         Ok(proposal_result) => {
+                            // Sort proposed actions by priority_score descending
+                            let mut sorted_proposals = proposal_result.proposed_actions.clone();
+                            sorted_proposals.sort_by(|a, b| {
+                                let a_score = a
+                                    .payload
+                                    .get("priority_score")
+                                    .and_then(|v| v.as_f64())
+                                    .unwrap_or(-1.0);
+                                let b_score = b
+                                    .payload
+                                    .get("priority_score")
+                                    .and_then(|v| v.as_f64())
+                                    .unwrap_or(-1.0);
+                                b_score
+                                    .partial_cmp(&a_score)
+                                    .unwrap_or(std::cmp::Ordering::Equal)
+                            });
                             obj.insert(
                                 "proposed_actions".to_owned(),
-                                serde_json::to_value(&proposal_result.proposed_actions)?,
+                                serde_json::to_value(&sorted_proposals)?,
                             );
                             obj.insert(
                                 "decisions".to_owned(),
@@ -6785,6 +6896,137 @@ mod tests {
             }
             _ => panic!("expected cognitive run with all flags including --observe"),
         }
+    }
+
+    #[test]
+    fn low_risk_high_confidence_ranks_above_high_risk_uncertain() {
+        // Low-risk, high-confidence, medium-cost fix
+        let low_risk_score = compute_priority_score(
+            "Unblock a prevented operation so the agent can proceed safely.",
+            Some(0.9),
+            "low",
+            "fix",
+            "medium",
+        );
+        // High-risk, low-confidence, medium-cost research
+        let high_risk_score = compute_priority_score(
+            "Improve overall cognitive cycle quality.",
+            Some(0.2),
+            "high",
+            "research",
+            "medium",
+        );
+        assert!(
+            low_risk_score > high_risk_score,
+            "low-risk high-confidence ({:.2}) should rank above high-risk uncertain ({:.2})",
+            low_risk_score,
+            high_risk_score
+        );
+        assert_eq!(compute_priority_band(low_risk_score), "high");
+        assert_eq!(compute_priority_band(high_risk_score), "low");
+    }
+
+    #[test]
+    fn risk_level_reduces_priority_score() {
+        // Same inputs, only risk changes
+        let informational = compute_priority_score(
+            "Unblock a prevented operation", Some(0.8), "informational", "fix", "medium",
+        );
+        let low = compute_priority_score(
+            "Unblock a prevented operation", Some(0.8), "low", "fix", "medium",
+        );
+        let medium = compute_priority_score(
+            "Unblock a prevented operation", Some(0.8), "medium", "fix", "medium",
+        );
+        let high = compute_priority_score(
+            "Unblock a prevented operation", Some(0.8), "high", "fix", "medium",
+        );
+        let critical = compute_priority_score(
+            "Unblock a prevented operation", Some(0.8), "critical", "fix", "medium",
+        );
+
+        assert!(informational > low, "informational > low");
+        assert!(low > medium, "low > medium");
+        assert!(medium > high, "medium > high");
+        assert!(high > critical, "high > critical");
+    }
+
+    #[test]
+    fn missing_confidence_defaults_to_safe_value() {
+        // Without confidence (None) should default to 0.5
+        let with_confidence = compute_priority_score(
+            "Provide missing context", Some(0.9), "low", "research", "low",
+        );
+        let without_confidence = compute_priority_score(
+            "Provide missing context", None, "low", "research", "low",
+        );
+        // With 0.9 confidence should be higher than with 0.5 default
+        assert!(with_confidence > without_confidence);
+        // But without_confidence should still produce a reasonable score
+        assert!(without_confidence > 0.0);
+    }
+
+    #[test]
+    fn generic_benefit_defaults_to_low_base_score() {
+        // An unrecognized benefit string should map to 0.3
+        let score = compute_priority_score(
+            "Some unknown benefit description",
+            Some(1.0),
+            "informational",
+            "refactor",
+            "low",
+        );
+        assert!(
+            score > 0.0,
+            "even generic benefit should produce a positive score"
+        );
+        assert!(
+            score < 0.8,
+            "generic benefit should be lower than explicit high-benefit mappings"
+        );
+    }
+
+    #[test]
+    fn all_proposed_actions_remain_pending_decision() {
+        // This test proves scoring doesn't change status
+        use crate::{
+            ActionType, AgentId, ProposedActionId, ProposedActionStatus, RiskLevel,
+            WorkspaceId,
+        };
+        use serde_json::json;
+
+        let action = ProposedAction {
+            id: ProposedActionId::new("test-score-1"),
+            workspace_id: WorkspaceId::new("test"),
+            task_id: None,
+            proposed_by: AgentId::new("test"),
+            action_type: ActionType::ProposeToolUse,
+            target: Some("test".to_owned()),
+            payload: json!({
+                "priority_score": 0.85,
+                "priority_band": "high",
+            }),
+            risk_level: RiskLevel::Low,
+            required_permissions: vec![],
+            rationale: "test".to_owned(),
+            context_refs: vec![],
+            status: ProposedActionStatus::PendingDecision,
+            created_at: chrono::Utc::now(),
+        };
+
+        assert_eq!(action.status, ProposedActionStatus::PendingDecision);
+        assert_eq!(action.payload["priority_score"], json!(0.85));
+        assert_eq!(action.payload["priority_band"], json!("high"));
+    }
+
+    #[test]
+    fn priority_band_maps_score_ranges_correctly() {
+        assert_eq!(compute_priority_band(0.9), "high");
+        assert_eq!(compute_priority_band(0.7), "high");
+        assert_eq!(compute_priority_band(0.69), "medium");
+        assert_eq!(compute_priority_band(0.4), "medium");
+        assert_eq!(compute_priority_band(0.39), "low");
+        assert_eq!(compute_priority_band(0.0), "low");
     }
 
     #[test]

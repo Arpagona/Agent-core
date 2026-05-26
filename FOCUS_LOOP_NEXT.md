@@ -6,13 +6,13 @@ It must contain one concrete next action only. The runtime milestone queue and l
 
 ## Next action
 
-Implement proposal scoring and prioritization for `cognitive run --propose`.
+Implement proposal deduplication and batching for `cognitive run --propose`.
 
-Why: the `--propose` bridge now produces context-rich ProposedActions with `expected_benefit`, `risk_level`, `suggested_action_type`, and `confidence` metadata. The next step is to rank proposals so the user sees the most impactful ones first — by expected_benefit × confidence, with risk_level as tiebreaker.
+Why: multiple FailureInsightCandidates often produce identical or nearly identical proposals (same tool, same action type, same target). This noise makes the ranked proposal list harder to review. Deduplication merges identical proposals into single batched entries with aggregate metadata (merged rationale, combined benefit, averaged confidence, max risk).
 
-Proof to seek: `cognitive run --objective "..." --assess --observe --propose --json` produces `proposed_actions` sorted by priority score, with a `priority_scored: true` flag and `priority_rationale` explaining the ranking.
+Proof to seek: `cognitive run --objective "..." --assess --observe --propose --json` produces fewer proposed_actions than failure_insight_candidates when duplicates exist, with a `batched` flag and `merged_count: N` in each proposal's payload.
 
-Do not: modify any core types, add LLM calls, autonomous execution, or Decision Gate bypass. This is purely a CLI-level sorting + output enrichment.
+Do not: modify any core types, add LLM calls, autonomous execution, or Decision Gate bypass. This is purely a CLI-level enrichment on the existing proposal bridge.
 
 ## Required update at the end of every run
 

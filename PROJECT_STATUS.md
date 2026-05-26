@@ -656,7 +656,7 @@ This session completed the P3 bridge: cognitive tool observations now flow throu
 |------|--------|
 | `crates/core/src/observation.rs` | Added `FailureInsightCandidate::from_assessments()` — extracts candidates from `ObservationAssessment` slice |
 | `crates/cli/src/main.rs` | When `--assess --observe` are both active, runs observations, assesses each via `assess_observation()`, merges observation-derived FailureInsightCandidates alongside improvement-candidate-derived ones in `failure_insight_candidates` |
-| `crates/cli/src/main.rs` | Added 2 parser tests: `cli_parses_cognitive_run_assess_observe_json` and `cli_parses_cognitive_run_assess_observe_allocate_resonate` |
+| crates/cli/src/main.rs | Added 2 parser tests: `cli_parses_cognitive_run_assess_observe_json` and `cli_parses_cognitive_run_assess_observe_allocate_resonate` |
 
 **Verification:**
 - `cargo fmt -- --check`: clean
@@ -690,3 +690,56 @@ After this session: `--assess --observe` together produce failure_insight_candid
 ### Recommended next step
 
 Add `--propose` flag to the `cognitive run` pipeline that converts `failure_insight_candidates` into `ProposedAction` objects through the Decision Gate, proving the full governed learning proposal path in one invocation.
+
+## 19. Latest Session Update (2026-05-27 — P9: Context-aware proposal scoring and prioritization)
+
+This session added deterministic priority scoring to the `cognitive run --propose` bridge.
+
+**Changed:**
+
+`crates/cli/src/main.rs`:
+- Extended `ProposalMetadata` with `implementation_cost` (default: "medium"), `priority_score` (f64), `priority_band` (String)
+- Added `compute_priority_score()` — deterministic function computing score = `benefit × confidence × risk_penalty × cost_penalty + type_bonus`, clamped to [0.0, 2.0]
+  - `benefit` maps to 0.3–1.0 based on keyword matching (Unblock/Restore/safety → 1.0, generic → 0.3)
+  - `risk_level` penalty: informational→1.0, low→0.8, medium→0.5, high→0.2, critical→0.0
+  - `confidence` defaults to 0.5 if missing
+  - `implementation_cost` penalty: low→1.0, medium→0.8, high→0.4
+  - `suggested_action_type` bonus: fix→+0.2, governance→+0.15, test→+0.1, refactor→0.0, research→-0.1, doc→-0.2
+- Added `compute_priority_band()` mapping score to "high" (≥0.7), "medium" (≥0.4), "low" (<0.4)
+- Integrated scoring into both proposal creation paths (FIC-derived and observation-derived) in `run_proposals()`
+- Added sorting by `priority_score` descending in `cognitive_run()` JSON output
+- Added 6 unit tests: ranking order, risk reduction, missing confidence default, generic benefit default, PendingDecision invariance, band mapping
+
+`crates/cli/tests/snapshot_integration.rs`:
+- Extended `cognitive_propose_pipeline_produces_governed_proposals` integration test to verify `priority_score` in [0.0, 2.0], valid `priority_band`, `implementation_cost` presence, and descending sort order
+
+**Key invariants:**
+- Risk MUST reduce priority — high-risk actions cannot rank above low-risk quick wins unless the benefit × confidence × cost formula justifies it
+- No LLM calls added — purely deterministic heuristic
+- All proposals remain `PendingDecision` — scoring is metadata only
+- No autonomous execution, no Decision Gate bypass
+
+**Verification:**
+- `cargo test --workspace`: 249 tests pass (all crates), including 6 new unit tests + strengthened integration test
+
+**Stability level:** alpha CLI enrichment (pure metadata, no side effects).
+
+### Files changed
+
+| File | Change |
+|------|--------|
+| `crates/cli/src/main.rs` | Added `compute_priority_score()`, `compute_priority_band()`, extended `ProposalMetadata`, integrated scoring into `run_proposals()`, added sort-by-score in `cognitive_run()`, added 6 unit tests |
+| `crates/cli/tests/snapshot_integration.rs` | Extended integration test with score/band/sort assertions |
+
+### What was NOT added
+
+- No LLM calls or provider changes
+- No core domain types modified (`ProposedAction`, `RiskLevel`, etc. unchanged)
+- No Decision Gate behavior changed
+- No autonomous execution or scheduling
+- No sort-order guarantee for non-JSON output (human-readable output preserves insertion order)
+- No persistence of scores (metadata is computed per-run and stored in payload)
+
+### Recommended next step
+
+Proposal deduplication and batching: when multiple FailureInsightCandidates produce identical or nearly identical proposals, merge them into single batched proposals with aggregate metadata, reducing noise in the proposal list before the user reviews them.

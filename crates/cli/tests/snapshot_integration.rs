@@ -347,5 +347,57 @@ fn cognitive_propose_pipeline_produces_governed_proposals() {
             "proposed_action #{} payload should have rationale",
             i
         );
+        // Score and priority fields
+        assert!(
+            payload.get("priority_score").is_some(),
+            "proposed_action #{} payload should have priority_score",
+            i
+        );
+        let score = payload.get("priority_score").and_then(|v| v.as_f64()).unwrap();
+        assert!(
+            score >= 0.0 && score <= 2.0,
+            "proposed_action #{} priority_score should be in [0.0, 2.0], got {}",
+            i,
+            score
+        );
+        assert!(
+            payload.get("priority_band").is_some(),
+            "proposed_action #{} payload should have priority_band",
+            i
+        );
+        let band = payload.get("priority_band").and_then(|v| v.as_str()).unwrap();
+        assert!(
+            ["high", "medium", "low"].contains(&band),
+            "proposed_action #{} priority_band should be high/medium/low, got {}",
+            i,
+            band
+        );
+        assert!(
+            payload.get("implementation_cost").is_some(),
+            "proposed_action #{} payload should have implementation_cost",
+            i
+        );
+    }
+
+    // Verify proposals are sorted by priority_score descending
+    for i in 1..pa_array.len() {
+        let prev_score = pa_array[i - 1]
+            .get("payload")
+            .and_then(|p| p.get("priority_score"))
+            .and_then(|v| v.as_f64())
+            .unwrap_or(-1.0);
+        let curr_score = pa_array[i]
+            .get("payload")
+            .and_then(|p| p.get("priority_score"))
+            .and_then(|v| v.as_f64())
+            .unwrap_or(-1.0);
+        assert!(
+            prev_score >= curr_score,
+            "proposed_actions should be sorted by priority_score descending: #{} ({:.2}) < #{} ({:.2})",
+            i - 1,
+            prev_score,
+            i,
+            curr_score
+        );
     }
 }
