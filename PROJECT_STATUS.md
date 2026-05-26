@@ -743,3 +743,55 @@ This session added deterministic priority scoring to the `cognitive run --propos
 ### Recommended next step
 
 Proposal deduplication and batching: when multiple FailureInsightCandidates produce identical or nearly identical proposals, merge them into single batched proposals with aggregate metadata, reducing noise in the proposal list before the user reviews them.
+
+## 20. Latest Session Update (2026-05-27 — P10: Proposal deduplication and batching)
+
+This session added deterministic deduplication to the `cognitive run --propose` bridge.
+
+**Added:**
+
+`crates/cli/src/main.rs`:
+- `dedup_key_from_payload()` — computes a stable dedup key from `suggested_action_type`, `source_kind`, and normalized `source_summary` (lowercased, trimmed, 100 chars)
+- `DedupedBatchMetadata` — struct for aggregated batch info: `merged_count`, `merged_proposal_ids`, `aggregated_source_summaries`, `aggregated_rationales`, `max_expected_benefit`, `max_confidence`, `highest_risk_level`, `lowest_implementation_cost`, `final_priority_score`, `final_priority_band`, `batched`
+- `dedup_proposed_actions()` — groups proposals by dedup key, merges each group into a single proposal, re-evaluates through Decision Gate, re-scores with conservative risk
+
+**Conservative rules:**
+- Merged `risk_level` keeps the **highest** risk among merged items (risk MUST NOT be hidden)
+- Merged score is re-computed using the highest risk + max confidence
+- The first proposal in each group becomes the primary; all others are merged into it
+- Singular proposals (only 1 item in group) are passed through unchanged (no `batched` flag)
+- Proposals with different action types are NEVER merged
+
+**`crates/cli/tests/snapshot_integration.rs`:**
+- Extended integration test with soft assertions for batch metadata: if `batched`, verifies `merged_count >= 2` and `merged_proposal_ids` matches
+
+**Key invariants:**
+- All merged proposals remain `PendingDecision`
+- No LLM calls added — purely deterministic dedup
+- No core domain types modified
+- No autonomous execution or Decision Gate bypass
+
+**Verification:**
+- `cargo test --workspace`: 255 tests pass (all crates), including 6 new dedup unit tests + strengthened integration test
+- 0 compiler warnings (pre-existing edition linter noise excluded)
+
+**Stability level:** alpha CLI enrichment (pure metadata dedup, no side effects).
+
+### Files changed
+
+| File | Change |
+|------|--------|
+| `crates/cli/src/main.rs` | Added `dedup_key_from_payload()`, `DedupedBatchMetadata`, `dedup_proposed_actions()`, 6 unit tests; wired dedup into `run_proposals()` replacing direct Decision Gate loop |
+| `crates/cli/tests/snapshot_integration.rs` | Extended integration test with batch metadata assertions |
+
+### What was NOT added
+
+- No LLM calls or provider changes
+- No core domain types modified
+- No Decision Gate behavior changed
+- No autonomous execution or scheduling
+- No persistence of batch metadata (computed per-run from payload metadata)
+
+### Recommended next step
+
+Human review queue / proposal lifecycle states: add a CLI surface to move proposals through states (PendingDecision → Approved → Blocked → NeedsHumanApproval) and track which human reviewed them.

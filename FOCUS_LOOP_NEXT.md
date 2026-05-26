@@ -6,13 +6,13 @@ It must contain one concrete next action only. The runtime milestone queue and l
 
 ## Next action
 
-Implement proposal deduplication and batching for `cognitive run --propose`.
+Implement human review queue / proposal lifecycle states for the CLI.
 
-Why: multiple FailureInsightCandidates often produce identical or nearly identical proposals (same tool, same action type, same target). This noise makes the ranked proposal list harder to review. Deduplication merges identical proposals into single batched entries with aggregate metadata (merged rationale, combined benefit, averaged confidence, max risk).
+Why: proposals currently flow through the cognitive pipeline (candidate → proposed → decision gate → audit) but there is no persistent UI to review, approve, block, or escalate proposals. Adding a CLI surface to view pending proposals, change their states (PendingDecision → Approved → Blocked → NeedsHumanApproval), and track which human reviewed them creates the first human-in-the-loop supervision path.
 
-Proof to seek: `cognitive run --objective "..." --assess --observe --propose --json` produces fewer proposed_actions than failure_insight_candidates when duplicates exist, with a `batched` flag and `merged_count: N` in each proposal's payload.
+Proof to seek: `arpagona action review --list --status pending_decision` lists proposals, `arpagona action review --approve <id>` changes status and creates audit event, `arpagona action review --block <id> --reason "..."` blocks with audit trail.
 
-Do not: modify any core types, add LLM calls, autonomous execution, or Decision Gate bypass. This is purely a CLI-level enrichment on the existing proposal bridge.
+Do not: skip the Decision Gate, auto-execute approved actions, add LLM calls, or modify core domain types. All state transitions must go through the existing API server endpoints and produce audit events.
 
 ## Required update at the end of every run
 

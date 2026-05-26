@@ -400,4 +400,32 @@ fn cognitive_propose_pipeline_produces_governed_proposals() {
             curr_score
         );
     }
+
+    // If any proposal is batched, verify batch metadata is consistent
+    for (i, pa) in pa_array.iter().enumerate() {
+        let payload = pa.get("payload").expect("payload exists");
+        let is_batched = payload.get("batched").and_then(|v| v.as_bool()).unwrap_or(false);
+        if is_batched {
+            let merged_count = payload
+                .get("merged_count")
+                .and_then(|v| v.as_u64())
+                .expect("batched actions must have merged_count");
+            assert!(
+                merged_count >= 2,
+                "proposed_action #{} merged_count should be >= 2, got {}",
+                i,
+                merged_count
+            );
+            let ids = payload
+                .get("merged_proposal_ids")
+                .and_then(|v| v.as_array())
+                .expect("batched actions must have merged_proposal_ids");
+            assert_eq!(
+                ids.len() as u64,
+                merged_count,
+                "proposed_action #{} merged_proposal_ids length should match merged_count",
+                i
+            );
+        }
+    }
 }

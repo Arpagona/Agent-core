@@ -4466,6 +4466,280 @@ fn compute_priority_band(score: f64) -> &'static str {
     }
 }
 
+/// Stable deduplication key from proposal payload metadata.
+///
+/// Based on:
+/// - `suggested_action_type`
+/// - `source_kind`
+/// - Normalized `source_summary` (lowercased, trimmed, first 100 chars)
+fn dedup_key_from_payload(payload: &serde_json::Value) -> String {
+    let action_type = payload
+        .get("suggested_action_type")
+        .and_then(|v| v.as_str())
+        .unwrap_or("unknown");
+    let source_kind = payload
+        .get("source_kind")
+        .and_then(|v| v.as_str())
+        .unwrap_or("unknown");
+    let summary = payload
+        .get("source_summary")
+        .and_then(|v| v.as_str())
+        .unwrap_or("");
+    let normalized = summary.to_lowercase().trim().chars().take(100).collect::<String>();
+    format!("{}::{}::{}", action_type, source_kind, normalized)
+}
+
+/// Aggregate metadata for a merged proposal batch.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+struct DedupedBatchMetadata {
+    /// Number of original proposals merged into this batch.
+    merged_count: usize,
+    /// IDs of the original proposals that were merged.
+    merged_proposal_ids: Vec<String>,
+    /// Aggregated source summaries from all merged proposals.
+    aggregated_source_summaries: Vec<String>,
+    /// Aggregated rationales from all merged proposals.
+    aggregated_rationales: Vec<String>,
+    /// The highest expected benefit string among merged items.
+    max_expected_benefit: String,
+    /// The highest confidence value (or default 0.5).
+    max_confidence: f64,
+    /// The highest risk level among merged items (conservative: takes the maximum risk).
+    highest_risk_level: String,
+    /// The lowest implementation cost among merged items (low < medium < high).
+    lowest_implementation_cost: String,
+    /// Final priority score after re-computation with conservative risk.
+    final_priority_score: f64,
+    /// Priority band derived from final score.
+    final_priority_band: String,
+    /// Marker that this proposal is a batch.
+    batched: bool,
+}
+
+/// Merge duplicate ProposedActions that share the same deduplication key.
+///
+/// Conservative rules:
+/// - Merged risk_level keeps the **highest** risk among merged items.
+/// - Merged score uses the highest risk (risk must not be hidden).
+/// - The first proposal in each group becomes the primary proposal.
+/// - All proposals remain PendingDecision.
+/// - Decisions and audit events from original proposals are discarded;
+///   new decisions/audit events are created for the merged proposals.
+fn dedup_proposed_actions(
+    actions: Vec<ProposedAction>,
+) -> (Vec<ProposedAction>, Vec<Decision>, Vec<AuditEvent>) {
+    use arpagona_decision_gate::{audit_event_for_decision, evaluate_proposed_action};
+    use std::collections::BTreeMap;
+
+    let mut groups: BTreeMap<String, Vec<ProposedAction>> = BTreeMap::new();
+    for action in actions {
+        let key = dedup_key_from_payload(&action.payload);
+        groups.entry(key).or_default().push(action);
+    }
+
+    let mut merged_actions: Vec<ProposedAction> = Vec::new();
+    let risk_order: std::collections::HashMap<&str, u8> = [
+        ("informational", 0),
+        ("low", 1),
+        ("medium", 2),
+        ("high", 3),
+        ("critical", 4),
+    ]
+    .iter()
+    .cloned()
+    .collect();
+
+    let cost_order: std::collections::HashMap<&str, u8> = [
+        ("low", 0),
+        ("medium", 1),
+        ("high", 2),
+    ]
+    .iter()
+    .cloned()
+    .collect();
+
+    for (_key, group) in groups {
+        if group.is_empty() {
+            continue;
+        }
+        if group.len() == 1 {
+            // Single proposal — no merging needed
+            merged_actions.push(group.into_iter().next().unwrap());
+            continue;
+        }
+
+        // Take the first proposal as the primary
+        let mut primary = group[0].clone();
+
+        // Collect aggregated data
+        let mut all_risk_levels: Vec<u8> = Vec::new();
+        let mut all_costs: Vec<u8> = Vec::new();
+        let mut all_confidences: Vec<f64> = Vec::new();
+        let mut merged_ids: Vec<String> = Vec::new();
+        let mut aggregated_summaries: Vec<String> = Vec::new();
+        let mut aggregated_rationales: Vec<String> = Vec::new();
+        let mut benefit_scores: Vec<f64> = Vec::new();
+        let mut max_benefit_str: String = String::new();
+
+        for action in &group {
+            merged_ids.push(action.id.as_str().to_owned());
+            let p = &action.payload;
+
+            if let Some(s) = p.get("source_summary").and_then(|v| v.as_str()) {
+                if !aggregated_summaries.contains(&s.to_owned()) {
+                    aggregated_summaries.push(s.to_owned());
+                }
+            }
+            if let Some(r) = p.get("rationale").and_then(|v| v.as_str()) {
+                if !aggregated_rationales.contains(&r.to_owned()) {
+                    aggregated_rationales.push(r.to_owned());
+                }
+            }
+
+            let rl = p.get("risk_level").and_then(|v| v.as_str()).unwrap_or("medium");
+            all_risk_levels.push(*risk_order.get(rl).unwrap_or(&2));
+
+            let ic = p
+                .get("implementation_cost")
+                .and_then(|v| v.as_str())
+                .unwrap_or("medium");
+            all_costs.push(*cost_order.get(ic).unwrap_or(&1));
+
+            let conf = p
+                .get("confidence")
+                .and_then(|v| v.as_f64())
+                .unwrap_or(0.5);
+            all_confidences.push(conf);
+
+            let bs = p
+                .get("priority_score")
+                .and_then(|v| v.as_f64())
+                .unwrap_or(0.0);
+            benefit_scores.push(bs);
+
+            let eb = p
+                .get("expected_benefit")
+                .and_then(|v| v.as_str())
+                .unwrap_or("");
+            if eb.len() > max_benefit_str.len() {
+                max_benefit_str = eb.to_owned();
+            }
+        }
+
+        // Conservative: highest risk level
+        let max_risk_rank = *all_risk_levels.iter().max().unwrap_or(&2);
+        let highest_risk_str = risk_order
+            .iter()
+            .find(|(_, v)| **v == max_risk_rank)
+            .map(|(k, _)| *k)
+            .unwrap_or("medium")
+            .to_owned();
+
+        // Lowest cost (low is best — take the minimum rank)
+        let min_cost_rank = *all_costs.iter().min().unwrap_or(&1);
+        let lowest_cost_str = cost_order
+            .iter()
+            .find(|(_, v)| **v == min_cost_rank)
+            .map(|(k, _)| *k)
+            .unwrap_or("medium")
+            .to_owned();
+
+        // Max confidence
+        let max_confidence = all_confidences
+            .into_iter()
+            .fold(0.0_f64, |a, b| a.max(b));
+
+        // Re-compute score with conservative (highest) risk
+        let action_type = primary
+            .payload
+            .get("suggested_action_type")
+            .and_then(|v| v.as_str())
+            .unwrap_or("research");
+        let final_score = compute_priority_score(
+            &max_benefit_str,
+            Some(max_confidence),
+            &highest_risk_str,
+            action_type,
+            &lowest_cost_str,
+        );
+
+        // Build batch metadata
+        let batch_meta = DedupedBatchMetadata {
+            merged_count: group.len(),
+            merged_proposal_ids: merged_ids,
+            aggregated_source_summaries: aggregated_summaries,
+            aggregated_rationales: aggregated_rationales,
+            max_expected_benefit: max_benefit_str,
+            max_confidence,
+            highest_risk_level: highest_risk_str.clone(),
+            lowest_implementation_cost: lowest_cost_str,
+            final_priority_score: final_score,
+            final_priority_band: compute_priority_band(final_score).to_owned(),
+            batched: true,
+        };
+
+        // Update the primary's payload with batch metadata
+        if let Some(payload_obj) = primary.payload.as_object_mut() {
+            // Override risk_level with conservative highest
+            payload_obj.insert(
+                "risk_level".to_owned(),
+                serde_json::Value::String(highest_risk_str.clone()),
+            );
+            // Update priority_score and priority_band
+            payload_obj.insert(
+                "priority_score".to_owned(),
+                serde_json::json!(final_score),
+            );
+            payload_obj.insert(
+                "priority_band".to_owned(),
+                serde_json::Value::String(compute_priority_band(final_score).to_owned()),
+            );
+            // Insert batch metadata
+            payload_obj.insert(
+                "batched".to_owned(),
+                serde_json::Value::Bool(true),
+            );
+            payload_obj.insert(
+                "merged_count".to_owned(),
+                serde_json::json!(group.len()),
+            );
+            payload_obj.insert(
+                "merged_proposal_ids".to_owned(),
+                serde_json::to_value(&batch_meta.merged_proposal_ids)
+                    .unwrap_or(serde_json::Value::Null),
+            );
+            payload_obj.insert(
+                "aggregated_source_summaries".to_owned(),
+                serde_json::to_value(&batch_meta.aggregated_source_summaries)
+                    .unwrap_or(serde_json::Value::Null),
+            );
+            // Also update risk_level on the struct level
+            primary.risk_level = match highest_risk_str.as_str() {
+                "informational" => RiskLevel::Informational,
+                "low" => RiskLevel::Low,
+                "medium" => RiskLevel::Medium,
+                "high" => RiskLevel::High,
+                "critical" => RiskLevel::Critical,
+                _ => RiskLevel::Medium,
+            };
+        }
+
+        merged_actions.push(primary);
+    }
+
+    // Re-evaluate all merged proposals through the Decision Gate
+    let mut decisions: Vec<Decision> = Vec::new();
+    let mut audit_events: Vec<AuditEvent> = Vec::new();
+    for action in &merged_actions {
+        let decision = evaluate_proposed_action(action, &[], &permissions_for_action(action));
+        let audit_event = audit_event_for_decision(action, &decision);
+        decisions.push(decision);
+        audit_events.push(audit_event);
+    }
+
+    (merged_actions, decisions, audit_events)
+}
+
 /// Map a FailureInsightCandidateKind to a suggested action type.
 fn fic_kind_to_action(kind: &str) -> &'static str {
     match kind {
@@ -4538,11 +4812,8 @@ async fn run_proposals(
     use arpagona_agent_core::{
         ProposedAction,
     };
-    use arpagona_decision_gate::{audit_event_for_decision, evaluate_proposed_action};
 
     let mut proposed_actions: Vec<ProposedAction> = Vec::new();
-    let mut decisions = Vec::new();
-    let mut audit_events = Vec::new();
 
     // Helper to create a single proposal via the API
     async fn create_one_proposal(
@@ -4708,18 +4979,14 @@ async fn run_proposals(
         proposed_actions.push(action);
     }
 
-    // ── Evaluate each proposal through the Decision Gate ────────────────────
-    for action in &proposed_actions {
-        let decision = evaluate_proposed_action(action, &[], &permissions_for_action(action));
-        let audit_event = audit_event_for_decision(action, &decision);
-        decisions.push(decision);
-        audit_events.push(audit_event);
-    }
+    // ── Deduplicate and re-evaluate through the Decision Gate ─────────
+    let (deduped_actions, deduped_decisions, deduped_audit_events) =
+        dedup_proposed_actions(proposed_actions);
 
     Ok(ProposalRunResult {
-        proposed_actions,
-        decisions,
-        audit_events,
+        proposed_actions: deduped_actions,
+        decisions: deduped_decisions,
+        audit_events: deduped_audit_events,
     })
 }
 
@@ -7027,6 +7294,427 @@ mod tests {
         assert_eq!(compute_priority_band(0.4), "medium");
         assert_eq!(compute_priority_band(0.39), "low");
         assert_eq!(compute_priority_band(0.0), "low");
+    }
+
+    #[test]
+    fn dedup_key_produces_stable_keys() {
+        let payload_a = serde_json::json!({
+            "suggested_action_type": "fix",
+            "source_kind": "failure_insight_candidate",
+            "source_summary": "Blocked file access",
+        });
+        let payload_b = serde_json::json!({
+            "suggested_action_type": "fix",
+            "source_kind": "failure_insight_candidate",
+            "source_summary": "BLOCKED file ACCESS",
+        });
+        let payload_c = serde_json::json!({
+            "suggested_action_type": "research",
+            "source_kind": "failure_insight_candidate",
+            "source_summary": "Blocked file access",
+        });
+
+        assert_eq!(
+            dedup_key_from_payload(&payload_a),
+            dedup_key_from_payload(&payload_b),
+            "case-insensitive keys should match"
+        );
+        assert_ne!(
+            dedup_key_from_payload(&payload_a),
+            dedup_key_from_payload(&payload_c),
+            "different action types should have different keys"
+        );
+    }
+
+    #[test]
+    fn dedup_merges_identical_proposals() {
+        use arpagona_agent_core::{
+            ActionType, AgentId, ProposedActionId, ProposedActionStatus, RiskLevel,
+            WorkspaceId,
+        };
+        use chrono::Utc;
+        use serde_json::json;
+
+        let now = Utc::now();
+        let payload = json!({
+            "suggested_action_type": "fix",
+            "source_kind": "failure_insight_candidate",
+            "source_summary": "Blocked file access on /etc/passwd",
+            "expected_benefit": "Unblock a prevented operation so the agent can proceed safely.",
+            "risk_level": "low",
+            "implementation_cost": "medium",
+            "priority_score": 0.52,
+            "priority_band": "medium",
+            "confidence": null,
+            "rationale": "Tool blocked_file_access blocked (tool: test_tool)",
+            "originating_objective": "Test objective",
+        });
+
+        let make_action = |id: &str| -> ProposedAction {
+            ProposedAction {
+                id: ProposedActionId::new(id),
+                workspace_id: WorkspaceId::new("test"),
+                task_id: None,
+                proposed_by: AgentId::new("test"),
+                action_type: ActionType::ProposeToolUse,
+                target: Some("test_tool".to_owned()),
+                payload: payload.clone(),
+                risk_level: RiskLevel::Low,
+                required_permissions: vec![],
+                rationale: "Test".to_owned(),
+                context_refs: vec![],
+                status: ProposedActionStatus::PendingDecision,
+                created_at: now,
+            }
+        };
+
+        let actions = vec![
+            make_action("dedup-test-1"),
+            make_action("dedup-test-2"),
+            make_action("dedup-test-3"),
+        ];
+
+        let (merged, decisions, audit_events) = dedup_proposed_actions(actions);
+
+        // Should merge 3 into 1
+        assert_eq!(merged.len(), 1, "3 identical proposals should merge into 1");
+        assert_eq!(
+            decisions.len(),
+            1,
+            "1 decision for the merged proposal"
+        );
+        assert_eq!(
+            audit_events.len(),
+            1,
+            "1 audit event for the merged proposal"
+        );
+
+        let single = &merged[0];
+        let p = &single.payload;
+
+        // Check batch metadata
+        assert_eq!(p["batched"], json!(true), "should be marked as batched");
+        assert_eq!(p["merged_count"], json!(3), "merged_count should be 3");
+
+        // Check merged_proposal_ids
+        let ids = p["merged_proposal_ids"].as_array().unwrap();
+        assert_eq!(ids.len(), 3, "should have 3 merged IDs");
+        assert!(ids.iter().any(|v| v == "dedup-test-1"));
+        assert!(ids.iter().any(|v| v == "dedup-test-2"));
+        assert!(ids.iter().any(|v| v == "dedup-test-3"));
+
+        // All must remain PendingDecision
+        assert_eq!(single.status, ProposedActionStatus::PendingDecision);
+        for decision in &decisions {
+            assert_eq!(
+                decision.proposed_action_id,
+                single.id,
+                "decision should reference the merged proposal"
+            );
+        }
+    }
+
+    #[test]
+    fn dedup_does_not_merge_different_action_types() {
+        use arpagona_agent_core::{
+            ActionType, AgentId, ProposedActionId, ProposedActionStatus, RiskLevel,
+            WorkspaceId,
+        };
+        use chrono::Utc;
+        use serde_json::json;
+
+        let now = Utc::now();
+
+        let payload_fix = json!({
+            "suggested_action_type": "fix",
+            "source_kind": "failure_insight_candidate",
+            "source_summary": "Tool runtime failure on search_text",
+            "expected_benefit": "Restore tool runtime reliability.",
+            "risk_level": "low",
+            "implementation_cost": "medium",
+            "priority_score": 0.52,
+            "priority_band": "medium",
+            "confidence": null,
+            "rationale": "Tool search_text failed",
+            "originating_objective": "Test objective",
+        });
+        let payload_research = json!({
+            "suggested_action_type": "research",
+            "source_kind": "failure_insight_candidate",
+            "source_summary": "Missing context for search_text",
+            "expected_benefit": "Provide missing context.",
+            "risk_level": "low",
+            "implementation_cost": "medium",
+            "priority_score": 0.38,
+            "priority_band": "low",
+            "confidence": null,
+            "rationale": "Need more context",
+            "originating_objective": "Test objective",
+        });
+
+        let actions = vec![
+            ProposedAction {
+                id: ProposedActionId::new("act-fix-1"),
+                workspace_id: WorkspaceId::new("test"),
+                task_id: None,
+                proposed_by: AgentId::new("test"),
+                action_type: ActionType::ProposeToolUse,
+                target: Some("tool_a".to_owned()),
+                payload: payload_fix,
+                risk_level: RiskLevel::Low,
+                required_permissions: vec![],
+                rationale: "Test fix".to_owned(),
+                context_refs: vec![],
+                status: ProposedActionStatus::PendingDecision,
+                created_at: now,
+            },
+            ProposedAction {
+                id: ProposedActionId::new("act-research-1"),
+                workspace_id: WorkspaceId::new("test"),
+                task_id: None,
+                proposed_by: AgentId::new("test"),
+                action_type: ActionType::ProposeToolUse,
+                target: Some("tool_b".to_owned()),
+                payload: payload_research,
+                risk_level: RiskLevel::Low,
+                required_permissions: vec![],
+                rationale: "Test research".to_owned(),
+                context_refs: vec![],
+                status: ProposedActionStatus::PendingDecision,
+                created_at: now,
+            },
+        ];
+
+        let (merged, _, _) = dedup_proposed_actions(actions);
+
+        // Different action types -> should NOT be merged
+        assert_eq!(
+            merged.len(),
+            2,
+            "different action types should not be merged"
+        );
+    }
+
+    #[test]
+    fn dedup_conservatively_preserves_highest_risk() {
+        use arpagona_agent_core::{
+            ActionType, AgentId, ProposedActionId, ProposedActionStatus, RiskLevel,
+            WorkspaceId,
+        };
+        use chrono::Utc;
+        use serde_json::json;
+
+        let now = Utc::now();
+
+        // Two proposals with the same dedup key but different risk levels
+        let payload_low = json!({
+            "suggested_action_type": "fix",
+            "source_kind": "failure_insight_candidate",
+            "source_summary": "Blocked tool use on file_read",
+            "expected_benefit": "Unblock a prevented operation",
+            "risk_level": "low",
+            "implementation_cost": "medium",
+            "priority_score": 0.52,
+            "priority_band": "medium",
+            "confidence": 0.8,
+            "rationale": "Tool blocked (tool: file_read)",
+            "originating_objective": "Test safety",
+        });
+        let payload_high = json!({
+            "suggested_action_type": "fix",
+            "source_kind": "failure_insight_candidate",
+            "source_summary": "Blocked tool use on file_read",
+            "expected_benefit": "Unblock a prevented operation",
+            "risk_level": "high",
+            "implementation_cost": "medium",
+            "priority_score": 0.12,
+            "priority_band": "low",
+            "confidence": 0.3,
+            "rationale": "Tool blocked (tool: file_read)",
+            "originating_objective": "Test safety",
+        });
+
+        let actions = vec![
+            ProposedAction {
+                id: ProposedActionId::new("act-low-1"),
+                workspace_id: WorkspaceId::new("test"),
+                task_id: None,
+                proposed_by: AgentId::new("test"),
+                action_type: ActionType::ProposeToolUse,
+                target: Some("file_read".to_owned()),
+                payload: payload_low,
+                risk_level: RiskLevel::Low,
+                required_permissions: vec![],
+                rationale: "Low risk".to_owned(),
+                context_refs: vec![],
+                status: ProposedActionStatus::PendingDecision,
+                created_at: now,
+            },
+            ProposedAction {
+                id: ProposedActionId::new("act-high-1"),
+                workspace_id: WorkspaceId::new("test"),
+                task_id: None,
+                proposed_by: AgentId::new("test"),
+                action_type: ActionType::ProposeToolUse,
+                target: Some("file_read".to_owned()),
+                payload: payload_high,
+                risk_level: RiskLevel::High,
+                required_permissions: vec![],
+                rationale: "High risk".to_owned(),
+                context_refs: vec![],
+                status: ProposedActionStatus::PendingDecision,
+                created_at: now,
+            },
+        ];
+
+        let (merged, _, _) = dedup_proposed_actions(actions);
+
+        assert_eq!(
+            merged.len(),
+            1,
+            "identical-key proposals should merge even with different risks"
+        );
+        let p = &merged[0].payload;
+        let risk_str = p["risk_level"].as_str().unwrap_or("");
+        assert_eq!(
+            risk_str, "high",
+            "merged risk_level should be the highest (high)"
+        );
+        // Confirm risk_level on the struct is also High
+        assert_eq!(
+            merged[0].risk_level,
+            RiskLevel::High,
+            "struct risk_level should be High"
+        );
+    }
+
+    #[test]
+    fn dedup_preserves_single_proposals_unchanged() {
+        use arpagona_agent_core::{
+            ActionType, AgentId, ProposedActionId, ProposedActionStatus, RiskLevel,
+            WorkspaceId,
+        };
+        use chrono::Utc;
+        use serde_json::json;
+
+        let now = Utc::now();
+        let payload = json!({
+            "suggested_action_type": "governance",
+            "source_kind": "failure_insight_candidate",
+            "source_summary": "Safety boundary triggered on /etc",
+            "expected_benefit": "Review and harden safety boundaries.",
+            "risk_level": "medium",
+            "implementation_cost": "high",
+            "priority_score": 0.45,
+            "priority_band": "medium",
+            "confidence": 0.7,
+            "rationale": "Safety boundary triggered",
+            "originating_objective": "Test single",
+        });
+
+        let actions = vec![ProposedAction {
+            id: ProposedActionId::new("single-1"),
+            workspace_id: WorkspaceId::new("test"),
+            task_id: None,
+            proposed_by: AgentId::new("test"),
+            action_type: ActionType::ProposeToolUse,
+            target: Some("safety_check".to_owned()),
+            payload,
+            risk_level: RiskLevel::Medium,
+            required_permissions: vec![],
+            rationale: "Single test".to_owned(),
+            context_refs: vec![],
+            status: ProposedActionStatus::PendingDecision,
+            created_at: now,
+        }];
+
+        let (merged, decisions, audit_events) = dedup_proposed_actions(actions);
+
+        assert_eq!(
+            merged.len(),
+            1,
+            "single proposal should remain 1"
+        );
+        // Should NOT have batched flag
+        let p = &merged[0].payload;
+        assert_ne!(
+            p.get("batched").and_then(|v| v.as_bool()),
+            Some(true),
+            "single proposals should not be marked as batched"
+        );
+        assert_eq!(merged[0].status, ProposedActionStatus::PendingDecision);
+        assert_eq!(decisions.len(), 1);
+        assert_eq!(audit_events.len(), 1);
+    }
+
+    #[test]
+    fn dedup_merged_actions_remain_pending_decision() {
+        // Combined with previous tests, this proves the invariant for all paths
+        use arpagona_agent_core::{
+            ActionType, AgentId, ProposedActionId, ProposedActionStatus, RiskLevel,
+            WorkspaceId,
+        };
+        use chrono::Utc;
+        use serde_json::json;
+
+        let now = Utc::now();
+        let payload = json!({
+            "suggested_action_type": "test",
+            "source_kind": "failure_insight_candidate",
+            "source_summary": "Empty search result for main.rs",
+            "expected_benefit": "Verify whether the expected data exists.",
+            "risk_level": "informational",
+            "implementation_cost": "low",
+            "priority_score": 0.55,
+            "priority_band": "medium",
+            "confidence": 0.6,
+            "rationale": "Empty search (tool: search_text)",
+            "originating_objective": "Test dedup",
+        });
+
+        let actions = (0..5)
+            .map(|i| ProposedAction {
+                id: ProposedActionId::new(format!("dedup-pending-{}", i)),
+                workspace_id: WorkspaceId::new("test"),
+                task_id: None,
+                proposed_by: AgentId::new("test"),
+                action_type: ActionType::ProposeToolUse,
+                target: Some("search_text".to_owned()),
+                payload: payload.clone(),
+                risk_level: RiskLevel::Informational,
+                required_permissions: vec![],
+                rationale: "Test".to_owned(),
+                context_refs: vec![],
+                status: ProposedActionStatus::PendingDecision,
+                created_at: now,
+            })
+            .collect::<Vec<_>>();
+
+        let (merged, decisions, _) = dedup_proposed_actions(actions);
+
+        assert_eq!(
+            merged.len(),
+            1,
+            "5 identical proposals should merge into 1"
+        );
+        for action in &merged {
+            assert_eq!(
+                action.status,
+                ProposedActionStatus::PendingDecision,
+                "merged action should remain PendingDecision"
+            );
+        }
+        for decision in &decisions {
+            assert!(
+                matches!(
+                    decision.status,
+                    arpagona_agent_core::DecisionStatus::Approved
+                        | arpagona_agent_core::DecisionStatus::Blocked
+                        | arpagona_agent_core::DecisionStatus::NeedsHumanApproval
+                ),
+                "decisions should have valid status"
+            );
+        }
     }
 
     #[test]
