@@ -26,7 +26,7 @@ const DEFAULT_OPENAI_MODEL: &str = "gpt-4.1-mini";
 // ─── Ollama provider ───────────────────────────────────────────────────────
 
 const DEFAULT_OLLAMA_ENDPOINT: &str = "http://localhost:11434/api/chat";
-const DEFAULT_OLLAMA_MODEL: &str = "gemma4:26b";
+const DEFAULT_OLLAMA_MODEL: &str = "qwen3.5:9b";
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct LlmActionRequest {
@@ -345,6 +345,24 @@ impl OllamaProvider {
             })?;
 
         Ok(content.to_owned())
+    }
+
+    /// Propose a full agent turn (direct_reply, clarifying_question, or proposed_action).
+    ///
+    /// Uses the [`provider_system_prompt`] to instruct the model to return a
+    /// structured JSON turn.  Falls back to the deterministic router first.
+    pub async fn propose_turn(
+        &self,
+        request: LlmActionRequest,
+    ) -> Result<AgentTurnDraft, LlmError> {
+        if let Some(turn) = deterministic_turn_for_prompt(&request.prompt) {
+            return Ok(turn);
+        }
+
+        let text = self
+            .synthesize(provider_system_prompt(), &request.prompt)
+            .await?;
+        parse_agent_turn(&text)
     }
 }
 
