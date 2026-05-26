@@ -82,6 +82,8 @@ enum Command {
     Tool(ToolCommand),
     /// Run the General Cognitive Work Loop V0.
     Cognitive(CognitiveCommand),
+    /// List and inspect executor registry state.
+    Executor(ExecutorCommand),
 }
 
 #[derive(Debug, Args)]
@@ -94,6 +96,36 @@ pub struct CognitiveCommand {
 pub enum CognitiveSubcommand {
     /// Run the General Cognitive Work Loop with an objective.
     Run(CognitiveRunArgs),
+}
+
+#[derive(Debug, Args)]
+pub struct ExecutorCommand {
+    #[command(subcommand)]
+    pub command: ExecutorSubcommand,
+}
+
+#[derive(Debug, Subcommand)]
+pub enum ExecutorSubcommand {
+    /// List all registered executors with their current state.
+    List(ExecutorListArgs),
+    /// Inspect the details of a specific executor.
+    Inspect(ExecutorInspectArgs),
+}
+
+#[derive(Debug, Args)]
+pub struct ExecutorListArgs {
+    /// Emit structured JSON instead of human-oriented text.
+    #[arg(long)]
+    pub json: bool,
+}
+
+#[derive(Debug, Args)]
+pub struct ExecutorInspectArgs {
+    /// The executor ID to inspect.
+    pub executor_id: String,
+    /// Emit structured JSON instead of human-oriented text.
+    #[arg(long)]
+    pub json: bool,
 }
 
 #[derive(Debug, Args)]
@@ -1229,6 +1261,10 @@ async fn run() -> Result<(), Box<dyn Error>> {
         },
         Command::Cognitive(cognitive) => match cognitive.command {
             CognitiveSubcommand::Run(args) => cognitive_run(&client, &api_url, args).await?,
+        },
+        Command::Executor(executor) => match executor.command {
+            ExecutorSubcommand::List(args) => executor_list(&client, &api_url, args).await?,
+            ExecutorSubcommand::Inspect(args) => executor_inspect(&client, &api_url, args).await?,
         },
     }
 
@@ -5787,6 +5823,80 @@ struct ProposalRunResult {
     audit_events: Vec<arpagona_agent_core::AuditEvent>,
 }
 
+#[derive(Debug, Serialize, Deserialize)]
+struct ExecutorInfoResponse {
+    executor_id: String,
+    executor_state: String,
+    supported_action_types: Vec<String>,
+}
+
+/// List all registered executors with their current state.
+async fn executor_list(
+    client: &Client,
+    api_url: &str,
+    args: ExecutorListArgs,
+) -> Result<(), Box<dyn Error>> {
+    let executors: Vec<ExecutorInfoResponse> =
+        get_json(client.get(format!("{api_url}/executors")).send().await?).await?;
+
+    if args.json {
+        println!("{}", serde_json::to_string_pretty(&executors)?);
+    } else {
+        println!("Registered executors:");
+        for exec in &executors {
+            println!(
+                "  {}  state={}  actions={}",
+                exec.executor_id,
+                exec.executor_state,
+                exec.supported_action_types.join(", ")
+            );
+        }
+    }
+    Ok(())
+}
+
+/// Inspect the details of a specific executor.
+async fn executor_inspect(
+    client: &Client,
+    api_url: &str,
+    args: ExecutorInspectArgs,
+) -> Result<(), Box<dyn Error>> {
+    // Fetch the full executor list and filter for the requested ID
+    let executors: Vec<ExecutorInfoResponse> =
+        get_json(client.get(format!("{api_url}/executors")).send().await?).await?;
+
+    let exec = executors.iter().find(|e| e.executor_id == args.executor_id);
+
+    match exec {
+        Some(info) => {
+            if args.json {
+                println!("{}", serde_json::to_string_pretty(info)?);
+            } else {
+                println!("Executor: {}", info.executor_id);
+                println!("  State: {}", info.executor_state);
+                println!(
+                    "  Supported actions: {}",
+                    info.supported_action_types.join(", ")
+                );
+            }
+        }
+        None => {
+            if args.json {
+                println!(
+                    "{}",
+                    serde_json::json!({
+                        "error": "executor not found",
+                        "executor_id": args.executor_id
+                    })
+                );
+            } else {
+                println!("Executor '{}' not found", args.executor_id);
+            }
+        }
+    }
+    Ok(())
+}
+
 /// Run the General Cognitive Work Loop V0.
 async fn cognitive_run(
     client: &Client,
@@ -8505,5 +8615,72 @@ mod tests {
     #[test]
     fn command_definition_is_valid() {
         Cli::command().debug_assert();
+    }
+
+    #[test]
+    fn cli_parses_executor_list_defaults() {
+        let cli = Cli::parse_from(["arpagona", "executor", "list"]);
+        match cli.command {
+            Command::Executor(ExecutorCommand {
+                command: ExecutorSubcommand::List(args),
+            }) => {
+                assert!(!args.json);
+            }
+            _ => panic!("expected executor list"),
+        }
+    }
+
+    #[test]
+    fn cli_parses_executor_list_json() {
+        let cli = Cli::parse_from(["arpagona", "executor", "list", "--json"]);
+        match cli.command {
+            Command::Executor(ExecutorCommand {
+                command: ExecutorSubcommand::List(args),
+            }) => {
+                assert!(args.json);
+            }
+            _ => panic!("expected executor list --json"),
+        }
+    }
+
+    #[test]
+    fn cli_parses_executor_inspect_defaults() {
+        let cli = Cli::parse_from(["arpagona", "executor", "inspect", "noop-executor"]);
+        match cli.command {
+            Command::Executor(ExecutorCommand {
+                command: ExecutorSubcommand::Inspect(args),
+            }) => {
+                assert_eq!(args.executor_id, "noop-executor");
+                assert!(!args.json);
+            }
+            _ => panic!("expected executor inspect"),
+        }
+    }
+
+    #[test]
+    fn cli_parses_executor_inspect_json() {
+        let cli = Cli::parse_from(["arpagona", "executor", "inspect", "noop-executor", "--json"]);
+        match cli.command {
+            Command::Executor(ExecutorCommand {
+                command: ExecutorSubcommand::Inspect(args),
+            }) => {
+                assert_eq!(args.executor_id, "noop-executor");
+                assert!(args.json);
+            }
+            _ => panic!("expected executor inspect --json"),
+        }
+    }
+
+    #[test]
+    fn cli_parses_executor_inspect_custom_id() {
+        let cli = Cli::parse_from(["arpagona", "executor", "inspect", "custom-exec"]);
+        match cli.command {
+            Command::Executor(ExecutorCommand {
+                command: ExecutorSubcommand::Inspect(args),
+            }) => {
+                assert_eq!(args.executor_id, "custom-exec");
+            }
+            _ => panic!("expected executor inspect custom-exec"),
+        }
     }
 }

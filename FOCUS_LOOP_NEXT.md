@@ -6,10 +6,10 @@ It must contain one concrete next action only. The runtime milestone queue and l
 
 ## Next action
 
-Next pass should: add CLI read-only supervision surface for executor registry state.
-Why: the `ExecutorRegistry` now supports `set_state()`/`get_state()` and has API endpoints, but operators have no CLI command to inspect executor readiness. Adding `arpagona executor list [--json]` and `arpagona executor inspect <id> [--json]` will allow runtime executor state inspection without running the API server.
-Proof to seek: `cargo run --bin arpagona -- executor list --json` returns structured JSON with executor_id, executor_state, and supported_action_types; `cargo run --bin arpagona -- executor inspect noop-executor` shows slot details.
-Do not: add executor state mutation (no `executor set-state` command), add real execution, modify NoopExecutor behavior, or bypass the Decision Gate.
+Next pass should: integrate the executor list/inspect commands into the CLI's offline mode by allowing direct ExecutorRegistry construction from the core crate, so operators can inspect executor readiness without running the API server.
+Why: the CLI executor commands added in this session work via HTTP to the API server, but the handoff goal was offline inspection. After that, advance the P2 General Cognitive Work Loop by adding the `--observe` flag support to generate cognitive observations from the work cycle output.
+Proof to seek: `cargo run --bin arpagona -- executor list --json` works without the API server; `cargo run --bin arpagona -- cognitive run --objective "test" --observe --json` returns observations.
+Do not: add real execution, modify NoopExecutor behavior, bypass the Decision Gate, or add executor state mutation.
 
 ## Required update at the end of every run
 
