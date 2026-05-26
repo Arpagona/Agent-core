@@ -1433,3 +1433,36 @@ This session added `ExecutorState` with `Disabled`, `Ready`, and `Blocked` varia
 
 API server executor state integration: expose the `ExecutorRegistry::set_state()` and `get_state()` through API endpoints so operators can promote/demote executor readiness at runtime. Add `POST /executors/{id}/state` and `GET /executors` endpoints that surface slot state.
 
+## 17. Latest Session Update (2026-05-26 — Fix DV-2026-05-26-002: CLI docs coverage check)
+
+This session fixed DV-2026-05-26-002 from the daily validation backlog: CLI documentation drifting behind CLI surface.
+
+### What was added/changed
+
+- **`scripts/check-cli-docs-coverage.sh`** — lightweight docs-coverage check that validates every top-level command from `arpagona --help` has a corresponding section in `docs/cli.md`. Uses a command-to-heading mapping table to handle descriptive French headings. Exits 0 when all commands are covered, 1 with the list of missing commands when gaps are found.
+
+- **`docs/cli.md`** — added missing `### Auth — Statut et configuration OpenAI` section documenting the `arpagona auth status` and `arpagona auth openai` subcommands, which were absent from the docs file despite being exposed in the CLI help output.
+
+- **`DAILY_VALIDATION_BACKLOG.md`** — moved DV-2026-05-26-002 to closed/superseded with fix summary and evidence.
+
+### Verification
+
+- `bash scripts/check-cli-docs-coverage.sh` — passes with exit 0 ("✅ All CLI commands are covered in docs/cli.md")
+- `cargo check` — clean (pre-existing warnings only, unchanged)
+- `cargo test --workspace` — all tests pass
+
+### Stability level
+
+- `scripts/check-cli-docs-coverage.sh` — alpha validation script (not part of CI, manual/daily-validation use)
+- `docs/cli.md` auth section — alpha documentation
+
+### Limits
+
+- No code changes to any crate
+- No CLI behavior modifications
+- No new dependencies
+- No governance, execution, or safety boundary changes
+- The docs-coverage script is a lightweight validation tool; it uses a command-to-heading mapping table that may need updating when new commands are added or renamed
+- The check is not yet integrated into CI or the daily validation protocol (can be added as a future step)
+
+
