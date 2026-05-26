@@ -5,9 +5,9 @@ use arpagona_agent_core::{
     execution_capability, list_execution_capabilities, ActionType, ActorRef, AgentId, AuditEvent,
     AuditEventId, AuditEventType, Decision, DecisionStatus, DryRunResult, DryRunStatus,
     ExecutionCapability, ExecutionRequest, ExecutionResult, ExecutionStatus, Executor,
-    ExecutorRegistry, NoopExecutor, Permission, PolicyDecision, PolicyEngine, PolicyEngineResult,
-    PolicyInput, ProposedAction, ProposedActionId, ProposedActionStatus, RiskLevel, Task, TaskId,
-    TaskPriority, TaskStatus, WorkspaceId,
+    ExecutorRegistry, ExecutorState, NoopExecutor, Permission, PolicyDecision, PolicyEngine,
+    PolicyEngineResult, PolicyInput, ProposedAction, ProposedActionId, ProposedActionStatus,
+    RiskLevel, Task, TaskId, TaskPriority, TaskStatus, WorkspaceId,
 };
 use arpagona_decision_gate::{audit_event_for_decision, evaluate_proposed_action};
 use arpagona_llm::{
@@ -119,6 +119,27 @@ struct ErrorResponse {
     error: String,
 }
 
+/// Response for a single executor in list/get-own-state endpoints.
+#[derive(Serialize)]
+struct ExecutorInfoResponse {
+    executor_id: String,
+    executor_state: ExecutorState,
+    supported_action_types: Vec<ActionType>,
+}
+
+/// Request body for changing an executor's state.
+#[derive(Deserialize)]
+struct SetExecutorStateRequest {
+    state: ExecutorState,
+}
+
+/// Response after setting an executor's state.
+#[derive(Debug, Serialize)]
+struct SetExecutorStateResponse {
+    executor_id: String,
+    executor_state: ExecutorState,
+}
+
 #[tokio::main]
 async fn main() {
     let app = app(AppState::default());
@@ -166,6 +187,8 @@ fn app(state: AppState) -> Router {
             post(policy_check_proposal),
         )
         .route("/proposed-actions/{id}/execute", post(execute_proposal))
+        .route("/executors", get(list_executors))
+        .route("/executors/:id/state", post(set_executor_state_handler))
         .with_state(state)
 }
 
@@ -895,6 +918,62 @@ fn status_from_decision(status: &DecisionStatus) -> ProposedActionStatus {
     }
 }
 
+/// List all registered executors with their current state and supported action types.
+async fn list_executors(
+    State(state): State<AppState>,
+) -> Result<Json<Vec<ExecutorInfoResponse>>, ApiError> {
+    let store = state.lock()?;
+    let ids = store.executor_registry.list();
+    let executors: Vec<ExecutorInfoResponse> = ids
+        .into_iter()
+        .map(|id| {
+            let executor_state = store
+                .executor_registry
+                .get_state(&id)
+                .unwrap_or(ExecutorState::Disabled);
+            let supported_action_types = store
+                .executor_registry
+                .get(&id)
+                .map(|e| e.supported_action_types())
+                .unwrap_or_default();
+            ExecutorInfoResponse {
+                executor_id: id,
+                executor_state,
+                supported_action_types,
+            }
+        })
+        .collect();
+    Ok(Json(executors))
+}
+
+/// Set an executor's readiness state.
+async fn set_executor_state_handler(
+    State(state): State<AppState>,
+    Path(executor_id): Path<String>,
+    Json(request): Json<SetExecutorStateRequest>,
+) -> Result<Json<SetExecutorStateResponse>, ApiError> {
+    let mut store = state.lock()?;
+    let result = store
+        .executor_registry
+        .set_state(&executor_id, request.state);
+    match result {
+        Some(()) => {
+            let new_state = store
+                .executor_registry
+                .get_state(&executor_id)
+                .unwrap_or(ExecutorState::Disabled);
+            Ok(Json(SetExecutorStateResponse {
+                executor_id,
+                executor_state: new_state,
+            }))
+        }
+        None => Err(ApiError::not_found(format!(
+            "executor '{}' not found in registry",
+            executor_id
+        ))),
+    }
+}
+
 fn empty_payload() -> Value {
     json!({})
 }
@@ -1289,5 +1368,113 @@ mod tests {
         assert_eq!(store.proposed_actions.len(), 1);
         assert_eq!(store.decisions.len(), 0);
         assert_eq!(store.audit_events.len(), 0);
+    }
+
+    // -- Executor state management endpoints -------------------------------
+
+    #[tokio::test]
+    async fn list_executors_returns_noop_executor_with_disabled_state() {
+        let state = AppState::default();
+        let response = list_executors(State(state.clone()))
+            .await
+            .expect("list executors should succeed");
+        let executors = response.0;
+        let noop = executors
+            .iter()
+            .find(|e| e.executor_id == "noop-executor")
+            .expect("noop-executor should be in list");
+        assert_eq!(noop.executor_state, ExecutorState::Disabled);
+        assert!(!noop.supported_action_types.is_empty());
+    }
+
+    #[tokio::test]
+    async fn list_executors_returns_all_registered_executors() {
+        let state = AppState::default();
+        let response = list_executors(State(state.clone()))
+            .await
+            .expect("list executors should succeed");
+        assert_eq!(response.0.len(), 1); // only noop-executor by default
+        assert_eq!(response.0[0].executor_id, "noop-executor");
+    }
+
+    #[tokio::test]
+    async fn set_executor_state_changes_state_from_disabled_to_ready() {
+        let state = AppState::default();
+        let response = set_executor_state_handler(
+            State(state.clone()),
+            Path("noop-executor".to_owned()),
+            Json(SetExecutorStateRequest {
+                state: ExecutorState::Ready,
+            }),
+        )
+        .await
+        .expect("set executor state should succeed");
+        assert_eq!(response.0.executor_id, "noop-executor");
+        assert_eq!(response.0.executor_state, ExecutorState::Ready);
+
+        // Verify the state persisted in the store
+        let store = state.lock().expect("store should lock");
+        assert_eq!(
+            store.executor_registry.get_state("noop-executor"),
+            Some(ExecutorState::Ready)
+        );
+    }
+
+    #[tokio::test]
+    async fn set_executor_state_unknown_executor_returns_404() {
+        let state = AppState::default();
+        let result = set_executor_state_handler(
+            State(state.clone()),
+            Path("unknown-executor".to_owned()),
+            Json(SetExecutorStateRequest {
+                state: ExecutorState::Ready,
+            }),
+        )
+        .await;
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        assert_eq!(err.status, StatusCode::NOT_FOUND);
+        assert!(err.message.contains("unknown-executor"));
+    }
+
+    #[tokio::test]
+    async fn set_executor_state_transitions_through_all_states() {
+        let state = AppState::default();
+
+        // Disabled -> Ready
+        let resp = set_executor_state_handler(
+            State(state.clone()),
+            Path("noop-executor".to_owned()),
+            Json(SetExecutorStateRequest {
+                state: ExecutorState::Ready,
+            }),
+        )
+        .await
+        .expect("transition to Ready should succeed");
+        assert_eq!(resp.0.executor_state, ExecutorState::Ready);
+
+        // Ready -> Blocked
+        let resp = set_executor_state_handler(
+            State(state.clone()),
+            Path("noop-executor".to_owned()),
+            Json(SetExecutorStateRequest {
+                state: ExecutorState::Blocked,
+            }),
+        )
+        .await
+        .expect("transition to Blocked should succeed");
+        assert_eq!(resp.0.executor_state, ExecutorState::Blocked);
+
+        // Blocked -> Ready
+        let resp = set_executor_state_handler(
+            State(state.clone()),
+            Path("noop-executor".to_owned()),
+            Json(SetExecutorStateRequest {
+                state: ExecutorState::Ready,
+            }),
+        )
+        .await
+        .expect("transition back to Ready should succeed");
+        assert_eq!(resp.0.executor_state, ExecutorState::Ready);
     }
 }

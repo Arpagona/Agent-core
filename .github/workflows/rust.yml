@@ -24,5 +24,8 @@ jobs:
       - name: Check workspace
         run: cargo check
 
+      - name: Build all binaries
+        run: cargo build
+
       - name: Run tests
         run: cargo test

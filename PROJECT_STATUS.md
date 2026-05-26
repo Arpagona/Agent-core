@@ -1465,4 +1465,39 @@ This session fixed DV-2026-05-26-002 from the daily validation backlog: CLI docu
 - The docs-coverage script is a lightweight validation tool; it uses a command-to-heading mapping table that may need updating when new commands are added or renamed
 - The check is not yet integrated into CI or the daily validation protocol (can be added as a future step)
 
+## 18. Latest Session Update (2026-05-26 — Executor state API endpoints)
+
+This session exposed executor state management through API server endpoints, delivering the handoff from FOCUS_LOOP_NEXT.md.
+
+### What was added
+
+**`apps/api-server/src/main.rs`**:
+
+- `GET /executors` — lists all registered executors with `executor_id`, `executor_state`, and `supported_action_types`
+- `POST /executors/:id/state` — sets an executor's readiness state (`disabled`, `ready`, or `blocked`); returns 404 for unknown executor IDs
+- 5 integration tests covering: listing, disabled default, state transitions (Disabled→Ready→Blocked→Ready), and unknown executor 404
+
+### Runtime chain advanced
+
+```
+operator → GET /executors (read state) / POST /executors/:id/state (set state) → ExecutorRegistry state change → ready for governed execution
+```
+
+This completes the bridge between the `ExecutorRegistry::set_state()`/`get_state()` core logic and a usable operator API surface.
+
+### Verification
+
+- `cargo fmt -- --check`: clean
+- `cargo check`: clean (no new errors)
+- `cargo test --workspace`: 342 tests pass (all crates, 0 failures)
+
+### Deliberately not changed
+
+- No CLI surface changes
+- No new crate dependencies
+- No governance, Decision Gate, or policy engine changes
+- No executor execution behavior modified — only state management
+- No autonomous state transitions — all state changes are operator-driven via POST
+- No SurrealDB or persistence changes
+- No LLM, scheduler, MCP, browser automation, or security changes
 

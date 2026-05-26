@@ -6,10 +6,10 @@ It must contain one concrete next action only. The runtime milestone queue and l
 
 ## Next action
 
-Next pass should: expose executor state management through API server endpoints.
-Why: the `ExecutorRegistry` now supports `set_state()` and `get_state()` for managing executor readiness (Disabled → Ready → Blocked), but operators have no runtime API surface to query or change executor states. Adding `POST /executors/{id}/state` and `GET /executors` endpoints will allow manual promotion/demotion of executor readiness at runtime.
-Proof to seek: `curl -X POST localhost:3000/executors/noop-executor/state -H 'Content-Type: application/json' -d '{"state":"ready"}'` returns 200 and `executor_state` is `"ready"` in the response; `GET /executors` lists all registered executors with their current state.
-Do not: add real execution, modify NoopExecutor behavior, add autonomous state transitions, or introduce API endpoints that could bypass the policy engine or Decision Gate.
+Next pass should: add CLI read-only supervision surface for executor registry state.
+Why: the `ExecutorRegistry` now supports `set_state()`/`get_state()` and has API endpoints, but operators have no CLI command to inspect executor readiness. Adding `arpagona executor list [--json]` and `arpagona executor inspect <id> [--json]` will allow runtime executor state inspection without running the API server.
+Proof to seek: `cargo run --bin arpagona -- executor list --json` returns structured JSON with executor_id, executor_state, and supported_action_types; `cargo run --bin arpagona -- executor inspect noop-executor` shows slot details.
+Do not: add executor state mutation (no `executor set-state` command), add real execution, modify NoopExecutor behavior, or bypass the Decision Gate.
 
 ## Required update at the end of every run
 
