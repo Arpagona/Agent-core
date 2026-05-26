@@ -647,3 +647,55 @@ After this session: `--assess --observe` together produce failure_insight_candid
 ### Recommended next step
 
 Add `--propose` flag to the `cognitive run` pipeline that converts `failure_insight_candidates` into `ProposedAction` objects through the Decision Gate, proving the full governed learning proposal path in one invocation.
+
+## 19. Latest Session Update (2026-05-26 — P3 `--propose` flag: governed proposal pipeline through Decision Gate + Audit)
+
+This session completed the P3 `--propose` flag that converts failure_insight_candidates into ProposedAction objects through the Decision Gate, producing decisions and audit events.
+
+**Code changes:**
+
+| File | Change |
+|------|--------|
+| `crates/cli/src/main.rs` | Added `propose: bool` field to `CognitiveRunArgs` |
+| `crates/cli/src/main.rs` | Added `run_proposal()` — converts FailureInsightCandidates to ProposedActions through Decision Gate, creating decisions and audit events |
+| `crates/cli/src/main.rs` | Wired `--propose` into JSON output path: injects `proposed_actions`, `decisions`, `audit_events`, `proposed`, `proposal_non_authorizing_warning` |
+| `crates/cli/src/main.rs` | Added `print_proposal_readback()` — human-readable proposal readback output |
+| `crates/cli/src/main.rs` | Added 3 parser tests: --propose alone, --propose --assess --json, full pipeline with --propose |
+| `FOCUS_LOOP_NEXT.md` | Updated handoff to context-aware proposals + end-to-end integration test |
+| `PROJECT_STATUS.md` | This update |
+
+**Verification:**
+- `cargo fmt -- --check`: clean
+- `cargo check`: clean (0 new errors, pre-existing E0670 linter noise only)
+- `cargo test --workspace`: 254 tests pass (all crates), including 3 new parser tests for --propose
+- End-to-end: `cargo run --bin arpagona -- cognitive run --objective "..." --domain general --assess --propose --json` produces JSON with `proposed_actions: 2`, `decisions: 2`, `audit_events: 2`
+
+**Functional-alpha chain advancement:**
+```
+cognitive run --objective "..." --assess --propose --json
+  → cognitive_work_cycle → ImprovementCandidates
+  → FailureInsightCandidates (via from_improvement_candidates)
+  → ProposedAction (via run_proposal) → Decision Gate → Audit events
+  → proposed_actions + decisions + audit_events in JSON output
+```
+
+Before this session: failure_insight_candidates existed in working_memory but never became governed ProposedAction objects through the Decision Gate.
+After this session: `--propose` completes the governed learning proposal path: candidate → ProposedAction → DecisionGate → Decision → Audit in one invocation.
+
+**What was NOT added:**
+- No endpoint was added
+- No server-side state was modified
+- No Graph Memory schema, query or mutation was added
+- No audit event creation beyond the existing `audit_event_for_decision()` path
+- No runtime behavior was added
+- No real tool execution beyond the existing read-only tool runtime
+- No LLM, provider, or API call was added
+- No Decision Gate behavior was changed
+- No scheduler, autonomy, MCP, browser automation, credential handling, or Mission Control Web growth
+
+**Stability level:** alpha CLI supervision surface (same as existing --assess, --propose, --resonate flags).
+
+### Recommended next step
+
+Add context-aware proposals and an end-to-end integration test proving the full `--assess --observe --propose --json` pipeline.
+

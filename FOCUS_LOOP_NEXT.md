@@ -6,13 +6,13 @@ It must contain one concrete next action only. The runtime milestone queue and l
 
 ## Next action
 
-Next pass should: Add `--propose` flag to `cognitive run` that converts `failure_insight_candidates` (from merged improvement-candidate and observation sources) into `ProposedAction` objects through the Decision Gate, proving the full governed learning proposal path in one invocation.
+Next pass should: Add `--context` flag support to the `--propose` pipeline so that proposed actions include operator-provided context (from `cognitive run --context "..."`), and extend the `run_proposal()` function to include `context_refs` from WorkingMemory. Then add a human-readable and end-to-end integration test proving the full `--assess --observe --propose --json` pipeline produces correct outputs.
 
-Why: P3 milestone now bridges observations through assessment into FailureInsightCandidates. The remaining gap is converting those candidates into governed proposals (ProposedAction → DecisionGate → Decision → Audit). A `--propose` flag would complete the chain.
+Why: P3 milestone now has the full governed learning proposal path through the Decision Gate and Audit (proposed_actions + decisions + audit_events in one JSON output). The next gap is context-aware proposals and end-to-end automated verification to prevent regression.
 
-Proof to seek: `cargo run -- cognitive run --objective "..." --domain research --assess --observe --propose --json` produces output containing `proposed_actions`, `decisions`, and `audit_events` alongside existing `failure_insight_candidates`. The proposed actions are non-authorizing and gated by the Decision Gate.
+Proof to seek: `cargo test --workspace` shows 254+ tests passing (3 new parser tests + 1 end-to-end), including a new integration test that spawns `arpagona cognitive run --assess --observe --propose --json` and validates the JSON output contains `proposed_actions`, `decisions`, and `audit_events` with expected shapes.
 
-Do not: add LLM calls, persistence, shell execution, Decision Gate bypass, new tool execution, HolographicMemory vector store, or any autonomy/self-modification. Keep it pure Rust + existing Decision Gate + existing Audit types.
+Do not: add LLM calls, persistence, shell execution, Decision Gate bypass, new tool execution, HolographicMemory vector store, or any autonomy/self-modification.
 
 ## Required update at the end of every run
 

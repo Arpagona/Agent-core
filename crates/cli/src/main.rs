@@ -119,6 +119,10 @@ pub struct CognitiveRunArgs {
     /// Run HolographicMemory resonance bridge: map WorkingMemory + allocation to pattern hints.
     #[arg(long)]
     pub resonate: bool,
+    /// Run governed proposal bridge: convert failure_insight_candidates into ProposedAction
+    /// objects through the Decision Gate, producing decisions and audit events.
+    #[arg(long)]
+    pub propose: bool,
     /// Run tool observation bridge: execute tool runtime for required observations and inject results.
     #[arg(long)]
     pub observe: bool,
@@ -4356,7 +4360,64 @@ fn run_observations(
     observations
 }
 
-/// Run the General Cognitive Work Loop V0.
+// ---------------------------------------------------------------------------
+// Proposal bridge helper
+// ---------------------------------------------------------------------------
+
+/// Convert `FailureInsightCandidate`s into `ProposedAction`s through the
+/// Decision Gate, producing decisions and audit events.
+///
+/// Each candidate becomes a non-authorizing proposed action with
+/// `ProposedActionStatus::PendingDecision`. The Decision Gate evaluates the
+/// proposal against alpha-default policies (no policies, WriteMemory granted).
+///
+/// # Safety
+///
+/// - Pure pure domain conversion — no I/O, no LLM calls, no tool execution.
+/// - All returned `ProposedAction`s have `PendingDecision` status.
+/// - Readback evidence only — no Graph Memory mutation, no authorization.
+fn run_proposal(
+    candidates: &[arpagona_agent_core::observation::FailureInsightCandidate],
+) -> (Vec<ProposedAction>, Vec<Decision>, Vec<AuditEvent>) {
+    let mut proposed_actions = Vec::new();
+    let mut decisions = Vec::new();
+    let mut audit_events = Vec::new();
+
+    for (i, candidate) in candidates.iter().enumerate() {
+        let action = ProposedAction {
+            id: ProposedActionId::new(format!("propose-fi-{}", i + 1)),
+            workspace_id: WorkspaceId::new(DEFAULT_WORKSPACE_ID),
+            task_id: Some(TaskId::new(DEFAULT_TASK_ID)),
+            proposed_by: AgentId::new(DEFAULT_AGENT_ID),
+            action_type: ActionType::CreateFailureInsightMemory,
+            target: Some(format!("failure_insight:{}", candidate.tool_name)),
+            payload: serde_json::to_value(candidate).unwrap_or_default(),
+            risk_level: RiskLevel::Low,
+            required_permissions: vec![Permission::WriteMemory],
+            rationale: format!(
+                "Governed learning proposal: {} — {}",
+                candidate.summary, candidate.reason
+            ),
+            context_refs: vec![],
+            status: ProposedActionStatus::PendingDecision,
+            created_at: Utc::now(),
+        };
+
+        let decision = evaluate_proposed_action(&action, &[], &[Permission::WriteMemory]);
+        let audit = audit_event_for_decision(&action, &decision);
+
+        proposed_actions.push(action);
+        decisions.push(decision);
+        audit_events.push(audit);
+    }
+
+    (proposed_actions, decisions, audit_events)
+}
+
+// ---------------------------------------------------------------------------
+// Cognitive run handler
+// ---------------------------------------------------------------------------
+
 async fn cognitive_run(args: CognitiveRunArgs) -> Result<(), Box<dyn Error>> {
     let domain = match args.domain.as_deref() {
         Some("general") | None => ObjectiveDomain::General,
@@ -4469,6 +4530,56 @@ async fn cognitive_run(args: CognitiveRunArgs) -> Result<(), Box<dyn Error>> {
                 obj.insert(
                     "holographic_warning".to_owned(),
                     serde_json::Value::String(RESONANCE_NON_AUTHORIZING_WARNING.to_owned()),
+                );
+            }
+            // When --propose, convert failure_insight_candidates into ProposedAction
+            // objects through the Decision Gate, producing decisions and audit events.
+            if args.propose {
+                // Build the candidate list: if --assess already computed FICs into
+                // working_memory, reuse them; otherwise derive from improvement_candidates.
+                let fic = if args.assess {
+                    // Already computed by the --assess block above — extract from working_memory.
+                    // Re-derive so we don't need to parse JSON back.
+                    let mut base =
+                        arpagona_agent_core::FailureInsightCandidate::from_improvement_candidates(
+                            &result.improvement_candidates,
+                        );
+                    if args.observe {
+                        let observations = run_observations(&result);
+                        let assessments: Vec<_> = observations
+                            .iter()
+                            .map(|o| arpagona_agent_core::assess_observation(o))
+                            .collect();
+                        let obs_fic =
+                            arpagona_agent_core::FailureInsightCandidate::from_assessments(
+                                &assessments,
+                            );
+                        base.extend(obs_fic);
+                    }
+                    base
+                } else {
+                    arpagona_agent_core::FailureInsightCandidate::from_improvement_candidates(
+                        &result.improvement_candidates,
+                    )
+                };
+
+                let (proposed_actions, decisions, audit_events) = run_proposal(&fic);
+
+                obj.insert(
+                    "proposed_actions".to_owned(),
+                    serde_json::to_value(&proposed_actions)?,
+                );
+                obj.insert("decisions".to_owned(), serde_json::to_value(&decisions)?);
+                obj.insert(
+                    "audit_events".to_owned(),
+                    serde_json::to_value(&audit_events)?,
+                );
+                obj.insert("proposed".to_owned(), serde_json::Value::Bool(true));
+                obj.insert(
+                    "proposal_non_authorizing_warning".to_owned(),
+                    serde_json::Value::String(
+                        "⚠ Proposed actions are non-authorizing — all have PendingDecision status. No action approved, no Decision Gate bypass.".to_owned(),
+                    ),
                 );
             }
             // When --observe, run tool runtime observations and inject into working_memory.
@@ -4590,6 +4701,13 @@ async fn cognitive_run(args: CognitiveRunArgs) -> Result<(), Box<dyn Error>> {
                 allocation_justification.as_deref(),
             );
             print_resonance_readback(&resonance);
+        }
+        if args.propose {
+            let fic = arpagona_agent_core::FailureInsightCandidate::from_improvement_candidates(
+                &result.improvement_candidates,
+            );
+            let (proposed_actions, decisions, audit_events) = run_proposal(&fic);
+            print_proposal_readback(&proposed_actions, &decisions, &audit_events);
         }
     }
 
@@ -4715,6 +4833,52 @@ fn print_resonance_readback(resonance: &arpagona_agent_core::holographic::Workin
     println!(
         "{}",
         style_dim("⚠️  Resonance is non-authorizing — pattern hints only, no action approved.")
+    );
+}
+
+/// Print a human-readable governed proposal readback from the Decision Gate.
+fn print_proposal_readback(
+    proposed_actions: &[ProposedAction],
+    decisions: &[Decision],
+    audit_events: &[AuditEvent],
+) {
+    println!();
+    println!("{}", style_info("Governed Proposal Bridge (--propose)"));
+    println!("  proposed_actions:      {}", proposed_actions.len());
+    for (i, action) in proposed_actions.iter().enumerate() {
+        println!("    [{}.] id:       {}", i + 1, action.id);
+        println!("         type:     {:?}", action.action_type);
+        println!(
+            "         target:   {}",
+            action.target.as_deref().unwrap_or("(none)")
+        );
+        println!("         risk:     {:?}", action.risk_level);
+        println!("         status:   {:?}", action.status);
+        println!("         rationale: {}", action.rationale);
+    }
+    println!("  decisions:             {}", decisions.len());
+    for decision in decisions {
+        println!("    - id:     {}", decision.id);
+        println!("      status: {:?}", decision.status);
+        println!("      reason: {}", decision.reason);
+    }
+    println!("  audit_events:          {}", audit_events.len());
+    for event in audit_events {
+        println!("    - id:   {}", event.id);
+        println!("      type: {:?}", event.event_type);
+        if let Some(pa_id) = &event.proposed_action_id {
+            println!("      action: {}", pa_id);
+        }
+        if let Some(d_id) = &event.decision_id {
+            println!("      decision: {}", d_id);
+        }
+    }
+    println!();
+    println!(
+        "{}",
+        style_dim(
+            "⚠️  All proposals have PendingDecision status — no action approved, no Decision Gate bypass."
+        )
     );
 }
 
@@ -6164,6 +6328,7 @@ mod tests {
                 assert!(!args.assess);
                 assert!(!args.allocate);
                 assert!(!args.resonate);
+                assert!(!args.propose);
                 assert!(!args.observe);
                 assert!(!args.llm);
                 assert!(!args.json);
@@ -6420,6 +6585,90 @@ mod tests {
                 assert!(!args.llm);
             }
             _ => panic!("expected cognitive run with all flags including --observe"),
+        }
+    }
+
+    #[test]
+    fn cli_parses_cognitive_run_with_propose_flag() {
+        let cli = Cli::parse_from([
+            "arpagona",
+            "cognitive",
+            "run",
+            "--objective",
+            "Propose governed learning",
+            "--propose",
+        ]);
+        match cli.command {
+            Command::Cognitive(CognitiveCommand {
+                command: CognitiveSubcommand::Run(args),
+            }) => {
+                assert_eq!(args.objective, "Propose governed learning");
+                assert!(args.propose);
+                assert!(!args.assess);
+                assert!(!args.allocate);
+                assert!(!args.resonate);
+                assert!(!args.json);
+            }
+            _ => panic!("expected cognitive run with --propose"),
+        }
+    }
+
+    #[test]
+    fn cli_parses_cognitive_run_propose_assess_json() {
+        let cli = Cli::parse_from([
+            "arpagona",
+            "cognitive",
+            "run",
+            "--objective",
+            "Assess and propose governed learning",
+            "--assess",
+            "--propose",
+            "--json",
+        ]);
+        match cli.command {
+            Command::Cognitive(CognitiveCommand {
+                command: CognitiveSubcommand::Run(args),
+            }) => {
+                assert!(args.assess);
+                assert!(args.propose);
+                assert!(args.json);
+                assert!(!args.allocate);
+                assert!(!args.resonate);
+                assert!(!args.observe);
+                assert!(!args.llm);
+            }
+            _ => panic!("expected cognitive run with --assess --propose --json"),
+        }
+    }
+
+    #[test]
+    fn cli_parses_cognitive_run_full_pipeline_with_propose() {
+        let cli = Cli::parse_from([
+            "arpagona",
+            "cognitive",
+            "run",
+            "--objective",
+            "Full pipeline with propose",
+            "--assess",
+            "--observe",
+            "--allocate",
+            "--resonate",
+            "--propose",
+            "--json",
+        ]);
+        match cli.command {
+            Command::Cognitive(CognitiveCommand {
+                command: CognitiveSubcommand::Run(args),
+            }) => {
+                assert!(args.assess);
+                assert!(args.observe);
+                assert!(args.allocate);
+                assert!(args.resonate);
+                assert!(args.propose);
+                assert!(args.json);
+                assert!(!args.llm);
+            }
+            _ => panic!("expected cognitive run with all flags including --propose"),
         }
     }
 
