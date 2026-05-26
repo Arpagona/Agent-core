@@ -865,3 +865,75 @@ This session added the full human review queue and proposal lifecycle states to 
 ### Recommended next step
 
 Dry-run execution sandbox for approved low-risk proposals: simulate execution without side effects.
+
+## 22. Latest Session Update (2026-05-27 — P12: Dry-run execution sandbox for approved proposals)
+
+This session added the deterministic dry-run execution sandbox for approved proposals.
+
+**Core types:**
+
+`crates/core/src/action.rs`:
+- `DryRunStatus` — `DryRunCompleted` | `DryRunBlocked`
+- `DryRunResult` — rich result struct: `proposal_id`, `action_type`, `expected_effects`, `required_permissions`, `touched_resources`, `risk_level`, `reversibility`, `human_readable_summary`, `status`, `created_at`
+- Exported via existing `pub use action::*`
+
+**API server (`apps/api-server/src/main.rs`):**
+- `POST /proposed-actions/{id}/dry-run` — endpoint that simulates execution
+- `GET /dry-run-results` — list all dry-run results
+- `describe_action_effects()` — deterministic description of expected effects per ActionType
+- Guards: only `Approved` proposals may be dry-run
+- Blocked proposals (PendingDecision/Rejected/Deferred/Superseded) return 400 + audit event
+- Every dry-run attempt creates an audit event with dry_run_status + expected_effects
+- Results stored in `store.dry_run_results`
+
+**CLI (`crates/cli/src/main.rs`):**
+- `arpagona action dry-run <id> [--json]` — dry-run an approved proposal
+- Human-readable output shows: status icon, summary, expected effects, touched resources, reversibility
+- JSON output via `--json` for programmatic consumption
+
+**Dry-run effect descriptions (deterministic, no LLM):**
+
+| ActionType | Expected Effects |
+|------------|-----------------|
+| ReadMemory | "In-memory inspection only" |
+| ProposeToolUse | "Would propose using tool: {target}" |
+| SimulateEmail | "Would simulate an email draft" |
+| SystemCheck | "Would check system health" |
+| Custom/default | "Would perform {action_type} action" |
+
+**Key invariants:**
+- No real execution — all descriptions are deterministic strings
+- Only Approved proposals can be dry-run (400 + audit for others)
+- Every attempt creates an audit event
+- No LLM calls, no tool execution, no file/network side effects
+- Proposal metadata (score, band, dedup, batch) preserved unchanged
+- `Approved` remains non-executing
+
+**Verification:**
+- `cargo test --workspace`: 261 tests pass (all crates)
+- 0 compiler warnings
+
+**Stability level:** alpha simulation sandbox.
+
+### Files changed
+
+| File | Change |
+|------|--------|
+| `crates/core/src/action.rs` | Added `DryRunStatus`, `DryRunResult` |
+| `apps/api-server/src/main.rs` | Added `/proposed-actions/{id}/dry-run` + `/dry-run-results` endpoints with `describe_action_effects()` |
+| `crates/cli/src/main.rs` | Added `ActionSubcommand::DryRun`, args struct, `dry_run_action()` handler |
+| `PROJECT_STATUS.md` | Updated with section 22 |
+| `FOCUS_LOOP_NEXT.md` | Updated to execution capability registry |
+
+### What was NOT added
+
+- No LLM calls or provider changes
+- No autonomous execution or scheduling
+- No Decision Gate bypass
+- No file/network/shell side effects
+- No real tool execution
+- No modification of core governance invariants
+
+### Recommended next step
+
+Execution capability registry: declarative mapping from ActionType + RiskLevel to executors.

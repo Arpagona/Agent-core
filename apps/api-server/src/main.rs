@@ -3,8 +3,8 @@ use std::sync::{Arc, Mutex};
 
 use arpagona_agent_core::{
     ActionType, ActorRef, AgentId, AuditEvent, AuditEventId, AuditEventType, Decision,
-    DecisionStatus, Permission, ProposedAction, ProposedActionId, ProposedActionStatus, RiskLevel,
-    Task, TaskId, TaskPriority, TaskStatus, WorkspaceId,
+    DecisionStatus, DryRunResult, DryRunStatus, Permission, ProposedAction, ProposedActionId,
+    ProposedActionStatus, RiskLevel, Task, TaskId, TaskPriority, TaskStatus, WorkspaceId,
 };
 use arpagona_decision_gate::{audit_event_for_decision, evaluate_proposed_action};
 use arpagona_llm::{
@@ -16,7 +16,7 @@ use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post};
 use axum::{Json, Router};
-use chrono::Utc;
+use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::str::FromStr;
@@ -32,6 +32,8 @@ struct InMemoryStore {
     proposed_actions: Vec<ProposedAction>,
     decisions: Vec<Decision>,
     audit_events: Vec<AuditEvent>,
+    sandbox_runs: Vec<SandboxRun>,
+    dry_run_results: Vec<DryRunResult>,
 }
 
 #[derive(Serialize)]
@@ -135,11 +137,18 @@ fn app(state: AppState) -> Router {
             "/proposed-actions",
             post(create_proposed_action).get(list_proposed_actions),
         )
-        .route("/proposed-actions/{id}/review", post(review_proposed_action))
+        .route(
+            "/proposed-actions/{id}/review",
+            post(review_proposed_action),
+        )
         .route("/agent/propose", post(agent_propose))
         .route("/decision-gate/evaluate", post(evaluate_decision_gate))
         .route("/decisions", get(list_decisions))
         .route("/audit", get(list_audit))
+        .route("/proposed-actions/{id}/sandbox", post(sandbox_run_proposal))
+        .route("/sandbox-runs", get(list_sandbox_runs))
+        .route("/proposed-actions/{id}/dry-run", post(dry_run_proposal))
+        .route("/dry-run-results", get(list_dry_run_results))
         .with_state(state)
 }
 
@@ -207,19 +216,31 @@ async fn list_proposed_actions(
 }
 
 /// Valid state transitions for human review of proposed actions.
-fn valid_review_transition(
-    current: &ProposedActionStatus,
-    target: &ProposedActionStatus,
-) -> bool {
+fn valid_review_transition(current: &ProposedActionStatus, target: &ProposedActionStatus) -> bool {
     matches!(
         (current, target),
-        (ProposedActionStatus::PendingDecision, ProposedActionStatus::Approved)
-            | (ProposedActionStatus::PendingDecision, ProposedActionStatus::Rejected)
-            | (ProposedActionStatus::PendingDecision, ProposedActionStatus::Deferred)
-            | (ProposedActionStatus::Deferred, ProposedActionStatus::PendingDecision)
-            | (ProposedActionStatus::Deferred, ProposedActionStatus::Approved)
-            | (ProposedActionStatus::Deferred, ProposedActionStatus::Rejected)
-            | (ProposedActionStatus::Approved, ProposedActionStatus::Superseded)
+        (
+            ProposedActionStatus::PendingDecision,
+            ProposedActionStatus::Approved
+        ) | (
+            ProposedActionStatus::PendingDecision,
+            ProposedActionStatus::Rejected
+        ) | (
+            ProposedActionStatus::PendingDecision,
+            ProposedActionStatus::Deferred
+        ) | (
+            ProposedActionStatus::Deferred,
+            ProposedActionStatus::PendingDecision
+        ) | (
+            ProposedActionStatus::Deferred,
+            ProposedActionStatus::Approved
+        ) | (
+            ProposedActionStatus::Deferred,
+            ProposedActionStatus::Rejected
+        ) | (
+            ProposedActionStatus::Approved,
+            ProposedActionStatus::Superseded
+        )
     )
 }
 
@@ -244,9 +265,9 @@ async fn review_proposed_action(
         "supersede" => ProposedActionStatus::Superseded,
         _ => {
             return Err(ApiError::bad_request(format!(
-                "invalid review action '{}' (expected 'approve', 'reject', 'defer', or 'supersede')",
-                request.action
-            )))
+            "invalid review action '{}' (expected 'approve', 'reject', 'defer', or 'supersede')",
+            request.action
+        )))
         }
     };
 
@@ -406,6 +427,215 @@ async fn list_audit(State(state): State<AppState>) -> Result<Json<Vec<AuditEvent
     Ok(Json(state.lock()?.audit_events.clone()))
 }
 
+/// Run a dry-run sandbox simulation for an approved low-risk proposed action.
+async fn sandbox_run_proposal(
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+) -> Result<Json<SandboxRun>, ApiError> {
+    let action_id = ProposedActionId::new(id);
+    let mut store = state.lock()?;
+
+    let action = store
+        .proposed_actions
+        .iter()
+        .find(|a| a.id == action_id)
+        .ok_or_else(|| ApiError::not_found(format!("proposed action {} not found", action_id)))?
+        .clone();
+
+    // Validate: only Approved proposals can be sandboxed
+    if action.status != ProposedActionStatus::Approved {
+        return Err(ApiError::bad_request(format!(
+            "Proposed action must be 'approved' to run sandbox (current: {:?})",
+            action.status
+        )));
+    }
+
+    // Validate: only low-risk proposals allowed
+    if action.risk_level != RiskLevel::Informational && action.risk_level != RiskLevel::Low {
+        return Err(ApiError::bad_request(format!(
+            "Sandbox requires Informational or Low risk level (current: {:?})",
+            action.risk_level
+        )));
+    }
+
+    let (simulated_output, warnings, status) = simulate_action(&action);
+
+    let run_id = format!("sandbox-{}", store.sandbox_runs.len() + 1);
+
+    let run = SandboxRun {
+        id: run_id.clone(),
+        proposed_action_id: action.id.as_str().to_owned(),
+        status,
+        action_type: format!("{:?}", action.action_type),
+        risk_level: format!("{:?}", action.risk_level),
+        simulated_output,
+        warnings,
+        created_at: Utc::now(),
+        simulation_warning: "⚠ DRY-RUN SIMULATION — No real side effects were executed.".to_owned(),
+    };
+
+    store.sandbox_runs.push(run.clone());
+
+    // Create an audit event for the sandbox run
+    let audit_event = AuditEvent {
+        id: AuditEventId::new(format!("audit-sandbox-{}", store.audit_events.len() + 1)),
+        event_type: AuditEventType::ExecutionStarted,
+        actor: ActorRef::System,
+        workspace_id: Some(action.workspace_id),
+        task_id: action.task_id,
+        proposed_action_id: Some(action.id),
+        decision_id: None,
+        payload: json!({
+            "sandbox_run_id": run_id,
+            "simulation_mode": true,
+            "non_authorizing_warning": "This is a dry-run simulation only. No real execution occurred.",
+        }),
+        created_at: Utc::now(),
+    };
+    store.audit_events.push(audit_event);
+
+    Ok(Json(run))
+}
+
+/// List all sandbox runs.
+async fn list_sandbox_runs(
+    State(state): State<AppState>,
+) -> Result<Json<Vec<SandboxRun>>, ApiError> {
+    Ok(Json(state.lock()?.sandbox_runs.clone()))
+}
+
+/// Describe expected effects of an action type without executing anything.
+fn describe_action_effects(action: &ProposedAction) -> (Vec<String>, Vec<String>, String, String) {
+    match &action.action_type {
+        ActionType::ReadMemory => (
+            vec!["In-memory inspection only".to_owned()],
+            vec!["memory graph (read)".to_owned()],
+            "Fully reversible — no state mutation.".to_owned(),
+            "Would read memory from the graph store.".to_owned(),
+        ),
+        ActionType::ProposeToolUse => {
+            let target = action.target.as_deref().unwrap_or("unknown tool");
+            (
+                vec![format!("Would propose using tool: {}", target)],
+                vec![format!("tool:{}", target)],
+                "Fully reversible — proposal only, no execution.".to_owned(),
+                format!("Would create a new ProposedAction for tool '{}' through the Decision Gate.", target),
+            )
+        }
+        ActionType::SimulateEmail => (
+            vec!["Would simulate an email draft.".to_owned()],
+            vec!["email draft (memory)".to_owned()],
+            "Fully reversible — no email is sent.".to_owned(),
+            "Would generate an email draft in memory without sending.".to_owned(),
+        ),
+        ActionType::SystemCheck => (
+            vec!["Would check system health.".to_owned()],
+            vec!["system status".to_owned()],
+            "Fully reversible — no state change.".to_owned(),
+            "Would perform a read-only system health check.".to_owned(),
+        ),
+        _ => (
+            vec![format!("Would perform {:?} action.", action.action_type)],
+            vec![format!("resource:{}", action.target.as_deref().unwrap_or("unknown"))],
+            "Reversibility depends on action type.".to_owned(),
+            format!("Would execute a {:?} action on target '{}'.", action.action_type, action.target.as_deref().unwrap_or("none")),
+        ),
+    }
+}
+
+async fn dry_run_proposal(
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+) -> Result<Json<DryRunResult>, ApiError> {
+    let action_id = ProposedActionId::new(id);
+    let mut store = state.lock()?;
+
+    let idx = store
+        .proposed_actions
+        .iter()
+        .position(|a| a.id == action_id)
+        .ok_or_else(|| ApiError::not_found(format!("proposed action {} not found", action_id)))?;
+
+    let action = store.proposed_actions[idx].clone();
+
+    // Only Approved proposals may be dry-run
+    if action.status != ProposedActionStatus::Approved {
+        let audit_event = AuditEvent {
+            id: AuditEventId::new(format!(
+                "audit-dry-run-blocked-{}-{}",
+                action.id.as_str(),
+                store.audit_events.len() + 1
+            )),
+            event_type: AuditEventType::DecisionCreated,
+            actor: ActorRef::System,
+            workspace_id: Some(action.workspace_id.clone()),
+            task_id: action.task_id.clone(),
+            proposed_action_id: Some(action.id.clone()),
+            decision_id: None,
+            payload: serde_json::json!({
+                "dry_run_status": "blocked",
+                "reason": format!("Proposal status is {:?}, must be Approved", action.status),
+            }),
+            created_at: Utc::now(),
+        };
+        store.audit_events.push(audit_event);
+
+        return Err(ApiError::bad_request(format!(
+            "Cannot dry-run proposal with status {:?}. Only Approved proposals may be dry-run.",
+            action.status
+        )));
+    }
+
+    let (expected_effects, touched_resources, reversibility, summary) =
+        describe_action_effects(&action);
+
+    let result = DryRunResult {
+        proposal_id: action.id.clone(),
+        action_type: action.action_type.clone(),
+        expected_effects,
+        required_permissions: action.required_permissions.clone(),
+        touched_resources,
+        risk_level: action.risk_level.clone(),
+        reversibility,
+        human_readable_summary: summary,
+        status: DryRunStatus::DryRunCompleted,
+        created_at: Utc::now(),
+    };
+
+    // Create audit event for the dry-run
+    let audit_event = AuditEvent {
+        id: AuditEventId::new(format!(
+            "audit-dry-run-{}-{}",
+            result.proposal_id.as_str(),
+            store.audit_events.len() + 1
+        )),
+        event_type: AuditEventType::DecisionCreated,
+        actor: ActorRef::System,
+        workspace_id: Some(action.workspace_id.clone()),
+        task_id: action.task_id.clone(),
+        proposed_action_id: Some(action.id.clone()),
+        decision_id: None,
+        payload: serde_json::json!({
+            "dry_run_status": "completed",
+            "action_type": result.action_type,
+            "expected_effects": result.expected_effects,
+            "touched_resources": result.touched_resources,
+        }),
+        created_at: Utc::now(),
+    };
+
+    store.dry_run_results.push(result.clone());
+    store.audit_events.push(audit_event);
+
+    Ok(Json(result))
+}
+
+async fn list_dry_run_results(
+    State(state): State<AppState>,
+) -> Result<Json<Vec<DryRunResult>>, ApiError> {
+    Ok(Json(state.lock()?.dry_run_results.clone()))
+}
+
 fn status_from_decision(status: &DecisionStatus) -> ProposedActionStatus {
     match status {
         DecisionStatus::Approved => ProposedActionStatus::Approved,
@@ -416,6 +646,172 @@ fn status_from_decision(status: &DecisionStatus) -> ProposedActionStatus {
 
 fn empty_payload() -> Value {
     json!({})
+}
+
+// --- Sandbox types ---
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+enum SandboxRunStatus {
+    Pending,
+    Completed,
+    Failed,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+struct SandboxRun {
+    id: String,
+    proposed_action_id: String,
+    status: SandboxRunStatus,
+    action_type: String,
+    risk_level: String,
+    simulated_output: Value,
+    warnings: Vec<String>,
+    created_at: DateTime<Utc>,
+    simulation_warning: String,
+}
+
+/// Generate a deterministic simulated output for a proposed action without side effects.
+fn simulate_action(action: &ProposedAction) -> (Value, Vec<String>, SandboxRunStatus) {
+    let mut warnings = Vec::new();
+    let mut effects = Vec::new();
+
+    match action.action_type {
+        ActionType::ReadMemory => {
+            effects.push(json!({
+                "description": "Read memory matching the specified criteria",
+                "target": action.target,
+                "effect_type": "read",
+            }));
+        }
+        ActionType::ReadTasks => {
+            effects.push(json!({
+                "description": "List tasks for the workspace",
+                "target": action.workspace_id,
+                "effect_type": "read",
+            }));
+        }
+        ActionType::ReadProposedActions | ActionType::ReadPendingActions => {
+            effects.push(json!({
+                "description": "List proposed actions for review",
+                "target": action.workspace_id,
+                "effect_type": "read",
+            }));
+        }
+        ActionType::ReadDecisions => {
+            effects.push(json!({
+                "description": "Read decision records",
+                "target": action.workspace_id,
+                "effect_type": "read",
+            }));
+        }
+        ActionType::ReadAudit => {
+            effects.push(json!({
+                "description": "Read audit event history",
+                "target": action.workspace_id,
+                "effect_type": "read",
+            }));
+        }
+        ActionType::ReadStatus => {
+            effects.push(json!({
+                "description": "Read system status overview",
+                "effect_type": "read",
+            }));
+        }
+        ActionType::SystemCheck => {
+            effects.push(json!({
+                "description": "Run system diagnostics check",
+                "effect_type": "inspection",
+            }));
+        }
+        ActionType::WriteMemory
+        | ActionType::CreateMemoryFact
+        | ActionType::LinkMemoryFact
+        | ActionType::InvalidateMemoryFact
+        | ActionType::CreateFailureInsightMemory => {
+            effects.push(json!({
+                "description": "Write data to Graph Memory",
+                "target": action.target,
+                "effect_type": "memory_write",
+                "payload_preview": action.payload,
+            }));
+            if action.risk_level == RiskLevel::Informational || action.risk_level == RiskLevel::Low
+            {
+                warnings
+                    .push("Memory write would be simulated — no actual persistence.".to_owned());
+            }
+        }
+        ActionType::ReadDocument => {
+            effects.push(json!({
+                "description": "Read document content",
+                "target": action.target,
+                "effect_type": "read",
+            }));
+        }
+        ActionType::WriteDocument => {
+            effects.push(json!({
+                "description": "Write or update a document",
+                "target": action.target,
+                "effect_type": "write",
+            }));
+            warnings.push("Document write is simulated — no file would be modified.".to_owned());
+        }
+        ActionType::ProposeToolUse => {
+            effects.push(json!({
+                "description": "Propose tool execution",
+                "tool": action.target,
+                "effect_type": "proposal",
+            }));
+        }
+        ActionType::SimulateEmail => {
+            effects.push(json!({
+                "description": "Simulate sending email communication",
+                "recipient": action.target,
+                "effect_type": "communication",
+            }));
+            warnings.push("Email simulation — no message would be sent.".to_owned());
+        }
+        ActionType::ManageTask => {
+            effects.push(json!({
+                "description": "Manage task lifecycle",
+                "target": action.target,
+                "effect_type": "management",
+            }));
+        }
+        ActionType::Custom(ref name) => {
+            effects.push(json!({
+                "description": format!("Custom action type '{name}'"),
+                "target": action.target,
+                "effect_type": "custom",
+            }));
+            warnings.push(format!(
+                "Custom action '{name}' has no pre-defined simulation. Verify manually."
+            ));
+        }
+    }
+
+    let simulation_warning =
+        "⚠ DRY-RUN SIMULATION — No real side effects were executed.".to_owned();
+    warnings.push(simulation_warning.clone());
+
+    let output = json!({
+        "simulation_mode": true,
+        "action_id": action.id,
+        "action_type": action.action_type,
+        "risk_level": action.risk_level,
+        "rationale": action.rationale,
+        "simulated_effects": effects,
+        "warnings": warnings,
+        "non_authorizing_warning": "This is a dry-run simulation only. No real execution occurred.",
+    });
+
+    let status = if effects.is_empty() {
+        SandboxRunStatus::Failed
+    } else {
+        SandboxRunStatus::Completed
+    };
+
+    (output, warnings, status)
 }
 
 impl AppState {

@@ -237,6 +237,10 @@ enum ActionSubcommand {
     Evaluate(EvaluateActionArgs),
     /// Review proposed actions: list, show, approve, reject, defer.
     Review(ReviewActionCommand),
+    /// Run dry-run sandbox for approved low-risk proposals.
+    Sandbox(SandboxActionCommand),
+    /// Dry-run an approved proposal: simulate execution without side effects.
+    DryRun(DryRunActionArgs),
 }
 
 #[derive(Debug, Args)]
@@ -290,6 +294,45 @@ struct ReviewActionTransitionArgs {
     /// Actor identifier (default: human-cli).
     #[arg(long, default_value = "human-cli")]
     actor: String,
+    /// Emit structured JSON instead of human-oriented text.
+    #[arg(long)]
+    json: bool,
+}
+
+#[derive(Debug, Args)]
+struct SandboxActionCommand {
+    #[command(subcommand)]
+    command: SandboxActionSubcommand,
+}
+
+#[derive(Debug, Subcommand)]
+enum SandboxActionSubcommand {
+    /// Run dry-run sandbox for an approved low-risk proposal.
+    Run(SandboxRunArgs),
+    /// List sandbox runs.
+    List(SandboxListArgs),
+}
+
+#[derive(Debug, Args)]
+struct SandboxRunArgs {
+    /// Proposed action ID to run in sandbox.
+    action_id: String,
+    /// Emit structured JSON instead of human-oriented text.
+    #[arg(long)]
+    json: bool,
+}
+
+#[derive(Debug, Args)]
+struct SandboxListArgs {
+    /// Emit structured JSON instead of human-oriented text.
+    #[arg(long)]
+    json: bool,
+}
+
+#[derive(Debug, Args)]
+struct DryRunActionArgs {
+    /// Proposed action ID to dry-run.
+    action_id: String,
     /// Emit structured JSON instead of human-oriented text.
     #[arg(long)]
     json: bool,
@@ -1070,6 +1113,8 @@ async fn run() -> Result<(), Box<dyn Error>> {
             ActionSubcommand::Propose(args) => propose_action(&client, &api_url, args).await?,
             ActionSubcommand::Evaluate(args) => evaluate_action(&client, &api_url, args).await?,
             ActionSubcommand::Review(args) => review_action(&client, &api_url, args).await?,
+            ActionSubcommand::Sandbox(args) => sandbox_action(&client, &api_url, args).await?,
+            ActionSubcommand::DryRun(args) => dry_run_action(&client, &api_url, args).await?,
         },
         Command::Agent(agent) => match agent.command {
             AgentSubcommand::Propose(args) => propose_agent_action(&client, &api_url, args).await?,
@@ -3213,10 +3258,7 @@ async fn review_action(
             };
 
             if args.json {
-                println!(
-                    "{}",
-                    serde_json::to_string_pretty(&filtered)?
-                );
+                println!("{}", serde_json::to_string_pretty(&filtered)?);
             } else {
                 if filtered.is_empty() {
                     println!("{}", style_dim("No proposed actions matching filter."));
@@ -3233,10 +3275,7 @@ async fn review_action(
                         .get("priority_band")
                         .and_then(|v| v.as_str())
                         .unwrap_or("?");
-                    let batched = p
-                        .get("batched")
-                        .and_then(|v| v.as_bool())
-                        .unwrap_or(false);
+                    let batched = p.get("batched").and_then(|v| v.as_bool()).unwrap_or(false);
                     println!(
                         "{} {} | {} | score={:.2} ({}){}",
                         style_dim("- id:"),
@@ -3269,14 +3308,26 @@ async fn review_action(
                 println!("{} {}", style_dim("id:"), action.id);
                 println!("{} {:?}", style_dim("status:"), action.status);
                 println!("{} {:?}", style_dim("action_type:"), action.action_type);
-                println!("{} {}", style_dim("risk_level:"), format!("{:?}", action.risk_level));
+                println!(
+                    "{} {}",
+                    style_dim("risk_level:"),
+                    format!("{:?}", action.risk_level)
+                );
                 println!("{} {}", style_dim("rationale:"), action.rationale);
                 println!("{} {}", style_dim("created_at:"), action.created_at);
                 if action.target.is_some() {
-                    println!("{} {}", style_dim("target:"), action.target.as_ref().unwrap());
+                    println!(
+                        "{} {}",
+                        style_dim("target:"),
+                        action.target.as_ref().unwrap()
+                    );
                 }
                 // Print payload fields
-                if let Some(score) = action.payload.get("priority_score").and_then(|v| v.as_f64()) {
+                if let Some(score) = action
+                    .payload
+                    .get("priority_score")
+                    .and_then(|v| v.as_f64())
+                {
                     println!("{} {:.2}", style_dim("priority_score:"), score);
                 }
                 if let Some(band) = action.payload.get("priority_band").and_then(|v| v.as_str()) {
@@ -3284,14 +3335,21 @@ async fn review_action(
                 }
                 if let Some(batched) = action.payload.get("batched").and_then(|v| v.as_bool()) {
                     println!("{} {}", style_dim("batched:"), batched);
-                    if let Some(count) = action.payload.get("merged_count").and_then(|v| v.as_u64()) {
+                    if let Some(count) = action.payload.get("merged_count").and_then(|v| v.as_u64())
+                    {
                         println!("{} {}", style_dim("merged_count:"), count);
                     }
                 }
-                if let Some(source_kind) = action.payload.get("source_kind").and_then(|v| v.as_str()) {
+                if let Some(source_kind) =
+                    action.payload.get("source_kind").and_then(|v| v.as_str())
+                {
                     println!("{} {}", style_dim("source_kind:"), source_kind);
                 }
-                if let Some(benefit) = action.payload.get("expected_benefit").and_then(|v| v.as_str()) {
+                if let Some(benefit) = action
+                    .payload
+                    .get("expected_benefit")
+                    .and_then(|v| v.as_str())
+                {
                     println!("{} {}", style_dim("expected_benefit:"), benefit);
                 }
             }
@@ -3342,6 +3400,178 @@ async fn review_action(
                     }
                 }
             }
+        }
+    }
+    Ok(())
+}
+
+/// Sandbox command handler: run dry-run simulation or list sandbox runs.
+async fn sandbox_action(
+    client: &Client,
+    api_url: &str,
+    cmd: SandboxActionCommand,
+) -> Result<(), Box<dyn Error>> {
+    match cmd.command {
+        SandboxActionSubcommand::Run(args) => {
+            let response: serde_json::Value = client
+                .post(format!(
+                    "{api_url}/proposed-actions/{}/sandbox",
+                    args.action_id
+                ))
+                .send()
+                .await?
+                .json()
+                .await?;
+
+            if args.json {
+                println!("{}", serde_json::to_string_pretty(&response)?);
+            } else {
+                println!("{}", style_info("Dry-Run Sandbox Simulation"));
+                println!(
+                    "{} {}",
+                    style_dim("  sandbox run id:"),
+                    response["id"].as_str().unwrap_or("?")
+                );
+                println!(
+                    "{} {}",
+                    style_dim("  status:"),
+                    response["status"].as_str().unwrap_or("?")
+                );
+                println!(
+                    "{} {}",
+                    style_dim("  action_type:"),
+                    response["action_type"].as_str().unwrap_or("?")
+                );
+                println!(
+                    "{} {}",
+                    style_dim("  risk_level:"),
+                    response["risk_level"].as_str().unwrap_or("?")
+                );
+
+                if let Some(warnings) = response["warnings"].as_array() {
+                    for w in warnings {
+                        if let Some(w_text) = w.as_str() {
+                            println!("  {} {}", style_warning("⚠"), w_text);
+                        }
+                    }
+                }
+
+                if let Some(sim_out) = response.get("simulated_output") {
+                    if let Some(effects) = sim_out["simulated_effects"].as_array() {
+                        for (i, effect) in effects.iter().enumerate() {
+                            let desc = effect["description"].as_str().unwrap_or("unknown effect");
+                            let etype = effect["effect_type"].as_str().unwrap_or("?");
+                            println!(
+                                "  {}. {} ({})",
+                                style_dim(&format!("{}", i + 1)),
+                                desc,
+                                etype,
+                            );
+                        }
+                    }
+                    if let Some(non_auth) = sim_out["non_authorizing_warning"].as_str() {
+                        println!("  {}", style_warning(non_auth));
+                    }
+                }
+
+                if let Some(sim_warning) = response["simulation_warning"].as_str() {
+                    println!("\n{}", style_warning(sim_warning));
+                }
+            }
+        }
+        SandboxActionSubcommand::List(args) => {
+            let runs: Vec<serde_json::Value> =
+                get_json(client.get(format!("{api_url}/sandbox-runs")).send().await?).await?;
+
+            if args.json {
+                println!("{}", serde_json::to_string_pretty(&runs)?);
+            } else {
+                if runs.is_empty() {
+                    println!("{}", style_dim("No sandbox runs found."));
+                    return Ok(());
+                }
+                println!("{}", style_info("Sandbox runs"));
+                for run in &runs {
+                    println!(
+                        "{} {} | {} | {} | {}",
+                        style_dim("- id:"),
+                        run["id"].as_str().unwrap_or("?"),
+                        run["status"].as_str().unwrap_or("?"),
+                        run["action_type"].as_str().unwrap_or("?"),
+                        run["created_at"].as_str().unwrap_or("?"),
+                    );
+                }
+            }
+        }
+    }
+    Ok(())
+}
+
+/// Dry-run an approved proposal: simulate execution without side effects.
+async fn dry_run_action(
+    client: &Client,
+    api_url: &str,
+    args: DryRunActionArgs,
+) -> Result<(), Box<dyn Error>> {
+    let response: serde_json::Value = client
+        .post(format!(
+            "{}/proposed-actions/{}/dry-run",
+            api_url, args.action_id
+        ))
+        .send()
+        .await?
+        .json()
+        .await?;
+
+    if args.json {
+        println!("{}", serde_json::to_string_pretty(&response)?);
+    } else {
+        if let Some(status_val) = response.get("status").and_then(|v| v.as_str()) {
+            let status_icon = if status_val == "dry_run_completed" {
+                style_success("✓")
+            } else {
+                style_error("✗")
+            };
+            println!(
+                "{} Dry-run of '{}': {}",
+                status_icon,
+                args.action_id,
+                style_status(status_val),
+            );
+        }
+        if let Some(summary) = response
+            .get("human_readable_summary")
+            .and_then(|v| v.as_str())
+        {
+            println!("{} {}", style_dim("  summary:"), summary);
+        }
+        if let Some(effects) = response
+            .get("expected_effects")
+            .and_then(|v| v.as_array())
+        {
+            println!("{}", style_dim("  expected effects:"));
+            for effect in effects {
+                if let Some(text) = effect.as_str() {
+                    println!("    - {}", text);
+                }
+            }
+        }
+        if let Some(resources) = response
+            .get("touched_resources")
+            .and_then(|v| v.as_array())
+        {
+            println!("{}", style_dim("  touched resources:"));
+            for resource in resources {
+                if let Some(text) = resource.as_str() {
+                    println!("    - {}", text);
+                }
+            }
+        }
+        if let Some(reversibility) = response
+            .get("reversibility")
+            .and_then(|v| v.as_str())
+        {
+            println!("{} {}", style_dim("  reversibility:"), reversibility);
         }
     }
     Ok(())
@@ -4713,7 +4943,12 @@ fn dedup_key_from_payload(payload: &serde_json::Value) -> String {
         .get("source_summary")
         .and_then(|v| v.as_str())
         .unwrap_or("");
-    let normalized = summary.to_lowercase().trim().chars().take(100).collect::<String>();
+    let normalized = summary
+        .to_lowercase()
+        .trim()
+        .chars()
+        .take(100)
+        .collect::<String>();
     format!("{}::{}::{}", action_type, source_kind, normalized)
 }
 
@@ -4777,14 +5012,10 @@ fn dedup_proposed_actions(
     .cloned()
     .collect();
 
-    let cost_order: std::collections::HashMap<&str, u8> = [
-        ("low", 0),
-        ("medium", 1),
-        ("high", 2),
-    ]
-    .iter()
-    .cloned()
-    .collect();
+    let cost_order: std::collections::HashMap<&str, u8> = [("low", 0), ("medium", 1), ("high", 2)]
+        .iter()
+        .cloned()
+        .collect();
 
     for (_key, group) in groups {
         if group.is_empty() {
@@ -4824,7 +5055,10 @@ fn dedup_proposed_actions(
                 }
             }
 
-            let rl = p.get("risk_level").and_then(|v| v.as_str()).unwrap_or("medium");
+            let rl = p
+                .get("risk_level")
+                .and_then(|v| v.as_str())
+                .unwrap_or("medium");
             all_risk_levels.push(*risk_order.get(rl).unwrap_or(&2));
 
             let ic = p
@@ -4833,10 +5067,7 @@ fn dedup_proposed_actions(
                 .unwrap_or("medium");
             all_costs.push(*cost_order.get(ic).unwrap_or(&1));
 
-            let conf = p
-                .get("confidence")
-                .and_then(|v| v.as_f64())
-                .unwrap_or(0.5);
+            let conf = p.get("confidence").and_then(|v| v.as_f64()).unwrap_or(0.5);
             all_confidences.push(conf);
 
             let bs = p
@@ -4873,9 +5104,7 @@ fn dedup_proposed_actions(
             .to_owned();
 
         // Max confidence
-        let max_confidence = all_confidences
-            .into_iter()
-            .fold(0.0_f64, |a, b| a.max(b));
+        let max_confidence = all_confidences.into_iter().fold(0.0_f64, |a, b| a.max(b));
 
         // Re-compute score with conservative (highest) risk
         let action_type = primary
@@ -4914,23 +5143,14 @@ fn dedup_proposed_actions(
                 serde_json::Value::String(highest_risk_str.clone()),
             );
             // Update priority_score and priority_band
-            payload_obj.insert(
-                "priority_score".to_owned(),
-                serde_json::json!(final_score),
-            );
+            payload_obj.insert("priority_score".to_owned(), serde_json::json!(final_score));
             payload_obj.insert(
                 "priority_band".to_owned(),
                 serde_json::Value::String(compute_priority_band(final_score).to_owned()),
             );
             // Insert batch metadata
-            payload_obj.insert(
-                "batched".to_owned(),
-                serde_json::Value::Bool(true),
-            );
-            payload_obj.insert(
-                "merged_count".to_owned(),
-                serde_json::json!(group.len()),
-            );
+            payload_obj.insert("batched".to_owned(), serde_json::Value::Bool(true));
+            payload_obj.insert("merged_count".to_owned(), serde_json::json!(group.len()));
             payload_obj.insert(
                 "merged_proposal_ids".to_owned(),
                 serde_json::to_value(&batch_meta.merged_proposal_ids)
@@ -4986,12 +5206,22 @@ fn fic_kind_to_benefit(kind: &str) -> &'static str {
         "blocked_tool_use" => "Unblock a prevented operation so the agent can proceed safely.",
         "tool_runtime_failure" => "Restore tool runtime reliability and reduce observation noise.",
         "missing_context" => "Provide missing context so future cycles produce better plans.",
-        "insufficient_observation_quality" => "Improve observation quality for more reliable downstream assessments.",
-        "empty_search_result" => "Verify whether the expected data exists or adjust the search strategy.",
-        "truncated_result" => "Ensure full data visibility by widening the search or paginating results.",
+        "insufficient_observation_quality" => {
+            "Improve observation quality for more reliable downstream assessments."
+        }
+        "empty_search_result" => {
+            "Verify whether the expected data exists or adjust the search strategy."
+        }
+        "truncated_result" => {
+            "Ensure full data visibility by widening the search or paginating results."
+        }
         "ambiguous_result" => "Clarify ambiguous signals to enable confident downstream decisions.",
-        "documentation_mismatch" => "Reconcile documentation and observed behaviour to reduce confusion.",
-        "repeated_operator_friction" => "Reduce repeated friction by improving the operator experience.",
+        "documentation_mismatch" => {
+            "Reconcile documentation and observed behaviour to reduce confusion."
+        }
+        "repeated_operator_friction" => {
+            "Reduce repeated friction by improving the operator experience."
+        }
         "safety_boundary_triggered" => "Review and harden safety boundaries based on this trigger.",
         _ => "Improve overall cognitive cycle quality.",
     }
@@ -5003,7 +5233,8 @@ fn obs_kind_to_action(kind: &Option<String>) -> &'static str {
         Some("blocked_tool_use") | Some("tool_runtime_failure") => "fix",
         Some("missing_context") | Some("insufficient_observation_quality") => "research",
         Some("empty_search_result") | Some("truncated_result") => "test",
-        Some("ambiguous_result") | Some("documentation_mismatch")
+        Some("ambiguous_result")
+        | Some("documentation_mismatch")
         | Some("repeated_operator_friction") => "refactor",
         Some("safety_boundary_triggered") => "governance",
         _ => "research",
@@ -5013,16 +5244,34 @@ fn obs_kind_to_action(kind: &Option<String>) -> &'static str {
 /// Map an observation candidate kind to an expected benefit string.
 fn obs_kind_to_benefit(kind: &Option<String>) -> &'static str {
     match kind.as_deref() {
-        Some("blocked_tool_use") => "Unblock a prevented operation so the agent can proceed safely.",
-        Some("tool_runtime_failure") => "Restore tool runtime reliability and reduce observation noise.",
+        Some("blocked_tool_use") => {
+            "Unblock a prevented operation so the agent can proceed safely."
+        }
+        Some("tool_runtime_failure") => {
+            "Restore tool runtime reliability and reduce observation noise."
+        }
         Some("missing_context") => "Provide missing context so future cycles produce better plans.",
-        Some("insufficient_observation_quality") => "Improve observation quality for more reliable downstream assessments.",
-        Some("empty_search_result") => "Verify whether the expected data exists or adjust the search strategy.",
-        Some("truncated_result") => "Ensure full data visibility by widening the search or paginating results.",
-        Some("ambiguous_result") => "Clarify ambiguous signals to enable confident downstream decisions.",
-        Some("documentation_mismatch") => "Reconcile documentation and observed behaviour to reduce confusion.",
-        Some("repeated_operator_friction") => "Reduce repeated friction by improving the operator experience.",
-        Some("safety_boundary_triggered") => "Review and harden safety boundaries based on this trigger.",
+        Some("insufficient_observation_quality") => {
+            "Improve observation quality for more reliable downstream assessments."
+        }
+        Some("empty_search_result") => {
+            "Verify whether the expected data exists or adjust the search strategy."
+        }
+        Some("truncated_result") => {
+            "Ensure full data visibility by widening the search or paginating results."
+        }
+        Some("ambiguous_result") => {
+            "Clarify ambiguous signals to enable confident downstream decisions."
+        }
+        Some("documentation_mismatch") => {
+            "Reconcile documentation and observed behaviour to reduce confusion."
+        }
+        Some("repeated_operator_friction") => {
+            "Reduce repeated friction by improving the operator experience."
+        }
+        Some("safety_boundary_triggered") => {
+            "Review and harden safety boundaries based on this trigger."
+        }
         _ => "Improve overall cognitive cycle quality.",
     }
 }
@@ -5037,9 +5286,7 @@ async fn run_proposals(
     failure_insight_candidates: &[serde_json::Value],
     cognitive_observations: &[serde_json::Value],
 ) -> Result<ProposalRunResult, Box<dyn Error>> {
-    use arpagona_agent_core::{
-        ProposedAction,
-    };
+    use arpagona_agent_core::ProposedAction;
 
     let mut proposed_actions: Vec<ProposedAction> = Vec::new();
 
@@ -5077,7 +5324,10 @@ async fn run_proposals(
 
     // ── From FailureInsightCandidates ──────────────────────────────────────
     for fic in failure_insight_candidates {
-        let kind = fic.get("kind").and_then(|v| v.as_str()).unwrap_or("unknown");
+        let kind = fic
+            .get("kind")
+            .and_then(|v| v.as_str())
+            .unwrap_or("unknown");
         let summary = fic.get("summary").and_then(|v| v.as_str()).unwrap_or("");
         let reason = fic.get("reason").and_then(|v| v.as_str()).unwrap_or("");
         let tool_name = fic.get("tool_name").and_then(|v| v.as_str()).unwrap_or("");
@@ -5088,11 +5338,7 @@ async fn run_proposals(
 
         let suggested_action = fic_kind_to_action(kind);
         let benefit = fic_kind_to_benefit(kind);
-        let risk = if is_positive {
-            "informational"
-        } else {
-            "low"
-        };
+        let risk = if is_positive { "informational" } else { "low" };
 
         let permissions: &[&str] = match suggested_action {
             "fix" => &["propose_tool_use"],
@@ -5155,7 +5401,8 @@ async fn run_proposals(
             .unwrap_or("unknown");
 
         // Only propose for observations that are failure candidates or have low usefulness
-        let obs_is_actionable = is_failure_candidate || usefulness == "low" || usefulness == "very_low";
+        let obs_is_actionable =
+            is_failure_candidate || usefulness == "low" || usefulness == "very_low";
 
         if !obs_is_actionable {
             continue;
@@ -5452,10 +5699,7 @@ async fn cognitive_run(
                         ),
                     );
                 }
-                obj.insert(
-                    "proposed".to_owned(),
-                    serde_json::Value::Bool(true),
-                );
+                obj.insert("proposed".to_owned(), serde_json::Value::Bool(true));
             }
             // When --llm, run LLM synthesis and inject into output
             if args.llm {
@@ -7425,19 +7669,39 @@ mod tests {
     fn risk_level_reduces_priority_score() {
         // Same inputs, only risk changes
         let informational = compute_priority_score(
-            "Unblock a prevented operation", Some(0.8), "informational", "fix", "medium",
+            "Unblock a prevented operation",
+            Some(0.8),
+            "informational",
+            "fix",
+            "medium",
         );
         let low = compute_priority_score(
-            "Unblock a prevented operation", Some(0.8), "low", "fix", "medium",
+            "Unblock a prevented operation",
+            Some(0.8),
+            "low",
+            "fix",
+            "medium",
         );
         let medium = compute_priority_score(
-            "Unblock a prevented operation", Some(0.8), "medium", "fix", "medium",
+            "Unblock a prevented operation",
+            Some(0.8),
+            "medium",
+            "fix",
+            "medium",
         );
         let high = compute_priority_score(
-            "Unblock a prevented operation", Some(0.8), "high", "fix", "medium",
+            "Unblock a prevented operation",
+            Some(0.8),
+            "high",
+            "fix",
+            "medium",
         );
         let critical = compute_priority_score(
-            "Unblock a prevented operation", Some(0.8), "critical", "fix", "medium",
+            "Unblock a prevented operation",
+            Some(0.8),
+            "critical",
+            "fix",
+            "medium",
         );
 
         assert!(informational > low, "informational > low");
@@ -7450,11 +7714,14 @@ mod tests {
     fn missing_confidence_defaults_to_safe_value() {
         // Without confidence (None) should default to 0.5
         let with_confidence = compute_priority_score(
-            "Provide missing context", Some(0.9), "low", "research", "low",
+            "Provide missing context",
+            Some(0.9),
+            "low",
+            "research",
+            "low",
         );
-        let without_confidence = compute_priority_score(
-            "Provide missing context", None, "low", "research", "low",
-        );
+        let without_confidence =
+            compute_priority_score("Provide missing context", None, "low", "research", "low");
         // With 0.9 confidence should be higher than with 0.5 default
         assert!(with_confidence > without_confidence);
         // But without_confidence should still produce a reasonable score
@@ -7485,8 +7752,7 @@ mod tests {
     fn all_proposed_actions_remain_pending_decision() {
         // This test proves scoring doesn't change status
         use crate::{
-            ActionType, AgentId, ProposedActionId, ProposedActionStatus, RiskLevel,
-            WorkspaceId,
+            ActionType, AgentId, ProposedActionId, ProposedActionStatus, RiskLevel, WorkspaceId,
         };
         use serde_json::json;
 
@@ -7557,8 +7823,7 @@ mod tests {
     #[test]
     fn dedup_merges_identical_proposals() {
         use arpagona_agent_core::{
-            ActionType, AgentId, ProposedActionId, ProposedActionStatus, RiskLevel,
-            WorkspaceId,
+            ActionType, AgentId, ProposedActionId, ProposedActionStatus, RiskLevel, WorkspaceId,
         };
         use chrono::Utc;
         use serde_json::json;
@@ -7606,11 +7871,7 @@ mod tests {
 
         // Should merge 3 into 1
         assert_eq!(merged.len(), 1, "3 identical proposals should merge into 1");
-        assert_eq!(
-            decisions.len(),
-            1,
-            "1 decision for the merged proposal"
-        );
+        assert_eq!(decisions.len(), 1, "1 decision for the merged proposal");
         assert_eq!(
             audit_events.len(),
             1,
@@ -7635,8 +7896,7 @@ mod tests {
         assert_eq!(single.status, ProposedActionStatus::PendingDecision);
         for decision in &decisions {
             assert_eq!(
-                decision.proposed_action_id,
-                single.id,
+                decision.proposed_action_id, single.id,
                 "decision should reference the merged proposal"
             );
         }
@@ -7645,8 +7905,7 @@ mod tests {
     #[test]
     fn dedup_does_not_merge_different_action_types() {
         use arpagona_agent_core::{
-            ActionType, AgentId, ProposedActionId, ProposedActionStatus, RiskLevel,
-            WorkspaceId,
+            ActionType, AgentId, ProposedActionId, ProposedActionStatus, RiskLevel, WorkspaceId,
         };
         use chrono::Utc;
         use serde_json::json;
@@ -7726,8 +7985,7 @@ mod tests {
     #[test]
     fn dedup_conservatively_preserves_highest_risk() {
         use arpagona_agent_core::{
-            ActionType, AgentId, ProposedActionId, ProposedActionStatus, RiskLevel,
-            WorkspaceId,
+            ActionType, AgentId, ProposedActionId, ProposedActionStatus, RiskLevel, WorkspaceId,
         };
         use chrono::Utc;
         use serde_json::json;
@@ -7819,8 +8077,7 @@ mod tests {
     #[test]
     fn dedup_preserves_single_proposals_unchanged() {
         use arpagona_agent_core::{
-            ActionType, AgentId, ProposedActionId, ProposedActionStatus, RiskLevel,
-            WorkspaceId,
+            ActionType, AgentId, ProposedActionId, ProposedActionStatus, RiskLevel, WorkspaceId,
         };
         use chrono::Utc;
         use serde_json::json;
@@ -7858,11 +8115,7 @@ mod tests {
 
         let (merged, decisions, audit_events) = dedup_proposed_actions(actions);
 
-        assert_eq!(
-            merged.len(),
-            1,
-            "single proposal should remain 1"
-        );
+        assert_eq!(merged.len(), 1, "single proposal should remain 1");
         // Should NOT have batched flag
         let p = &merged[0].payload;
         assert_ne!(
@@ -7879,8 +8132,7 @@ mod tests {
     fn dedup_merged_actions_remain_pending_decision() {
         // Combined with previous tests, this proves the invariant for all paths
         use arpagona_agent_core::{
-            ActionType, AgentId, ProposedActionId, ProposedActionStatus, RiskLevel,
-            WorkspaceId,
+            ActionType, AgentId, ProposedActionId, ProposedActionStatus, RiskLevel, WorkspaceId,
         };
         use chrono::Utc;
         use serde_json::json;
@@ -7920,11 +8172,7 @@ mod tests {
 
         let (merged, decisions, _) = dedup_proposed_actions(actions);
 
-        assert_eq!(
-            merged.len(),
-            1,
-            "5 identical proposals should merge into 1"
-        );
+        assert_eq!(merged.len(), 1, "5 identical proposals should merge into 1");
         for action in &merged {
             assert_eq!(
                 action.status,

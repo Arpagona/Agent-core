@@ -223,6 +223,33 @@ pub struct ProposedAction {
     pub created_at: DateTime<Utc>,
 }
 
+/// Status of a dry-run execution attempt.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum DryRunStatus {
+    DryRunCompleted,
+    DryRunBlocked,
+}
+
+/// Result of a dry-run execution simulation for an approved proposal.
+///
+/// Dry-run is non-destructive: it describes what *would* happen without
+/// actually executing tools, modifying files, or calling external systems.
+/// Every dry-run attempt creates an audit event.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct DryRunResult {
+    pub proposal_id: ProposedActionId,
+    pub action_type: ActionType,
+    pub expected_effects: Vec<String>,
+    pub required_permissions: Vec<Permission>,
+    pub touched_resources: Vec<String>,
+    pub risk_level: RiskLevel,
+    pub reversibility: String,
+    pub human_readable_summary: String,
+    pub status: DryRunStatus,
+    pub created_at: DateTime<Utc>,
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

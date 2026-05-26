@@ -178,9 +178,7 @@ fn cognitive_propose_pipeline_produces_governed_proposals() {
         .map(|p| {
             // The test binary lives in target/debug/deps/; the API server
             // binary is one level up at target/debug/arpagona-api-server
-            p.parent()
-                .expect("deps parent")
-                .join("arpagona-api-server")
+            p.parent().expect("deps parent").join("arpagona-api-server")
         })
         .expect("api server path");
 
@@ -277,11 +275,9 @@ fn cognitive_propose_pipeline_produces_governed_proposals() {
             .and_then(|v| v.as_str())
             .unwrap_or("missing");
         assert_eq!(
-            status,
-            "pending_decision",
+            status, "pending_decision",
             "proposed_action #{} should be pending_decision, got: {}",
-            i,
-            status
+            i, status
         );
     }
 
@@ -321,7 +317,9 @@ fn cognitive_propose_pipeline_produces_governed_proposals() {
 
     // Each proposed action should carry context-aware metadata in payload
     for (i, pa) in pa_array.iter().enumerate() {
-        let payload = pa.get("payload").expect("proposed_action should have payload");
+        let payload = pa
+            .get("payload")
+            .expect("proposed_action should have payload");
         assert!(
             payload.get("originating_objective").is_some(),
             "proposed_action #{} payload should have originating_objective",
@@ -353,7 +351,10 @@ fn cognitive_propose_pipeline_produces_governed_proposals() {
             "proposed_action #{} payload should have priority_score",
             i
         );
-        let score = payload.get("priority_score").and_then(|v| v.as_f64()).unwrap();
+        let score = payload
+            .get("priority_score")
+            .and_then(|v| v.as_f64())
+            .unwrap();
         assert!(
             score >= 0.0 && score <= 2.0,
             "proposed_action #{} priority_score should be in [0.0, 2.0], got {}",
@@ -365,7 +366,10 @@ fn cognitive_propose_pipeline_produces_governed_proposals() {
             "proposed_action #{} payload should have priority_band",
             i
         );
-        let band = payload.get("priority_band").and_then(|v| v.as_str()).unwrap();
+        let band = payload
+            .get("priority_band")
+            .and_then(|v| v.as_str())
+            .unwrap();
         assert!(
             ["high", "medium", "low"].contains(&band),
             "proposed_action #{} priority_band should be high/medium/low, got {}",
@@ -404,7 +408,10 @@ fn cognitive_propose_pipeline_produces_governed_proposals() {
     // If any proposal is batched, verify batch metadata is consistent
     for (i, pa) in pa_array.iter().enumerate() {
         let payload = pa.get("payload").expect("payload exists");
-        let is_batched = payload.get("batched").and_then(|v| v.as_bool()).unwrap_or(false);
+        let is_batched = payload
+            .get("batched")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false);
         if is_batched {
             let merged_count = payload
                 .get("merged_count")
