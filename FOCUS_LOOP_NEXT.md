@@ -6,13 +6,13 @@ It must contain one concrete next action only. The runtime milestone queue and l
 
 ## Next action
 
-Execution attempt audit hardening / executor policy alignment.
+Next pass should: Add `AuditEventType::ExecutionRequested` and `AuditEventType::ExecutionStarted` to the `AuditTraceSummary::has_execution_event` in-memory audit event query so that operator-initiated sandbox runs and dry-run requests are included in audit trace summaries alongside execution events.
 
-Why: the executor registry, capability registry, policy engine, and dry-run layer form a complete pipeline. However, audit events for execution attempts currently reuse the generic `AuditEventType::DecisionCreated` variant. The next step is to add dedicated `AuditEventType` variants (`ExecutionBlocked`, `ExecutionDisabled`, `ExecutionRequested`) and ensure every pipeline step (policy check, executor resolution, dry-run, execution attempt) produces a rich, queryable audit trail with full metadata.
+Why: the execution audit hardening is complete. The next gap is audit query completeness — sandbox and dry-run requests (EventType::ExecutionRequested) and in-progress real execution (ExecutionStarted) are currently excluded from has_execution_event, making summaries incomplete for operators reviewing execution traces.
 
-Proof to seek: `AuditEventType` has variants `ExecutionBlocked` and `ExecutionDisabled`; an `arpagona audit list` for an execute attempt shows dedicated event types with `executor_id`, `policy_decision`, and `capability` metadata.
+Proof to seek: `cargo test --workspace` shows 319+ tests passing including `has_execution_event_includes_new_variants` for ExecutionBlocked/ExecutionDisabled/ExecutionRequested, plus a new test proving ExecutionStarted is also counted in has_execution_event.
 
-Do not: add real execution, modify files/tools/systems, call LLMs, or enable autonomous execution. This is purely audit hardening.
+Do not: add real execution, modify files/tools/systems, call LLMs, or enable autonomous execution. This is purely audit query completeness.
 
 ## Required update at the end of every run
 

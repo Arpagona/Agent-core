@@ -497,7 +497,7 @@ async fn sandbox_run_proposal(
     // Create an audit event for the sandbox run
     let audit_event = AuditEvent {
         id: AuditEventId::new(format!("audit-sandbox-{}", store.audit_events.len() + 1)),
-        event_type: AuditEventType::ExecutionStarted,
+        event_type: AuditEventType::ExecutionRequested,
         actor: ActorRef::System,
         workspace_id: Some(action.workspace_id),
         task_id: action.task_id,
@@ -648,7 +648,7 @@ async fn dry_run_proposal(
             result.proposal_id.as_str(),
             store.audit_events.len() + 1
         )),
-        event_type: AuditEventType::DecisionCreated,
+        event_type: AuditEventType::ExecutionRequested,
         actor: ActorRef::System,
         workspace_id: Some(action.workspace_id.clone()),
         task_id: action.task_id.clone(),
@@ -764,7 +764,7 @@ async fn execute_proposal(
                 action.id.as_str(),
                 store.audit_events.len() + 1
             )),
-            event_type: AuditEventType::DecisionCreated,
+            event_type: AuditEventType::ExecutionBlocked,
             actor: ActorRef::System,
             workspace_id: Some(action.workspace_id.clone()),
             task_id: action.task_id.clone(),
@@ -815,7 +815,7 @@ async fn execute_proposal(
     // Step 4: Create audit event
     let audit_event = AuditEvent {
         id: audit_id.clone(),
-        event_type: AuditEventType::DecisionCreated,
+        event_type: AuditEventType::ExecutionDisabled,
         actor: ActorRef::System,
         workspace_id: Some(action.workspace_id.clone()),
         task_id: action.task_id.clone(),
@@ -827,6 +827,8 @@ async fn execute_proposal(
             "action_type": result.action_type,
             "reason": result.reason,
             "touched_resources": result.touched_resources,
+            "policy_decision": execution_request.policy_decision,
+            "capability": execution_request.capability,
         }),
         created_at: Utc::now(),
     };

@@ -1272,3 +1272,63 @@ This session added the `ExecutorRegistry` — a deterministic registry that maps
 ### Recommended next step
 
 Execution attempt audit hardening / executor policy alignment: ensure that every execution attempt (blocked, disabled, or future real execution) produces a rich audit trail with policy decision, executor id, capability metadata, and the full pipeline trace. Consider aligning the `AuditEventType` enum to have a dedicated `ExecutionBlocked` variant instead of reusing `DecisionCreated`.
+
+## 27. Latest Session Update (2026-05-26 — P17: Execution attempt audit hardening)
+
+This session added dedicated `AuditEventType` variants for the execution pipeline and updated all audit event creation sites in the API server to use the correct variants with rich metadata.
+
+**Core types changed (`crates/core/src/audit.rs`):**
+
+| Variant | Purpose |
+|---------|---------|
+| `ExecutionBlocked` | Execution was blocked by policy (permissions, status, risk) |
+| `ExecutionDisabled` | Execution is globally disabled — NoopExecutor returns this for all action types |
+| `ExecutionRequested` | Execution was requested in sandbox/dry-run mode |
+
+**`AuditTraceSummary` updated:** `has_execution_event` now includes `ExecutionBlocked`, `ExecutionDisabled`, and `ExecutionRequested` alongside existing `ExecutionStarted`, `ExecutionSucceeded`, `ExecutionFailed`.
+
+**API server audit event corrections (`apps/api-server/src/main.rs`):**
+
+| Endpoint | Previous type | New type | Metadata added |
+|----------|--------------|----------|----------------|
+| `POST /proposed-actions/{id}/sandbox` | `ExecutionStarted` | `ExecutionRequested` | sandbox_run_id, simulation_mode |
+| `POST /proposed-actions/{id}/dry-run` | `DecisionCreated` | `ExecutionRequested` | dry_run_status, action_type, policy_decision, expected_effects |
+| `POST /proposed-actions/{id}/execute` (blocked) | `DecisionCreated` | `ExecutionBlocked` | execution_status, policy_decision, matched_rules |
+| `POST /proposed-actions/{id}/execute` (disabled) | `DecisionCreated` | `ExecutionDisabled` | execution_status, executor, policy_decision, capability |
+
+**New tests (4 in `crates/core/src/lib.rs`):**
+
+- `creates_execution_blocked_audit_event` — proves `ExecutionBlocked` variant serializes and round-trips
+- `creates_execution_disabled_audit_event` — proves `ExecutionDisabled` variant works
+- `creates_execution_requested_audit_event` — proves `ExecutionRequested` variant works
+- `has_execution_event_includes_new_variants` — proves `AuditTraceSummary::has_execution_event` recognizes all three new variants
+
+**Verification:**
+
+- `cargo fmt -- --check`: clean
+- `cargo check`: clean (pre-existing Rust edition linter noise only)
+- `cargo test --workspace`: 319 tests pass (all crates), including 4 new audit event tests
+- End-to-end: `cognitive_propose_pipeline_produces_governed_proposals` integration test passes unchanged
+
+**Stability level:** alpha audit hardening — no new endpoints, no runtime behavior changes, no feature changes.
+
+### What was NOT added
+
+- No real execution — only audit event type corrections
+- No LLM calls or provider changes
+- No autonomous execution or scheduling
+- No Decision Gate bypass
+- No file/network/shell side effects
+- No tool execution of any kind
+- No modification of core governance invariants
+- No new API endpoints or CLI commands
+
+### Files changed
+
+| File | Change |
+|------|--------|
+|| `crates/core/src/audit.rs` | Added `ExecutionBlocked`, `ExecutionDisabled`, `ExecutionRequested` variants; updated `has_execution_event` |
+|| `crates/core/src/lib.rs` | Added 4 tests for new `AuditEventType` variants and `has_execution_event` coverage |
+|| `apps/api-server/src/main.rs` | Updated 4 audit event creation sites with correct types + rich metadata |
+|| `PROJECT_STATUS.md` | Updated with section 27 |
+|| `FOCUS_LOOP_NEXT.md` | Updated handoff to audit query completeness |

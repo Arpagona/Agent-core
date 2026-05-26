@@ -147,4 +147,104 @@ mod tests {
 
         assert_eq!(event.event_type, AuditEventType::ActionProposed);
     }
+
+    #[test]
+    fn creates_execution_blocked_audit_event() {
+        let event = AuditEvent {
+            id: AuditEventId::new("audit-blocked-1"),
+            event_type: AuditEventType::ExecutionBlocked,
+            actor: ActorRef::System,
+            workspace_id: None,
+            task_id: None,
+            proposed_action_id: Some(ProposedActionId::new("action-1")),
+            decision_id: None,
+            payload: json!({
+                "execution_status": "blocked_by_policy",
+                "policy_reason": "Missing permission: read_files",
+            }),
+            created_at: Utc::now(),
+        };
+        assert_eq!(event.event_type, AuditEventType::ExecutionBlocked);
+    }
+
+    #[test]
+    fn creates_execution_disabled_audit_event() {
+        let event = AuditEvent {
+            id: AuditEventId::new("audit-disabled-1"),
+            event_type: AuditEventType::ExecutionDisabled,
+            actor: ActorRef::System,
+            workspace_id: None,
+            task_id: None,
+            proposed_action_id: Some(ProposedActionId::new("action-1")),
+            decision_id: None,
+            payload: json!({
+                "execution_status": "execution_disabled",
+                "executor": "noop-executor",
+            }),
+            created_at: Utc::now(),
+        };
+        assert_eq!(event.event_type, AuditEventType::ExecutionDisabled);
+    }
+
+    #[test]
+    fn creates_execution_requested_audit_event() {
+        let event = AuditEvent {
+            id: AuditEventId::new("audit-request-1"),
+            event_type: AuditEventType::ExecutionRequested,
+            actor: ActorRef::System,
+            workspace_id: None,
+            task_id: None,
+            proposed_action_id: Some(ProposedActionId::new("action-1")),
+            decision_id: None,
+            payload: json!({
+                "dry_run_status": "completed",
+                "action_type": "ReadMemory",
+            }),
+            created_at: Utc::now(),
+        };
+        assert_eq!(event.event_type, AuditEventType::ExecutionRequested);
+    }
+
+    #[test]
+    fn has_execution_event_includes_new_variants() {
+        use crate::audit::AuditTraceSummary;
+
+        let events = vec![
+            AuditEvent {
+                id: AuditEventId::new("a1"),
+                event_type: AuditEventType::ExecutionBlocked,
+                actor: ActorRef::System,
+                workspace_id: None,
+                task_id: None,
+                proposed_action_id: None,
+                decision_id: None,
+                payload: json!({}),
+                created_at: Utc::now(),
+            },
+            AuditEvent {
+                id: AuditEventId::new("a2"),
+                event_type: AuditEventType::ExecutionDisabled,
+                actor: ActorRef::System,
+                workspace_id: None,
+                task_id: None,
+                proposed_action_id: None,
+                decision_id: None,
+                payload: json!({}),
+                created_at: Utc::now(),
+            },
+            AuditEvent {
+                id: AuditEventId::new("a3"),
+                event_type: AuditEventType::ExecutionRequested,
+                actor: ActorRef::System,
+                workspace_id: None,
+                task_id: None,
+                proposed_action_id: None,
+                decision_id: None,
+                payload: json!({}),
+                created_at: Utc::now(),
+            },
+        ];
+        let summary = AuditTraceSummary::from_events(&events);
+        assert!(summary.has_execution_event, "all three new event types should be recognized as execution events");
+    }
 }

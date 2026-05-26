@@ -18,6 +18,9 @@ pub enum AuditEventType {
     ExecutionStarted,
     ExecutionSucceeded,
     ExecutionFailed,
+    ExecutionBlocked,
+    ExecutionDisabled,
+    ExecutionRequested,
     PolicyChanged,
 }
 
@@ -99,6 +102,9 @@ impl AuditTraceSummary {
                     AuditEventType::ExecutionStarted
                         | AuditEventType::ExecutionSucceeded
                         | AuditEventType::ExecutionFailed
+                        | AuditEventType::ExecutionBlocked
+                        | AuditEventType::ExecutionDisabled
+                        | AuditEventType::ExecutionRequested
                 )
             }),
         }
