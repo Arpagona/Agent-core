@@ -6,13 +6,13 @@ It must contain one concrete next action only. The runtime milestone queue and l
 
 ## Next action
 
-Implement executor interface, disabled by default.
+Implement executor registry with only disabled/noop executors.
 
-Why: the capability registry, policy engine, and dry-run layer now form a complete governance pipeline for action checking. What's missing is the formal executor abstraction — a trait/interface that consumes approved, policy-checked actions. Keep execution disabled at the trait level (`supports_real_execution: false` everywhere), but define the interface so the pipeline has a target.
+Why: the `Executor` trait and `NoopExecutor` exist. The next step is a registry that maps `executor_id` to `Box<dyn Executor>`, registers `NoopExecutor` as the only entry, and exposes a `resolve(action_type, risk_level) -> Option<&dyn Executor>` lookup. Integrate with the capability registry so `executor_id` in capability entries references registered executors.
 
-Proof to seek: a trait `Executor` with methods like `supports(action_type, risk_level) -> bool` and `dry_run(action) -> DryRunResult` exists; no real executor implementation exists.
+Proof to seek: a `ExecutorRegistry` struct exists with `register()` and `resolve()` methods; `resolve(ReadMemory, Low)` returns the `NoopExecutor`; an unknown executor_id returns `None`.
 
-Do not: add real execution, modify files/tools/systems, call LLMs, or enable autonomous execution. The executor trait is purely abstract.
+Do not: add real execution, modify files/tools/systems, call LLMs, or enable autonomous execution. The registry only contains `NoopExecutor`.
 
 ## Required update at the end of every run
 

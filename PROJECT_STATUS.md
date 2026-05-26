@@ -1124,3 +1124,85 @@ This session added the deterministic PolicyEngine that gates dry-run and future 
 ### Recommended next step
 
 Executor interface, disabled by default: define a trait/interface for executors that consume approved, policy-checked actions. Keep execution disabled at the trait level — the policy engine, capability registry, and dry-run layer exist; what's missing is the formal executor abstraction they would eventually feed into.
+
+## 25. Latest Session Update (2026-05-28 — P15: Executor interface, disabled by default)
+
+This session added the `Executor` trait and `NoopExecutor` — the only registered executor, which always returns `ExecutionDisabled`.
+
+**New module:** `crates/core/src/executor.rs`
+
+**Core types:**
+- `ExecutionStatus` enum: `ExecutionDisabled`, `ExecutionBlocked`, `ExecutionCompleted`, `ExecutionFailed`
+- `ExecutionRequest` struct: `proposal_id`, `action_type`, `actor`, `workspace_scope`, `policy_decision`, `capability`, `dry_run_result`, `risk_level`, `required_permissions`
+- `ExecutionResult` struct: `status`, `reason`, `touched_resources`, `reversible`, `audit_event_id`, `action_type`, `proposal_id`
+- `Executor` trait: `executor_id()`, `supported_action_types()`, `dry_run()`, `execute()`
+- `NoopExecutor` struct: the only registered executor, always returns `ExecutionDisabled`
+
+**Key design decisions:**
+- `Executor` trait is generic — `NoopExecutor` is one implementation, future executors can implement the same trait
+- Policy enforcement happens in the API layer *before* calling the executor, not inside the executor itself
+- `NoopExecutor.dry_run()` returns `None` — the generic dry-run layer handles it
+- `NoopExecutor.execute()` always returns `ExecutionDisabled` with reason "Real execution is globally disabled"
+
+**API endpoint (new):**
+- `POST /proposed-actions/{id}/execute` — two-step pipeline:
+  1. `PolicyEngine::evaluate()` with `real_execution_requested: true` → always blocked globally
+  2. `NoopExecutor::execute()` → returns `ExecutionDisabled`
+- Blocked by policy: creates audit event with `blocked_by_policy` payload
+- Executor returns `ExecutionDisabled`: creates audit event with execution details
+
+**CLI subcommand (new):**
+- `arpagona action execute <id> [--json]` — attempt execution (always returns `ExecutionDisabled`)
+- Human-readable output shows: status icon, reason, action_type, audit_event_id
+
+**Test coverage (9 new tests in `crates/core/src/executor.rs`):**
+- NoopExecutor has consistent `executor_id()`
+- NoopExecutor supports known action types (no Custom types)
+- NoopExecutor never performs side effects (empty touched_resources)
+- `execute()` is globally disabled for read_memory and system_check
+- NoopExecutor does not check policy itself (policy enforcement is in API layer)
+- NoopExecutor does not support Custom action types
+- NoopExecutor accepts high risk but returns `ExecutionDisabled`
+- `dry_run()` returns `None` (generic layer handles it)
+
+**Verification:**
+- `cargo test --workspace`: 300 tests pass (all crates)
+- 0 compiler warnings
+
+**Stability level:** alpha executor trait with disabled-only implementation.
+
+### Key invariants
+
+- No real execution — `execute()` always returns `ExecutionDisabled`
+- Policy check happens before executor call in the API layer
+- No LLM calls — all executor logic is deterministic
+- No Decision Gate bypass — policy engine is always called first
+- No tool execution — NoopExecutor is purely descriptive
+- `execute()` creates an audit event for every attempt (blocked or disabled)
+- Dry-run path remains entirely unaffected
+
+### Files changed
+
+| File | Change |
+|------|--------|
+| `crates/core/src/executor.rs` | **New file** — ExecutionStatus, ExecutionRequest, ExecutionResult, Executor trait, NoopExecutor, 9 tests |
+| `crates/core/src/lib.rs` | Added `pub mod executor` + `pub use executor::*` |
+| `apps/api-server/src/main.rs` | Added `POST /proposed-actions/{id}/execute` with policy check + NoopExecutor |
+| `crates/cli/src/main.rs` | Added `action execute <id>` subcommand |
+| `PROJECT_STATUS.md` | Updated with section 25 |
+| `FOCUS_LOOP_NEXT.md` | Updated to executor registry with only disabled/noop executors |
+
+### What was NOT added
+
+- No real execution — `execute()` always returns `ExecutionDisabled`
+- No LLM calls or provider changes
+- No autonomous execution or scheduling
+- No Decision Gate bypass
+- No file/network/shell side effects
+- No tool execution of any kind
+- No modification of core governance invariants
+- No executor registry (that's the next step)
+
+### Recommended next step
+
+Executor registry with only disabled/noop executors: build a registry that maps `executor_id` to `Box<dyn Executor>`, register `NoopExecutor` as the only entry, and expose a `resolve(action_type, risk_level) -> Option<&dyn Executor>` lookup. Integrate with the capability registry so `executor_id` in capability entries references registered executors.

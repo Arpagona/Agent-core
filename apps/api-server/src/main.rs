@@ -4,6 +4,7 @@ use std::sync::{Arc, Mutex};
 use arpagona_agent_core::{
     execution_capability, list_execution_capabilities, ExecutionCapability,
     PolicyEngine, PolicyInput, PolicyDecision, PolicyEngineResult,
+    ExecutionRequest, ExecutionResult, ExecutionStatus, NoopExecutor, Executor,
     ActionType, ActorRef, AgentId, AuditEvent, AuditEventId, AuditEventType, Decision,
     DecisionStatus, DryRunResult, DryRunStatus, Permission, ProposedAction, ProposedActionId,
     ProposedActionStatus, RiskLevel, Task, TaskId, TaskPriority, TaskStatus, WorkspaceId,
@@ -159,6 +160,10 @@ fn app(state: AppState) -> Router {
         .route(
             "/proposed-actions/{id}/policy-check",
             post(policy_check_proposal),
+        )
+        .route(
+            "/proposed-actions/{id}/execute",
+            post(execute_proposal),
         )
         .with_state(state)
 }
@@ -711,6 +716,121 @@ async fn policy_check_proposal(
     };
 
     let result = PolicyEngine::evaluate_dry_run(&policy_input);
+
+    Ok(Json(result))
+}
+
+/// Execute an approved proposal through the NoopExecutor (always disabled).
+async fn execute_proposal(
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+) -> Result<Json<ExecutionResult>, ApiError> {
+    let action_id = ProposedActionId::new(id);
+    let mut store = state.lock()?;
+
+    let action = store
+        .proposed_actions
+        .iter()
+        .find(|a| a.id == action_id)
+        .ok_or_else(|| ApiError::not_found(format!("proposed action {} not found", action_id)))?
+        .clone();
+
+    // Step 1: Run policy check first
+    let policy_input = PolicyInput {
+        action_type: action.action_type.clone(),
+        proposal_status: action.status.clone(),
+        risk_level: action.risk_level.clone(),
+        required_permissions: action
+            .required_permissions
+            .iter()
+            .map(|p| format!("{:?}", p))
+            .collect(),
+        touched_resource_kinds: vec![],
+        actor: Some(format!("{:?}", action.proposed_by)),
+        workspace: Some(action.workspace_id.as_str().to_owned()),
+        dry_run_requested: false,
+        real_execution_requested: true,
+    };
+
+    let policy_result = PolicyEngine::evaluate(&policy_input);
+
+    if policy_result.decision != PolicyDecision::Allowed {
+        // Blocked by policy — create audit event
+        let audit_event = AuditEvent {
+            id: AuditEventId::new(format!(
+                "audit-execute-blocked-{}-{}",
+                action.id.as_str(),
+                store.audit_events.len() + 1
+            )),
+            event_type: AuditEventType::DecisionCreated,
+            actor: ActorRef::System,
+            workspace_id: Some(action.workspace_id.clone()),
+            task_id: action.task_id.clone(),
+            proposed_action_id: Some(action.id.clone()),
+            decision_id: None,
+            payload: serde_json::json!({
+                "execution_status": "blocked_by_policy",
+                "policy_decision": policy_result.decision,
+                "policy_reason": policy_result.reason,
+                "policy_matched_rules": policy_result.matched_rules,
+            }),
+            created_at: Utc::now(),
+        };
+        store.audit_events.push(audit_event.clone());
+
+        return Err(ApiError::bad_request(format!(
+            "Execution blocked by policy: {}",
+            policy_result.reason
+        )));
+    }
+
+    // Step 2: Build execution request
+    let capability = execution_capability(&action.action_type);
+    let execution_request = ExecutionRequest {
+        proposal_id: action.id.clone(),
+        action_type: action.action_type.clone(),
+        actor: format!("{:?}", action.proposed_by),
+        workspace_scope: action.workspace_id.as_str().to_owned(),
+        policy_decision: Some(policy_result),
+        capability: Some(capability),
+        dry_run_result: None,
+        risk_level: action.risk_level.clone(),
+        required_permissions: action
+            .required_permissions
+            .iter()
+            .map(|p| format!("{:?}", p))
+            .collect(),
+    };
+
+    // Step 3: Execute through NoopExecutor (always returns ExecutionDisabled)
+    let executor = NoopExecutor::new();
+    let mut result = executor.execute(&execution_request);
+
+    // Step 4: Create audit event
+    let audit_event = AuditEvent {
+        id: AuditEventId::new(format!(
+            "audit-execute-{}-{}",
+            action.id.as_str(),
+            store.audit_events.len() + 1
+        )),
+        event_type: AuditEventType::DecisionCreated,
+        actor: ActorRef::System,
+        workspace_id: Some(action.workspace_id.clone()),
+        task_id: action.task_id.clone(),
+        proposed_action_id: Some(action.id.clone()),
+        decision_id: None,
+        payload: serde_json::json!({
+            "execution_status": result.status,
+            "executor": executor.executor_id(),
+            "action_type": result.action_type,
+            "reason": result.reason,
+            "touched_resources": result.touched_resources,
+        }),
+        created_at: Utc::now(),
+    };
+    result.audit_event_id = Some(audit_event.id.clone());
+
+    store.audit_events.push(audit_event);
 
     Ok(Json(result))
 }

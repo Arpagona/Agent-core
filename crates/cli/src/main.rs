@@ -245,6 +245,8 @@ enum ActionSubcommand {
     Capability(CapabilityCommand),
     /// Run a policy check on a proposed action.
     Policy(PolicyActionCommand),
+    /// Execute a proposal (disabled — always returns ExecutionDisabled).
+    Execute(ExecuteActionArgs),
 }
 
 #[derive(Debug, Args)]
@@ -387,6 +389,15 @@ enum PolicyActionSubcommand {
 #[derive(Debug, Args)]
 struct PolicyCheckArgs {
     /// Proposed action ID to check.
+    action_id: String,
+    /// Emit structured JSON instead of human-oriented text.
+    #[arg(long)]
+    json: bool,
+}
+
+#[derive(Debug, Args)]
+struct ExecuteActionArgs {
+    /// Proposed action ID to execute.
     action_id: String,
     /// Emit structured JSON instead of human-oriented text.
     #[arg(long)]
@@ -1172,6 +1183,7 @@ async fn run() -> Result<(), Box<dyn Error>> {
             ActionSubcommand::DryRun(args) => dry_run_action(&client, &api_url, args).await?,
             ActionSubcommand::Capability(args) => capability_action(&client, &api_url, args).await?,
             ActionSubcommand::Policy(args) => policy_action(&client, &api_url, args).await?,
+            ActionSubcommand::Execute(args) => execute_action(&client, &api_url, args).await?,
         },
         Command::Agent(agent) => match agent.command {
             AgentSubcommand::Propose(args) => propose_agent_action(&client, &api_url, args).await?,
@@ -3833,6 +3845,57 @@ async fn policy_action(
                         println!("{} {}", style_dim("  max_allowed_risk:"), max);
                     }
                 }
+            }
+        }
+    }
+    Ok(())
+}
+
+/// Execute a proposal through the API (always returns ExecutionDisabled).
+async fn execute_action(
+    client: &Client,
+    api_url: &str,
+    args: ExecuteActionArgs,
+) -> Result<(), Box<dyn Error>> {
+    let response: serde_json::Value = client
+        .post(format!(
+            "{api_url}/proposed-actions/{}/execute",
+            args.action_id
+        ))
+        .send()
+        .await?
+        .json()
+        .await?;
+
+    if args.json {
+        println!("{}", serde_json::to_string_pretty(&response)?);
+    } else {
+        let status = response["status"].as_str().unwrap_or("unknown");
+        let reason = response["reason"].as_str().unwrap_or("");
+
+        let icon = match status {
+            "execution_disabled" => style_warning("◈"),
+            "execution_blocked" => style_error("✗"),
+            _ => style_info("●"),
+        };
+
+        println!(
+            "{} Execute '{}': {}",
+            icon,
+            args.action_id,
+            style_status(status),
+        );
+        println!("{} {}", style_dim("  reason:"), reason);
+
+        if let Some(at) = response["action_type"].as_str() {
+            println!("{} {}", style_dim("  action_type:"), at);
+        }
+        if let Some(audit_id) = response["audit_event_id"].as_str() {
+            println!("{} {}", style_dim("  audit_event_id:"), audit_id);
+        }
+        if let Some(resources) = response["touched_resources"].as_array() {
+            if !resources.is_empty() {
+                println!("{} {:?}", style_dim("  touched_resources:"), resources);
             }
         }
     }
