@@ -335,6 +335,96 @@ La CLI filtre localement les événements correspondant à `workspace_id`, les o
 
 Ces résumés sont explicitement du readback : ils ne valent pas approbation, autorisation, orchestration ou état d'exécution.
 
+### Cognitive Work Loop V0 (P4 — Working Memory / P5 — Compute Reservoir)
+
+```bash
+cargo run -p arpagona-cli -- cognitive run --objective "Analyse les journaux d'erreur" --domain coding
+```
+
+Options :
+
+- `--objective <TEXT>` (obligatoire) — Le texte de l'objectif à traiter.
+- `--domain <DOMAIN>` — Classification optionnelle du domaine (`coding`, `research`, `teaching`, `business`).
+- `--context <TEXT>` — Contexte supplémentaire au format `clé:valeur`, une par ligne.
+- `--json` — Sortie structurée JSON au lieu du texte lisible.
+- `--assess` — Pont d'évaluation : convertit les `ImprovementCandidates` en `FailureInsightCandidates`.
+- `--allocate` — Pont d'allocation Compute Reservoir : associe la mémoire de travail à une sélection de ressource.
+
+Le Work Loop produit une mémoire de travail (WorkingMemory) complète avec objectif, contexte, hypothèses, contraintes, contexte manquant, estimation de sensibilité/complexité, candidats d'amélioration, plan et prochaine action proposée. La sortie est en lecture seule et non autorisante.
+
+### Graph Memory — Statut et démos
+
+```bash
+cargo run -p arpagona-cli -- memory status
+cargo run -p arpagona-cli -- memory status --json
+```
+
+Affiche l'état alpha de Graph Memory et la lecture des conventions.
+
+#### Démos Memory
+
+```bash
+cargo run -p arpagona-cli -- memory demo failure-insight
+cargo run -p arpagona-cli -- memory demo failure-insight --json
+cargo run -p arpagona-cli -- memory demo failure-insight --description "insight personnalisé" --json
+```
+
+Options `failure-insight` :
+
+- `--json` — Sortie structurée JSON.
+- `--description <TEXT>` — Description personnalisée d'un échec pour remplacer la valeur par défaut.
+- `--inspect-id <ID>` — Inspecte un FailureInsight spécifique après la démo.
+- `--snapshot-path <PATH>` — Chemin pour écrire un snapshot JSON de preuve de lecture inter-invocation.
+
+La démo exécute la boucle alpha complète : signal → `ProposedAction` → Decision Gate → audit → persistance locale → readback avec preuve de trace.
+
+#### Démos Snapshot (persistance inter-invocation)
+
+```bash
+cargo run -p arpagona-cli -- memory demo snapshot-list
+cargo run -p arpagona-cli -- memory demo snapshot-list --json
+cargo run -p arpagona-cli -- memory demo snapshot-read <snapshot-path>
+```
+
+#### Propositions d'écriture mémoire
+
+```bash
+cargo run -p arpagona-cli -- memory proposals
+cargo run -p arpagona-cli -- memory proposal <proposed-action-id>
+```
+
+### Tool Runtime Alpha (lecture seule)
+
+```bash
+cargo run -p arpagona-cli -- tool list --json
+cargo run -p arpagona-cli -- tool inspect read_file --json
+```
+
+Le Tool Runtime expose des outils de perception cognitive read-only :
+
+- `read_file` — Lire un fichier dans le workspace.
+- `list_files` — Lister les fichiers d'un répertoire du workspace.
+- `search_text` — Chercher un motif textuel dans les fichiers du workspace.
+
+Démos d'exécution d'outils :
+
+```bash
+cargo run -p arpagona-cli -- tool demo read-file PROJECT_STATUS.md --json
+cargo run -p arpagona-cli -- tool demo list-files . --json
+cargo run -p arpagona-cli -- tool demo search-text "Decision Gate" . --json
+```
+
+Toute tentative de lire en dehors du workspace (chemins absolus, `..`, `.env`, `.git`) est bloquée avec une erreur structurée et un marqueur de sécurité.
+
+### Insight — Schéma Failure-to-Insight
+
+```bash
+cargo run -p arpagona-cli -- insight schema
+cargo run -p arpagona-cli -- insight schema --json
+```
+
+Affiche la taxonomie et les conventions de lecture du vocabulaire Failure-to-Insight : types de signaux, cibles de correction, catégories de candidats, sans autorisation ni mutation.
+
 ## Installation
 
 ```bash
