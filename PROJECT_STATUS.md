@@ -1206,3 +1206,69 @@ This session added the `Executor` trait and `NoopExecutor` — the only register
 ### Recommended next step
 
 Executor registry with only disabled/noop executors: build a registry that maps `executor_id` to `Box<dyn Executor>`, register `NoopExecutor` as the only entry, and expose a `resolve(action_type, risk_level) -> Option<&dyn Executor>` lookup. Integrate with the capability registry so `executor_id` in capability entries references registered executors.
+
+## 26. Latest Session Update (2026-05-28 — P16: ExecutorRegistry with NoopExecutor only)
+
+This session added the `ExecutorRegistry` — a deterministic registry that maps `executor_id` to `Box<dyn Executor>`.
+
+**New module:** `crates/core/src/executor_registry.rs`
+
+**Core types:**
+- `ExecutorRegistry` struct: `register()`, `resolve(action_type)`, `get(executor_id)`, `list()`, `execute(request, audit_event_id)`
+- Auto-registers `NoopExecutor` on construction
+- `resolve(Custom/unknown ActionType)` returns `None` — no executor found
+- `execute()` returns `ExecutionBlocked` when no executor can handle the action type
+
+**Integration with execute pipeline:**
+- `POST /proposed-actions/{id}/execute` now uses `store.executor_registry.execute()` instead of directly calling `NoopExecutor::new()`
+- If no executor is found (Custom action type), returns `ExecutionBlocked` with audit event
+- Audit event payload includes the resolved `executor_id` (or `None` if unresolved)
+
+**Test coverage (15 new tests in `crates/core/src/executor_registry.rs`):**
+- NoopExecutor is registered by default
+- Can get NoopExecutor by id; unknown id returns None
+- Known ActionType values resolve to NoopExecutor
+- Custom/unknown ActionType resolves to None (blocked)
+- `execute()` for Custom returns `ExecutionBlocked` with audit_event_id
+- `list()` returns only `noop-executor`
+- `execute()` for all known types returns `ExecutionDisabled`
+- Dry-run path unaffected (NoopExecutor.dry_run() returns None)
+
+**Verification:**
+- `cargo test --workspace`: 315 tests pass (all crates)
+- 0 compiler warnings
+
+**Stability level:** alpha executor registry with only NoopExecutor.
+
+### Key invariants
+
+- No real execution — all execute() calls return ExecutionDisabled or ExecutionBlocked
+- Policy check happens before registry.execute() in the API layer
+- Custom/unknown ActionType never resolves to an executor → ExecutionBlocked
+- Registry contains only NoopExecutor
+- Dry-run path remains entirely unaffected
+- Every execution attempt creates an audit event
+
+### Files changed
+
+| File | Change |
+|------|--------|
+| `crates/core/src/executor_registry.rs` | **New file** — ExecutorRegistry, 15 tests |
+| `crates/core/src/lib.rs` | Added `pub mod executor_registry` + `pub use executor_registry::*` |
+| `apps/api-server/src/main.rs` | Added `executor_registry` to InMemoryStore; execute endpoint uses registry |
+| `PROJECT_STATUS.md` | Updated with section 26 |
+| `FOCUS_LOOP_NEXT.md` | Updated to execution attempt audit hardening |
+
+### What was NOT added
+
+- No real execution — only NoopExecutor registered
+- No LLM calls or provider changes
+- No autonomous execution or scheduling
+- No Decision Gate bypass
+- No file/network/shell side effects
+- No tool execution of any kind
+- No API endpoints for executor registry listing (deferred — CLI can read from capability registry)
+
+### Recommended next step
+
+Execution attempt audit hardening / executor policy alignment: ensure that every execution attempt (blocked, disabled, or future real execution) produces a rich audit trail with policy decision, executor id, capability metadata, and the full pipeline trace. Consider aligning the `AuditEventType` enum to have a dedicated `ExecutionBlocked` variant instead of reusing `DecisionCreated`.

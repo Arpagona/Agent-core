@@ -6,13 +6,13 @@ It must contain one concrete next action only. The runtime milestone queue and l
 
 ## Next action
 
-Implement executor registry with only disabled/noop executors.
+Execution attempt audit hardening / executor policy alignment.
 
-Why: the `Executor` trait and `NoopExecutor` exist. The next step is a registry that maps `executor_id` to `Box<dyn Executor>`, registers `NoopExecutor` as the only entry, and exposes a `resolve(action_type, risk_level) -> Option<&dyn Executor>` lookup. Integrate with the capability registry so `executor_id` in capability entries references registered executors.
+Why: the executor registry, capability registry, policy engine, and dry-run layer form a complete pipeline. However, audit events for execution attempts currently reuse the generic `AuditEventType::DecisionCreated` variant. The next step is to add dedicated `AuditEventType` variants (`ExecutionBlocked`, `ExecutionDisabled`, `ExecutionRequested`) and ensure every pipeline step (policy check, executor resolution, dry-run, execution attempt) produces a rich, queryable audit trail with full metadata.
 
-Proof to seek: a `ExecutorRegistry` struct exists with `register()` and `resolve()` methods; `resolve(ReadMemory, Low)` returns the `NoopExecutor`; an unknown executor_id returns `None`.
+Proof to seek: `AuditEventType` has variants `ExecutionBlocked` and `ExecutionDisabled`; an `arpagona audit list` for an execute attempt shows dedicated event types with `executor_id`, `policy_decision`, and `capability` metadata.
 
-Do not: add real execution, modify files/tools/systems, call LLMs, or enable autonomous execution. The registry only contains `NoopExecutor`.
+Do not: add real execution, modify files/tools/systems, call LLMs, or enable autonomous execution. This is purely audit hardening.
 
 ## Required update at the end of every run
 

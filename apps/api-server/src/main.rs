@@ -5,6 +5,7 @@ use arpagona_agent_core::{
     execution_capability, list_execution_capabilities, ExecutionCapability,
     PolicyEngine, PolicyInput, PolicyDecision, PolicyEngineResult,
     ExecutionRequest, ExecutionResult, ExecutionStatus, NoopExecutor, Executor,
+    ExecutorRegistry,
     ActionType, ActorRef, AgentId, AuditEvent, AuditEventId, AuditEventType, Decision,
     DecisionStatus, DryRunResult, DryRunStatus, Permission, ProposedAction, ProposedActionId,
     ProposedActionStatus, RiskLevel, Task, TaskId, TaskPriority, TaskStatus, WorkspaceId,
@@ -37,6 +38,7 @@ struct InMemoryStore {
     audit_events: Vec<AuditEvent>,
     sandbox_runs: Vec<SandboxRun>,
     dry_run_results: Vec<DryRunResult>,
+    executor_registry: ExecutorRegistry,
 }
 
 #[derive(Serialize)]
@@ -802,17 +804,17 @@ async fn execute_proposal(
             .collect(),
     };
 
-    // Step 3: Execute through NoopExecutor (always returns ExecutionDisabled)
-    let executor = NoopExecutor::new();
-    let mut result = executor.execute(&execution_request);
+    // Step 3: Execute through executor registry
+    let audit_id = AuditEventId::new(format!(
+        "audit-execute-{}-{}",
+        action.id.as_str(),
+        store.audit_events.len() + 1
+    ));
+    let mut result = store.executor_registry.execute(&execution_request, Some(audit_id.clone()));
 
     // Step 4: Create audit event
     let audit_event = AuditEvent {
-        id: AuditEventId::new(format!(
-            "audit-execute-{}-{}",
-            action.id.as_str(),
-            store.audit_events.len() + 1
-        )),
+        id: audit_id.clone(),
         event_type: AuditEventType::DecisionCreated,
         actor: ActorRef::System,
         workspace_id: Some(action.workspace_id.clone()),
@@ -821,14 +823,13 @@ async fn execute_proposal(
         decision_id: None,
         payload: serde_json::json!({
             "execution_status": result.status,
-            "executor": executor.executor_id(),
+            "executor": store.executor_registry.resolve(&result.action_type).map(|e| e.executor_id().to_owned()),
             "action_type": result.action_type,
             "reason": result.reason,
             "touched_resources": result.touched_resources,
         }),
         created_at: Utc::now(),
     };
-    result.audit_event_id = Some(audit_event.id.clone());
 
     store.audit_events.push(audit_event);
 
