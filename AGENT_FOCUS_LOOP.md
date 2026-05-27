@@ -2,39 +2,57 @@
 
 This file is the canonical instruction file for the scheduled ARPAGONA focus loop.
 
-The focus loop must now accelerate toward a usable local-first cognitive runtime while preserving the founding safety rule: build hard on internal cognitive architecture, and gate every external effect.
+The project has reached the first governed alpha checkpoint. The previous P1-P8 queue, Track A MCP milestones and Track B Holographic Memory milestones are considered delivered unless a regression is found. The focus loop must now advance the next strategic layer: real model integration, governed direct tool-calling, operator control and product-ready demonstrations, while preserving the founding safety rule.
+
+```text
+Build hard on internal cognitive architecture. Gate every external effect.
+```
 
 ## 1. Mission
 
 ARPAGONA Agent Core is not a coding assistant project. It is a local-first professional cognitive runtime and agentic orchestration kernel.
 
-The focus loop exists to build the runtime bricks required for:
+The target runtime chain now has two safe modes:
 
 ```text
-Objective -> Working Memory -> Observations -> Plan -> Tool Use -> Assessment -> ProposedAction -> Decision Gate -> Audit -> Reflection -> Governed Learning
+Proposal mode:
+Objective -> Working Memory -> Observations -> Plan -> Assessment -> ProposedAction -> Decision Gate -> Audit -> Reflection -> Governed Learning
+
+Governed tool-call mode:
+Objective -> Working Memory -> LLM ToolCall Intent -> Decision Gate -> Tool Runtime/MCP -> Observation -> Audit -> Reflection -> Governed Learning
 ```
 
 Each run must either:
 
 1. finish, merge or clean work that blocks this chain;
-2. implement one substantial milestone from the priority queue;
+2. implement one substantial milestone from the active Phase 2 roadmap;
 3. or report `NO-OP` with the precise blocker.
 
 ## 2. Current strategic posture
 
-The project has moved beyond abstract stabilization. The active alpha objective is now:
+The Phase 1 alpha foundation is complete:
+
+- governed cognitive loop demo exists;
+- MCP server foundation exists;
+- Holographic Memory has durable and governed integration paths;
+- Working Memory and Compute Reservoir are integrated enough for alpha scenarios;
+- CLI and MCP readback surfaces exist for local supervision.
+
+The active Phase 2 objective is now:
 
 ```text
-A governed, inspectable, MCP-compatible cognitive runtime with durable memory and local-first supervision.
+A real-model cognitive runtime with governed direct tool-calling, operator visibility and product-grade demo scenarios.
 ```
 
 The current acceleration pillars are:
 
-1. **Governed MCP surface** — MCP is now an active integration layer, not a deferred topic. Only read-only or explicitly governed MCP capabilities are allowed.
-2. **Holographic Memory** — associative memory must become durable, queryable and non-authorizing.
-3. **Cognitive loop integration** — objectives, observations, working memory, planning, tool use and governed learning must converge into repeatable local alpha scenarios.
-4. **Operator observability** — CLI and MCP resources/prompts are the near-term Mission Control precursor. Web Mission Control remains deferred.
-5. **Safety boundary preservation** — no shell, no unrestricted write, no secrets access, no browser automation, no hidden autonomy.
+1. **Real LLM integration under governance** — LLMs may enrich working memory, observations, plans and proposals.
+2. **Governed direct tool-calling** — direct tool-calls by the LLM are allowed only when routed through the Decision Gate, Tool Runtime/MCP constraints and Audit. They must not bypass governance.
+3. **Prompt/response/risk traceability** — prompts, responses, decisions, risk levels and model/tool-call context must become readable after the fact.
+4. **Compute-aware model routing** — Compute Reservoir must help choose local/cloud/small/large model strategies.
+5. **Operator control** — CLI/MCP first, then minimal Web Mission Control only after the control surfaces are clear.
+6. **Product demonstration** — ARPAGONA Agent must become demonstrable through concrete SME/business scenarios, not only internal tests.
+7. **Safety boundary preservation** — no unrestricted shell, no unrestricted write, no secrets access, no browser automation, no hidden autonomy.
 
 ## 3. Files to read first
 
@@ -55,7 +73,7 @@ If files conflict:
 safety/governance > AGENT_FOCUS_LOOP.md > DAILY_VALIDATION_BACKLOG.md > FOCUS_LOOP_NEXT.md > PROJECT_STATUS.md > PROJECT_OBJECTIVES.md > local opportunity
 ```
 
-If `PROJECT_STATUS.md` still says MCP integration is deferred, interpret that as stale wording. The current rule is: **MCP is allowed only as governed/read-only integration; unsafe execution remains forbidden.**
+If an older file describes the previous P1-P8 roadmap as still pending, treat that as stale unless code or tests prove a regression.
 
 ## 4. Operating mode: major bounded increments
 
@@ -79,13 +97,9 @@ Prefer:
 - governed learning paths;
 - durable memory and replayable traces;
 - MCP resources/prompts that make the system inspectable by other agents;
-- repeatable local alpha scenarios.
-
-Core rule:
-
-```text
-Build hard on internal cognitive architecture. Gate every external effect.
-```
+- repeatable local alpha scenarios;
+- proposal-only LLM integration first;
+- then governed LLM direct tool-calls with audit traces.
 
 ## 5. P0 — Hygiene before acceleration
 
@@ -120,7 +134,7 @@ Rules:
 - If several items qualify, choose the highest severity, then the one most directly tied to safety or broken documented behavior.
 - If an item is fixed, update `DAILY_VALIDATION_BACKLOG.md` in the same PR with the fix evidence and status.
 - If an item is not chosen, briefly explain why in the report.
-- Do not treat backlog entries as authorization to add real execution, unrestricted shell, hidden autonomy, external effects or broad new capabilities.
+- Do not treat backlog entries as authorization to add unrestricted shell, hidden autonomy, secrets access, unsafe writes or Decision Gate bypasses.
 
 ## 7. Merge & run cycle
 
@@ -156,7 +170,7 @@ This rule governs every cron run. It keeps the loop productive while avoiding un
 - Set `FOCUS_LOOP_NEXT.md` to the same handoff.
 - The next run must retry or explicitly report why it is blocked.
 
-## 8. Runtime milestone queue
+## 8. Phase 2 runtime milestone queue
 
 Choose the first safe actionable milestone.
 
@@ -171,145 +185,268 @@ Rules:
 - if a PR is superseded, close it only with clear evidence;
 - do not open a duplicate branch for the same milestone.
 
-### P2 — Holographic Memory persistence
+### C1 — Real LLM integration in proposal-only mode
 
-Goal: make Holographic Memory durable enough to survive restarts and support real agent continuity.
+Goal: connect `arpagona cognitive run --llm` to the existing LLM/provider abstraction without granting tool execution power yet.
 
 Target chain:
 
 ```text
-HolographicTrace -> PersistentStore -> Reload -> ResonanceSearch -> ReconstructedContext
+Objective -> WorkingMemory -> LLM-assisted reasoning -> ProposedAction -> Decision Gate -> Audit
 ```
 
 Required properties:
 
-- SQLite-backed store is preferred for the next bounded increment;
-- in-memory store remains the default/simple path;
-- persistence proves drop/reopen survival;
-- no change to resonance scoring unless directly required;
-- no LLM calls, no vector DB dependency, no authorization behavior;
-- tests prove project isolation and persistence.
+- LLM output may enrich working memory, observations, plans and proposals;
+- LLM output must never approve actions;
+- LLM output must never write memory directly;
+- LLM output must never bypass Decision Gate;
+- provider, model, prompt summary and response summary should be audit-readable where practical;
+- CLI smoke test with `--llm` must demonstrate proposal-only behavior;
+- direct tool-calls are not required in C1 and may remain deferred to C2.
 
-### P3 — Governed MCP observability
+### C2 — Governed direct tool-calling by the LLM
 
-Goal: make MCP a safe, inspectable integration surface for external agents.
+Goal: allow direct tool-call intents produced by the LLM, without forcing them to be converted into inert proposals first.
 
-Target chain:
-
-```text
-MCP Client -> initialize -> resources/prompts/tools -> Decision Gate -> Audit -> read-only/gated response
-```
-
-Allowed MCP work:
-
-- resources exposing server info, tool catalogue, audit summaries and safe status surfaces;
-- prompts that help external agents inspect, summarize or assess governance state;
-- notifications such as `tools/list_changed` if they are informational only;
-- HTTP/SSE transport hardening;
-- protocol correctness tests;
-- audit and Decision Gate proof tests.
-
-Forbidden MCP work:
-
-- shell tools;
-- network/browser tools;
-- unrestricted filesystem access;
-- write/delete tools outside an explicitly governed patch flow;
-- secrets access;
-- any MCP path that treats readback as approval.
-
-### P4 — General Cognitive Work Loop V0
-
-Goal: create the first general-purpose work loop.
+This milestone deliberately **does not prevent direct tool-calls by the LLM**. Instead, it makes direct tool-calling safe by forcing every call through the existing governance envelope.
 
 Target chain:
 
 ```text
-Objective -> WorkingMemory -> Plan -> RequiredObservations -> ProposedNextAction -> ImprovementCandidate
-```
-
-Expected user-facing command:
-
-```bash
-arpagona cognitive run --objective "..." --domain business --json
+LLM ToolCall Intent -> Decision Gate -> Tool Runtime/MCP -> Observation -> Audit -> Reflection
 ```
 
 Required properties:
 
-- works for professional domains, not only code;
-- read-only and non-autonomous;
-- no LLM calls unless already supported and explicitly safe;
-- produces structured working memory, plan and next action;
-- exposes missing context and improvement candidates.
+- the LLM may emit a direct tool-call intent;
+- the call must be evaluated by Decision Gate before execution;
+- blocked calls must produce audit/readback, not silent failure;
+- approved calls must execute only through bounded Tool Runtime/MCP capabilities;
+- tool results return as observations, not as final authority;
+- no shell, secrets, browser, email or unrestricted write tools;
+- no readback-as-authorization behavior;
+- tests must prove allowed, blocked and malformed tool-call paths.
 
-### P5 — Cognitive Observation to Governed Learning
+### C3 — Prompt, response, decision and risk journaling
 
-Goal: convert observation candidates into governed learning proposals.
+Goal: make model interaction auditable after the fact.
+
+Required properties:
+
+- journal prompt summaries;
+- journal response summaries;
+- journal provider/model metadata;
+- journal proposed actions, direct tool-call intents, Decision Gate outcomes and risk levels;
+- preserve enough information for debugging without leaking secrets;
+- support CLI or MCP readback for recent LLM interaction traces.
+
+### C4 — Compute Reservoir model routing
+
+Goal: integrate Compute Reservoir to choose between local, cloud, small and large model strategies.
 
 Target chain:
 
 ```text
-CognitiveObservation -> FailureInsightCandidate -> ProposedAction -> Decision Gate -> Audit -> governed FailureInsight readback
+Objective / Task -> ComputeRequirement -> ComputeReservoir -> ModelRoute(local/cloud/small/large) -> Explanation -> Audit context
 ```
 
 Required properties:
 
-- candidate promotion remains explicit;
-- no automatic memory write without governance;
-- readback remains evidence-only;
-- tests prove blocked, truncated or empty observations can produce governed learning proposals.
+- model route selection must be explainable;
+- model route may be deterministic or simulated before real provider dispatch;
+- cost/latency/privacy trade-offs should be represented where practical;
+- local-first preference should be expressible;
+- route selection does not itself authorize tool execution;
+- audit/readback should show why the model strategy was chosen.
 
-### P6 — Working Memory integration
+### C5 — Anti-drift and adversarial tests
 
-Goal: observations and objectives must accumulate into active cycle state.
+Goal: protect the C1-C4 model layer against predictable failure modes.
 
-Target chain:
+Required test families:
+
+- hallucination containment;
+- tool bypass attempts;
+- prompt injection attempts;
+- malformed tool-call payloads;
+- overconfident model claims;
+- unsafe memory-write attempts;
+- model/provider failure fallback;
+- regression tests proving Decision Gate remains mandatory.
+
+### D1 — Operator status surface
+
+Goal: expose one coherent operator status view before building a full UI.
+
+Target surfaces:
+
+- CLI status command;
+- MCP resource status;
+- optional JSON endpoint if already aligned with the API server.
+
+Required properties:
+
+- show runtime health;
+- show last decisions/audit summaries;
+- show memory store status;
+- show MCP capabilities;
+- show current handoff/backlog status;
+- show LLM/provider availability once C1 exists;
+- read-only only.
+
+### D2 — ProposedAction and tool-call supervision surface
+
+Goal: make the operator able to inspect pending/proposed actions and direct tool-call decisions.
+
+Required properties:
+
+- list recent ProposedActions;
+- list recent LLM ToolCall intents;
+- show Decision Gate result;
+- show risk level and required permissions;
+- show associated audit event IDs;
+- read-only first.
+
+### D3 — Memory and resonance visibility
+
+Goal: make Holographic Memory understandable to the operator.
+
+Required properties:
+
+- show recent traces;
+- show resonance matches;
+- show linked decisions/memory IDs;
+- show consolidation/fusion evidence;
+- show whether a recall hint is advisory only.
+
+### D4 — Minimal Web Mission Control skeleton
+
+Goal: start Web Mission Control only after D1-D3 have clear read-only contracts.
+
+Required properties:
+
+- read-only dashboard;
+- no execution buttons initially;
+- no approval buttons unless governance semantics are explicitly designed;
+- display current runtime state, audit events, proposed actions, tool-call decisions and memory status.
+
+### D5 — Operator approval design study
+
+Goal: design but not necessarily implement human approval semantics.
+
+Required properties:
+
+- distinguish inspect, approve, reject, override and retry;
+- specify audit requirements for each operator action;
+- specify risk thresholds;
+- no hidden auto-approval.
+
+### E1 — SME documentary assistant demo
+
+Goal: produce a product-facing ARPAGONA Agent scenario.
+
+Scenario:
 
 ```text
-Objective + CognitiveObservations -> WorkingMemory -> Plan update -> ProposedNextAction
+User objective -> ingest/read bounded documents -> extract observations -> propose/direct governed tool actions -> Decision Gate -> audit -> summary
 ```
 
 Required properties:
 
-- pure/domain-first design;
-- no hidden prompt injection;
-- no uncontrolled persistence;
-- CLI or MCP readback for current cycle state.
+- useful to a small business / local SME;
+- demoable from CLI first;
+- no uncontrolled document ingestion;
+- no hidden memory write;
+- no external effects beyond governed read-only tooling.
 
-### P7 — Compute Reservoir integration
+### E2 — Business/prospecting workflow demo
 
-Goal: make resource selection part of the cognitive loop.
+Goal: demonstrate how ARPAGONA Agent can help with a real business workflow.
 
-Target chain:
+Candidate scenarios:
 
-```text
-Objective / Task -> ComputeRequirement -> ComputeReservoir allocation -> explanation -> audit-ready decision context
-```
+- qualification of a client need;
+- preparation of a proposal outline;
+- analysis of a project brief;
+- follow-up action suggestions.
 
 Required properties:
 
-- no real cloud/local model invocation required at first;
-- allocation can be deterministic or simulated;
-- must explain why a resource is selected;
-- must prepare local/cloud delegation without executing it.
+- proposal-only or governed tool-call mode;
+- traceable;
+- explainable;
+- usable in a sales/product demonstration.
 
-### P8 — End-to-end governed alpha demo
+### E3 — Local company assistant demo pack
 
-Goal: provide one-command demonstration only after the underlying runtime bricks exist.
+Goal: build a reusable demo pack for ARPAGONA commercial conversations.
 
-Target:
+Required properties:
 
-```bash
-scripts/demo-full-loop.sh
-```
+- one scripted scenario;
+- one sample dataset or synthetic document set;
+- one expected output report;
+- one explanation of governance/audit value;
+- one operator-friendly README.
 
-Do not choose this before the relevant runtime brick exists unless it directly validates a merged major brick.
+### E4 — README: demo in 10 minutes
 
-## 9. Two-track acceleration map
+Goal: make the project demonstrable by a human without reading the whole architecture.
 
-The loop may alternate between Track A and Track B when both are safe and unblocked, but the priority queue above wins over mechanical alternation.
+Required properties:
 
-P1 open PR cleanup always takes priority.
+- prerequisites;
+- commands;
+- expected outputs;
+- troubleshooting;
+- safety boundaries explained simply.
+
+### E5 — Product positioning evidence
+
+Goal: turn technical progress into reusable marketing proof.
+
+Required properties:
+
+- extract 3-5 claims the demo proves;
+- map claims to implementation evidence;
+- avoid overclaiming autonomy or AGI;
+- prepare language usable for ARPAGONA Agent communication.
+
+### H1 — Production hardening pass
+
+Goal: stabilize existing alpha behavior before adding broader autonomy.
+
+Allowed work:
+
+- tests for edge cases;
+- error handling;
+- regression tests;
+- audit readability;
+- documentation of existing behavior;
+- dependency and feature-flag cleanup.
+
+Not allowed:
+
+- new broad capabilities disguised as hardening;
+- shell/browser/secrets/email/scheduler expansion.
+
+## 9. Completed Phase 1 checkpoint
+
+The following roadmap is treated as delivered unless a regression is found.
+
+### Phase 1 priority queue
+
+| Milestone | Status |
+|-----------|--------|
+| P1 — Open PR cleanup | ✅ Complete |
+| P2 — Holographic Memory persistence | ✅ Complete |
+| P3 — Governed MCP observability | ✅ Complete |
+| P4 — General Cognitive Work Loop V0 | ✅ Complete |
+| P5 — Cognitive Observation to Governed Learning | ✅ Complete |
+| P6 — Working Memory integration | ✅ Complete |
+| P7 — Compute Reservoir integration | ✅ Complete |
+| P8 — End-to-end governed alpha demo | ✅ Complete |
 
 ### Track A — MCP Server / external agent integration
 
@@ -320,7 +457,7 @@ P1 open PR cleanup always takes priority.
 | A3 | ✅ Phase 3 — HTTP/SSE transport via Axum endpoint `/mcp` |
 | A4 | ✅ Phase 4 — Resources + Prompts |
 | A5 | ✅ Phase 5 — notifications / `tools/list_changed` / protocol hardening |
-| A6 | 🔜 MCP operator-readiness: documentation, examples, client smoke tests |
+| A6 | 🔜 Operator-readiness deep dive remains available as Phase 2 D/E support work |
 
 ### Track B — Holographic Memory / internal cognitive memory
 
@@ -339,7 +476,7 @@ P1 open PR cleanup always takes priority.
 Do not add:
 
 - unrestricted shell;
-- arbitrary command execution;
+- arbitrary command execution outside the bounded Tool Runtime/MCP governance path;
 - file deletion;
 - unrestricted write tools;
 - secrets access;
@@ -352,9 +489,12 @@ Do not add:
 - readback-as-authorization behavior;
 - Decision Gate bypass;
 - self-modification without explicit governed proposal;
-- new strategic roadmap without human direction.
+- direct LLM approval of actions;
+- direct LLM memory writes.
 
-MCP itself is not forbidden anymore. Unsafe MCP capabilities are forbidden.
+MCP itself is not forbidden. Unsafe MCP capabilities are forbidden.
+
+LLM direct tool-calling itself is not forbidden. Ungoverned direct tool-calling is forbidden.
 
 ## 11. Required verification
 
@@ -369,6 +509,8 @@ cargo test --workspace
 For CLI changes, run the affected commands manually.
 
 For MCP changes, include protocol-level tests or client smoke tests where practical.
+
+For LLM/provider changes, include tests or smoke tests proving either proposal-only behavior (C1) or governed direct tool-call behavior (C2).
 
 For Tool Runtime or Observation changes, include safety-boundary tests for `.git`, `.env`, absolute paths and parent traversal.
 
@@ -385,7 +527,7 @@ Focus Loop Report
 - why this item was chosen:
 - PR/branch handled:
 - runtime chain advanced:
-- track: A, B, or cross-cutting
+- track: C, D, E, H, or cross-cutting
 - track phase/step:
 - work completed:
 - tests run:
@@ -407,5 +549,5 @@ The handoff must target the next highest-priority runtime milestone, not a conve
 The current preferred next handoff, unless blocked, is:
 
 ```text
-Await human direction for the next strategic roadmap — all planned milestones are delivered.
+Track C Step C1 — Real LLM integration in proposal-only mode.
 ```
