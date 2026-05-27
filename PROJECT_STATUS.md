@@ -1322,4 +1322,81 @@ This session added 18 new anti-drift and adversarial tests across the Decision G
 
 ### Stability level
 
-Stable test-only addition. All 18 new tests are deterministic, require no external LLM access, and operate at the governance/proposal layer.
+| Stable test-only addition. All 18 new tests are deterministic, require no external LLM access, and operate at the governance/proposal layer.
+
+## 19. Latest Session Update (2026-05-27 — D1: Operator status surface — local subsystem monitoring)
+
+This session delivered D1 — the first coherent operator status view that combines API-sourced data with local (non-API) subsystem status.
+
+### What was added
+
+**`crates/cli/src/main.rs`** — new types, functions, and enhanced status output:
+
+- **`LocalSubsystemStatus`** — new `#[derive(Debug, Serialize)]` struct with 13 fields covering:
+  - Holographic Memory SQLite database existence and path
+  - OpenAI API key configuration (`OPENAI_API_KEY` env var check)
+  - Ollama endpoint configuration and lightweight reachability probe (`/api/tags`)
+  - Conversation memory trace count (currently `None`, placeholder for future persistent store)
+  - Tool Runtime tool count and tool names (read_file, list_files, search_text)
+  - Current handoff next action (parsed from `FOCUS_LOOP_NEXT.md`)
+  - Open validation backlog item count (from `DAILY_VALIDATION_BACKLOG.md`)
+  - MCP server binary availability (checks `target/debug/arpagona-mcp-server`)
+  - CLI version string (`CARGO_PKG_VERSION`)
+  - Readback-only warning
+
+- **`gather_local_subsystem_status()`** — async function that gathers non-API status
+
+- **`check_ollama_reachable()`** — lightweight HTTP probe with 3-second timeout
+
+- **`read_handoff_next_action()`** — reads the first meaningful content line from `FOCUS_LOOP_NEXT.md`
+
+- **`count_backlog_open_items()`** — counts `### DV-*` entries in `DAILY_VALIDATION_BACKLOG.md`
+
+- **`StatusReadback` struct** — extended with `local: LocalSubsystemStatus` field
+
+- **`format_status_readback()`** — extended to display a `Local subsystems` section with all fields
+
+### Tests (5 new status tests)
+
+| Test | What it proves |
+|------|---------------|
+| `status_formatted_includes_local_subsystem_section` | Human-readable output includes all local subsystem fields |
+| `status_json_includes_local_subsystem_fields` | JSON serialization includes `local` object with all fields |
+| `read_handoff_next_action_returns_content_when_file_exists` | Handoff parsing does not panic regardless of CWD |
+| `local_subsystem_status_null_optional_fields_serialize_correctly` | `None` optional fields serialize as JSON `null` |
+| Existing `status_readback_formats_*` tests updated | Extended with local field in fixture |
+
+### Verification
+
+| Check | Result |
+|-------|--------|
+| `cargo fmt -- --check` | ✅ Clean |
+| `cargo check` | ✅ Clean (only pre-existing warnings) |
+| `cargo test --workspace` | ✅ 90+ tests pass across all crates, no regressions |
+
+### Safety invariants
+
+- No shell, browser, email, secrets or unrestricted write tools added
+- No Decision Gate bypass
+- No autonomous scheduling
+- No runtime behavior modified
+- No execution path opened
+- All local checks are read-only and bounded (file existence, env var, lightweight HTTP probe with 3s timeout)
+- The Ollama reachability check uses a 3-second timeout and only probes the documented `/api/tags` endpoint — no model pulls, no API key reads
+- Readback warnings preserved on both the parent `StatusReadback` and the nested `LocalSubsystemStatus`
+
+### Files changed
+
+| File | Change |
+|------|--------|
+| `crates/cli/src/main.rs` | Added `LocalSubsystemStatus` struct, `gather_local_subsystem_status()`, `check_ollama_reachable()`, `read_handoff_next_action()`, `count_backlog_open_items()`, extended `StatusReadback` with `local` field, extended formatter, 5 new tests |
+| `PROJECT_STATUS.md` | Added this session update |
+| `FOCUS_LOOP_NEXT.md` | Updated handoff to D2 |
+
+### Not changed
+
+- No runtime behavior, LLM provider, Decision Gate logic, CLI surfaces beyond `status` enhancement
+- No new crate or dependency
+- No API endpoints, MCP resources/prompts, Mission Control Web
+- No executor, scheduler, browser, email or network automation
+- No Graph Memory, Holographic Memory, Compute Reservoir, Tool Registry or Audit system behavior

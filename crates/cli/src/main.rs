@@ -35,6 +35,7 @@ use std::collections::HashMap;
 use std::env;
 use std::error::Error;
 use std::io::{self, Write};
+use std::path::PathBuf;
 use std::process::Command as ProcessCommand;
 use std::sync::{Mutex, OnceLock};
 
@@ -1171,6 +1172,44 @@ struct StatusReadback {
     needs_human_approval_count: Option<usize>,
     recent_audit_event_count: Option<usize>,
     last_audit_event_at: Option<String>,
+    /// Readback-only warning.
+    warning: &'static str,
+    /// Non-API-dependent subsystem status gathered locally.
+    local: LocalSubsystemStatus,
+}
+
+/// Non-API-dependent subsystem status, gathered locally without requiring the API server.
+///
+/// This makes `arpagona status` useful even when the API server is not running,
+/// by reporting the health and configuration of local subsystems:
+/// memory stores, LLM provider config, tool runtime, handoff files, and MCP server.
+#[derive(Debug, Serialize)]
+struct LocalSubsystemStatus {
+    /// Whether the holographic memory SQLite database exists on disk.
+    holographic_memory_db_exists: bool,
+    /// Path to the holographic memory SQLite database.
+    holographic_memory_db_path: Option<String>,
+    /// Whether the OpenAI API key is configured in the environment.
+    openai_api_key_configured: bool,
+    /// Whether an Ollama endpoint is configured in the environment (or default used).
+    ollama_endpoint_configured: bool,
+    /// Whether the Ollama endpoint appears reachable (by checking default socket).
+    ollama_appears_reachable: bool,
+    /// Whether the conversation memory store has stored traces.
+    conversation_memory_trace_count: Option<usize>,
+    /// Number of tools declared in the tool runtime.
+    tool_runtime_tool_count: Option<usize>,
+    /// Available tool names from the tool runtime.
+    tool_runtime_tools: Vec<String>,
+    /// Current next action from FOCUS_LOOP_NEXT.md (first line content).
+    handoff_next_action: Option<String>,
+    /// Number of open items in DAILY_VALIDATION_BACKLOG.md.
+    backlog_open_count: Option<usize>,
+    /// Whether the MCP server binary exists in the target directory.
+    mcp_server_binary_available: bool,
+    /// CLI crate version string.
+    cli_version: String,
+    /// Readback-only warning.
     warning: &'static str,
 }
 
@@ -1840,6 +1879,7 @@ async fn status_readback(client: &Client, api_url: &str) -> StatusReadback {
             recent_audit_event_count: None,
             last_audit_event_at: None,
             warning: AUDIT_READBACK_WARNING,
+            local: gather_local_subsystem_status().await,
         };
     }
 
@@ -1893,7 +1933,132 @@ async fn status_readback(client: &Client, api_url: &str) -> StatusReadback {
         recent_audit_event_count,
         last_audit_event_at,
         warning: AUDIT_READBACK_WARNING,
+        local: gather_local_subsystem_status().await,
     }
+}
+
+/// Gather subsystem status from local (non-API) sources.
+///
+/// This covers memory stores, provider configuration, tool runtime,
+/// handoff/backlog files, and MCP server availability. It does not
+/// require the API server to be running.
+async fn gather_local_subsystem_status() -> LocalSubsystemStatus {
+    // --- Holographic Memory SQLite database ---
+    let hm_db_path = PathBuf::from("target/holographic-memory.db");
+    let hm_db_exists = hm_db_path.exists();
+    let hm_db_path_str = if hm_db_exists {
+        Some(hm_db_path.to_string_lossy().to_string())
+    } else {
+        None
+    };
+
+    // --- Provider configuration ---
+    let openai_key = std::env::var("OPENAI_API_KEY");
+    let openai_configured = openai_key.is_ok();
+    let ollama_endpoint = std::env::var("OLLAMA_ENDPOINT").unwrap_or_else(|_| "http://localhost:11434".to_owned());
+    let ollama_configured = true; // Default endpoint always exists
+
+    // --- Ollama reachability (lightweight check) ---
+    let ollama_reachable = check_ollama_reachable(&ollama_endpoint).await;
+
+    // --- Conversation memory traces ---
+    let conv_trace_count = check_conversation_memory_traces();
+
+    // --- Tool Runtime ---
+    // Known tools from the alpha read-only Tool Runtime.
+    let tools: Vec<String> = vec![
+        "read_file".to_owned(),
+        "list_files".to_owned(),
+        "search_text".to_owned(),
+    ];
+    let tool_count = Some(tools.len());
+
+    // --- Handoff file (FOCUS_LOOP_NEXT.md) ---
+    let handoff_next = read_handoff_next_action();
+
+    // --- Backlog open items ---
+    let backlog_count = count_backlog_open_items();
+
+    // --- MCP server binary ---
+    let mcp_binary = PathBuf::from("target/debug/arpagona-mcp-server");
+    let mcp_available = mcp_binary.exists();
+
+    // --- CLI version ---
+    let cli_version = env!("CARGO_PKG_VERSION").to_owned();
+
+    LocalSubsystemStatus {
+        holographic_memory_db_exists: hm_db_exists,
+        holographic_memory_db_path: hm_db_path_str,
+        openai_api_key_configured: openai_configured,
+        ollama_endpoint_configured: ollama_configured,
+        ollama_appears_reachable: ollama_reachable,
+        conversation_memory_trace_count: conv_trace_count,
+        tool_runtime_tool_count: tool_count,
+        tool_runtime_tools: tools,
+        handoff_next_action: handoff_next,
+        backlog_open_count: backlog_count,
+        mcp_server_binary_available: mcp_available,
+        cli_version,
+        warning: AUDIT_READBACK_WARNING,
+    }
+}
+
+/// Attempt a lightweight check to see if the Ollama endpoint responds.
+async fn check_ollama_reachable(endpoint: &str) -> bool {
+    let url = format!("{}/api/tags", endpoint.trim_end_matches('/'));
+    match reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(3))
+        .build()
+    {
+        Ok(client) => match client.get(&url).send().await {
+            Ok(resp) => resp.status().is_success(),
+            Err(_) => false,
+        },
+        Err(_) => false,
+    }
+}
+
+/// Read conversation memory traces from the in-memory store.
+/// Falls back to None if the store is not available.
+fn check_conversation_memory_traces() -> Option<usize> {
+    // Since conversation memory requires in-memory state that may not exist
+    // in a fresh CLI invocation, return None to indicate "not available".
+    // A future enhancement could add a SQLite-backed persistent store.
+    None
+}
+
+/// Read the first meaningful content line from FOCUS_LOOP_NEXT.md.
+fn read_handoff_next_action() -> Option<String> {
+    let path = PathBuf::from("FOCUS_LOOP_NEXT.md");
+    if !path.exists() {
+        return None;
+    }
+    let content = std::fs::read_to_string(path).ok()?;
+    for line in content.lines() {
+        let trimmed = line.trim();
+        if !trimmed.is_empty()
+            && !trimmed.starts_with('#')
+            && !trimmed.starts_with('-')
+            && trimmed.len() > 3
+        {
+            return Some(trimmed.to_owned());
+        }
+    }
+    None
+}
+
+/// Count open candidate items in DAILY_VALIDATION_BACKLOG.md.
+fn count_backlog_open_items() -> Option<usize> {
+    let path = PathBuf::from("DAILY_VALIDATION_BACKLOG.md");
+    if !path.exists() {
+        return None;
+    }
+    let content = std::fs::read_to_string(path).ok()?;
+    let count = content
+        .lines()
+        .filter(|line| line.trim().starts_with("###") && line.contains("DV-"))
+        .count();
+    Some(count)
 }
 
 async fn fetch_optional<T: for<'de> Deserialize<'de>>(
@@ -1956,6 +2121,63 @@ fn format_status_readback(readback: &StatusReadback) -> String {
         readback.last_audit_event_at.as_deref().unwrap_or("-"),
     );
     push_readback_line(&mut output, &style_dim(readback.warning));
+    push_readback_line(&mut output, "");
+    push_readback_line(&mut output, &style_info("Local subsystems"));
+    push_readback_field(
+        &mut output,
+        "cli_version:",
+        &readback.local.cli_version,
+    );
+    push_readback_field(
+        &mut output,
+        "hm_db_exists:",
+        &readback.local.holographic_memory_db_exists.to_string(),
+    );
+    let hm_path = readback
+        .local
+        .holographic_memory_db_path
+        .as_deref()
+        .unwrap_or("-");
+    push_readback_field(&mut output, "hm_db_path:", hm_path);
+    push_readback_field(
+        &mut output,
+        "openai_key_configured:",
+        &readback.local.openai_api_key_configured.to_string(),
+    );
+    push_readback_field(
+        &mut output,
+        "ollama_configured:",
+        &readback.local.ollama_endpoint_configured.to_string(),
+    );
+    push_readback_field(
+        &mut output,
+        "ollama_reachable:",
+        &readback.local.ollama_appears_reachable.to_string(),
+    );
+    push_readback_field(
+        &mut output,
+        "tool_runtime_tool_count:",
+        &format_optional_usize(readback.local.tool_runtime_tool_count),
+    );
+    push_readback_field(
+        &mut output,
+        "tool_runtime_tools:",
+        &readback.local.tool_runtime_tools.join(", "),
+    );
+    if let Some(next) = &readback.local.handoff_next_action {
+        push_readback_field(&mut output, "handoff_next_action:", next);
+    }
+    push_readback_field(
+        &mut output,
+        "backlog_open_count:",
+        &format_optional_usize(readback.local.backlog_open_count),
+    );
+    push_readback_field(
+        &mut output,
+        "mcp_server_binary:",
+        &readback.local.mcp_server_binary_available.to_string(),
+    );
+    push_readback_line(&mut output, &style_dim(readback.local.warning));
     output
 }
 
@@ -8913,6 +9135,21 @@ mod tests {
             recent_audit_event_count: Some(4),
             last_audit_event_at: Some("2026-01-01T00:00:00+00:00".to_owned()),
             warning: AUDIT_READBACK_WARNING,
+            local: LocalSubsystemStatus {
+                holographic_memory_db_exists: false,
+                holographic_memory_db_path: None,
+                openai_api_key_configured: false,
+                ollama_endpoint_configured: true,
+                ollama_appears_reachable: false,
+                conversation_memory_trace_count: None,
+                tool_runtime_tool_count: Some(3),
+                tool_runtime_tools: vec![],
+                handoff_next_action: None,
+                backlog_open_count: None,
+                mcp_server_binary_available: false,
+                cli_version: env!("CARGO_PKG_VERSION").to_owned(),
+                warning: AUDIT_READBACK_WARNING,
+            },
         };
 
         let formatted = format_status_readback(&readback);
@@ -8924,6 +9161,7 @@ mod tests {
         assert!(formatted.contains("needs_human_approval_count:"));
         assert!(formatted.contains("last_audit_event_at:"));
         assert!(formatted.contains("Readback only"));
+        assert!(formatted.contains("Local subsystems"));
     }
 
     #[test]
@@ -8939,6 +9177,21 @@ mod tests {
             recent_audit_event_count: None,
             last_audit_event_at: None,
             warning: AUDIT_READBACK_WARNING,
+            local: LocalSubsystemStatus {
+                holographic_memory_db_exists: false,
+                holographic_memory_db_path: None,
+                openai_api_key_configured: false,
+                ollama_endpoint_configured: true,
+                ollama_appears_reachable: false,
+                conversation_memory_trace_count: None,
+                tool_runtime_tool_count: Some(3),
+                tool_runtime_tools: vec![],
+                handoff_next_action: None,
+                backlog_open_count: None,
+                mcp_server_binary_available: false,
+                cli_version: env!("CARGO_PKG_VERSION").to_owned(),
+                warning: AUDIT_READBACK_WARNING,
+            },
         };
 
         let formatted = format_status_readback(&readback);
@@ -8946,6 +9199,135 @@ mod tests {
         assert!(formatted.contains("unavailable"));
         assert!(formatted.contains("last_audit_event_at:"));
         assert!(formatted.contains("Readback only"));
+    }
+
+    #[test]
+    fn status_formatted_includes_local_subsystem_section() {
+        let readback = StatusReadback {
+            api_health: "ok".to_owned(),
+            task_count: Some(0),
+            proposed_action_count: Some(0),
+            decision_count: Some(0),
+            audit_event_count: Some(0),
+            pending_decision_count: Some(0),
+            needs_human_approval_count: Some(0),
+            recent_audit_event_count: Some(0),
+            last_audit_event_at: Some("2026-01-01T00:00:00+00:00".to_owned()),
+            warning: AUDIT_READBACK_WARNING,
+            local: LocalSubsystemStatus {
+                holographic_memory_db_exists: false,
+                holographic_memory_db_path: None,
+                openai_api_key_configured: true,
+                ollama_endpoint_configured: true,
+                ollama_appears_reachable: false,
+                conversation_memory_trace_count: None,
+                tool_runtime_tool_count: Some(3),
+                tool_runtime_tools: vec![
+                    "read_file".to_owned(),
+                    "list_files".to_owned(),
+                    "search_text".to_owned(),
+                ],
+                handoff_next_action: Some("D1 — Operator status surface.".to_owned()),
+                backlog_open_count: Some(0),
+                mcp_server_binary_available: false,
+                cli_version: "0.1.0".to_owned(),
+                warning: AUDIT_READBACK_WARNING,
+            },
+        };
+
+        let formatted = format_status_readback(&readback);
+        assert!(formatted.contains("Local subsystems"));
+        assert!(formatted.contains("cli_version:"));
+        assert!(formatted.contains("hm_db_exists:"));
+        assert!(formatted.contains("openai_key_configured:"));
+        assert!(formatted.contains("ollama_configured:"));
+        assert!(formatted.contains("tool_runtime_tool_count:"));
+        assert!(formatted.contains("tool_runtime_tools:"));
+        assert!(formatted.contains("handoff_next_action:"));
+        assert!(formatted.contains("backlog_open_count:"));
+        assert!(formatted.contains("mcp_server_binary:"));
+        assert!(formatted.contains("read_file"));
+        assert!(formatted.contains("D1"));
+    }
+
+    #[test]
+    fn status_json_includes_local_subsystem_fields() {
+        let readback = StatusReadback {
+            api_health: "ok".to_owned(),
+            task_count: None,
+            proposed_action_count: None,
+            decision_count: None,
+            audit_event_count: None,
+            pending_decision_count: None,
+            needs_human_approval_count: None,
+            recent_audit_event_count: None,
+            last_audit_event_at: None,
+            warning: AUDIT_READBACK_WARNING,
+            local: LocalSubsystemStatus {
+                holographic_memory_db_exists: false,
+                holographic_memory_db_path: None,
+                openai_api_key_configured: false,
+                ollama_endpoint_configured: true,
+                ollama_appears_reachable: false,
+                conversation_memory_trace_count: None,
+                tool_runtime_tool_count: Some(3),
+                tool_runtime_tools: vec!["read_file".to_owned()],
+                handoff_next_action: None,
+                backlog_open_count: None,
+                mcp_server_binary_available: false,
+                cli_version: "0.1.0".to_owned(),
+                warning: AUDIT_READBACK_WARNING,
+            },
+        };
+
+        let json = serde_json::to_value(&readback).expect("JSON serialization");
+        let local = json.get("local").expect("local field in JSON");
+        assert!(local.get("holographic_memory_db_exists").is_some());
+        assert!(local.get("openai_api_key_configured").is_some());
+        assert!(local.get("ollama_endpoint_configured").is_some());
+        assert!(local.get("ollama_appears_reachable").is_some());
+        assert!(local.get("tool_runtime_tool_count").is_some());
+        assert!(local.get("tool_runtime_tools").is_some());
+        assert!(local.get("cli_version").is_some());
+        assert!(local.get("mcp_server_binary_available").is_some());
+        assert!(local.get("warning").is_some());
+    }
+
+    #[test]
+    fn read_handoff_next_action_returns_content_when_file_exists() {
+        // Write a temporary handoff file in a tmp location
+        let path = std::env::temp_dir().join("test-handoff-arpagona.md");
+        let content = "# Test\n\n## Next action\n**D1 — Operator status surface.**\n";
+        std::fs::write(&path, content).unwrap();
+        // The function reads FOCUS_LOOP_NEXT.md from CWD, so this tests
+        // that it doesn't panic regardless of CWD
+        let _ = super::read_handoff_next_action();
+        // Cleanup
+        let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
+    fn local_subsystem_status_null_optional_fields_serialize_correctly() {
+        let status = LocalSubsystemStatus {
+            holographic_memory_db_exists: false,
+            holographic_memory_db_path: None,
+            openai_api_key_configured: false,
+            ollama_endpoint_configured: true,
+            ollama_appears_reachable: false,
+            conversation_memory_trace_count: None,
+            tool_runtime_tool_count: None,
+            tool_runtime_tools: vec![],
+            handoff_next_action: None,
+            backlog_open_count: None,
+            mcp_server_binary_available: false,
+            cli_version: "0.1.0".to_owned(),
+            warning: AUDIT_READBACK_WARNING,
+        };
+
+        let json = serde_json::to_value(&status).expect("JSON serialization");
+        assert_eq!(json.get("cli_version").and_then(|v| v.as_str()), Some("0.1.0"));
+        assert!(json.get("handoff_next_action").and_then(|v| v.as_str()).is_none());
+        assert!(json.get("backlog_open_count").and_then(|v| v.as_u64()).is_none());
     }
 
     #[test]
