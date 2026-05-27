@@ -20,13 +20,13 @@ use reqwest::Client;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 
-const DEFAULT_OPENAI_ENDPOINT: &str = "https://api.openai.com/v1/responses";
-const DEFAULT_OPENAI_MODEL: &str = "gpt-4.1-mini";
+pub const DEFAULT_OPENAI_ENDPOINT: &str = "https://api.openai.com/v1/responses";
+pub const DEFAULT_OPENAI_MODEL: &str = "gpt-4.1-mini";
 
 // ─── Ollama provider ───────────────────────────────────────────────────────
 
-const DEFAULT_OLLAMA_ENDPOINT: &str = "http://localhost:11434/api/chat";
-const DEFAULT_OLLAMA_MODEL: &str = "qwen3.5:9b";
+pub const DEFAULT_OLLAMA_ENDPOINT: &str = "http://localhost:11434/api/chat";
+pub const DEFAULT_OLLAMA_MODEL: &str = "qwen3.5:9b";
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct LlmActionRequest {
