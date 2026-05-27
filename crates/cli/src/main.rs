@@ -7869,6 +7869,23 @@ async fn cognitive_run(
                     )
                 };
 
+                // Resolve model name for the resolved provider
+                let resolved_model: Option<String> = match resolved_provider {
+                    "mock" => None,
+                    "openai" => Some(
+                        std::env::var("OPENAI_MODEL")
+                            .unwrap_or_else(|_| arpagona_llm::DEFAULT_OPENAI_MODEL.to_owned()),
+                    ),
+                    "ollama" => Some(
+                        std::env::var("OLLAMA_MODEL")
+                            .unwrap_or_else(|_| arpagona_llm::DEFAULT_OLLAMA_MODEL.to_owned()),
+                    ),
+                    other => {
+                        // Unknown provider — try env var, otherwise indicate unknown
+                        Some(format!("unknown/{other}"))
+                    }
+                };
+
                 // Log routing decision as a JSON field
                 obj.insert(
                     "llm_routing".to_owned(),
@@ -7912,7 +7929,7 @@ async fn cognitive_run(
                             .add_synthesis_with_routing(
                                 &args.objective,
                                 resolved_provider,
-                                None, // model info not tracked yet in this path
+                                resolved_model, // model metadata tracked via env vars or defaults
                                 format!(
                                     "Cognitive synthesis: domain={:?}, complexity={:.2}, context_items={}{}",
                                     result.objective.domain,
