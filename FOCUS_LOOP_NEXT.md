@@ -8,18 +8,20 @@ Two-track alternation (from 2026-05-26):
 - **Track A** — MCP Server (Phases 2+)
 - **Track B** — Holographic Memory (integration steps)
 
-Start each run checking the last handoff. If last was Track A, pick Track B next (and vice versa). P1 (open PRs) takes priority over alternation.
+P1 (open PRs) takes priority over alternation.
 
 ## Next action
 
-Next pass should: Track B Step B1 — Integrate Holographic Memory with `conversation-memory`. Encode conversation turns as `HolographicTrace` objects using the existing `arpagona-holographic-memory` crate's store/resonance API.
+**Step 1: Merge PR #108** (`fix/docs-executor-mcp-server`) if CI is green. This is a documentation-only fix for DV-2026-05-27-004 (CLI docs coverage).
 
-Why: This run delivered Track A Phase 2 (MCP DecisionGate governance, PR merged). Alternation says Track B next. Step B1 is the natural next Holographic Memory brick — it connects the pattern-resonance kernel to real conversation streams so traces can be stored and matched across actual cognitive cycles.
+**Step 2: Track B Step B1** — Integrate Holographic Memory with `conversation-memory`. After PR #108 is merged, switch to `main`, pull, and proceed with Track B Step B1: create a bridge that encodes conversation turns as `HolographicTrace` objects using the `arpagona-holographic-memory` crate's store/resonance API.
 
-Proof to seek: `cargo test --workspace` green. A new PR `feat/holographic-memory-conversation-memory` exists with:
-- Bridge logic in `crates/conversation-memory/` that converts conversation turns (user messages, assistant responses, tool results) into `HolographicTrace` objects
-- Integration with the store: after each turn, the bridge adds a trace and optionally finds-similar traces
+Why: Track A Phase 2 (MCP DecisionGate governance) was the last feature run. Alternation says Track B next. Step B1 is the natural next Holographic Memory brick.
+
+Proof to seek: `cargo test --workspace` green. A new PR exists with:
+- Bridge logic in `crates/conversation-memory/` that converts conversation turns (user messages, assistant responses, tool results) into `HolographicTrace` objects using the holographic-memory distributed-signature crate
+- Integration with the holographic-memory store: after each turn, the bridge adds a trace and optionally finds-similar traces
 - Tests: conversation turns produce valid traces; resonance search across multiple turns finds related patterns; no mutation of existing conversation-memory or holographic-memory APIs
-- Docs/CLI: at minimum, a new `arpagona holographic-memory from-conversation <session-id>` command or documented integration entry point
+- CLI: extend `memory holographic` with a `from-conversation` subcommand accepting turn data via file or stdin, or a documented integration entry point
 
 Do not: add LLM calls, embeddings, vector databases, external network calls, or persistence beyond the existing in-memory holographic store. Do not modify existing holographic-memory core kernel types. Do not add Decision Gate bypasses for memory writes.

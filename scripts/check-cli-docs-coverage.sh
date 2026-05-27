@@ -40,6 +40,8 @@ COMMANDS=$(
 # doesn't match the command name literally.
 declare -A CMD_PATTERNS
 CMD_PATTERNS["serve"]="Lancer.l.API|### serve"
+CMD_PATTERNS["executor"]="### Executor|### executor"
+CMD_PATTERNS["mcp-server"]="### MCP Server|### mcp-server|Serveur MCP"
 CMD_PATTERNS["chat"]="Interface.terminal.interactive|### chat"
 CMD_PATTERNS["health"]="### Health|### health"
 CMD_PATTERNS["status"]="### Status|### status"
@@ -52,7 +54,6 @@ CMD_PATTERNS["insight"]="### Insight|### insight"
 CMD_PATTERNS["memory"]="### Graph Memory|### memory|Mémoire|Démos Memory"
 CMD_PATTERNS["tool"]="### Tool Runtime|### tool|Tool Runtime"
 CMD_PATTERNS["cognitive"]="### Cognitive|### cognitive|Cognitive Work Loop"
-CMD_PATTERNS["serve"]="Lancer.l.API|### serve"
 
 # For commands not in the map above, fall back to a simple grep for "### <cmd>"
 MISSING=()
@@ -66,7 +67,7 @@ for cmd in $COMMANDS; do
     else
         # Fallback: just look for any heading mentioning the command
         if ! grep -qi "^###.*${cmd}" "$DOCS_FILE" 2>/dev/null && \
-           ! grep -qi "^#.*${cmd}[[:space:]"\""]" "$DOCS_FILE" 2>/dev/null; then
+           ! grep -qi "^#.*${cmd}[[:space:]\"]" "$DOCS_FILE" 2>/dev/null; then
             MISSING+=("$cmd")
         fi
     fi

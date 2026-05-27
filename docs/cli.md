@@ -450,6 +450,45 @@ cargo run -p arpagona-cli -- insight schema --json
 
 Affiche la taxonomie et les conventions de lecture du vocabulaire Failure-to-Insight : types de signaux, cibles de correction, catégories de candidats, sans autorisation ni mutation.
 
+### Executor — État du registre d'exécuteurs
+
+```bash
+cargo run -p arpagona-cli -- executor list
+cargo run -p arpagona-cli -- executor list --json
+cargo run -p arpagona-cli -- executor list --offline
+cargo run -p arpagona-cli -- executor list --offline --state-file state.json
+```
+
+Sous-commandes :
+
+- `list` — Liste tous les exécuteurs enregistrés avec leur état actuel.
+- `inspect <EXECUTOR_ID>` — Affiche les détails d'un exécuteur spécifique.
+
+Options communes :
+
+- `--json` — Sortie structurée JSON.
+- `--offline` — Interroge l'état local depuis le crate core sans connexion au serveur API. Affiche seulement l'état statique du registre par défaut (NoopExecutor désactivé). Peut être combiné avec `--state-file` pour charger des transitions d'état persistées.
+- `--state-file <PATH>` — Chemin vers un fichier JSON d'état persistant des exécuteurs, appliqué par-dessus le registre par défaut en mode offline. Format : `{"executor_id": "disabled"|"ready"|"blocked"}`.
+
+La commande est une surface de supervision alpha read-only. Elle n'exécute, n'approuve, ni ne modifie aucun exécuteur.
+
+### MCP Server — Serveur MCP natif (transport stdio)
+
+```bash
+cargo run -p arpagona-cli -- mcp-server
+cargo run -p arpagona-cli -- mcp-server --workspace /path/to/workspace --name mon-agent
+```
+
+Options :
+
+- `--workspace <PATH>` — Chemin du workspace à servir (défaut : répertoire courant).
+- `--name <NAME>` — Nom du serveur annoncé aux clients MCP (défaut : `arpagona-mcp`).
+- `--version <VERSION>` — Version du serveur annoncée aux clients MCP (défaut : `0.1.0`).
+
+Démarre le serveur MCP natif en mode transport stdio (Phase 1). Le serveur répond aux requêtes `tools/list` et `tools/call` via les outils read-only du Tool Runtime. La gouvernance via DecisionGate pour `tools/call` nécessite l'intégration Phase 2.
+
+Cette commande est une extension alpha expérimentale du Tool Runtime. Elle n'ajoute pas d'exécution non supervisée, d'accès shell, de modification de fichiers, d'autonomie ou d'intégration réseau externe.
+
 ## Installation
 
 ```bash
