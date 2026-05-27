@@ -12,13 +12,14 @@ Start each run checking the last handoff. If last was Track A, pick Track B next
 
 ## Next action
 
-Next pass should: Track A Phase 2 — Add DecisionGate governance layer to the MCP server's `tools/call` handler. Wrap each tool call through `evaluate_proposed_action` before execution. Return structured governance errors when blocked.
+Next pass should: Track B Step B1 — Integrate Holographic Memory with `conversation-memory`. Encode conversation turns as `HolographicTrace` objects using the existing `arpagona-holographic-memory` crate's store/resonance API.
 
-Why: PR #103 (holographic-memory CLI, Track B) and PR #106 (demo-full-governed-loop) are both merged. Alternation says Track A next. Phase 2 governance is the natural next MCP brick — it makes the server safe for multi-agent use.
+Why: This run delivered Track A Phase 2 (MCP DecisionGate governance, PR merged). Alternation says Track B next. Step B1 is the natural next Holographic Memory brick — it connects the pattern-resonance kernel to real conversation streams so traces can be stored and matched across actual cognitive cycles.
 
-Proof to seek: `cargo test --workspace` green. A new PR `feat/mcp-phase2-governance` exists with:
-- A `GovernanceLayer::evaluate_tool_call()` that creates `ProposedAction { action_type: ProposeToolUse, ... }` and runs it through the DecisionGate
-- `tools/call` handler checks governance before ToolRuntime execution
-- Tests: approved tool calls execute; missing permission blocks; governance summary is readable in the error response
+Proof to seek: `cargo test --workspace` green. A new PR `feat/holographic-memory-conversation-memory` exists with:
+- Bridge logic in `crates/conversation-memory/` that converts conversation turns (user messages, assistant responses, tool results) into `HolographicTrace` objects
+- Integration with the store: after each turn, the bridge adds a trace and optionally finds-similar traces
+- Tests: conversation turns produce valid traces; resonance search across multiple turns finds related patterns; no mutation of existing conversation-memory or holographic-memory APIs
+- Docs/CLI: at minimum, a new `arpagona holographic-memory from-conversation <session-id>` command or documented integration entry point
 
-Do not: add HTTP/SSE transport, resources, prompts, or list_changed notifications. Do not modify existing Tool Runtime, Tool Registry, or cognitive loop behavior. Do not add LLM calls.
+Do not: add LLM calls, embeddings, vector databases, external network calls, or persistence beyond the existing in-memory holographic store. Do not modify existing holographic-memory core kernel types. Do not add Decision Gate bypasses for memory writes.
