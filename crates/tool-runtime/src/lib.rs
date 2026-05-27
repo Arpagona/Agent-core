@@ -299,6 +299,13 @@ impl ToolRuntime {
 
         let resolved = match self.resolve_path(path_str) {
             Ok(p) => p,
+            Err(ToolRuntimeError::SecurityBlocked(msg)) => {
+                return ToolExecutionResult::blocked(
+                    execution_id,
+                    "read_file",
+                    format!("Path access blocked: {msg}"),
+                );
+            }
             Err(e) => {
                 return ToolExecutionResult::failed(
                     execution_id,
@@ -398,6 +405,13 @@ impl ToolRuntime {
 
         let resolved = match self.resolve_path(path_str) {
             Ok(p) => p,
+            Err(ToolRuntimeError::SecurityBlocked(msg)) => {
+                return ToolExecutionResult::blocked(
+                    execution_id,
+                    "list_files",
+                    format!("Path access blocked: {msg}"),
+                );
+            }
             Err(e) => {
                 return ToolExecutionResult::failed(
                     execution_id,
@@ -560,6 +574,13 @@ impl ToolRuntime {
 
         let resolved = match self.resolve_path(path_str) {
             Ok(p) => p,
+            Err(ToolRuntimeError::SecurityBlocked(msg)) => {
+                return ToolExecutionResult::blocked(
+                    execution_id,
+                    "search_text",
+                    format!("Path access blocked: {msg}"),
+                );
+            }
             Err(e) => {
                 return ToolExecutionResult::failed(
                     execution_id,
@@ -796,7 +817,8 @@ mod tests {
 
         let result = runtime.execute("read_file", &json!({"path": "/etc/passwd"}));
 
-        assert_eq!(result.status, ToolExecutionStatus::Failed);
+        assert_eq!(result.status, ToolExecutionStatus::Blocked);
+        assert!(result.error.as_ref().unwrap().is_security);
         assert!(result
             .error
             .as_ref()
@@ -841,6 +863,26 @@ mod tests {
         // It should either be blocked or fail with "not found"
         let has_blocked = matches!(result.status, ToolExecutionStatus::Failed);
         assert!(has_blocked);
+    }
+
+    #[test]
+    fn absolute_path_parent_traversal_is_security_blocked() {
+        // Create a file outside the workspace to test real workspace escape
+        let dir = test_workspace();
+        let parent = dir.path().parent().unwrap();
+        create_test_file(parent, "outside.txt", "should not be accessible");
+        let runtime = make_runtime(dir.path());
+
+        let result = runtime.execute("read_file", &json!({"path": "../outside.txt"}));
+
+        assert_eq!(result.status, ToolExecutionStatus::Blocked);
+        assert!(result.error.as_ref().unwrap().is_security);
+        assert!(result
+            .error
+            .as_ref()
+            .unwrap()
+            .message
+            .contains("escapes workspace"));
     }
 
     // -----------------------------------------------------------------------
@@ -888,6 +930,43 @@ mod tests {
         assert!(entries.iter().any(|e| e["name"] == "real.txt"));
     }
 
+    #[test]
+    fn list_files_blocks_absolute_paths() {
+        let dir = test_workspace();
+        let runtime = make_runtime(dir.path());
+
+        let result = runtime.execute("list_files", &json!({"path": "/etc"}));
+
+        assert_eq!(result.status, ToolExecutionStatus::Blocked);
+        assert!(result.error.as_ref().unwrap().is_security);
+        assert!(result
+            .error
+            .as_ref()
+            .unwrap()
+            .message
+            .contains("Absolute paths"));
+    }
+
+    #[test]
+    fn list_files_blocks_parent_traversal() {
+        let dir = test_workspace();
+        // Create a dir outside workspace to ensure canonicalization succeeds
+        let parent = dir.path().parent().unwrap();
+        fs::create_dir_all(parent.join("outside-dir")).expect("should create outside dir");
+        let runtime = make_runtime(dir.path());
+
+        let result = runtime.execute("list_files", &json!({"path": "../outside-dir"}));
+
+        assert_eq!(result.status, ToolExecutionStatus::Blocked);
+        assert!(result.error.as_ref().unwrap().is_security);
+        assert!(result
+            .error
+            .as_ref()
+            .unwrap()
+            .message
+            .contains("escapes workspace"));
+    }
+
     // -----------------------------------------------------------------------
     // search_text tests
     // -----------------------------------------------------------------------
@@ -927,7 +1006,8 @@ mod tests {
 
         let result = runtime.execute("search_text", &json!({"query": "anything", "path": "/etc"}));
 
-        assert_eq!(result.status, ToolExecutionStatus::Failed);
+        assert_eq!(result.status, ToolExecutionStatus::Blocked);
+        assert!(result.error.as_ref().unwrap().is_security);
         assert!(result
             .error
             .as_ref()
