@@ -2015,3 +2015,50 @@ Deliberately not changed:
 - No persistence model changes
 - No authorization or readback-as-authorization behavior
 - No MCP integration changes
+
+## Session 38 — 2026-05-27: Track A Phase 3 — HTTP/SSE Transport
+
+**Track:** A (Phase 3)
+**Branch:** `feat/a3-http-sse-transport`
+**PR:** #112
+
+### Summary
+
+Added Axum-based HTTP transport and Server-Sent Events (SSE) support for the MCP server. Remote MCP clients can now connect over HTTP POST and receive notifications via SSE, in addition to the existing stdio transport.
+
+### Changes
+
+**`crates/mcp-server/src/http_transport.rs` (new):**
+- `mcp_router()` — Axum Router builder with POST /mcp and GET /mcp/sse routes
+- `handle_mcp_post()` — Receives JSON-RPC 2.0 requests, dispatches through McpServer, returns JSON-RPC responses
+- `handle_mcp_sse()` — SSE stream with initial endpoint event + broadcast notification relay
+- `send_notification()` — Push notifications to all connected SSE clients
+- 6 new HTTP transport tests
+
+**`crates/mcp-server/src/server.rs`:**
+- Added `handle_request_to_message(&mut self, req) -> McpMessage` — transport-agnostic dispatch that returns the message instead of writing to stdout
+- Refactored `dispatch()` to use `handle_request_to_message()` + `write_message()`
+
+**`crates/mcp-server/Cargo.toml`:** Added axum, futures, tokio-stream, tower dev dependencies.
+
+**`crates/mcp-server/src/lib.rs`:** Exported `pub mod http_transport`.
+
+### Verification
+
+| Check | Status |
+|---|---|
+| `cargo fmt -- --check` | ✅ Clean |
+| `cargo check` | ✅ Clean |
+| `cargo test --workspace` | ✅ 200+ tests pass (36 mcp-server including 6 new HTTP transport tests) |
+
+Stability level: alpha MCP transport extension.
+
+Deliberately not changed:
+- No new tools added
+- No MCP tool governance changes
+- No LLM calls added
+- No existing holographic-memory or conversation-memory APIs modified
+- No Decision Gate bypasses
+- No execution capabilities expanded
+- No SurrealDB dependency added
+- No existing MCP transport modified (stdio still works)

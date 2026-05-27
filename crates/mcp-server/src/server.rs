@@ -12,9 +12,10 @@
 
 use crate::audit_store::{McpGovernanceAuditRecord, McpGovernanceAuditStore};
 use crate::governance::{evaluate_tool_call, GovernanceDecision};
-use crate::transport::{read_message, write_error, write_success};
+use crate::transport::{read_message, write_message};
+use crate::types::McpMessage;
 use crate::types::{
-    CallToolResult, Implementation, InitializeResult, JsonRpcError, JsonRpcRequest,
+    CallToolResult, Implementation, InitializeResult, JsonRpcError, JsonRpcRequest, JsonRpcSuccess,
     ListToolsResult, McpContentBlock, McpTool, ServerCapabilities, ToolAnnotations,
     MCP_PROTOCOL_VERSION,
 };
@@ -180,26 +181,29 @@ impl McpServer {
 
     /// Dispatch a single JSON-RPC request to the appropriate handler.
     fn dispatch(&mut self, req: &JsonRpcRequest) {
-        let result = match req.method.as_str() {
-            "initialize" => self.handle_initialize(req),
-            "tools/list" => self.handle_tools_list(req),
-            "tools/call" => self.handle_tools_call(req),
-            other => {
-                // Standard JSON-RPC: method not found
-                let err = JsonRpcError::method_not_found(req.id.clone(), other);
-                let _ = write_error(err);
-                return;
-            }
-        };
+        let msg = self.handle_request_to_message(req);
+        let _ = write_message(&msg);
+    }
 
-        match result {
-            Ok(response) => {
-                let _ = write_success(req.id.clone(), response);
-            }
-            Err(err) => {
-                let _ = write_error(err);
-            }
+    /// Handle a JSON-RPC request and return the resulting MCP message.
+    ///
+    /// Returns either a `Success` or `Error` message. This method is the
+    /// transport-agnostic bridge between the request and handler layers.
+    /// HTTP transports (Axum) call this method directly instead of `dispatch`.
+    pub fn handle_request_to_message(&mut self, req: &JsonRpcRequest) -> McpMessage {
+        match req.method.as_str() {
+            "initialize" => self
+                .handle_initialize(req)
+                .map(|v| McpMessage::Success(JsonRpcSuccess::new(req.id.clone(), v))),
+            "tools/list" => self
+                .handle_tools_list(req)
+                .map(|v| McpMessage::Success(JsonRpcSuccess::new(req.id.clone(), v))),
+            "tools/call" => self
+                .handle_tools_call(req)
+                .map(|v| McpMessage::Success(JsonRpcSuccess::new(req.id.clone(), v))),
+            other => Err(JsonRpcError::method_not_found(req.id.clone(), other)),
         }
+        .unwrap_or_else(|e| McpMessage::Error(e))
     }
 
     // -----------------------------------------------------------------------

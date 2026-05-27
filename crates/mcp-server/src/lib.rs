@@ -31,6 +31,7 @@
 
 pub mod audit_store;
 pub mod governance;
+pub mod http_transport;
 pub mod server;
 pub mod transport;
 pub mod types;
