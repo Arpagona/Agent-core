@@ -598,3 +598,58 @@ MCP Server -> Resources (Phase 4) -> Prompts (Phase 4) -> Structured data surfac
 - Resource URIs are hardcoded (`arpagona://` scheme). If the URI scheme changes in the future, the handler match arms and resource listing must be updated in sync.
 - Prompt templates contain English prose directly in Rust strings. Internationalization or template externalization is deferred.
 - The `audit/stats` and `audit/recent` resources only work when `audit_path` is configured in `McpServerConfig`. When not configured, they return empty/error content.
+
+## 19. Latest Session Update (2026-05-27 — Track B Step B4: SQLite persistence for holographic memory)
+
+This session added a durable SQLite-backed `HolographicMemoryStore` implementation to `crates/holographic-memory`.
+
+### What was added
+
+**`crates/holographic-memory/src/sqlite_store.rs`** — new module:
+- `SqliteHolographicMemoryStore` — implements `HolographicMemoryStore` using `rusqlite` with the `bundled` feature (no system SQLite library required)
+- **Dual-layer design**: in-memory `HashMap` cache for trait-compatible reference returns (`get_trace`, `list_traces`) + SQLite for durable persistence
+- **Schema**: `holographic_traces` table with `id`, `project_id`, `created_at`, `importance`, `confidence`, `activation_count`, `trace_json` columns, plus indexes on `project_id` and `created_at`
+- **Full CRUD**: `add_trace`, `get_trace`, `list_traces`, `activate_trace`, `retrieve_by_resonance`, `traverse_linked_memories`
+- Mutations (activation, retrieval) sync both the cache and the `trace_json` column for reliable persistence across drop/reopen cycles
+- `new(path)` for file-backed stores, `in_memory()` for testing
+
+**Configuration changes:**
+- Workspace `Cargo.toml`: added `rusqlite = { version = "0.31", features = ["bundled"] }`
+- `crates/holographic-memory/Cargo.toml`: added `rusqlite.workspace = true`
+
+**Module declaration:** `pub mod sqlite_store;` added to `crates/holographic-memory/src/lib.rs`
+
+### Tests (20 new, all passing)
+
+| Category | Tests |
+|----------|-------|
+| Basic CRUD | new_store_is_empty, add_and_retrieve_trace, add_duplicate_returns_error, get_nonexistent_returns_error, list_traces_scoped_to_project |
+| Activation | activate_trace_increments_count, activate_multiple_times, activate_nonexistent_returns_error |
+| Resonance | retrieve_by_resonance_matches_correct_trace, retrieve_by_resonance_empty_query_returns_empty, retrieve_by_resonance_scoped_to_project, retrieval_activates_traces |
+| Linked memory | traverse_linked_memories_from_sqlite, traverse_nonexistent_root_returns_error |
+| Persistence | persistence_across_drop_reopen_cycle, persistence_activation_survives_reopen, persistence_multiple_projects |
+
+### Verification
+
+- `cargo fmt -- --check`: clean
+- `cargo check`: clean
+- `cargo test --workspace`: 541+ tests, all passing (0 regressions)
+
+### Stability level
+
+Alpha experimental. The SQLite store is a new backend option alongside the existing `InMemoryHolographicMemoryStore`. The in-memory store remains the default; the SQLite store is enabled explicitly via `SqliteHolographicMemoryStore::new(path)`.
+
+### Not changed
+
+- No changes to CLI, API server, MCP server, or any other crate
+- No changes to existing resonance or signature logic
+- No Decision Gate bypass
+- No broad capability expansion
+- No SurrealDB persistence
+- No LLM calls, browser automation, email, or restricted capabilities
+
+### Risks
+
+- The dual-layer cache design means the in-memory cache is the "source of truth" during a session. If a second process modifies the SQLite file externally, the cache will be stale until the store is reconstructed. This is acceptable for the expected single-process deployment model.
+- `rusqlite` with `bundled` feature adds ~3MB to the build from compiled C SQLite source. The build time impact is one-time per fresh build.
+

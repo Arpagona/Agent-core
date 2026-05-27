@@ -31,6 +31,9 @@ use std::hash::{Hash, Hasher};
 
 pub mod embedding;
 
+/// SQLite-backed persistence for holographic memory traces.
+pub mod sqlite_store;
+
 // ---------------------------------------------------------------------------
 // Error type
 // ---------------------------------------------------------------------------
