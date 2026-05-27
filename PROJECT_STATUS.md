@@ -701,4 +701,47 @@ Track A Phase 5 (PR #117) was merged earlier in this run. The deferred action wa
 - The `CreateHolographicTrace` action type is treated as a governed memory-write, meaning it inherits the same permission requirements (`WriteMemory`) and risk-based approval rules as `CreateFailureInsightMemory`. This is correct — holographic traces are persistent memory data.
 - `ProposeToolUse`-style `NotOverridable` policy does NOT apply to `CreateHolographicTrace` since it is not in the simulative action list with restricted override — it follows standard override rules.
 
+## 20. Latest Session Update (2026-05-27 — Path escape security reporting fix, PR #119)
+
+This session fixed a safety observability gap in the Tool Runtime: path escape attempts (absolute paths, parent traversal) were reported as `Failed` with `is_security: false`, indistinguishable from I/O errors. They now consistently report as `Blocked` with `is_security: true`.
+
+### What was changed
+
+**`crates/tool-runtime/src/lib.rs`** — three functions:
+- `execute_read_file()`: `SecurityBlocked` errors from `resolve_path()` now return `ToolExecutionResult::blocked()` with `is_security: true`
+- `execute_list_files()`: same fix
+- `execute_search_text()`: same fix
+
+### Tests
+
+| Test | Status |
+|------|--------|
+| `read_file_blocks_outside_workspace` | Updated: now expects `Blocked` / `is_security: true` |
+| `search_text_does_not_scan_outside_workspace` | Updated: now expects `Blocked` / `is_security: true` |
+| `absolute_path_parent_traversal_is_security_blocked` | **New** — read_file with real workspace escape via `../outside.txt` |
+| `list_files_blocks_absolute_paths` | **New** — `/etc` returns `Blocked` |
+| `list_files_blocks_parent_traversal` | **New** — `../outside-dir` returns `Blocked` |
+
+Total tool-runtime tests: 22 (16 existing + 3 updated + 3 new)
+
+### Verification
+
+- `cargo fmt -- --check`: ✅ clean
+- `cargo check`: ✅ clean
+- `cargo test --workspace`: ✅ all 550+ tests pass
+
+### Handoff notes
+
+- **FOCUS_LOOP_NEXT.md handoff was stale** — it pointed to Track B Step B5 (periodic consolidation), which was already fully implemented with SQLite backend, CLI command, and 4+ tests. No deferred action was available. Both tracks A and B are complete.
+- This run picked **DV-2026-05-26-001** from the daily validation backlog instead.
+- AGENT_FOCUS_LOOP.md needs updating to define Track C now that both tracks are complete.
+
+### What was NOT changed
+
+- No changes to core domain types, Decision Gate, audit, CLI, API server, MCP server
+- No new capabilities added
+- No Decision Gate bypass
+- No LLM calls, browser automation, email, or restricted capabilities
+- No file access broadened or unblocked
+
 

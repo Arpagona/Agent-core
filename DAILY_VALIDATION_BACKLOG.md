@@ -20,12 +20,8 @@ Rules:
 - source: daily validation 2026-05-26
 - category: safety observability
 - severity: low
-- status: open
-- evidence: `cargo run -q --bin arpagona -- tool demo read-file ../Cargo.toml --json` returned `failed: invalid_path` with `is_security: false` instead of a security block. Daily validation 2026-05-27 also observed absolute-path reads such as `/etc/hosts` returning `failed: invalid_path` / `is_security: false`, while `.git/config` and `.env` correctly return `blocked` / `is_security: true`.
-- expected behavior: parent traversal and absolute-path escape attempts are blocked with `status: blocked` and `is_security: true`, consistently with `.env` and `.git` blocks.
-- suggested fix: normalize path escape rejection through the Tool Runtime security-error path.
-- suggested tests: add `crates/tool-runtime` regression tests asserting parent traversal and absolute-path inputs return structured blocked/security results; keep existing `.env` and `.git` tests green.
-- do not: broaden file access, permit parent traversal, or add new write/execute capability.
+- status: **fixed in PR #119** (2026-05-27 focus loop)
+- evidence: `cargo run -q --bin arpagona -- tool demo read-file /etc/passwd --json` now returns `"status": "blocked"` with `"error": {"is_security": true}`. All three tools (read_file, list_files, search_text) consistently return blocked/security for absolute paths and parent traversal. 3 new regression tests added: `absolute_path_parent_traversal_is_security_blocked`, `list_files_blocks_absolute_paths`, `list_files_blocks_parent_traversal`.
 
 ### DV-2026-05-26-003 — Context parser ambiguity should be explicit
 - source: daily validation 2026-05-26
