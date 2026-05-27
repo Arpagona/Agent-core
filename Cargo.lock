@@ -288,6 +288,7 @@ name = "arpagona-mcp-server"
 version = "0.1.0"
 dependencies = [
  "arpagona-agent-core",
+ "arpagona-decision-gate",
  "arpagona-tool-registry",
  "arpagona-tool-runtime",
  "chrono",

@@ -29,6 +29,7 @@
 //! stdout, making it compatible with any MCP client that supports the
 //! stdio transport.
 
+pub mod governance;
 pub mod server;
 pub mod transport;
 pub mod types;

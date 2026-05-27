@@ -1823,3 +1823,69 @@ Stable. CLI surface additions only. No core domain types, runtime, or Decision G
 
 - No core domain types, Decision Gate, PolicyEngine, API endpoints, executor, persistence
 - No LLM, scheduler, autonomy, security, or MCP Phase 2 work
+
+---
+
+## Session 36 — 2026-05-27 — Track A Phase 2: MCP DecisionGate governance
+
+### Objective
+
+Add the DecisionGate governance layer for the MCP server's `tools/call` handler (Track A Phase 2). Every tool call from an external MCP client is now evaluated through the governance pipeline before execution.
+
+### Work completed
+
+**New module:** `crates/mcp-server/src/governance.rs`
+
+- `GovernanceDecision` enum with `Approved`, `Blocked`, `RequiresOverride` variants
+- `evaluate_tool_call(tool_name, arguments) -> GovernanceDecision` — creates a `ProposedAction` with `ActionType::ProposeToolUse` and runs it through `arpagona-decision-gate::evaluate_proposed_action()`
+- Each decision carries the full `Decision` struct (reason, risk, policies applied)
+- `is_approved()` and `summary()` convenience methods
+
+**Modified:** `crates/mcp-server/src/server.rs`
+
+- `handle_tools_call` now calls `evaluate_tool_call()` before ToolRuntime execution
+- Approved calls proceed to execution (same as Phase 1)
+- Blocked/override calls return structured error with governance reason
+
+**Dependency:** added `arpagona-decision-gate` to Cargo.toml
+
+### New tests
+
+4 governance unit tests in `governance.rs`:
+- `test_read_only_tool_approved_with_permission` — read_file with ProposeToolUse permission is Approved
+- `test_any_read_only_tool_approved` — all 3 read-only tools are Approved
+- `test_governance_summary_includes_status` — summary contains status keyword
+- `test_governance_decision_has_decision` — decision has non-empty reason
+
+### Verification
+
+- `cargo fmt -- --check`: clean
+- `cargo check`: clean
+- `cargo test --workspace`: all tests pass (175+)
+
+### Functional-alpha chain advancement
+
+```
+MCP client request → tools/call → GovernanceLayer::evaluate_tool_call()
+  → ProposedAction (ProposeToolUse, Informational risk)
+  → DecisionGate evaluate_proposed_action()
+  → Approved → ToolRuntime execution → MCP response
+  → Blocked  → structured governance error → MCP response
+```
+
+### Stability level
+
+Alpha MCP governance layer — pure Rust, deterministic, no LLM calls, no network I/O.
+
+### Risks
+
+- Default configuration (empty policies, ProposeToolUse permission granted) auto-approves all read-only tools at Informational risk. If stricter governance is needed later, policies can be added or permissions reduced.
+- The governance decision is evaluated per call but NOT audited to persistent storage yet (audit is in-memory only for now). Phase 3/4 will add audit persistence via the MCP resources layer.
+
+### Deliberately not changed
+
+- No HTTP/SSE transport, resources, prompts, notifications, or list_changed added
+- No LLM calls, scheduler, autonomy, browser automation, email, shell access, or file write
+- No Decision Gate bypass — governance is now mandatory for every tool call
+- No existing Tool Runtime, Tool Registry, or cognitive loop behavior modified
+- No core domain types, Graph Memory, Audit, Compute Reservoir, holographic-memory, API server, CLI, or executor changes

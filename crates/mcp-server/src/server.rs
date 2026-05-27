@@ -10,6 +10,7 @@
 //! - `tools/list` — returns available tools
 //! - `tools/call` — executes a tool via the Tool Runtime
 
+use crate::governance::evaluate_tool_call;
 use crate::transport::{read_message, write_error, write_success};
 use crate::types::{
     CallToolResult, Implementation, InitializeResult, JsonRpcError, JsonRpcRequest,
@@ -248,10 +249,10 @@ impl McpServer {
     // Handler: tools/call
     // -----------------------------------------------------------------------
 
-    /// Handle `tools/call` — execute a tool and return the result.
+    /// Handle `tools/call` — evaluate governance, then execute approved tools.
     ///
-    /// Phase 1: runs directly through ToolRuntime (read-only).
-    /// Phase 2+: will route through DecisionGate for governance.
+    /// Phase 2: every tool call is first evaluated through the DecisionGate
+    /// governance layer. Blocked calls return structured error responses.
     fn handle_tools_call(&mut self, req: &JsonRpcRequest) -> Result<Value, JsonRpcError> {
         if !self.initialized {
             return Err(JsonRpcError::new(
@@ -274,7 +275,26 @@ impl McpServer {
             .cloned()
             .unwrap_or(serde_json::json!({}));
 
-        // Execute the tool through the Tool Runtime
+        // Governance check — evaluate through DecisionGate
+        let gov_decision = evaluate_tool_call(tool_name, &arguments);
+        if !gov_decision.is_approved() {
+            return serde_json::to_value(&CallToolResult {
+                content: vec![McpContentBlock::Text {
+                    text: format!("Governance blocked: {}", gov_decision.summary()),
+                    mime_type: None,
+                }],
+                structured_content: Some(serde_json::json!({
+                    "governance": "blocked",
+                    "reason": gov_decision.summary()
+                })),
+                is_error: true,
+            })
+            .map_err(|e| {
+                JsonRpcError::internal_error(req.id.clone(), format!("Serialization error: {e}"))
+            });
+        }
+
+        // Execute the tool through the Tool Runtime (only after governance approval)
         let result = self.tool_runtime.execute(tool_name, &arguments);
 
         // Map the result to MCP CallToolResult format
