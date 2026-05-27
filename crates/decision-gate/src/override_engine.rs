@@ -819,18 +819,10 @@ mod tests {
     }
 
     #[test]
-    fn argon2_from_env_hash_returns_none_when_not_set() {
-        // Ensure ARPAGONA_OVERRIDE_PASSWORD_HASH is not set for this test
-        std::env::remove_var("ARPAGONA_OVERRIDE_PASSWORD_HASH");
-        let result = Argon2PasswordVerifier::from_env_hash();
-        assert!(
-            result.is_none(),
-            "from_env_hash should return None when env var is not set"
-        );
-    }
-
-    #[test]
-    fn argon2_from_env_hash_parses_valid_hash() {
+    fn argon2_from_env_hash_both_states() {
+        // Test: env var set → returns Some with valid verifier
+        // NOTE: merged into single test because both tests modify ARPAGONA_OVERRIDE_PASSWORD_HASH
+        // and Rust runs tests in parallel by default, causing a race condition.
         std::env::set_var("ARPAGONA_OVERRIDE_PASSWORD_HASH", TEST_ARGON2ID_HASH);
         let result = Argon2PasswordVerifier::from_env_hash();
         assert!(
@@ -841,7 +833,14 @@ mod tests {
             assert!(verifier.verify("test-password"));
             assert!(!verifier.verify("wrong-password"));
         }
+
+        // Test: env var not set → returns None
         std::env::remove_var("ARPAGONA_OVERRIDE_PASSWORD_HASH");
+        let result = Argon2PasswordVerifier::from_env_hash();
+        assert!(
+            result.is_none(),
+            "from_env_hash should return None when env var is not set"
+        );
     }
 
     #[test]

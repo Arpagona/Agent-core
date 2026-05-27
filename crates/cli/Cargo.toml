@@ -18,6 +18,7 @@ arpagona-decision-gate = { path = "../decision-gate" }
 arpagona-graph-memory = { path = "../graph-memory" }
 arpagona-llm = { path = "../llm" }
 arpagona-tool-runtime = { path = "../tool-runtime" }
+arpagona-mcp-server = { path = "../mcp-server" }
 chrono.workspace = true
 clap.workspace = true
 reqwest.workspace = true

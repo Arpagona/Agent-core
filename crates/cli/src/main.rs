@@ -85,6 +85,8 @@ enum Command {
     Cognitive(CognitiveCommand),
     /// List and inspect executor registry state.
     Executor(ExecutorCommand),
+    /// Start the native MCP server (stdio transport).
+    McpServer(McpServerArgs),
 }
 
 #[derive(Debug, Args)]
@@ -153,6 +155,20 @@ pub struct ExecutorInspectArgs {
     /// Example: {"noop-executor": "ready"}
     #[arg(long)]
     pub state_file: Option<String>,
+}
+
+/// Arguments for the `mcp-server` command.
+#[derive(Debug, Args)]
+pub struct McpServerArgs {
+    /// Workspace path to serve files from (default: current dir).
+    #[arg(long, default_value = ".")]
+    pub workspace: String,
+    /// Server name advertised to MCP clients.
+    #[arg(long, default_value = "arpagona-mcp")]
+    pub name: String,
+    /// Server version advertised to MCP clients.
+    #[arg(long, default_value = "0.1.0")]
+    pub version: String,
 }
 
 #[derive(Debug, Args)]
@@ -1298,6 +1314,7 @@ async fn run() -> Result<(), Box<dyn Error>> {
             ExecutorSubcommand::List(args) => executor_list(&client, &api_url, args).await?,
             ExecutorSubcommand::Inspect(args) => executor_inspect(&client, &api_url, args).await?,
         },
+        Command::McpServer(args) => mcp_server(args)?,
     }
 
     Ok(())
@@ -6044,6 +6061,33 @@ async fn executor_inspect(
             }
         }
     }
+    Ok(())
+}
+
+/// Start the native MCP server (stdio transport).
+///
+/// Reads JSON-RPC 2.0 requests from stdin and writes responses to stdout.
+/// External MCP clients (Claude Desktop, Cursor, etc.) connect via stdio.
+fn mcp_server(args: McpServerArgs) -> Result<(), Box<dyn Error>> {
+    let config = arpagona_mcp_server::McpServerConfig {
+        server_name: args.name,
+        server_version: args.version,
+        workspace_path: args.workspace,
+    };
+
+    let mut server = arpagona_mcp_server::McpServer::new(config);
+
+    eprintln!("Starting Arpagona MCP server (stdio transport)...");
+    eprintln!(
+        "Server: {} v{}",
+        server.config.server_name, server.config.server_version
+    );
+    eprintln!("Workspace: {}", server.config.workspace_path);
+    eprintln!("Waiting for MCP client to connect...");
+
+    server.run()?;
+
+    eprintln!("MCP server: client disconnected.");
     Ok(())
 }
 

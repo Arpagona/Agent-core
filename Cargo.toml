@@ -12,6 +12,7 @@ members = [
     "crates/runtime",
     "crates/tool-registry",
     "crates/tool-runtime",
+    "crates/mcp-server",
 ]
 resolver = "2"
 
