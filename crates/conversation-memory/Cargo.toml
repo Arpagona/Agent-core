@@ -8,6 +8,7 @@ authors.workspace = true
 description = "Symbolic holographic conversation memory with resonance retrieval for ARPAGONA Agent Core"
 
 [dependencies]
+arpagona-holographic-memory = { path = "../holographic-memory" }
 chrono.workspace = true
 serde.workspace = true
 serde_json.workspace = true

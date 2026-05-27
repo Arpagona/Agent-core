@@ -44,6 +44,8 @@
 //! All operations are scoped by `project_id` (a string identifier). No trace
 //! from project A can leak into a resonance query for project B.
 
+pub mod holographic_bridge;
+
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
