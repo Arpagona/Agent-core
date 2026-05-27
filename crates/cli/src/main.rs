@@ -19,6 +19,7 @@ use arpagona_graph_memory::{
 };
 use arpagona_holographic_memory::{
     embedding::{extend_signature_with_embedding, CharacterNGramEmbeddingProvider},
+    sqlite_store::SqliteHolographicMemoryStore,
     HolographicMemoryError, HolographicMemoryStore, HolographicQuery, HolographicTrace,
     InMemoryHolographicMemoryStore, SourceKind,
 };
@@ -760,6 +761,13 @@ enum HolographicSubcommand {
     /// Uses BFS traversal with configurable depth limit and cycle detection.
     /// Returns all reachable traces in discovery order with traversal metadata.
     Explore(HolographicExploreArgs),
+    /// Consolidate redundant holographic memory traces within a time window.
+    ///
+    /// Finds pairs of traces in the same project with similar resonance signatures
+    /// created within `--window` minutes, merges keywords/concepts/entities, sums
+    /// activation counts, and removes the redundant trace. Operates on the SQLite
+    /// store only (InMemory store is a no-op).
+    Consolidate(HolographicConsolidateArgs),
 }
 
 #[derive(Debug, Args)]
@@ -856,6 +864,25 @@ struct HolographicExploreArgs {
     /// Path to the holographic memory JSON file.
     #[arg(long, default_value = "target/holographic-store.json")]
     file: String,
+    /// Emit structured JSON instead of human-oriented text.
+    #[arg(long)]
+    json: bool,
+}
+
+#[derive(Debug, Args)]
+struct HolographicConsolidateArgs {
+    /// Project scope for consolidation.
+    #[arg(long, default_value = "default")]
+    project_id: String,
+    /// Time window in minutes within which to find redundant trace pairs.
+    #[arg(long, default_value_t = 60)]
+    window: u64,
+    /// Similarity threshold (0.0–1.0) for detecting redundant traces.
+    #[arg(long, default_value_t = 0.7)]
+    threshold: f32,
+    /// Path to the SQLite holographic memory database file.
+    #[arg(long, default_value = "target/holographic-store.db")]
+    db: String,
     /// Emit structured JSON instead of human-oriented text.
     #[arg(long)]
     json: bool,
@@ -1458,6 +1485,7 @@ async fn run() -> Result<(), Box<dyn Error>> {
                     memory_holographic_from_conversation(args)?
                 }
                 HolographicSubcommand::Explore(args) => memory_holographic_explore(args)?,
+                HolographicSubcommand::Consolidate(args) => memory_holographic_consolidate(args)?,
             },
         },
         Command::Tool(tool) => match tool.command {
@@ -2740,6 +2768,50 @@ fn memory_holographic_explore(args: HolographicExploreArgs) -> Result<(), Box<dy
                 println!("{}{}. {} (unknown trace)", indent, i + 1, trace_id);
             }
         }
+        println!();
+        println!(
+            "⚠️  Holographic memory is recall evidence only. It does not authorize any action."
+        );
+    }
+
+    Ok(())
+}
+
+fn memory_holographic_consolidate(args: HolographicConsolidateArgs) -> Result<(), Box<dyn Error>> {
+    // Open the SQLite store
+    let mut store = match SqliteHolographicMemoryStore::new(&args.db) {
+        Ok(s) => s,
+        Err(e) => {
+            return Err(format!("Failed to open SQLite store at '{}': {}", args.db, e).into());
+        }
+    };
+
+    let before = store.len();
+
+    // Run consolidation
+    let consolidated = store.consolidate_traces(&args.project_id, args.window, args.threshold)?;
+
+    let after = store.len();
+
+    if args.json {
+        let output = serde_json::json!({
+            "status": "consolidated",
+            "project_id": args.project_id,
+            "window_minutes": args.window,
+            "similarity_threshold": args.threshold,
+            "traces_consolidated": consolidated,
+            "traces_before": before,
+            "traces_after": after,
+        });
+        println!("{}", serde_json::to_string_pretty(&output)?);
+    } else {
+        println!("✓ Holographic memory consolidation complete");
+        println!("  Project:             {}", args.project_id);
+        println!("  Window:              {} minutes", args.window);
+        println!("  Similarity threshold: {:.2}", args.threshold);
+        println!("  Traces before:       {}", before);
+        println!("  Traces consolidated:  {}", consolidated);
+        println!("  Traces after:        {}", after);
         println!();
         println!(
             "⚠️  Holographic memory is recall evidence only. It does not authorize any action."

@@ -721,6 +721,23 @@ pub trait HolographicMemoryStore {
         root_trace_id: &str,
         max_depth: usize,
     ) -> Result<MemoryGraphTraversalResult, HolographicMemoryError>;
+
+    /// Consolidate redundant traces within a time window.
+    ///
+    /// Finds pairs of traces in the same project whose `created_at` timestamps
+    /// are within `window_minutes` of each other and whose signature overlap
+    /// exceeds `similarity_threshold`. The redundant (younger) trace is merged
+    /// into the primary (older) trace: keywords, concepts, entities are
+    /// combined, activation counts are summed, and the redundant trace is
+    /// removed.
+    ///
+    /// Returns the number of trace pairs that were consolidated.
+    fn consolidate_traces(
+        &mut self,
+        project_id: &str,
+        window_minutes: u64,
+        similarity_threshold: f32,
+    ) -> Result<usize, HolographicMemoryError>;
 }
 
 // ---------------------------------------------------------------------------
@@ -1048,6 +1065,17 @@ impl HolographicMemoryStore for InMemoryHolographicMemoryStore {
             depth_limit_reached,
             traversal_summary: parts.join("\n"),
         })
+    }
+
+    fn consolidate_traces(
+        &mut self,
+        _project_id: &str,
+        _window_minutes: u64,
+        _similarity_threshold: f32,
+    ) -> Result<usize, HolographicMemoryError> {
+        // In-memory store: no-op. Consolidation is meaningful for SQLite-backed
+        // stores where redundant traces can accumulate across restarts.
+        Ok(0)
     }
 }
 
@@ -2335,5 +2363,37 @@ mod tests {
 
         assert_eq!(result.visited_trace_ids, vec!["root"]);
         assert_eq!(result.reachable_depth, 0);
+    }
+
+    // -----------------------------------------------------------------------
+    // consolidate_traces — InMemory is a no-op
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn consolidate_traces_in_memory_is_noop() {
+        let mut store = InMemoryHolographicMemoryStore::new();
+        let now = chrono::Utc::now().to_rfc3339();
+        let trace = HolographicTrace::new(
+            "t1".to_owned(),
+            "proj".to_owned(),
+            SourceKind::ManualNote,
+            "source".to_owned(),
+            vec![],
+            "test trace".to_owned(),
+            vec!["hello".to_owned()],
+            vec![],
+            vec![],
+            vec![],
+            vec![],
+            0.5,
+            0.8,
+            0.0,
+            0.0,
+            now,
+        );
+        store.add_trace(trace).unwrap();
+        let result = store.consolidate_traces("proj", 60, 0.7).unwrap();
+        assert_eq!(result, 0, "InMemory store should always return 0");
+        assert_eq!(store.len(), 1, "trace should NOT be removed");
     }
 }

@@ -41,10 +41,12 @@
 //! ```
 
 use crate::{
-    build_reconstruction_summary, find_matching_terms, signature_overlap, HolographicMemoryError,
-    HolographicMemoryStore, HolographicQuery, HolographicTrace, MemoryGraphTraversalResult,
-    ReconstructedContext, ResonanceMatch, ResonanceScore,
+    build_reconstruction_summary, encode_terms_to_signature, find_matching_terms, normalize_terms,
+    signature_overlap, HolographicMemoryError, HolographicMemoryStore, HolographicQuery,
+    HolographicTrace, MemoryGraphTraversalResult, ReconstructedContext, ResonanceMatch,
+    ResonanceScore,
 };
+use chrono;
 use rusqlite::{params, Connection};
 use std::collections::{BTreeSet, HashMap, HashSet, VecDeque};
 
@@ -446,6 +448,194 @@ impl HolographicMemoryStore for SqliteHolographicMemoryStore {
             ),
         })
     }
+
+    fn consolidate_traces(
+        &mut self,
+        project_id: &str,
+        window_minutes: u64,
+        similarity_threshold: f32,
+    ) -> Result<usize, HolographicMemoryError> {
+        // Collect all traces for the project, sorted by created_at
+        let mut project_traces: Vec<(String, String)> = self
+            .cache
+            .values()
+            .filter(|t| t.project_id == project_id)
+            .map(|t| (t.id.clone(), t.created_at.clone()))
+            .collect();
+
+        // Sort by created_at ascending
+        project_traces.sort_by(|a, b| a.1.cmp(&b.1));
+
+        if project_traces.len() < 2 {
+            return Ok(0);
+        }
+
+        let mut consolidated: usize = 0;
+
+        // Track which trace IDs have been removed
+        let mut removed: HashSet<String> = HashSet::new();
+
+        for i in 0..project_traces.len() {
+            if removed.contains(&project_traces[i].0) {
+                continue;
+            }
+            for j in (i + 1)..project_traces.len() {
+                if removed.contains(&project_traces[j].0) {
+                    continue;
+                }
+
+                let primary_id = &project_traces[i].0;
+                let redundant_id = &project_traces[j].0;
+
+                // Parse timestamps and check time window
+                let time_i =
+                    chrono::DateTime::parse_from_rfc3339(&project_traces[i].1).map_err(|e| {
+                        HolographicMemoryError::Internal(format!(
+                            "invalid timestamp for trace '{}': {e}",
+                            primary_id
+                        ))
+                    })?;
+                let time_j =
+                    chrono::DateTime::parse_from_rfc3339(&project_traces[j].1).map_err(|e| {
+                        HolographicMemoryError::Internal(format!(
+                            "invalid timestamp for trace '{}': {e}",
+                            redundant_id
+                        ))
+                    })?;
+
+                let diff_minutes = (time_j - time_i).num_minutes().unsigned_abs();
+
+                if diff_minutes > window_minutes {
+                    // Traces are sorted by time, so subsequent pairs are even further apart
+                    break;
+                }
+
+                // Get the actual traces from cache
+                let primary = match self.cache.get(primary_id) {
+                    Some(t) => t.clone(),
+                    None => continue,
+                };
+                let redundant = match self.cache.get(redundant_id) {
+                    Some(t) => t.clone(),
+                    None => continue,
+                };
+
+                // Compute signature overlap
+                let score = signature_overlap(
+                    &primary.distributed_signature,
+                    &redundant.distributed_signature,
+                    primary.importance,
+                    primary.confidence,
+                    primary.activation_count,
+                );
+
+                if score.total >= similarity_threshold {
+                    // Merge redundant trace into primary
+                    if let Some(primary_mut) = self.cache.get_mut(primary_id) {
+                        // Combine keywords (dedup)
+                        let mut all_keywords: HashSet<String> =
+                            primary_mut.keywords.iter().cloned().collect();
+                        for kw in &redundant.keywords {
+                            all_keywords.insert(kw.clone());
+                        }
+                        primary_mut.keywords =
+                            normalize_terms(&all_keywords.into_iter().collect::<Vec<String>>());
+
+                        // Combine concepts (dedup)
+                        let mut all_concepts: HashSet<String> =
+                            primary_mut.concepts.iter().cloned().collect();
+                        for c in &redundant.concepts {
+                            all_concepts.insert(c.clone());
+                        }
+                        primary_mut.concepts =
+                            normalize_terms(&all_concepts.into_iter().collect::<Vec<String>>());
+
+                        // Combine entities (dedup)
+                        let mut all_entities: HashSet<String> =
+                            primary_mut.entities.iter().cloned().collect();
+                        for e in &redundant.entities {
+                            all_entities.insert(e.clone());
+                        }
+                        primary_mut.entities =
+                            normalize_terms(&all_entities.into_iter().collect::<Vec<String>>());
+
+                        // Sum activation counts
+                        primary_mut.activation_count = primary_mut
+                            .activation_count
+                            .saturating_add(redundant.activation_count);
+
+                        // Merge linked_memory_ids (dedup)
+                        let mut linked_mem: HashSet<String> =
+                            primary_mut.linked_memory_ids.iter().cloned().collect();
+                        for lm in &redundant.linked_memory_ids {
+                            linked_mem.insert(lm.clone());
+                        }
+                        primary_mut.linked_memory_ids = linked_mem.into_iter().collect();
+
+                        // Merge linked_decision_ids (dedup)
+                        let mut linked_dec: HashSet<String> =
+                            primary_mut.linked_decision_ids.iter().cloned().collect();
+                        for ld in &redundant.linked_decision_ids {
+                            linked_dec.insert(ld.clone());
+                        }
+                        primary_mut.linked_decision_ids = linked_dec.into_iter().collect();
+
+                        // Regenerate the distributed signature to reflect merged terms
+                        let merged_keywords = primary_mut.keywords.clone();
+                        let merged_concepts = primary_mut.concepts.clone();
+                        let merged_entities = primary_mut.entities.clone();
+                        primary_mut.distributed_signature = encode_terms_to_signature(
+                            &merged_keywords,
+                            &merged_concepts,
+                            &merged_entities,
+                            &primary_mut.linked_decision_ids,
+                        );
+
+                        // Update primary in SQLite
+                        let trace_json = serde_json::to_string(&*primary_mut).map_err(|e| {
+                            HolographicMemoryError::PersistenceError(format!(
+                                "serialization failed: {e}"
+                            ))
+                        })?;
+                        self.conn
+                            .execute(
+                                "UPDATE holographic_traces SET activation_count = ?1, trace_json = ?2 WHERE id = ?3",
+                                rusqlite::params![
+                                    primary_mut.activation_count,
+                                    trace_json,
+                                    primary_id,
+                                ],
+                            )
+                            .map_err(|e| {
+                                HolographicMemoryError::PersistenceError(format!(
+                                    "update primary failed: {e}"
+                                ))
+                            })?;
+                    }
+
+                    // Remove redundant trace from cache
+                    self.cache.remove(redundant_id);
+
+                    // Remove redundant trace from SQLite
+                    self.conn
+                        .execute(
+                            "DELETE FROM holographic_traces WHERE id = ?1",
+                            rusqlite::params![redundant_id],
+                        )
+                        .map_err(|e| {
+                            HolographicMemoryError::PersistenceError(format!(
+                                "delete redundant failed: {e}"
+                            ))
+                        })?;
+
+                    removed.insert(redundant_id.clone());
+                    consolidated += 1;
+                }
+            }
+        }
+
+        Ok(consolidated)
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -798,5 +988,223 @@ mod tests {
         }
 
         let _ = std::fs::remove_file(&path_str);
+    }
+
+    // ---- Consolidation ----
+
+    fn make_trace_at_time(
+        id: &str,
+        project_id: &str,
+        keywords: Vec<&str>,
+        created_at: &str,
+    ) -> HolographicTrace {
+        HolographicTrace::new(
+            id.to_owned(),
+            project_id.to_owned(),
+            SourceKind::ConversationTurn,
+            "source-1".to_owned(),
+            vec!["turn-1".to_owned()],
+            format!("Test trace {id}"),
+            keywords.into_iter().map(|s| s.to_owned()).collect(),
+            vec!["test".to_owned()],
+            vec![],
+            vec![],
+            vec![],
+            0.5,
+            0.8,
+            0.1,
+            0.3,
+            created_at.to_owned(),
+        )
+    }
+
+    #[test]
+    fn consolidate_merges_similar_traces_within_window() {
+        let mut store = SqliteHolographicMemoryStore::in_memory().unwrap();
+        // Both traces in same project with overlapping keywords, same concept "test",
+        // created 1 minute apart (within 60-minute window)
+        store
+            .add_trace(make_trace_at_time(
+                "t1",
+                "proj",
+                vec!["hello", "world"],
+                "2026-05-27T00:00:00Z",
+            ))
+            .unwrap();
+        store
+            .add_trace(make_trace_at_time(
+                "t2",
+                "proj",
+                vec!["hello", "foo"],
+                "2026-05-27T00:01:00Z",
+            ))
+            .unwrap();
+
+        assert_eq!(store.len(), 2);
+        let result = store.consolidate_traces("proj", 60, 0.3).unwrap();
+        assert!(
+            result >= 1,
+            "should consolidate at least one pair, got {result}"
+        );
+
+        // After consolidation, only t1 should remain (older trace kept)
+        assert_eq!(store.len(), 1, "redundant trace should be removed");
+        let remaining = store.get_trace("t1").unwrap();
+        // Merged keywords should include "hello", "world", "foo"
+        assert!(
+            remaining.keywords.contains(&"hello".to_owned()),
+            "should retain shared keyword 'hello'"
+        );
+        assert!(
+            remaining.keywords.contains(&"foo".to_owned()),
+            "should retain merged keyword 'foo' from t2"
+        );
+        assert!(
+            remaining.keywords.contains(&"world".to_owned()),
+            "should retain original keyword 'world' from t1"
+        );
+    }
+
+    #[test]
+    fn consolidate_does_not_merge_dissimilar_traces() {
+        let mut store = SqliteHolographicMemoryStore::in_memory().unwrap();
+        store
+            .add_trace(make_trace_at_time(
+                "t1",
+                "proj",
+                vec!["hello", "world"],
+                "2026-05-27T00:00:00Z",
+            ))
+            .unwrap();
+        // t2 has completely different keywords and same concept "test" but concepts
+        // alone produce low overlap (concept bits for "test" overlap between both
+        // traces, but the similarity threshold is higher than concept-only overlap).
+        store
+            .add_trace(make_trace_at_time(
+                "t2",
+                "proj",
+                vec!["completely", "different"],
+                "2026-05-27T00:01:00Z",
+            ))
+            .unwrap();
+
+        let result = store.consolidate_traces("proj", 60, 0.9).unwrap();
+        assert_eq!(
+            result, 0,
+            "dissimilar traces should not consolidate at high threshold"
+        );
+        assert_eq!(store.len(), 2, "both traces should remain");
+    }
+
+    #[test]
+    fn consolidate_respects_time_window() {
+        let mut store = SqliteHolographicMemoryStore::in_memory().unwrap();
+        // traces created 100 minutes apart (well beyond 5-minute window)
+        store
+            .add_trace(make_trace_at_time(
+                "t1",
+                "proj",
+                vec!["hello", "world"],
+                "2026-05-27T00:00:00Z",
+            ))
+            .unwrap();
+        store
+            .add_trace(make_trace_at_time(
+                "t2",
+                "proj",
+                vec!["hello", "world"],
+                "2026-05-27T01:40:00Z",
+            ))
+            .unwrap();
+
+        let result = store.consolidate_traces("proj", 5, 0.3).unwrap();
+        assert_eq!(result, 0, "traces beyond window should not consolidate");
+        assert_eq!(store.len(), 2);
+    }
+
+    #[test]
+    fn consolidate_sums_activation_counts() {
+        let mut store = SqliteHolographicMemoryStore::in_memory().unwrap();
+        // Add three traces with overlapping keywords, activate t2 a few times
+        store
+            .add_trace(make_trace_at_time(
+                "t1",
+                "proj",
+                vec!["hello", "world"],
+                "2026-05-27T00:00:00Z",
+            ))
+            .unwrap();
+        store
+            .add_trace(make_trace_at_time(
+                "t2",
+                "proj",
+                vec!["hello", "foo"],
+                "2026-05-27T00:01:00Z",
+            ))
+            .unwrap();
+        // Activate t2 twice
+        store.activate_trace("t2").unwrap();
+        store.activate_trace("t2").unwrap();
+
+        let result = store.consolidate_traces("proj", 60, 0.3).unwrap();
+        assert!(result >= 1, "should consolidate");
+
+        // t1 should survive with t2's activation count merged
+        let remaining = store.get_trace("t1").unwrap();
+        assert!(
+            remaining.activation_count >= 2,
+            "activation counts should be summed, got {}",
+            remaining.activation_count
+        );
+    }
+
+    #[test]
+    fn consolidate_multiple_projects_are_independent() {
+        let mut store = SqliteHolographicMemoryStore::in_memory().unwrap();
+        // Two similar traces in proj-a
+        store
+            .add_trace(make_trace_at_time(
+                "a1",
+                "proj-a",
+                vec!["hello", "world"],
+                "2026-05-27T00:00:00Z",
+            ))
+            .unwrap();
+        store
+            .add_trace(make_trace_at_time(
+                "a2",
+                "proj-a",
+                vec!["hello", "foo"],
+                "2026-05-27T00:01:00Z",
+            ))
+            .unwrap();
+        // Two similar traces in proj-b
+        store
+            .add_trace(make_trace_at_time(
+                "b1",
+                "proj-b",
+                vec!["other", "stuff"],
+                "2026-05-27T00:00:00Z",
+            ))
+            .unwrap();
+        store
+            .add_trace(make_trace_at_time(
+                "b2",
+                "proj-b",
+                vec!["other", "more"],
+                "2026-05-27T00:01:00Z",
+            ))
+            .unwrap();
+
+        // Consolidate only proj-a
+        let result = store.consolidate_traces("proj-a", 60, 0.3).unwrap();
+        assert!(result >= 1, "proj-a should consolidate, got {result}");
+
+        // proj-b should remain untouched
+        assert_eq!(
+            store.list_traces("proj-b").len(),
+            2,
+            "proj-b should be untouched"
+        );
     }
 }
