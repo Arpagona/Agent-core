@@ -993,3 +993,78 @@ Objective → WorkingMemory → Plan → Observations → Assessment
 ### Stability
 
 Stable alpha. All existing tests continue to pass without modification. The demo script validates the full governed cognitive loop end-to-end.
+
+## 19. Latest Session Update (2026-05-27 — C1 real LLM integration: parser tests, proposal-only safety tests)
+
+This session followed the new Phase 2 roadmap from PR #129 (merged). The handoff pointed to **C1 — Real LLM integration in proposal-only mode**. The `--llm` and `--provider` CLI flags already existed in the `CognitiveRunArgs` struct and were already wired through the `cognitive_run` handler to call `run_cognitive_synthesis` — but they had **zero parser tests** and **zero proposal-only safety tests**.
+
+### What was done
+
+**Parser tests for `--llm` and `--provider`** — Added 5 new tests in `crates/cli/src/main.rs`:
+
+| Test | What it covers |
+|------|----------------|
+| `cli_parses_cognitive_run_with_llm_flag` | Basic `--llm` parsing + default provider check |
+| `cli_parses_cognitive_run_with_llm_and_provider` | `--llm --provider mock` |
+| `cli_parses_cognitive_run_with_llm_and_json` | `--llm --json` |
+| `cli_parses_cognitive_run_with_llm_provider_and_assess` | `--llm --provider openai --assess --json` |
+| `cli_parses_cognitive_run_with_provider_and_all_flags` | Full pipeline: all flags + `--llm --provider ollama` |
+
+**Proposal-only safety tests** — Added 4 new tests in `crates/llm/src/lib.rs`:
+
+| Test | What it proves |
+|------|----------------|
+| `mock_synthesis_output_is_proposal_only` | Mock synthesis output is NOT valid JSON, does NOT contain "approved", "executed", or "memory_write" |
+| `mock_synthesis_output_is_advisory_text_not_proposed_action` | Output does NOT contain proposed_action/decision_status/memory_write keywords; DOES contain [STATE] and [RECOMMENDED NEXT STEP] |
+| `run_cognitive_synthesis_with_mock_returns_non_executable_text` | The top-level entry point returns plain advisory text, not a structured artifact |
+| `cognitive_synthesis_prompt_forbids_action_execution` | The system prompt explicitly forbids tool calls and execution claims |
+
+### Verification
+
+- `cargo fmt -- --check` — clean
+- `cargo check` — clean (only pre-existing edition warnings)
+- `cargo test --workspace` — all 570+ tests pass (27 new: 5 parser + 4 safety + 18 pre-existing)
+- Manual smoke test: `cargo run --bin arpagona -- cognitive run --objective "Test" --llm --provider mock --json` — produces structured synthesis with [STATE], [KEY GAP / RISK], [RECOMMENDED NEXT STEP] sections
+
+### End-to-end proof
+
+```
+$ cargo run --bin arpagona -- cognitive run --objective "Analyse les tendances du marché" --domain business --llm --provider mock --json
+{
+  "llm_synthesis": "[STATE] ... [KEY GAP / RISK] ... [RECOMMENDED NEXT STEP] ...",
+  "llm_provider": "mock",
+  "llm_routing": "Provider set via --provider flag"
+}
+```
+
+The output is clearly advisory text — no ProposedAction, no Decision, no AuditEvent. Per C1 safety boundaries:
+- ✅ LLM output enriches working memory (text synthesis)
+- ✅ LLM output does NOT approve actions
+- ✅ LLM output does NOT write memory directly
+- ✅ LLM output does NOT bypass Decision Gate
+- ✅ Provider, model, and routing are audit-readable in the JSON output
+
+### Files changed
+
+| File | Change |
+|------|--------|
+| `crates/cli/src/main.rs` | +5 CLI parser tests for `--llm` and `--provider` flags |
+| `crates/llm/src/lib.rs` | +4 proposal-only safety tests for LLM synthesis |
+| `FOCUS_LOOP_NEXT.md` | Updated handoff to C2 |
+| `PROJECT_STATUS.md` | This section |
+
+### Not changed (as intended)
+
+- No modifications to the `CognitiveRunArgs` struct or handler logic (already implemented)
+- No changes to the cognitive run pipeline, Decision Gate, MCP, or tool runtime
+- No LLM provider implementation changes
+- No new capabilities added
+- No Decision Gate bypass
+- No production LLM calls in test suite
+- No automation, browser, email, shell, or secrets access
+
+### Risks
+
+- The default provider is `ollama` (local Ollama endpoint). If Ollama is not running and `--provider` is not set to `mock`, the `--llm` flag will produce a connection error. Users should set `--provider mock` for deterministic behavior, or ensure an Ollama instance is available.
+- The OpenAI provider requires `OPENAI_API_KEY` in the environment. The `arpagona auth openai` command can help operators configure this.
+- C1 is intentionally proposal-only. Real LLM tool-calling is deferred to C2.

@@ -1141,9 +1141,130 @@ mod mock_synthesis_tests {
         );
         assert!(result.contains("3"), "should reference missing count of 3");
     }
-}
 
-/// Run a cognitive synthesis with the specified provider.
+    // ── C1 Proposal-only safety tests ──────────────────────────────────────
+
+    #[test]
+    fn mock_synthesis_output_is_proposal_only() {
+        let provider = MockProvider::safe_default();
+        let prompt = "Objective: Execute market analysis\n\nWorking Memory Summary:\nDomain: Business\nSensitivity: Public\nComplexity: 0.5\nContext items: 2\nMissing context: 1\nAssumptions: 1\nProposed next action: ProposeAction\n";
+        let result = tokio::runtime::Runtime::new()
+            .unwrap()
+            .block_on(provider.synthesize(COGNITIVE_SYNTHESIS_SYSTEM_PROMPT, prompt))
+            .expect("mock synthesis should not fail");
+
+        // The synthesis output is plain text — it must NOT be parseable as a
+        // ProposedAction, Decision, or AuditEvent.
+        let as_json: Result<serde_json::Value, _> = serde_json::from_str(&result);
+        assert!(
+            as_json.is_err(),
+            "synthesis output should NOT be valid JSON (it is advisory text only): {}",
+            result
+        );
+
+        // Output must NOT contain authorization language
+        assert!(
+            !result.to_lowercase().contains("approved"),
+            "synthesis output must not contain 'approved': {}",
+            result
+        );
+        assert!(
+            !result.to_lowercase().contains("executed"),
+            "synthesis output must not claim execution: {}",
+            result
+        );
+        assert!(
+            !result.to_lowercase().contains("memory_write"),
+            "synthesis output must not reference memory writes: {}",
+            result
+        );
+    }
+
+    #[test]
+    fn mock_synthesis_output_is_advisory_text_not_proposed_action() {
+        let provider = MockProvider::safe_default();
+        let prompt = "Objective: Draft a client response\n\nWorking Memory Summary:\nDomain: Business\nSensitivity: Internal\nComplexity: 0.3\nContext items: 1\nMissing context: 0\nAssumptions: 0\nProposed next action: StopWithReport\n";
+        let result = tokio::runtime::Runtime::new()
+            .unwrap()
+            .block_on(provider.synthesize(COGNITIVE_SYNTHESIS_SYSTEM_PROMPT, prompt))
+            .expect("mock synthesis should not fail");
+
+        // The output must NOT contain language that could be construed as
+        // a tool call intent, direct memory write, or governance bypass
+        let lower = result.to_lowercase();
+        let forbidden = [
+            "proposed_action",
+            "propose_action",
+            "decision_status",
+            "pending_decision",
+            "memory_write",
+        ];
+        for word in &forbidden {
+            assert!(
+                !lower.contains(word),
+                "synthesis output must not contain '{}': {}",
+                word,
+                result
+            );
+        }
+
+        // The output SHOULD contain the structured sections defined by the prompt
+        assert!(
+            result.contains("[STATE]"),
+            "output should contain STATE section: {}",
+            result
+        );
+        assert!(
+            result.contains("[RECOMMENDED NEXT STEP]"),
+            "output should contain RECOMMENDED NEXT STEP section: {}",
+            result
+        );
+    }
+
+    #[test]
+    fn run_cognitive_synthesis_with_mock_returns_non_executable_text() {
+        let objective = "Analyze error logs";
+        let wm_summary =
+            "Domain: Coding\nSensitivity: Internal\nComplexity: 0.6\nContext items: 2\nMissing context: 0\nAssumptions: 1\nProposed next action: StopWithReport\n";
+        let result = tokio::runtime::Runtime::new()
+            .unwrap()
+            .block_on(run_cognitive_synthesis(objective, wm_summary, "mock"))
+            .expect("run_cognitive_synthesis with mock should not fail");
+
+        // The top-level output is plain text, not a structured artifact
+        assert!(
+            result.contains("[STATE]") || result.contains("[RECOMMENDED NEXT STEP]"),
+            "output should contain structured sections: {}",
+            result
+        );
+        // Must not be valid JSON (not a ProposedAction/Decision container)
+        let as_json: Result<serde_json::Value, _> = serde_json::from_str(&result);
+        assert!(
+            as_json.is_err(),
+            "run_cognitive_synthesis output should NOT be valid JSON: {}",
+            result
+        );
+    }
+
+    #[test]
+    fn cognitive_synthesis_prompt_forbids_action_execution() {
+        let prompt = COGNITIVE_SYNTHESIS_SYSTEM_PROMPT;
+        // Per C1 safety requirements, the synthesis prompt must explicitly forbid
+        // tool calls and execution claims
+        assert!(
+            prompt.contains("Do NOT propose tool calls"),
+            "prompt must forbid tool calls"
+        );
+        assert!(
+            prompt.contains("Do NOT claim any action has been executed"),
+            "prompt must forbid execution claims"
+        );
+        assert!(
+            prompt.contains("authorized"),
+            "prompt must declare itself non-authorizing"
+        );
+    }
+}
 ///
 /// # Parameters
 /// * `objective` — the original objective text
