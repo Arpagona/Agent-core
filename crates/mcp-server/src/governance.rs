@@ -49,19 +49,32 @@ impl GovernanceDecision {
     }
 }
 
+/// The full result of a governance evaluation.
+///
+/// Contains the governance decision, the proposed action that was evaluated,
+/// and the raw `Decision` from the Decision Gate. Callers can use the
+/// `ProposedAction` and `Decision` to create `AuditEvent` records.
+#[derive(Clone, Debug)]
+pub struct GovernanceResult {
+    /// The high-level governance outcome for the MCP tool call.
+    pub decision: GovernanceDecision,
+    /// The `ProposedAction` that was sent to the Decision Gate.
+    pub proposed_action: ProposedAction,
+    /// The raw `Decision` returned by the Decision Gate.
+    pub decision_gate_decision: Decision,
+}
+
 /// Evaluate a tool call through the Decision Gate.
 ///
 /// Creates a `ProposedAction` with `ActionType::ProposeToolUse` and runs it
-/// through `evaluate_proposed_action()`. Returns a `GovernanceDecision`
-/// indicating whether execution should proceed.
+/// through `evaluate_proposed_action()`. Returns a `GovernanceResult`
+/// containing the outcome, the proposed action, and the raw decision.
 ///
 /// # Arguments
 ///
 /// * `tool_name` — The name of the tool being called
 /// * `arguments` — The arguments passed to the tool
-/// * `policies` — Active policies for evaluation
-/// * `granted_permissions` — Permissions granted to the caller
-pub fn evaluate_tool_call(tool_name: &str, arguments: &Value) -> GovernanceDecision {
+pub fn evaluate_tool_call(tool_name: &str, arguments: &Value) -> GovernanceResult {
     let id = NEXT_ACTION_ID.fetch_add(1, Ordering::SeqCst);
 
     let proposed_action = ProposedAction {
@@ -88,19 +101,37 @@ pub fn evaluate_tool_call(tool_name: &str, arguments: &Value) -> GovernanceDecis
     // are auto-approved.
     let decision = evaluate_proposed_action(&proposed_action, &[], &[Permission::ProposeToolUse]);
 
-    match decision.status {
+    let gov_decision = match decision.status {
         DecisionStatus::Approved | DecisionStatus::ApprovedByOverride => {
-            GovernanceDecision::Approved { decision }
+            GovernanceDecision::Approved {
+                decision: decision.clone(),
+            }
         }
-        DecisionStatus::Blocked => GovernanceDecision::Blocked { decision },
-        DecisionStatus::RequiresOverride => GovernanceDecision::RequiresOverride { decision },
+        DecisionStatus::Blocked => GovernanceDecision::Blocked {
+            decision: decision.clone(),
+        },
+        DecisionStatus::RequiresOverride => GovernanceDecision::RequiresOverride {
+            decision: decision.clone(),
+        },
         DecisionStatus::NeedsHumanApproval => {
             // Informational risk + ProposeToolUse permission granted should
             // never reach NeedsHumanApproval. If it does, treat as blocked.
-            GovernanceDecision::Blocked { decision }
+            GovernanceDecision::Blocked {
+                decision: decision.clone(),
+            }
         }
+    };
+
+    GovernanceResult {
+        decision: gov_decision,
+        proposed_action,
+        decision_gate_decision: decision,
     }
 }
+
+// ---------------------------------------------------------------------------
+// Tests
+// ---------------------------------------------------------------------------
 
 #[cfg(test)]
 mod tests {
@@ -110,14 +141,20 @@ mod tests {
     fn test_read_only_tool_approved_with_permission() {
         // Read-only tools at Informational risk with ProposeToolUse permission
         // should be Approved.
-        let decision = evaluate_tool_call("read_file", &serde_json::json!({"path": "Cargo.toml"}));
+        let result = evaluate_tool_call("read_file", &serde_json::json!({"path": "Cargo.toml"}));
         assert!(
-            decision.is_approved(),
+            result.decision.is_approved(),
             "Read-only tool with permission should be approved"
         );
         assert!(
-            decision.summary().contains("Approved"),
+            result.decision.summary().contains("Approved"),
             "Summary should say Approved"
+        );
+        // Should include proposed_action and decision for audit
+        assert_eq!(result.proposed_action.target.as_deref(), Some("read_file"));
+        assert!(
+            result.decision_gate_decision.reason.contains("Approved"),
+            "Decision Gate reason should indicate approval"
         );
     }
 
@@ -126,9 +163,9 @@ mod tests {
         // All read-only tools (read_file, list_files, search_text) should
         // be approved with ProposeToolUse permission at Informational risk.
         for tool in &["read_file", "list_files", "search_text"] {
-            let decision = evaluate_tool_call(tool, &serde_json::json!({}));
+            let result = evaluate_tool_call(tool, &serde_json::json!({}));
             assert!(
-                decision.is_approved(),
+                result.decision.is_approved(),
                 "Tool '{tool}' should be approved with permission"
             );
         }
@@ -138,8 +175,8 @@ mod tests {
     fn test_governance_summary_includes_status() {
         // The governance summary should contain either "Approved", "Blocked",
         // or "Requires override".
-        let decision = evaluate_tool_call("list_files", &serde_json::json!({}));
-        let summary = decision.summary();
+        let result = evaluate_tool_call("list_files", &serde_json::json!({}));
+        let summary = result.decision.summary();
         assert!(
             summary.contains("Approved")
                 || summary.contains("Blocked")
@@ -150,13 +187,38 @@ mod tests {
 
     #[test]
     fn test_governance_decision_has_decision() {
-        let decision = evaluate_tool_call("search_text", &serde_json::json!({"query": "test"}));
-        match &decision {
+        let result = evaluate_tool_call("search_text", &serde_json::json!({"query": "test"}));
+        match &result.decision {
             GovernanceDecision::Approved { decision: d }
             | GovernanceDecision::Blocked { decision: d }
             | GovernanceDecision::RequiresOverride { decision: d } => {
                 assert!(!d.reason.is_empty(), "Decision should have a reason");
             }
         }
+    }
+
+    #[test]
+    fn test_governance_result_includes_proposed_action_and_decision() {
+        let result = evaluate_tool_call("read_file", &serde_json::json!({"path": "test.txt"}));
+        // ProposedAction should have the correct action type
+        assert_eq!(
+            result.proposed_action.action_type,
+            ActionType::ProposeToolUse
+        );
+        assert_eq!(result.proposed_action.target.as_deref(), Some("read_file"));
+        // Decision should have the correct proposed_action_id
+        assert_eq!(
+            result.decision_gate_decision.proposed_action_id,
+            result.proposed_action.id
+        );
+        // GovernanceDecision should wrap the same Decision
+        assert_eq!(
+            result.decision_gate_decision.id,
+            match &result.decision {
+                GovernanceDecision::Approved { decision: d }
+                | GovernanceDecision::Blocked { decision: d }
+                | GovernanceDecision::RequiresOverride { decision: d } => d.id.clone(),
+            }
+        );
     }
 }

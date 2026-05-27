@@ -1912,5 +1912,65 @@ Deliberately not changed:
 - No modification to core holographic-memory kernel types (DistributedSignature, SourceKind, etc.)
 - No LLM calls, embeddings, vector databases, or external network calls
 - No API endpoint, scheduler, MCP, browser automation, or tool execution
+
+## 18. Latest Session Update (2026-05-27 — Track A Phase 2 refinement: persistent governance audit store)
+
+This session added file-based audit event persistence for MCP DecisionGate governance, completing the Phase 2 audit trail gap.
+
+**New module:** `crates/mcp-server/src/audit_store.rs` (297 lines)
+- `McpGovernanceAuditRecord` — stores governance outcome, tool name, arguments, summary, timestamp, and full `AuditEvent`
+- `McpGovernanceAuditStore` — JSON-lines file-based store with cross-invocation persistence
+  - `new(path)` — loads existing entries from file, or starts fresh
+  - `record(entry)` — appends to in-memory list AND file on disk
+  - `recent(limit)` — returns N newest entries
+  - `all()` — returns all entries oldest-first
+
+**Modified: `crates/mcp-server/src/governance.rs`**
+- `evaluate_tool_call()` now returns `GovernanceResult` containing:
+  - `decision: GovernanceDecision` — high-level outcome
+  - `proposed_action: ProposedAction` — the action sent to DecisionGate
+  - `decision_gate_decision: Decision` — the raw Decision returned by the gate
+- All existing tests preserved; 1 new test for the richer return type
+
+**Modified: `crates/mcp-server/src/server.rs`**
+- `McpServerConfig.audit_path: Option<String>` — optional path for audit log
+- `McpServer.audit_store: Option<McpGovernanceAuditStore>` — initialized from config
+- `handle_tools_call()` creates `AuditEvent` via `audit_event_for_decision()` and persists it after every governance evaluation
+- New `audit_store()` accessor for CLI readback
+- Governance errors include `audit_event_id` in structured response
+
+**Modified: `crates/cli/src/main.rs`**
+- `McpServerArgs` gains `--audit-path` flag
+- New `mcp-governance-audit` top-level command with:
+  - `--audit-path <path>` (default: `target/mcp-audit.jsonl`)
+  - `--limit <N>` (default: 20)
+  - `--json` for structured JSON output
+- Human-readable output with numbered entries, outcomes, tool names, timestamps, summaries, and audit event IDs
+
+**Dependency changes:** None — uses only `serde_json` + `std::fs` (same pattern as `demo_snapshot.rs`)
+
+**Tests:** 7 new audit store tests + 1 new governance test = 8 new tests
+| Test | What it proves |
+|------|---------------|
+| `test_empty_store` | New store on non-existent file is empty |
+| `test_record_and_read_back` | Recorded entries are readable via `recent()` |
+| `test_persistence_across_restart` | Entries survive store drop/recreate cycle |
+| `test_multiple_records_and_recent_limit` | Correct ordering and limit enforcement |
+| `test_blocked_and_override_outcomes` | All 3 outcome states preserved |
+| `test_store_has_path` | Store returns its file path |
+| `test_governance_result_includes_proposed_action_and_decision` | Return type has all fields for audit |
+
+**Verification:** `cargo fmt -- --check` clean, `cargo check` clean, `cargo test --workspace` 487+ tests pass (31 MCP server tests including 8 new).
+
+Stability level: alpha MCP governance extension.
+
+Deliberately not changed:
+- No new tools added
+- No MCP transport changes
+- No LLM calls added
+- No existing holographic-memory or conversation-memory APIs modified
+- No Decision Gate bypasses
+- No execution capabilities expanded
+- No SurrealDB dependency added (pure serde_json + std::fs)
 - No Decision Gate bypass
 - No automatic memory write without operator command

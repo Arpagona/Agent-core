@@ -91,6 +91,8 @@ enum Command {
     Executor(ExecutorCommand),
     /// Start the native MCP server (stdio transport).
     McpServer(McpServerArgs),
+    /// Read recent MCP governance audit decisions from a persisted file.
+    McpGovernanceAudit(McpGovernanceAuditArgs),
 }
 
 #[derive(Debug, Args)]
@@ -173,6 +175,24 @@ pub struct McpServerArgs {
     /// Server version advertised to MCP clients.
     #[arg(long, default_value = "0.1.0")]
     pub version: String,
+    /// Path to the governance audit log file.
+    /// When set, every governance decision is persisted to this file.
+    #[arg(long)]
+    pub audit_path: Option<String>,
+}
+
+/// Arguments for the `mcp-governance-audit` command.
+#[derive(Debug, Args)]
+pub struct McpGovernanceAuditArgs {
+    /// Path to the governance audit log file (default: target/mcp-audit.jsonl).
+    #[arg(long, default_value = "target/mcp-audit.jsonl")]
+    pub audit_path: String,
+    /// Maximum number of recent entries to show.
+    #[arg(long, default_value_t = 20)]
+    pub limit: usize,
+    /// Emit structured JSON instead of human-readable text.
+    #[arg(long)]
+    pub json: bool,
 }
 
 #[derive(Debug, Args)]
@@ -1426,6 +1446,7 @@ async fn run() -> Result<(), Box<dyn Error>> {
             ExecutorSubcommand::Inspect(args) => executor_inspect(&client, &api_url, args).await?,
         },
         Command::McpServer(args) => mcp_server(args)?,
+        Command::McpGovernanceAudit(args) => mcp_governance_audit(args)?,
     }
 
     Ok(())
@@ -6490,6 +6511,7 @@ fn mcp_server(args: McpServerArgs) -> Result<(), Box<dyn Error>> {
         server_name: args.name,
         server_version: args.version,
         workspace_path: args.workspace,
+        audit_path: args.audit_path,
     };
 
     let mut server = arpagona_mcp_server::McpServer::new(config);
@@ -6505,6 +6527,62 @@ fn mcp_server(args: McpServerArgs) -> Result<(), Box<dyn Error>> {
     server.run()?;
 
     eprintln!("MCP server: client disconnected.");
+    Ok(())
+}
+
+/// Read and display recent MCP governance audit decisions.
+///
+/// Reads the persisted JSON-lines audit file and displays recent decisions
+/// with their outcomes, tool names, and timestamps.
+fn mcp_governance_audit(args: McpGovernanceAuditArgs) -> Result<(), Box<dyn Error>> {
+    use arpagona_mcp_server::McpGovernanceAuditStore;
+
+    let store = McpGovernanceAuditStore::new(&args.audit_path)
+        .map_err(|e| format!("Failed to read audit store at '{}': {e}", args.audit_path))?;
+
+    let entries = store.recent(args.limit);
+
+    if args.json {
+        let json_output = serde_json::to_string_pretty(&serde_json::json!({
+            "audit_path": args.audit_path,
+            "total_entries": store.len(),
+            "displayed_entries": entries.len(),
+            "entries": entries.iter().map(|e| serde_json::json!({
+                "outcome": e.outcome,
+                "tool_name": e.tool_name,
+                "summary": e.summary,
+                "created_at": e.created_at,
+                "arguments": e.arguments,
+                "audit_event_id": e.audit_event.id,
+            })).collect::<Vec<_>>(),
+        }))
+        .unwrap();
+        println!("{json_output}");
+    } else {
+        println!("MCP Governance Audit — {}", args.audit_path);
+        println!("Total entries: {}", store.len());
+        println!("Showing last {} entries:", entries.len());
+        println!();
+        for (i, entry) in entries.iter().enumerate() {
+            println!(
+                "  #{:<4} | {:<16} | {}",
+                entries.len() - i,
+                entry.outcome,
+                entry.tool_name
+            );
+            println!(
+                "        | at: {}",
+                entry.created_at.format("%Y-%m-%d %H:%M:%S")
+            );
+            println!("        | {}", entry.summary);
+            println!(
+                "        | audit_event_id: {}",
+                entry.audit_event.id.as_str()
+            );
+            println!();
+        }
+    }
+
     Ok(())
 }
 

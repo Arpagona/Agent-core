@@ -10,15 +10,18 @@
 //! - `tools/list` — returns available tools
 //! - `tools/call` — executes a tool via the Tool Runtime
 
-use crate::governance::evaluate_tool_call;
+use crate::audit_store::{McpGovernanceAuditRecord, McpGovernanceAuditStore};
+use crate::governance::{evaluate_tool_call, GovernanceDecision};
 use crate::transport::{read_message, write_error, write_success};
 use crate::types::{
     CallToolResult, Implementation, InitializeResult, JsonRpcError, JsonRpcRequest,
-    ListToolsResult, McpContentBlock, McpTool, RequestId, ServerCapabilities, ToolAnnotations,
+    ListToolsResult, McpContentBlock, McpTool, ServerCapabilities, ToolAnnotations,
     MCP_PROTOCOL_VERSION,
 };
 use arpagona_agent_core::ToolExecutionStatus;
+use arpagona_decision_gate::audit_event_for_decision;
 use arpagona_tool_runtime::ToolRuntime;
+use chrono::Utc;
 use serde_json::Value;
 use std::path::Path;
 
@@ -31,6 +34,9 @@ pub struct McpServerConfig {
     pub server_version: String,
     /// Workspace path for the tool runtime.
     pub workspace_path: String,
+    /// Optional path for the governance audit log file.
+    /// When set, every governance decision is persisted as a JSON-lines entry.
+    pub audit_path: Option<String>,
 }
 
 impl Default for McpServerConfig {
@@ -39,6 +45,7 @@ impl Default for McpServerConfig {
             server_name: "arpagona-mcp".to_owned(),
             server_version: "0.1.0".to_owned(),
             workspace_path: ".".to_owned(),
+            audit_path: None,
         }
     }
 }
@@ -115,6 +122,8 @@ pub struct McpServer {
     /// Server configuration.
     pub config: McpServerConfig,
     tool_runtime: ToolRuntime,
+    /// Optional governance audit store for persisting governance decisions.
+    audit_store: Option<McpGovernanceAuditStore>,
     /// True once `initialize` has been called.
     initialized: bool,
 }
@@ -126,11 +135,28 @@ impl McpServer {
             Path::new(&config.workspace_path),
         ));
 
+        // Initialize audit store if a path was provided
+        let audit_store = config
+            .audit_path
+            .as_ref()
+            .and_then(|path| McpGovernanceAuditStore::new(path).ok());
+
         Self {
             config,
             tool_runtime,
+            audit_store,
             initialized: false,
         }
+    }
+
+    /// Returns whether the server has been initialized.
+    pub fn initialized(&self) -> bool {
+        self.initialized
+    }
+
+    /// Return a reference to the audit store, if one is configured.
+    pub fn audit_store(&self) -> Option<&McpGovernanceAuditStore> {
+        self.audit_store.as_ref()
     }
 
     /// Run the MCP server loop: read requests from stdin and dispatch them.
@@ -276,16 +302,42 @@ impl McpServer {
             .unwrap_or(serde_json::json!({}));
 
         // Governance check — evaluate through DecisionGate
-        let gov_decision = evaluate_tool_call(tool_name, &arguments);
-        if !gov_decision.is_approved() {
+        let gov_result = evaluate_tool_call(tool_name, &arguments);
+
+        // Create audit event for the governance decision
+        let audit_event = audit_event_for_decision(
+            &gov_result.proposed_action,
+            &gov_result.decision_gate_decision,
+        );
+
+        // Persist audit event if audit store is configured
+        if let Some(ref mut store) = self.audit_store {
+            let outcome = match &gov_result.decision {
+                GovernanceDecision::Approved { .. } => "Approved",
+                GovernanceDecision::Blocked { .. } => "Blocked",
+                GovernanceDecision::RequiresOverride { .. } => "RequiresOverride",
+            };
+            let record = McpGovernanceAuditRecord {
+                outcome: outcome.to_owned(),
+                tool_name: tool_name.to_owned(),
+                arguments: arguments.clone(),
+                summary: gov_result.decision.summary(),
+                created_at: Utc::now(),
+                audit_event: audit_event.clone(),
+            };
+            let _ = store.record(record);
+        }
+
+        if !gov_result.decision.is_approved() {
             return serde_json::to_value(&CallToolResult {
                 content: vec![McpContentBlock::Text {
-                    text: format!("Governance blocked: {}", gov_decision.summary()),
+                    text: format!("Governance blocked: {}", gov_result.decision.summary()),
                     mime_type: None,
                 }],
                 structured_content: Some(serde_json::json!({
                     "governance": "blocked",
-                    "reason": gov_decision.summary()
+                    "reason": gov_result.decision.summary(),
+                    "audit_event_id": audit_event.id,
                 })),
                 is_error: true,
             })
