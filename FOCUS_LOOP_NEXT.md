@@ -6,64 +6,45 @@ It must contain one concrete next action only. The runtime milestone queue and l
 
 ## Current status (2026-05-27)
 
-**C1 — Real LLM integration in proposal-only mode is delivered and merged.**
+**C2 — Governed direct tool-calling by the LLM is delivered as PR #131.**
 
-The `--llm` and `--provider` flags in `CognitiveRunArgs` now have:
-- 5 CLI parser tests covering all flag combinations
-- 4 proposal-only safety tests proving LLM synthesis output remains non-executable advisory text
-- Manual smoke-test verification with `--provider mock`
+The `govern_and_execute_tool_call()` bridge in `crates/runtime/src/governed_tool_executor.rs` now connects:
+- ToolCallIntent → Decision Gate → Tool Runtime → Observation → Audit
 
-### What C1 delivered
+### What C2 delivered
 
-- LLM output enriches working memory (text synthesis only)
-- LLM output does NOT approve actions
-- LLM output does NOT write memory directly
-- LLM output does NOT bypass Decision Gate
-- Provider, model, and routing are audit-readable in JSON output
-- `--provider mock` for deterministic behavior (no network needed)
-- `--provider openai` for OpenAI Responses API
-- `--provider ollama` for local Ollama instances
+- `govern_and_execute_tool_call()` — full governed tool-call chain
+- `GovernedToolCallResult` — structured output carrying Decision + ToolExecutionResult
+- 9 tests proving allowed, blocked, malformed, safety and non-authorizing paths
+- Inherited foundation: `ToolCallIntent`, `ActionType::DirectToolCall`, `govern_tool_call()`
+- All safety invariants from the C2 specification verified
+
+### Proof to seek before merging
+
+- [ ] `cargo fmt -- --check`
+- [ ] `cargo check`
+- [ ] `cargo test --workspace`
+- [ ] PR review approval
+- [ ] Merge per repository policy
 
 ## Next action
 
-**Track C Step C2 — Governed direct tool-calling by the LLM.**
+**Track C Step C3 — Prompt, response, decision and risk journaling.**
 
-Connect the existing LLM provider output so direct tool-call intents produced by the model are routed through DecisionGate → bounded Tool Runtime/MCP → Observation → Audit.
+After C2 (governed tool-calling) is merged, the next step is to make LLM interactions auditable after the fact.
 
-This milestone deliberately does NOT prevent direct tool-calls by the LLM. Instead, it makes direct tool-calling safe by forcing every call through the existing governance envelope.
+### Target properties
 
-### Target chain
+- Journal prompt summaries (what was sent to the LLM)
+- Journal response summaries (what the LLM returned)
+- Journal provider/model metadata (which model, which provider)
+- Journal proposed actions, direct tool-call intents, Decision Gate outcomes and risk levels
+- Preserve enough information for debugging without leaking secrets
+- Support CLI or MCP readback for recent LLM interaction traces
 
-```text
-LLM ToolCall Intent -> Decision Gate -> Tool Runtime/MCP -> Observation -> Audit -> Reflection
-```
+### Required safety boundaries
 
-### Required properties
-
-- the LLM may emit a direct tool-call intent;
-- the call must be evaluated by Decision Gate before execution;
-- blocked calls must produce audit/readback, not silent failure;
-- approved calls must execute only through bounded Tool Runtime/MCP capabilities;
-- tool results return as observations, not as final authority;
-- no shell, secrets, browser, email or unrestricted write tools;
-- no readback-as-authorization behavior;
-- tests must prove allowed, blocked and malformed tool-call paths.
-
-### Proof to seek
-
-- `cargo fmt -- --check`
-- `cargo check`
-- `cargo test --workspace`
-- CLI smoke test with a governed LLM tool-call
-- tests proving allowed, blocked and malformed tool-call paths
-
-### Required safety boundaries for C2
-
-Do not:
-
-- add shell/browser/email/secrets access;
-- add unrestricted write tools;
-- allow tool execution without Decision Gate evaluation;
-- treat LLM confidence as authorization;
-- add autonomous scheduling;
-- add broad product roadmap items in the implementation PR.
+- Do not add shell/browser/email/secrets access
+- Do not treat journaled data as authorization
+- Do not add autonomous scheduling
+- Do not add broad product roadmap items in the implementation PR
