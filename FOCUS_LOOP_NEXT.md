@@ -16,13 +16,10 @@ Daily validation backlog:
 - **DV-2026-05-26-001**: ✅ Fixed — Path escape security blocks
 - **DV-2026-05-27-001**: ✅ Closed as superseded
 - **DV-2026-05-27-002**: still open — LLM local synthesis quality (low severity)
-- **DV-2026-05-27-003**: still open — conflict-marker scan false positive (low severity)
+- **DV-2026-05-27-003**: ✅ Fixed — conflict-marker scan false positive (protocol doc excluded from grep)
 
 P3 status (Cognitive Observation to Governed Learning):
-- The `--observe --govern` offline pipeline now has end-to-end integration test coverage:
-  `cognitive_observe_govern_pipeline_produces_governance_results_from_tool_observations`
-- Combined with existing `--assess --govern` and `--assess --observe --propose` tests, P3 is now fully tested.
-- **P3 ✅ complete.**
+- P3 ✅ complete — end-to-end integration test covers `--observe --govern` pipeline.
 
 ## Next action
 
@@ -41,6 +38,6 @@ Required properties:
 
 The current cognitive work loop produces WorkingMemory per-invocation but does not accumulate observations across cycles. P4 should add the ability for observations and objectives to persist and accumulate into active cycle state.
 
-If P4 is too large for one run, the fallback is **DV-2026-05-27-003** (daily validation conflict-marker scan false positive — adjust the protocol command exclusion or document the expected false positive).
+If P4 is too large for one run, the fallback is **DV-2026-05-27-002** (LLM local synthesis quality — tighten the prompt/template for local synthesis to produce grounded bullets tied to structured fields, without requiring model calls). The prompt text lives in `crates/llm/src/` — look for the synthesis prompt template.
 
-Do not: add real execution, shell access, LLM calls, browser automation, email sending, or SurrealDB persistence beyond existing usage.
+Do not: add real execution, shell access, LLM calls (to remote models), browser automation, email sending, or SurrealDB persistence beyond existing usage.

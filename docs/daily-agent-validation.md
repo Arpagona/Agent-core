@@ -125,6 +125,8 @@ grep -R "<<<<<<<\|=======\|>>>>>>>" \
   --exclude-dir=.git \
   --exclude-dir=target \
   --exclude-dir=node_modules \
+  --exclude=daily-agent-validation.md \
+  --exclude=DAILY_VALIDATION_BACKLOG.md \
   .
 ```
 
