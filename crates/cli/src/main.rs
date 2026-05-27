@@ -8985,6 +8985,159 @@ mod tests {
     }
 
     #[test]
+    fn cli_parses_cognitive_run_context_comma_in_value() {
+        // Proves the --context flag preserves comma as part of the value
+        let cli = Cli::parse_from([
+            "arpagona",
+            "cognitive",
+            "run",
+            "--objective",
+            "Prioritize tasks",
+            "--context",
+            "priority:green,workstream:validation",
+        ]);
+        match cli.command {
+            Command::Cognitive(CognitiveCommand {
+                command: CognitiveSubcommand::Run(args),
+            }) => {
+                assert_eq!(args.objective, "Prioritize tasks");
+                assert_eq!(
+                    args.context.as_deref(),
+                    Some("priority:green,workstream:validation")
+                );
+            }
+            _ => panic!("expected cognitive run with comma context"),
+        }
+    }
+
+    #[test]
+    fn cli_parses_cognitive_run_context_simple_key_value() {
+        // Single key:value pair
+        let cli = Cli::parse_from([
+            "arpagona",
+            "cognitive",
+            "run",
+            "--objective",
+            "Simple context task",
+            "--context",
+            "sensitivity:high",
+        ]);
+        match cli.command {
+            Command::Cognitive(CognitiveCommand {
+                command: CognitiveSubcommand::Run(args),
+            }) => {
+                assert_eq!(args.objective, "Simple context task");
+                assert_eq!(args.context.as_deref(), Some("sensitivity:high"));
+            }
+            _ => panic!("expected cognitive run with simple context"),
+        }
+    }
+
+    #[test]
+    fn cli_parses_cognitive_run_context_with_spaces() {
+        // Proves key:value pairs with spaces in the value are preserved
+        let cli = Cli::parse_from([
+            "arpagona",
+            "cognitive",
+            "run",
+            "--objective",
+            "Spaces in context",
+            "--context",
+            "project name: my project",
+        ]);
+        match cli.command {
+            Command::Cognitive(CognitiveCommand {
+                command: CognitiveSubcommand::Run(args),
+            }) => {
+                assert_eq!(args.objective, "Spaces in context");
+                assert_eq!(args.context.as_deref(), Some("project name: my project"));
+            }
+            _ => panic!("expected cognitive run with spaced context"),
+        }
+    }
+
+    #[test]
+    fn cli_parses_cognitive_run_context_empty() {
+        // Proves empty context is accepted and stored as an empty string
+        let cli = Cli::parse_from([
+            "arpagona",
+            "cognitive",
+            "run",
+            "--objective",
+            "Empty context",
+            "--context",
+            "",
+        ]);
+        match cli.command {
+            Command::Cognitive(CognitiveCommand {
+                command: CognitiveSubcommand::Run(args),
+            }) => {
+                assert_eq!(args.objective, "Empty context");
+                assert_eq!(args.context.as_deref(), Some(""));
+            }
+            _ => panic!("expected cognitive run with empty context"),
+        }
+    }
+
+    #[test]
+    fn cli_parses_cognitive_run_context_repeated_flag_rejected() {
+        // Proves repeated --context flags are rejected at clap level
+        // because --context is Option<String> (single-use), not Vec<String>
+        // Use try_parse_from to avoid process::exit from clap's error handler
+        let result = Cli::try_parse_from([
+            "arpagona",
+            "cognitive",
+            "run",
+            "--objective",
+            "Repeated context",
+            "--context",
+            "key1:val1",
+            "--context",
+            "key2:val2",
+        ]);
+        assert!(
+            result.is_err(),
+            "repeated --context should be rejected: {:?}",
+            result
+        );
+        let err = result.unwrap_err();
+        let err_msg = err.to_string();
+        assert!(
+            err_msg.contains("cannot be used multiple times")
+                || err_msg.contains("unexpected argument")
+                || err_msg.contains("was used"),
+            "error message should mention the repeated-flag issue, got: {}",
+            err_msg
+        );
+    }
+
+    #[test]
+    fn cli_parses_cognitive_run_context_multiple_keys_newlines() {
+        // Proves multiple key:value pairs per invocation with newline separation
+        let cli = Cli::parse_from([
+            "arpagona",
+            "cognitive",
+            "run",
+            "--objective",
+            "Multi-key context",
+            "--context",
+            "priority:high\nsensitivity:confidential\nteam:engineering",
+        ]);
+        match cli.command {
+            Command::Cognitive(CognitiveCommand {
+                command: CognitiveSubcommand::Run(args),
+            }) => {
+                assert_eq!(args.objective, "Multi-key context");
+                assert_eq!(
+                    args.context.as_deref(),
+                    Some("priority:high\nsensitivity:confidential\nteam:engineering")
+                );
+            }
+            _ => panic!("expected cognitive run with multi-key newline context"),
+        }
+    }
+
+    #[test]
     fn cli_parses_cognitive_run_allocate_json() {
         let cli = Cli::parse_from([
             "arpagona",

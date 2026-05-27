@@ -772,12 +772,26 @@ This session closed DV-2026-05-26-004 (medium severity) from the daily validatio
 - **DV-2026-05-26-004**: moved from Open → Fixed (this session)
 - **DV-2026-05-27-001**: moved from Open → Closed (superseded — PR #103 already merged)
 
+## 2026-05-28 — Context parser tests for --context flag (DV-2026-05-26-003)
+
+### Summary
+
+Added 7 CLI parser tests for the `--context` flag on `cognitive run`, addressing DV-2026-05-26-003. Tests cover: basic key:value, comma in value (documenting current behavior — comma stays part of value), spaces in value, empty context, multi-key with newlines, multi-line key:value (pre-existing coverage extended), and repeated-flag rejection (`--context` is `Option<String>`, single-use only).
+
+### Files changed
+
+- `crates/cli/src/main.rs` — 6 new tests + 1 fixed test (changed from `#[should_panic]` to `Cli::try_parse_from` assertion) in the `#[cfg(test)] mod tests` block
+- `DAILY_VALIDATION_BACKLOG.md` — closed DV-2026-05-26-003 with evidence
+- `PROJECT_STATUS.md` — this section
+- `FOCUS_LOOP_NEXT.md` — updated handoff
+
 ### What was NOT changed
 
-- No changes to core domain types, Decision Gate, allocation logic, CLI, API server, MCP server
+- No changes to core domain types, Decision Gate, allocation logic, CLI, API server, MCP server, tool runtime
 - No new capabilities added
 - No Decision Gate bypass
 - No LLM calls, browser automation, email, or restricted capabilities
-- No file access or tool behavior changes
+- No parsing behavior changes — comma stays part of value, single-flag usage documented by test
+- No file access, tool runtime, or execution behavior changes
 
 

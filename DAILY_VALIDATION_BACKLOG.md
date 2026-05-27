@@ -27,11 +27,9 @@ Rules:
 - source: daily validation 2026-05-26
 - category: CLI usability
 - severity: low
-- status: open
-- evidence: `--context "priority:green,workstream:validation"` is treated as one key/value pair where the comma remains part of the value.
-- expected behavior: either document that each `--context` invocation accepts one `key:value` pair, or explicitly support comma-separated context pairs.
-- suggested fix: prefer documentation and tests first; only change parsing if a clear user-facing need is confirmed.
-- suggested tests: add CLI parser tests for repeated `--context key:value` flags and for comma-containing values.
+- status: **fixed in this session** (PR pending merge)
+- evidence: 7 CLI parser tests added covering: basic key:value, comma in value, spaces in value, empty context, multi-key with newlines, multi-line key:value (pre-existing), and repeated-flag rejection. All tests pass at `cargo test --bin arpagona -- context`. File: `crates/cli/src/main.rs` `#[cfg(test)] mod tests`.
+- suggested fix: done — see tests above; no parsing changes made (comma stays part of value, single-flag usage documented by test)
 - do not: silently change parsing in a way that breaks values containing commas.
 
 ### DV-2026-05-26-004 — Compute Reservoir allocation justification coverage
