@@ -15,11 +15,13 @@ Daily validation backlog:
 - **DV-2026-05-26-004**: ✅ Fixed — Compute Reservoir allocation justification tests
 - **DV-2026-05-26-001**: ✅ Fixed — Path escape security blocks
 - **DV-2026-05-27-001**: ✅ Closed as superseded
-- **DV-2026-05-27-002**: still open — LLM local synthesis quality (low severity)
+- **DV-2026-05-27-002**: ✅ Fixed — PR #124, LLM synthesis prompt tightened for grounded structured output
 - **DV-2026-05-27-003**: ✅ Fixed — conflict-marker scan false positive (protocol doc excluded from grep)
 
 P3 status (Cognitive Observation to Governed Learning):
 - P3 ✅ complete — end-to-end integration test covers `--observe --govern` pipeline.
+
+Last run (2026-05-27): Processed DV-2026-05-27-002 (LLM synthesis quality) as bounded increment since P4 was too large for one run. PR #124 merged.
 
 ## Next action
 
@@ -38,6 +40,6 @@ Required properties:
 
 The current cognitive work loop produces WorkingMemory per-invocation but does not accumulate observations across cycles. P4 should add the ability for observations and objectives to persist and accumulate into active cycle state.
 
-If P4 is too large for one run, the fallback is **DV-2026-05-27-002** (LLM local synthesis quality — tighten the prompt/template for local synthesis to produce grounded bullets tied to structured fields, without requiring model calls). The prompt text lives in `crates/llm/src/` — look for the synthesis prompt template.
+If P4 is too large for one run, the fallback is **DV-2026-05-27-002** (already done — pick the next open DV backlog item or fall through to P4 decomposition).
 
 Do not: add real execution, shell access, LLM calls (to remote models), browser automation, email sending, or SurrealDB persistence beyond existing usage.

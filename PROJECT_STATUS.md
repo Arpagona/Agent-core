@@ -874,7 +874,62 @@ Both excluded files are protocol/tracking documents whose content unavoidably co
 
 ### Next recommended handoff
 
-P4 (Working Memory integration) remains the strategic next milestone. If P4 is too large for one run, process DV-2026-05-27-002 (LLM local synthesis quality — tighten the local synthesis prompt to produce grounded bullets tied to structured fields).
+P4 (Working Memory integration) remains the strategic next milestone. If P4 is too large for one run, the previous fallback DV-2026-05-27-002 is now fixed — pick the next open DV backlog item or decompose P4 into a bounded sub-step.
+
+## 17. Latest Session Update (2026-05-27 — LLM Synthesis Quality Structured Output)
+
+This session processed **DV-2026-05-27-002** (LLM local synthesis quality) as a bounded fallback increment, because P4 (Working Memory accumulation) was too large for one run.
+
+### What changed
+
+**`crates/llm/src/lib.rs`** — `COGNITIVE_SYNTHESIS_SYSTEM_PROMPT` (lines 853-885):
+
+Before: Asked for a free-form paragraph summarizing state, gap, and next step.
+After: Requests a structured self-scorecard with three labeled sections — `[STATE]`, `[KEY GAP / RISK]`, `[RECOMMENDED NEXT STEP]` — and explicitly instructs the model to "Reference concrete field values from the working-memory summary." Safety warnings (no tool calls, no authorization claims) are retained.
+
+**`MockProvider::synthesize()`** — Previously returned a generic `[MOCK SYNTHESIS]` message that didn't reference any structured fields. Now parses the working-memory summary fields from the user prompt (Domain, Sensitivity, Complexity, Missing context count, Proposed next action) and produces a deterministic structured output that mirrors the format requested by the prompt. This makes `--llm mock` output actually useful for testing and demonstration.
+
+**New function:** `parse_wm_summary_fields()` — structured field extraction helper.
+
+### New tests (7 deterministic tests)
+
+| Test | What it verifies |
+|------|-----------------|
+| `cognitive_synthesis_prompt_contains_structured_sections` | Prompt has [STATE] [KEY GAP / RISK] [RECOMMENDED NEXT STEP] |
+| `cognitive_synthesis_prompt_retains_safety_warnings` | No tool calls / no authorization warnings preserved |
+| `cognitive_synthesis_user_prompt_contains_objective_and_wm_summary` | Prompt assembly works correctly |
+| `parse_wm_summary_extracts_all_known_fields` | Field parser handles full input |
+| `parse_wm_summary_returns_defaults_for_empty_prompt` | Field parser handles empty input |
+| `parse_wm_summary_handles_missing_lines` | Field parser handles partial input |
+| `mock_synthesis_output_contains_structured_sections` | Mock output has [STATE] [KEY GAP] [RECOMMENDED] |
+| `mock_synthesis_output_references_concrete_fields` | Mock output references domain/next action |
+| `synthetic_synthesis_uses_request_context_for_missing_observations` | Mock output adapts to missing context count |
+
+### Verification
+
+- `cargo fmt -- --check`: clean
+- `cargo check`: clean (pre-existing E0670 edition noise)
+- `cargo test --workspace`: 576+ tests pass (21 in arpagona-llm, +7 new)
+
+### Files changed
+
+| File | Change |
+|------|--------|
+| `crates/llm/src/lib.rs` | Updated prompt, mock provider, added parser + 7 tests (+256/−13 lines) |
+| `DAILY_VALIDATION_BACKLOG.md` | Closed DV-2026-05-27-002 as fixed |
+| `FOCUS_LOOP_NEXT.md` | Updated backlog status, preserved P4 handoff |
+
+### Not changed (as intended)
+
+- No new crate, CLI surface, handler, API endpoint, scheduler, LLM call, execution path, Decision Gate bypass, SurrealDB persistence, or autonomy.
+
+### Stability level
+
+Stable alpha. Only prompt text, mock provider behavior, and tests changed. No production LLM integration was modified — the prompt now requests a structured format; when a real LLM (OpenAI/Ollama) is used, its output should follow the new structure. The deterministic fallback (mock provider) produces useful output for testing.
+
+### PR
+
+#124 — merged into main.
 
 
 

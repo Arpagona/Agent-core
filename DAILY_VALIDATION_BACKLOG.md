@@ -55,11 +55,9 @@ Rules:
 - source: daily validation 2026-05-27 Beta Usage Lab
 - category: beta usability / LLM synthesis quality
 - severity: low
-- status: open
-- evidence: local Ollama `qwen3.5:9b` was available and `cargo run -q --bin arpagona -- cognitive --llm local ... --json` completed locally without remote APIs, but the `llm_synthesis` text stayed generic and did not quote concrete structured fields or produce a compact self-scorecard for the operator.
-- expected behavior: local synthesis should remain non-authorizing while making the readback easier to audit, preferably by referencing concrete fields from the working-memory output and summarizing missing context, risk, and next action in a predictable structure.
-- suggested fix: tighten the prompt/template for local synthesis so it asks for grounded bullets tied to structured fields, without adding new capabilities or remote calls.
-- suggested tests: local-model tests should remain opt-in/manual; deterministic unit tests can cover the prompt assembly and required warning text without invoking Ollama.
+- status: **fixed in PR #124** (2026-05-27 focus loop)
+- evidence: `COGNITIVE_SYNTHESIS_SYSTEM_PROMPT` now requests a structured self-scorecard with [STATE], [KEY GAP / RISK], [RECOMMENDED NEXT STEP] sections and explicitly asks to reference concrete field values. `MockProvider::synthesize()` parses WM summary fields and produces deterministic structured output. 7 new deterministic unit tests cover prompt assembly, prompt safety, field extraction, and structured output format. PR #124 merged into main.
+- verification: `cargo test -p arpagona-llm` — 21 tests pass including `cognitive_synthesis_prompt_contains_structured_sections`, `cognitive_synthesis_prompt_retains_safety_warnings`, `mock_synthesis_output_contains_structured_sections`, and `mock_synthesis_output_references_concrete_fields`.
 - do not: require a model download, call remote model APIs, or treat LLM prose as approval.
 
 ### DV-2026-05-27-003 — Daily validation conflict-marker scan produces protocol false positives
