@@ -1721,3 +1721,61 @@ prochaines étapes.
 3. Graphe mémoire récursif (expansion par linked_memory_ids)
 4. Consolidation périodique (fusion traces redondantes)
 5. Gouvernance des écritures par Decision Gate (MemoryWriteKind::HolographicTrace)
+
+## 33. Latest Session Update (2026-05-26 — Holographic Memory CLI commands: add traces and search by resonance)
+
+This session added CLI commands for the real `arpagona-holographic-memory` crate, matching the pattern of `memory demo failure-insight` for Graph Memory.
+
+### What was added
+
+- Added `arpagona-holographic-memory` as a dependency of `arpagona-cli`
+- Added `memory holographic add` — add a trace to the holographic memory store and persist to JSON file
+  - `--trace-id`, `--project-id`, `--keywords`, `--concepts`, `--entities`, `--file`, `--json`
+  - Auto-encodes terms into a distributed signature using the crate's deterministic hashing
+  - Loads existing store from file or creates a new one; saves after each addition
+  - Human-readable and structured JSON output with non-authorizing warning
+- Added `memory holographic search` — search stored traces by resonance with a query
+  - `--project-id`, `--query`, `--keywords`, `--concepts`, `--entities`, `--file`, `--limit`, `--json`
+  - Loads store from file, builds `HolographicQuery`, calls `retrieve_by_resonance()`
+  - Returns matches with score, matched keywords, trace keywords
+  - Non-authorizing warning on every output
+- Both commands use the real `InMemoryHolographicMemoryStore` with `save_to_file`/`load_from_file` persistence
+
+### Key invariants
+
+- ✅ No LLM calls — all resonance is deterministic signature matching
+- ✅ No execution — CLI surface is read-only memory inspection
+- ✅ Persistence via JSON — same pattern as FailureInsight demo snapshots
+- ✅ Non-authorizing — every output includes "does not authorize any action" warning
+- ✅ No Decision Gate bypass — holographic memory is recall evidence only
+- ✅ No tool execution, API endpoint changes, scheduler, autonomy, or MCP
+
+### Files changed
+
+| File | Change |
+|------|--------|
+| `crates/cli/Cargo.toml` | Added `arpagona-holographic-memory` dependency |
+| `crates/cli/src/main.rs` | Added `HolographicCommand`, `HolographicSubcommand`, args structs, `memory_holographic_add()`, `memory_holographic_search()`, dispatch wiring, import |
+| `PROJECT_STATUS.md` | Updated with section 33 |
+| `FOCUS_LOOP_NEXT.md` | Updated to next handoff |
+
+### Verification
+
+- `cargo fmt -- --check`: clean (0 differences)
+- `cargo check`: 0 new warnings (only pre-existing E0670 edition noise)
+- `cargo test --workspace`: 443 tests pass across all crates (all existing tests green, 0 new failures)
+
+### Stability level
+
+Alpha CLI supervision surface (same as `memory demo failure-insight`, `executor list --offline`, etc.)
+
+### Deliberately not changed
+
+- No crate boundary changes beyond adding the dependency
+- No core domain types modified
+- No Decision Gate or PolicyEngine changes
+- No API endpoint changes
+- No executor behavior modified
+- No SurrealDB or persistence changes
+- No LLM, scheduler, MCP, browser automation, or security changes
+- The heuristic-based `crates/core/src/holographic.rs` resonance used by `cognitive run --resonate` remains unchanged (the CLI commands exercise the real crate directly)
