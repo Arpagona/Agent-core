@@ -17,6 +17,7 @@ The system exists to address weaknesses observed in current agentic systems:
 - weak continuity between cycles;
 - insufficient learning from failures;
 - limited recognition of recurring cognitive patterns;
+- flat vector recall that ignores temporal neighborhood and episode continuity;
 - limited routing between cloud models, local models and workers;
 - lack of cost and data-sensitivity awareness;
 - weak distinction between working memory, durable memory, temporary salience and pattern resonance;
@@ -30,6 +31,7 @@ ARPAGONA Agent Core must become a local-first runtime where agents can:
 - maintain working context;
 - use a Reservoir Echo for short-term cognitive continuity;
 - use Holographic Memory for non-authorizing pattern resonance;
+- use compressed convolutional memory retrieval for temporally enriched recall;
 - recall structured Graph Memory;
 - route tasks through a Compute Reservoir;
 - propose actions;
@@ -92,7 +94,34 @@ Holographic Memory answers: what does this situation resemble?
 
 It may influence recall, caution, compute routing and reflection. It must never authorize actions or replace Graph Memory.
 
-### 4.5 Graph Memory
+### 4.5 Compressed Convolutional Memory Retrieval
+
+Experimental temporally enriched recall layer inspired by Compressed Convolutional Attention, applied to agent memory rather than to a Transformer implementation.
+
+It must project memory-event embeddings into a smaller latent space, enrich each memory event with a local temporal convolution over neighboring events, then compute attention-like similarity between the current query and the enriched latent memories.
+
+Compressed Convolutional Memory Retrieval answers: what memories are relevant when each memory is interpreted with its local temporal neighborhood?
+
+It must support:
+
+- deterministic compressed projection;
+- local temporal convolution over ordered memory events;
+- attention-like scoring between a query and enriched memories;
+- top-k retrieval with scores, ranks and minimal explanation;
+- empty-memory and invalid-dimension safeguards;
+- future integration with Graph Memory, Working Memory and Decision Gate readback.
+
+It must remain non-authoritative:
+
+- it does not authorize actions;
+- it does not replace Graph Memory;
+- it does not replace Holographic Memory;
+- it does not execute tools;
+- it does not require modifying a base LLM architecture.
+
+The first implementation target is an isolated Rust crate, likely `crates/compressed-cognitive-attention`, proving the retrieval mechanism before integration.
+
+### 4.6 Graph Memory
 
 Structured durable memory with facts, entities, relations, sources, episodes, observations, decisions, failures, validity, confidence, provenance and invalidation.
 
@@ -104,13 +133,13 @@ Core primitives:
 - invalidate;
 - consolidate.
 
-### 4.6 Compute Reservoir
+### 4.7 Compute Reservoir
 
 Cognitive resource router. It selects which resource should think, read, summarize, parse or draft: strong cloud LLM, local LLM, embedding model, deterministic worker, GPU, CPU, deferred job or fallback.
 
 It considers capability, cost, latency, sensitivity, local-first constraints, quality requirements and past performance.
 
-### 4.7 Reflection and Failure-to-Insight
+### 4.8 Reflection and Failure-to-Insight
 
 The system must observe its own cycles and convert failures, bad proposals, missing context, poor routing, blocked decisions and human corrections into durable, non-authorizing insights.
 
@@ -127,19 +156,19 @@ These insights can propose improvements to:
 
 They do not authorize execution or self-modification.
 
-### 4.8 Decision Gate
+### 4.9 Decision Gate
 
 Deterministic boundary for risky or external actions. It evaluates proposed actions against context, risk, permissions and policies. It is a guardrail, not the core cognitive engine.
 
-### 4.9 Tool Registry
+### 4.10 Tool Registry
 
 Declarative catalogue of tools, schemas, capabilities, permissions and risks. Tool lookup is not authorization.
 
-### 4.10 Neutral Orchestrator
+### 4.11 Neutral Orchestrator
 
 The coordinator that turns objectives into tasks, recalls context, requests compute allocation, asks for proposals, routes decisions and records outcomes.
 
-### 4.11 Audit and Mission Control
+### 4.12 Audit and Mission Control
 
 Audit and Mission Control make the cognitive runtime observable: what happened, why, what was recalled, what resonated, what was proposed, what was decided, what failed and what was learned.
 
@@ -206,11 +235,44 @@ It must remain non-authoritative:
 Graph Memory gives explicit memory.
 Reservoir Echo gives short-term continuity.
 Holographic Memory gives pattern resonance.
+Compressed Convolutional Memory Retrieval gives temporally enriched recall.
 Compute Reservoir gives cognitive resource selection.
 Reflection gives self-improvement.
 ```
 
-## 8. Target Cognitive Runtime Loop
+## 8. Compressed Convolutional Memory Retrieval Objective
+
+Compressed Convolutional Memory Retrieval is an experimental memory-selection objective for improving recall quality without stuffing the full historical context into the LLM.
+
+The target mechanism is:
+
+```text
+Ordered memory events
+-> compressed latent projection
+-> local temporal convolution
+-> query-to-memory attention-like scoring
+-> top-k enriched memories
+-> explicit readback and audit-friendly explanation
+```
+
+Its purpose is to make recall more episode-aware. A memory event should not be scored only as an isolated embedding: its neighboring events may change its meaning, importance or usefulness.
+
+This layer must initially be implemented as a standalone, deterministic Rust experiment. It should prefer a simple, inspectable implementation over neural complexity:
+
+- fixed or deterministic projection from embedding dimension to latent dimension;
+- configurable latent dimension;
+- configurable local window size;
+- edge-safe convolution with weight renormalization;
+- cosine scoring;
+- sorted top-k retrieval;
+- no GPU dependency;
+- no LLM call;
+- no persistent mutation;
+- no authorization semantics.
+
+The first useful proof is not intelligence by itself. The first useful proof is whether temporally enriched recall produces better context candidates than flat similarity search for agentic traces, failures, PR histories, decision chains and conversation episodes.
+
+## 9. Target Cognitive Runtime Loop
 
 Target loop:
 
@@ -220,6 +282,7 @@ User objective
 -> working memory
 -> Reservoir Echo
 -> Holographic Memory recall
+-> Compressed Convolutional Memory Retrieval
 -> Graph Memory recall
 -> Compute Reservoir allocation
 -> agent proposal
@@ -233,7 +296,7 @@ User objective
 
 The architecture must remain modular, testable and observable.
 
-## 9. Technical Direction
+## 10. Technical Direction
 
 Current direction:
 
@@ -245,11 +308,11 @@ Current direction:
 - Architecture: monorepo;
 - Main agent: neutral orchestrator;
 - API style: REST first, WebSocket later;
-- Direction: local-first, graph-native, cognitive-runtime-first, holographic-memory-aware and compute-aware.
+- Direction: local-first, graph-native, cognitive-runtime-first, holographic-memory-aware, compressed-retrieval-aware and compute-aware.
 
 Python workers may later be used for ingestion, OCR, document processing, embeddings experiments and AI/data tasks where Python is more productive.
 
-## 10. What V0 Must Prove
+## 11. What V0 Must Prove
 
 V0 does not need to be production-ready. It must prove the cognitive architecture in miniature.
 
@@ -260,17 +323,18 @@ A successful V0 demonstrates:
 3. working memory is formed;
 4. Reservoir Echo preserves short-term salience;
 5. Holographic Memory can surface non-authorizing resonance patterns;
-6. Graph Memory recalls applicable context;
-7. Compute Reservoir selects a resource;
-8. an agent proposes an action;
-9. Decision Gate evaluates sensitive/risky actions;
-10. audit records the chain;
-11. Failure-to-Insight captures what was learned;
-12. the operator can inspect the chain locally.
+6. Compressed Convolutional Memory Retrieval can surface temporally enriched context candidates;
+7. Graph Memory recalls applicable context;
+8. Compute Reservoir selects a resource;
+9. an agent proposes an action;
+10. Decision Gate evaluates sensitive/risky actions;
+11. audit records the chain;
+12. Failure-to-Insight captures what was learned;
+13. the operator can inspect the chain locally.
 
 The key proof is cognitive continuity plus controlled progression.
 
-## 11. Development Priorities
+## 12. Development Priorities
 
 Recommended consolidation order:
 
@@ -278,25 +342,27 @@ Recommended consolidation order:
 2. Reservoir Echo and cognitive cycle primitives;
 3. Graph Memory and readback;
 4. Holographic Memory documentation and later experiments;
-5. Decision Gate as safety boundary;
-6. Compute Reservoir;
-7. Tool Registry;
-8. CLI supervision as first Mission Control;
-9. Reflection / Failure-to-Insight;
-10. Neutral Orchestrator;
-11. API server integration;
-12. Mission Control Web;
-13. Scheduler and controlled loops;
-14. Tool Runtime and sandbox;
-15. Security hardening;
-16. End-to-end cognitive alpha.
+5. Compressed Convolutional Memory Retrieval experiment;
+6. Decision Gate as safety boundary;
+7. Compute Reservoir;
+8. Tool Registry;
+9. CLI supervision as first Mission Control;
+10. Reflection / Failure-to-Insight;
+11. Neutral Orchestrator;
+12. API server integration;
+13. Mission Control Web;
+14. Scheduler and controlled loops;
+15. Tool Runtime and sandbox;
+16. Security hardening;
+17. End-to-end cognitive alpha.
 
-## 12. Success Criteria
+## 13. Success Criteria
 
 ARPAGONA Agent Core will be successful when it can:
 
 - maintain working memory and short-term cognitive continuity;
 - detect non-authorizing pattern resonance through Holographic Memory;
+- retrieve temporally enriched context through Compressed Convolutional Memory Retrieval;
 - maintain structured and invalidable Graph Memory;
 - route cognition across local/cloud/workers intelligently;
 - propose useful actions without direct execution;
@@ -305,7 +371,7 @@ ARPAGONA Agent Core will be successful when it can:
 - stay local-first where appropriate;
 - become progressively more useful without unsafe self-modification.
 
-## 13. Long-Term Direction
+## 14. Long-Term Direction
 
 The long-term direction is to build a local-first cognitive operating layer usable as:
 
@@ -321,6 +387,6 @@ The long-term direction is to build a local-first cognitive operating layer usab
 
 Autonomy must be earned, not assumed.
 
-## 14. Guiding Sentence
+## 15. Guiding Sentence
 
-ARPAGONA Agent Core is a Rust-based cognitive agent runtime: a Hermes-like local-first system designed for memory, continuity, holographic resonance, reflection, compute-aware reasoning and controlled self-improvement — with governance as the safety layer that makes this ambition usable.
+ARPAGONA Agent Core is a Rust-based cognitive agent runtime: a Hermes-like local-first system designed for memory, continuity, holographic resonance, compressed convolutional recall, reflection, compute-aware reasoning and controlled self-improvement — with governance as the safety layer that makes this ambition usable.
