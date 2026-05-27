@@ -1955,7 +1955,8 @@ async fn gather_local_subsystem_status() -> LocalSubsystemStatus {
     // --- Provider configuration ---
     let openai_key = std::env::var("OPENAI_API_KEY");
     let openai_configured = openai_key.is_ok();
-    let ollama_endpoint = std::env::var("OLLAMA_ENDPOINT").unwrap_or_else(|_| "http://localhost:11434".to_owned());
+    let ollama_endpoint =
+        std::env::var("OLLAMA_ENDPOINT").unwrap_or_else(|_| "http://localhost:11434".to_owned());
     let ollama_configured = true; // Default endpoint always exists
 
     // --- Ollama reachability (lightweight check) ---
@@ -2123,11 +2124,7 @@ fn format_status_readback(readback: &StatusReadback) -> String {
     push_readback_line(&mut output, &style_dim(readback.warning));
     push_readback_line(&mut output, "");
     push_readback_line(&mut output, &style_info("Local subsystems"));
-    push_readback_field(
-        &mut output,
-        "cli_version:",
-        &readback.local.cli_version,
-    );
+    push_readback_field(&mut output, "cli_version:", &readback.local.cli_version);
     push_readback_field(
         &mut output,
         "hm_db_exists:",
@@ -9325,9 +9322,18 @@ mod tests {
         };
 
         let json = serde_json::to_value(&status).expect("JSON serialization");
-        assert_eq!(json.get("cli_version").and_then(|v| v.as_str()), Some("0.1.0"));
-        assert!(json.get("handoff_next_action").and_then(|v| v.as_str()).is_none());
-        assert!(json.get("backlog_open_count").and_then(|v| v.as_u64()).is_none());
+        assert_eq!(
+            json.get("cli_version").and_then(|v| v.as_str()),
+            Some("0.1.0")
+        );
+        assert!(json
+            .get("handoff_next_action")
+            .and_then(|v| v.as_str())
+            .is_none());
+        assert!(json
+            .get("backlog_open_count")
+            .and_then(|v| v.as_u64())
+            .is_none());
     }
 
     #[test]
