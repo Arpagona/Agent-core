@@ -569,7 +569,7 @@ fn offline_governance_produces_decisions_and_audit_events() {
             "cognitive",
             "run",
             "--objective",
-            "Vérifier un fichier de configuration YAML dans le workspace",
+            "Réparer les tests",
             "--domain",
             "engineering",
             "--context",
