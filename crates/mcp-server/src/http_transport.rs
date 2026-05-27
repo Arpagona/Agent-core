@@ -87,8 +87,10 @@ pub type SharedState = Arc<McpHttpServerState>;
 /// - `GET /mcp/sse` — SSE notification stream
 pub fn mcp_router(server: McpServer) -> Router {
     let (notification_tx, _) = broadcast::channel(100);
+    let mut locked_server = server;
+    locked_server.set_notification_channel(notification_tx.clone());
     let state = Arc::new(McpHttpServerState {
-        server: Arc::new(Mutex::new(server)),
+        server: Arc::new(Mutex::new(locked_server)),
         notification_tx,
     });
 
@@ -228,6 +230,15 @@ mod tests {
         serde_json::from_slice(&body_bytes).unwrap()
     }
 
+    fn body_to_string(response: axum::response::Response) -> String {
+        let body_bytes = futures::executor::block_on(async {
+            axum::body::to_bytes(response.into_body(), 1024 * 1024)
+                .await
+                .unwrap()
+        });
+        String::from_utf8(body_bytes.to_vec()).unwrap_or_default()
+    }
+
     fn post(router: axum::Router, uri: &str, body: Value) -> axum::response::Response {
         futures::executor::block_on(
             router.oneshot(
@@ -240,6 +251,50 @@ mod tests {
             ),
         )
         .unwrap()
+    }
+
+    fn get(router: axum::Router, uri: &str) -> axum::response::Response {
+        futures::executor::block_on(
+            router.oneshot(
+                axum::http::Request::builder()
+                    .method(http::Method::GET)
+                    .uri(uri)
+                    .body(axum::body::Body::empty())
+                    .unwrap(),
+            ),
+        )
+        .unwrap()
+    }
+
+    #[test]
+    fn test_sse_receives_endpoint_event() {
+        let server = make_test_server();
+        let router = mcp_router(server);
+
+        // SSE requires a Tokio runtime — use tokio::runtime::Runtime
+        let rt = tokio::runtime::Runtime::new().unwrap();
+        let response = rt
+            .block_on(
+                router.oneshot(
+                    axum::http::Request::builder()
+                        .method(http::Method::GET)
+                        .uri("/mcp/sse")
+                        .body(axum::body::Body::empty())
+                        .unwrap(),
+                ),
+            )
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+
+        let body = body_to_string(response);
+        assert!(
+            body.contains("event: endpoint"),
+            "SSE should start with endpoint event"
+        );
+        assert!(
+            body.contains("data: /mcp"),
+            "SSE endpoint event should point to /mcp"
+        );
     }
 
     #[test]
