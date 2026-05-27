@@ -26,6 +26,12 @@ use std::collections::{BTreeSet, HashMap, HashSet};
 use std::hash::{Hash, Hasher};
 
 // ---------------------------------------------------------------------------
+// Embedding providers (optional, feature-gated)
+// ---------------------------------------------------------------------------
+
+pub mod embedding;
+
+// ---------------------------------------------------------------------------
 // Error type
 // ---------------------------------------------------------------------------
 
@@ -125,6 +131,9 @@ pub struct DistributedSignature {
     pub entity_bits: Vec<u64>,
     /// Bit-positions derived from linked decision IDs.
     pub decision_bits: Vec<u64>,
+    /// Bit-positions derived from embedding computation (character n-grams,
+    /// semantic generalization). Empty when embeddings are not enabled.
+    pub embedding_bits: Vec<u64>,
 }
 
 impl DistributedSignature {
@@ -135,6 +144,7 @@ impl DistributedSignature {
             concept_bits: vec![],
             entity_bits: vec![],
             decision_bits: vec![],
+            embedding_bits: vec![],
         }
     }
 
@@ -144,6 +154,7 @@ impl DistributedSignature {
             && self.concept_bits.is_empty()
             && self.entity_bits.is_empty()
             && self.decision_bits.is_empty()
+            && self.embedding_bits.is_empty()
     }
 }
 
@@ -331,6 +342,8 @@ pub struct ResonanceScore {
     pub entity_overlap: f32,
     /// Overlap of decision bits.
     pub decision_overlap: f32,
+    /// Overlap of embedding bits (semantic generalization).
+    pub embedding_overlap: f32,
     /// Boost from trace importance.
     pub importance_boost: f32,
     /// Boost from trace confidence.
@@ -348,6 +361,7 @@ impl ResonanceScore {
             concept_overlap: 0.0,
             entity_overlap: 0.0,
             decision_overlap: 0.0,
+            embedding_overlap: 0.0,
             importance_boost: 0.0,
             confidence_boost: 0.0,
             activation_boost: 0.0,
@@ -530,6 +544,7 @@ pub fn encode_terms_to_signature(
         concept_bits: encode_term_set(&normalized_concepts, 100, HASHES_PER_TERM),
         entity_bits: encode_term_set(&normalized_entities, 200, HASHES_PER_TERM),
         decision_bits: encode_term_set(&normalized_decisions, 300, HASHES_PER_TERM),
+        embedding_bits: vec![],
     }
 }
 
@@ -571,15 +586,17 @@ pub fn signature_overlap(
     let concept_overlap = jaccard_overlap(&query_sig.concept_bits, &trace_sig.concept_bits);
     let entity_overlap = jaccard_overlap(&query_sig.entity_bits, &trace_sig.entity_bits);
     let decision_overlap = jaccard_overlap(&query_sig.decision_bits, &trace_sig.decision_bits);
+    let embedding_overlap = jaccard_overlap(&query_sig.embedding_bits, &trace_sig.embedding_bits);
 
     let importance_boost = importance * 0.10;
     let confidence_boost = confidence * 0.05;
     let activation_boost = (activation_count as f32 * 0.01).min(0.20);
 
-    let total = symbolic_overlap * 0.30
-        + concept_overlap * 0.30
-        + entity_overlap * 0.30
-        + decision_overlap * 0.10
+    let total = symbolic_overlap * 0.25
+        + concept_overlap * 0.25
+        + entity_overlap * 0.25
+        + decision_overlap * 0.05
+        + embedding_overlap * 0.20
         + importance_boost
         + confidence_boost
         + activation_boost;
@@ -590,6 +607,7 @@ pub fn signature_overlap(
         concept_overlap,
         entity_overlap,
         decision_overlap,
+        embedding_overlap,
         importance_boost,
         confidence_boost,
         activation_boost,
@@ -829,7 +847,8 @@ impl HolographicMemoryStore for InMemoryHolographicMemoryStore {
             let has_overlap = score.symbolic_overlap > 1e-9
                 || score.concept_overlap > 1e-9
                 || score.entity_overlap > 1e-9
-                || score.decision_overlap > 1e-9;
+                || score.decision_overlap > 1e-9
+                || score.embedding_overlap > 1e-9;
             if !has_overlap {
                 continue;
             }

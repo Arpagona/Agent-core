@@ -18,8 +18,9 @@ use arpagona_graph_memory::{
     in_memory_graph_memory_store, AsyncGraphMemoryStore, GRAPH_MEMORY_SCHEMA,
 };
 use arpagona_holographic_memory::{
+    embedding::{extend_signature_with_embedding, CharacterNGramEmbeddingProvider},
     HolographicMemoryError, HolographicMemoryStore, HolographicQuery, HolographicTrace,
-    InMemoryHolographicMemoryStore, MemoryGraphTraversalResult, SourceKind,
+    InMemoryHolographicMemoryStore, SourceKind,
 };
 use arpagona_llm::run_cognitive_synthesis;
 use arpagona_tool_runtime::{ToolRuntime, ToolRuntimeConfig};
@@ -781,6 +782,9 @@ struct HolographicAddArgs {
     /// Path to the holographic memory JSON file (created if not found).
     #[arg(long, default_value = "target/holographic-store.json")]
     file: String,
+    /// Enable embedding-based semantic generalization (character n-gram).
+    #[arg(long)]
+    embed: bool,
     /// Emit structured JSON instead of human-oriented text.
     #[arg(long)]
     json: bool,
@@ -809,6 +813,9 @@ struct HolographicSearchArgs {
     /// Path to the holographic memory JSON file.
     #[arg(long, default_value = "target/holographic-store.json")]
     file: String,
+    /// Enable embedding-based semantic generalization (character n-gram).
+    #[arg(long)]
+    embed: bool,
     #[arg(long)]
     json: bool,
 }
@@ -2361,7 +2368,7 @@ fn memory_holographic_add(args: HolographicAddArgs) -> Result<(), Box<dyn Error>
         .collect();
 
     // Build the trace with a distributed signature
-    let trace = HolographicTrace::new(
+    let mut trace = HolographicTrace::new(
         args.trace_id.clone(),    // id
         args.project_id.clone(),  // project_id
         SourceKind::ManualNote,   // source_kind
@@ -2383,6 +2390,17 @@ fn memory_holographic_add(args: HolographicAddArgs) -> Result<(), Box<dyn Error>
         0.0,                             // strategic_weight
         chrono::Utc::now().to_rfc3339(), // created_at
     );
+
+    // Optionally extend with embedding bits for semantic generalization
+    if args.embed {
+        let provider = CharacterNGramEmbeddingProvider::default();
+        extend_signature_with_embedding(
+            &mut trace.distributed_signature,
+            &trace.content_summary,
+            &keywords,
+            &provider,
+        );
+    }
 
     // Add and save
     store
@@ -2462,13 +2480,24 @@ fn memory_holographic_search(args: HolographicSearchArgs) -> Result<(), Box<dyn 
     }
 
     // Build query
-    let query = HolographicQuery::new(
+    let mut query = HolographicQuery::new(
         args.project_id.clone(),
         args.query.clone(),
-        keywords,
+        keywords.clone(),
         concepts,
         entities,
     );
+
+    // Optionally extend with embedding bits for semantic generalization
+    if args.embed {
+        let provider = CharacterNGramEmbeddingProvider::default();
+        extend_signature_with_embedding(
+            &mut query.distributed_signature,
+            &query.text,
+            &keywords,
+            &provider,
+        );
+    }
 
     // Search by resonance
     let context = store.retrieve_by_resonance(&args.project_id, query, args.limit);
