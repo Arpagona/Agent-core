@@ -12,16 +12,17 @@ P1 (open PRs) takes priority over alternation.
 
 ## Next action
 
-**Track A Phase 3 — HTTP/SSE transport.** PR #112 (`feat/a3-http-sse-transport`) is now open with CI running. Track A Phase 3 is done this run.
+**Track B Step B4 — SQLite persistence for holographic memory.** PR #113 documenting Track B Step B3 (optional local embeddings) is created. Track B Step B3 is done this run.
 
-The alternation was Track A (this run), so the next step is Track B.
+The alternation was Track B (this run), so the next step is Track A.
 
-**After PR #112 merges, advance Track B Step B3 — optional local embeddings for semantic generalization.** This adds optional semantic embedding support (fastembed or similar) to the Holographic Memory crate, enabling concept-level generalization beyond symbolic keyword matching.
+**After PR #113 merges, advance Track A Phase 2 — DecisionGate governance before MCP tools/call.** This adds a governance layer to the MCP server that wraps every tool call through `DecisionGate` before allowing execution, following the `mcp-governance-layer-pattern.md` reference.
 
 Proof to seek: `cargo test --workspace` green. A new PR exists with:
-- Optional embedding dependency (e.g., fastembed as an optional cargo feature)
-- Integration test proving resonance with semantic overlap (not just keyword match)
-- CLI command or flag to enable/use embeddings
-- Guard for when embeddings are not available (graceful fallback to symbolic-only mode)
+- Wrapped `tools/call` dispatch to evaluate via `evaluate_tool_call` helper
+- GovernanceDecision enum returned from tool call (Approved/Blocked/NeedsHumanApproval)
+- Audit trail entries for each governed tool call
+- Tests proving tool calls are blocked without permission, approved with permission, and produce audit events
+- Graceful handling of `NeedsHumanApproval` states
 
-Do not: add vector databases, LLM calls, Decision Gate bypasses, execution capabilities, or SurrealDB persistence for embeddings.
+Do not: add real execution, shell access, LLM calls, browser automation, email sending, or SurrealDB persistence.
