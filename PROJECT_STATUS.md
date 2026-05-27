@@ -1216,3 +1216,65 @@ Alpha runtime bridge. The `governed_tool_executor` module is a new bridge betwee
 ### Recommended next step
 
 After PR #131 is merged, proceed to **Track C Step C3 — Prompt, response, decision and risk journaling**.
+
+## 18. Latest Session Update (2026-05-27 — Track C Step C4: Compute Reservoir model routing journal integration)
+
+This session integrated the Compute Reservoir routing decision into the LLM interaction journal and CLI readback (Track C Step C4).
+
+### What was added
+
+**`crates/core/src/llm_journal.rs`** — extended for C4:
+- New `compute_routing: Option<Value>` field on `LlmJournalEntry` for storing Compute Reservoir allocation details
+- New `add_synthesis_with_routing()` convenience method accepting optional compute routing JSON
+- Backwards-compatible: old `add_synthesis()` delegates to `add_synthesis_with_routing()` with `None` routing; existing journal JSONL files deserialize correctly (serde ignores unknown fields)
+
+**`crates/cli/src/main.rs`** — C4 integration:
+- `cognitive_run()` with `--llm --allocate`: constructs compute routing JSON (selected_node_id, resource_kind, expected_cost_cents, expected_latency_ms, justification, fallback, routing_note) and passes it to the journal via `add_synthesis_with_routing()`
+- `llm_journal_list()`: human-readable display of compute routing (selected_node, justification, routing_note); structured JSON output includes `compute_routing` field
+
+### Tests (9 llm_journal tests, 2 new + 7 existing)
+
+| Test | What it proves |
+|------|---------------|
+| `add_synthesis_with_routing_stores_compute_routing` | Routing JSON stored and retrievable in journal entry |
+| `synthesis_without_routing_has_none` | Backwards-compatible — entries without routing have `None` |
+
+### Verification
+
+| Check | Result |
+|-------|--------|
+| `cargo fmt -- --check` | ✅ Clean |
+| `cargo check` | ✅ Clean (only pre-existing warnings) |
+| `cargo test --workspace` | ✅ 603+ tests pass, no regressions |
+
+### Files changed
+
+| File | Change |
+|------|--------|
+| crates/core/src/llm_journal.rs | Added `compute_routing` field, `add_synthesis_with_routing()` method, 2 new tests |
+| crates/cli/src/main.rs | Wired compute routing into LLM journal on `--llm --allocate`, added human/JSON readback |
+| FOCUS_LOOP_NEXT.md | Updated handoff to C5 |
+
+### Stability level
+
+Alpha C4 delivery. Extends the existing C3 journal with optional compute routing metadata. No new crate, no new dependencies, no persistence schema change.
+
+### What was NOT added
+
+- No shell, browser, email, secrets or unrestricted write tools
+- No Decision Gate bypass
+- No autonomous scheduling
+- No new crate or dependency
+- No changes to Compute Reservoir allocation logic itself (only journaling of its results)
+- No model/provider dispatch changes (the existing `cloud-strong→openai` mapping is journaled as-is)
+
+### Safety invariants verified
+
+- ✅ Compute routing in journal is evidence-only, never authorization
+- ✅ Allocation justification includes `NON_AUTHORIZING_READBACK` warning
+- ✅ Route selection does not authorize tool execution
+- ✅ Backwards-compatible with existing C3 journal files
+
+### Recommended next step
+
+After PR #133 is merged, proceed to **Track C Step C5 — Anti-drift and adversarial tests**.

@@ -6870,6 +6870,7 @@ fn llm_journal_list(args: LlmJournalArgs) -> Result<(), Box<dyn Error>> {
                 "tool_call_intents": e.tool_call_intents,
                 "decision_gate_outcomes": e.decision_gate_outcomes,
                 "risk_level": e.risk_level,
+                "compute_routing": e.compute_routing,
             })).collect::<Vec<_>>(),
         }))
         .unwrap();
@@ -6909,6 +6910,29 @@ fn llm_journal_list(args: LlmJournalArgs) -> Result<(), Box<dyn Error>> {
             }
             if let Some(ref rl) = entry.risk_level {
                 println!("        | risk_level: {:?}", rl);
+            }
+            if let Some(ref cr) = entry.compute_routing {
+                let node_name = cr
+                    .get("selected_node_id")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("unknown");
+                let justification = cr
+                    .get("justification")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("");
+                let routing_note = cr
+                    .get("routing_note")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("");
+                println!("        | compute_routing:");
+                println!("        |   selected_node: {node_name}");
+                if !justification.is_empty() {
+                    let just_short = &justification[..justification.len().min(120)];
+                    println!("        |   justification: {just_short}");
+                }
+                if !routing_note.is_empty() {
+                    println!("        |   routing_note: {routing_note}");
+                }
             }
             println!();
         }
@@ -7250,7 +7274,7 @@ async fn cognitive_run(
                 // Log routing decision as a JSON field
                 obj.insert(
                     "llm_routing".to_owned(),
-                    serde_json::Value::String(routing_note),
+                    serde_json::Value::String(routing_note.clone()),
                 );
 
                 match run_cognitive_synthesis(&args.objective, &wm_summary, resolved_provider).await
@@ -7265,16 +7289,46 @@ async fn cognitive_run(
                             serde_json::Value::String(resolved_provider.to_owned()),
                         );
                         // Journal the LLM interaction (C3 — prompt/response/decision journaling)
-                        global_llm_journal().lock().unwrap().add_synthesis(
-                            &args.objective,
-                            resolved_provider,
-                            None, // model info not tracked yet in this path
-                            format!("Cognitive synthesis: domain={:?}, complexity={:.2}, context_items={}",
-                                result.objective.domain, wm.complexity_estimate, wm.context_items.len()),
-                            format!("Synthesis ({} chars): extracted {} chars of structured output",
-                                synthesis.len(),
-                                synthesis.len().min(200)),
-                        );
+                        let (compute_routing_json, journal_routing_note) = if args.allocate {
+                            let allocation = run_allocation(&result.working_memory);
+                            let routing_note_clone = routing_note.clone();
+                            let routing_json = serde_json::json!({
+                                "selected_node_id": allocation.selected_node_id.as_ref().map(|id| id.as_str()),
+                                "resource_kind": allocation.resource_kind,
+                                "expected_cost_cents": allocation.expected_cost_cents,
+                                "expected_latency_ms": allocation.expected_latency_ms,
+                                "justification": allocation.justification,
+                                "fallback": allocation.fallback,
+                                "routing_note": routing_note_clone,
+                            });
+                            (
+                                Some(routing_json),
+                                format!("\nCompute routing: {}", routing_note),
+                            )
+                        } else {
+                            (None, String::new())
+                        };
+                        global_llm_journal()
+                            .lock()
+                            .unwrap()
+                            .add_synthesis_with_routing(
+                                &args.objective,
+                                resolved_provider,
+                                None, // model info not tracked yet in this path
+                                format!(
+                                    "Cognitive synthesis: domain={:?}, complexity={:.2}, context_items={}{}",
+                                    result.objective.domain,
+                                    wm.complexity_estimate,
+                                    wm.context_items.len(),
+                                    journal_routing_note,
+                                ),
+                                format!(
+                                    "Synthesis ({} chars): extracted {} chars of structured output",
+                                    synthesis.len(),
+                                    synthesis.len().min(200),
+                                ),
+                                compute_routing_json,
+                            );
                     }
                     Err(e) => {
                         obj.insert(
