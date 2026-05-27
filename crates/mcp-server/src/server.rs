@@ -16,9 +16,9 @@ use crate::transport::{read_message, write_message};
 use crate::types::McpMessage;
 use crate::types::{
     CallToolResult, GetPromptResult, Implementation, InitializeResult, JsonRpcError,
-    JsonRpcRequest, JsonRpcSuccess, ListPromptsResult, ListResourceTemplatesResult,
-    ListResourcesResult, ListToolsResult, McpContentBlock, McpPrompt, McpResource,
-    McpResourceTemplate, McpTool, PromptArgument, PromptMessage, PromptMessageContent,
+    JsonRpcNotification, JsonRpcRequest, JsonRpcSuccess, ListPromptsResult,
+    ListResourceTemplatesResult, ListResourcesResult, ListToolsResult, McpContentBlock, McpPrompt,
+    McpResource, McpResourceTemplate, McpTool, PromptArgument, PromptMessage, PromptMessageContent,
     ReadResourceResult, ResourceAnnotations, ResourceContents, ServerCapabilities, ToolAnnotations,
     MCP_PROTOCOL_VERSION,
 };
@@ -28,6 +28,7 @@ use arpagona_tool_runtime::ToolRuntime;
 use chrono::Utc;
 use serde_json::Value;
 use std::path::Path;
+use tokio::sync::broadcast;
 
 /// Configuration for the MCP server.
 #[derive(Clone, Debug)]
@@ -130,6 +131,9 @@ pub struct McpServer {
     audit_store: Option<McpGovernanceAuditStore>,
     /// True once `initialize` has been called.
     initialized: bool,
+    /// Broadcast channel for sending notifications to connected clients
+    /// (e.g. `notifications/tools/list_changed`).
+    notification_tx: Option<broadcast::Sender<String>>,
 }
 
 impl McpServer {
@@ -150,6 +154,7 @@ impl McpServer {
             tool_runtime,
             audit_store,
             initialized: false,
+            notification_tx: None,
         }
     }
 
@@ -161,6 +166,34 @@ impl McpServer {
     /// Return a reference to the audit store, if one is configured.
     pub fn audit_store(&self) -> Option<&McpGovernanceAuditStore> {
         self.audit_store.as_ref()
+    }
+
+    /// Set the broadcast notification channel for this server.
+    ///
+    /// Connected clients (e.g. SSE subscribers) will receive notifications
+    /// such as `notifications/tools/list_changed` through this channel.
+    pub fn set_notification_channel(&mut self, tx: broadcast::Sender<String>) {
+        self.notification_tx = Some(tx);
+    }
+
+    /// Send a `notifications/tools/list_changed` notification to all
+    /// connected clients.
+    ///
+    /// Call this whenever the tool list is modified (tools added, removed,
+    /// or updated). Currently a no-op if no notification channel is set;
+    /// in the future this will also write to the stdio transport when
+    /// the server runs in stdio mode.
+    pub fn notify_tools_list_changed(&self) {
+        if let Some(ref tx) = self.notification_tx {
+            let notification = JsonRpcNotification {
+                jsonrpc: "2.0".to_owned(),
+                method: "notifications/tools/list_changed".to_owned(),
+                params: None,
+            };
+            if let Ok(json) = serde_json::to_string(&notification) {
+                let _ = tx.send(json);
+            }
+        }
     }
 
     /// Run the MCP server loop: read requests from stdin and dispatch them.
@@ -1260,5 +1293,68 @@ mod tests {
         );
         let result = server.handle_resources_read(&req);
         assert!(result.is_err(), "Should fail before initialize");
+    }
+
+    #[test]
+    fn test_notification_channel_set_and_notify() {
+        let (tx, mut rx) = broadcast::channel(10);
+        let mut server = McpServer::new(McpServerConfig::default());
+
+        // Before setting, notify should be a no-op (no panic)
+        server.notify_tools_list_changed();
+
+        // Set the channel
+        server.set_notification_channel(tx);
+
+        // Send notification
+        server.notify_tools_list_changed();
+
+        // Verify the notification was received
+        let received = rx.try_recv().unwrap();
+        assert!(
+            received.contains("notifications/tools/list_changed"),
+            "Should contain the MCP notification method name"
+        );
+        assert!(received.contains("2.0"), "Should be JSON-RPC 2.0 format");
+    }
+
+    #[test]
+    fn test_notify_tools_list_changed_format() {
+        let (tx, mut rx) = broadcast::channel(10);
+        let mut server = McpServer::new(McpServerConfig::default());
+        server.set_notification_channel(tx);
+
+        server.notify_tools_list_changed();
+
+        let received = rx.try_recv().unwrap();
+        let parsed: serde_json::Value = serde_json::from_str(&received).unwrap();
+        assert_eq!(parsed["jsonrpc"], "2.0");
+        assert_eq!(parsed["method"], "notifications/tools/list_changed");
+        assert!(
+            parsed.get("id").is_none(),
+            "Notifications should not have an 'id' field"
+        );
+    }
+
+    #[test]
+    fn test_notification_broadcast_to_multiple_receivers() {
+        let (tx, mut rx1) = broadcast::channel(10);
+        let mut rx2 = tx.subscribe();
+        let mut server = McpServer::new(McpServerConfig::default());
+        server.set_notification_channel(tx);
+
+        server.notify_tools_list_changed();
+
+        // Both receivers should get the notification
+        let msg1 = rx1.try_recv().unwrap();
+        let msg2 = rx2.try_recv().unwrap();
+        assert_eq!(
+            msg1, msg2,
+            "Both receivers should get the same notification"
+        );
+        assert!(
+            msg1.contains("notifications/tools/list_changed"),
+            "Should be tools/list_changed notification"
+        );
     }
 }

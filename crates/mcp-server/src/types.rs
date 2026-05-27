@@ -363,7 +363,9 @@ pub enum PromptMessageContent {
 impl Default for ServerCapabilities {
     fn default() -> Self {
         Self {
-            tools: Some(ToolCapabilities { list_changed: None }),
+            tools: Some(ToolCapabilities {
+                list_changed: Some(true),
+            }),
             resources: Some(serde_json::json!({})),
             prompts: Some(serde_json::json!({})),
             logging: None,
@@ -457,6 +459,10 @@ mod tests {
         let json = serde_json::to_value(&result).unwrap();
         assert_eq!(json["protocol_version"], MCP_PROTOCOL_VERSION);
         assert!(json["capabilities"]["tools"].is_object());
+        assert_eq!(
+            json["capabilities"]["tools"]["list_changed"], true,
+            "Should advertise list_changed capability"
+        );
         assert_eq!(json["server_info"]["name"], "arpagona");
     }
 
