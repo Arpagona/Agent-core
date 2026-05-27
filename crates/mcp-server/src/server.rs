@@ -15,8 +15,11 @@ use crate::governance::{evaluate_tool_call, GovernanceDecision};
 use crate::transport::{read_message, write_message};
 use crate::types::McpMessage;
 use crate::types::{
-    CallToolResult, Implementation, InitializeResult, JsonRpcError, JsonRpcRequest, JsonRpcSuccess,
-    ListToolsResult, McpContentBlock, McpTool, ServerCapabilities, ToolAnnotations,
+    CallToolResult, GetPromptResult, Implementation, InitializeResult, JsonRpcError,
+    JsonRpcRequest, JsonRpcSuccess, ListPromptsResult, ListResourceTemplatesResult,
+    ListResourcesResult, ListToolsResult, McpContentBlock, McpPrompt, McpResource,
+    McpResourceTemplate, McpTool, PromptArgument, PromptMessage, PromptMessageContent,
+    ReadResourceResult, ResourceAnnotations, ResourceContents, ServerCapabilities, ToolAnnotations,
     MCP_PROTOCOL_VERSION,
 };
 use arpagona_agent_core::ToolExecutionStatus;
@@ -201,6 +204,21 @@ impl McpServer {
             "tools/call" => self
                 .handle_tools_call(req)
                 .map(|v| McpMessage::Success(JsonRpcSuccess::new(req.id.clone(), v))),
+            "resources/list" => self
+                .handle_resources_list(req)
+                .map(|v| McpMessage::Success(JsonRpcSuccess::new(req.id.clone(), v))),
+            "resources/templates/list" => self
+                .handle_resources_templates_list(req)
+                .map(|v| McpMessage::Success(JsonRpcSuccess::new(req.id.clone(), v))),
+            "resources/read" => self
+                .handle_resources_read(req)
+                .map(|v| McpMessage::Success(JsonRpcSuccess::new(req.id.clone(), v))),
+            "prompts/list" => self
+                .handle_prompts_list(req)
+                .map(|v| McpMessage::Success(JsonRpcSuccess::new(req.id.clone(), v))),
+            "prompts/get" => self
+                .handle_prompts_get(req)
+                .map(|v| McpMessage::Success(JsonRpcSuccess::new(req.id.clone(), v))),
             other => Err(JsonRpcError::method_not_found(req.id.clone(), other)),
         }
         .unwrap_or_else(|e| McpMessage::Error(e))
@@ -218,13 +236,7 @@ impl McpServer {
 
         let result = InitializeResult {
             protocol_version: MCP_PROTOCOL_VERSION.to_owned(),
-            capabilities: ServerCapabilities {
-                tools: Some(crate::types::ToolCapabilities { list_changed: None }),
-                resources: None,
-                prompts: None,
-                logging: None,
-                experimental: None,
-            },
+            capabilities: ServerCapabilities::default(),
             server_info: Implementation {
                 name: self.config.server_name.clone(),
                 version: self.config.server_version.clone(),
@@ -399,6 +411,501 @@ impl McpServer {
         .map_err(|e| {
             JsonRpcError::internal_error(req.id.clone(), format!("Serialization error: {e}"))
         })
+    }
+
+    // -----------------------------------------------------------------------
+    // Handler: resources/list
+    // -----------------------------------------------------------------------
+
+    fn handle_resources_list(&mut self, req: &JsonRpcRequest) -> Result<Value, JsonRpcError> {
+        if !self.initialized {
+            return Err(JsonRpcError::new(
+                req.id.clone(),
+                -32000,
+                "Server not initialized. Send 'initialize' first.",
+            ));
+        }
+
+        let mut resources = vec![
+            McpResource {
+                uri: "arpagona://server/info".to_owned(),
+                name: "Server Info".to_owned(),
+                description: Some("MCP server metadata and configuration".to_owned()),
+                mime_type: Some("application/json".to_owned()),
+                annotations: Some(ResourceAnnotations {
+                    title: Some("Server Info".to_owned()),
+                    read_only_hint: Some(true),
+                }),
+            },
+            McpResource {
+                uri: "arpagona://tools/list".to_owned(),
+                name: "Available Tools".to_owned(),
+                description: Some("List of all tools exposed by this server".to_owned()),
+                mime_type: Some("application/json".to_owned()),
+                annotations: Some(ResourceAnnotations {
+                    title: Some("Tools".to_owned()),
+                    read_only_hint: Some(true),
+                }),
+            },
+            McpResource {
+                uri: "arpagona://audit/recent".to_owned(),
+                name: "Recent Governance Audit".to_owned(),
+                description: Some(
+                    "Recent governance decisions (blocked/approved tool calls)".to_owned(),
+                ),
+                mime_type: Some("application/json".to_owned()),
+                annotations: Some(ResourceAnnotations {
+                    title: Some("Audit Log".to_owned()),
+                    read_only_hint: Some(true),
+                }),
+            },
+        ];
+
+        if self.audit_store.is_some() {
+            resources.push(McpResource {
+                uri: "arpagona://audit/stats".to_owned(),
+                name: "Audit Statistics".to_owned(),
+                description: Some("Summary statistics of governance decisions".to_owned()),
+                mime_type: Some("application/json".to_owned()),
+                annotations: Some(ResourceAnnotations {
+                    title: Some("Audit Stats".to_owned()),
+                    read_only_hint: Some(true),
+                }),
+            });
+        }
+
+        serde_json::to_value(&ListResourcesResult {
+            resources,
+            next_cursor: None,
+        })
+        .map_err(|e| {
+            JsonRpcError::internal_error(req.id.clone(), format!("Serialization error: {e}"))
+        })
+    }
+
+    // -----------------------------------------------------------------------
+    // Handler: resources/templates/list
+    // -----------------------------------------------------------------------
+
+    fn handle_resources_templates_list(
+        &mut self,
+        req: &JsonRpcRequest,
+    ) -> Result<Value, JsonRpcError> {
+        if !self.initialized {
+            return Err(JsonRpcError::new(
+                req.id.clone(),
+                -32000,
+                "Server not initialized. Send 'initialize' first.",
+            ));
+        }
+
+        let templates = vec![McpResourceTemplate {
+            uri_template: "arpagona://audit/by-id/{audit_id}".to_owned(),
+            name: "Audit Record by ID".to_owned(),
+            description: Some(
+                "Retrieve a specific governance audit record by its audit event ID".to_owned(),
+            ),
+            mime_type: Some("application/json".to_owned()),
+        }];
+
+        serde_json::to_value(&ListResourceTemplatesResult {
+            resource_templates: templates,
+            next_cursor: None,
+        })
+        .map_err(|e| {
+            JsonRpcError::internal_error(req.id.clone(), format!("Serialization error: {e}"))
+        })
+    }
+
+    // -----------------------------------------------------------------------
+    // Handler: resources/read
+    // -----------------------------------------------------------------------
+
+    fn handle_resources_read(&mut self, req: &JsonRpcRequest) -> Result<Value, JsonRpcError> {
+        if !self.initialized {
+            return Err(JsonRpcError::new(
+                req.id.clone(),
+                -32000,
+                "Server not initialized. Send 'initialize' first.",
+            ));
+        }
+
+        let params = req.params.as_ref().ok_or_else(|| {
+            JsonRpcError::invalid_params(req.id.clone(), "Missing params for resources/read")
+        })?;
+
+        let uri = params.get("uri").and_then(Value::as_str).ok_or_else(|| {
+            JsonRpcError::invalid_params(req.id.clone(), "Missing 'uri' in resources/read params")
+        })?;
+
+        let contents = match uri {
+            "arpagona://server/info" => {
+                let info = serde_json::json!({
+                    "name": self.config.server_name,
+                    "version": self.config.server_version,
+                    "workspace_path": self.config.workspace_path,
+                    "audit_enabled": self.audit_store.is_some(),
+                });
+                vec![ResourceContents {
+                    uri: uri.to_owned(),
+                    mime_type: Some("application/json".to_owned()),
+                    text: serde_json::to_string_pretty(&info).unwrap_or_else(|_| "{}".to_owned()),
+                }]
+            }
+            "arpagona://tools/list" => {
+                let tools: Vec<McpTool> = known_tools()
+                    .into_iter()
+                    .map(|kt| McpTool {
+                        name: kt.name.to_owned(),
+                        description: Some(kt.description.to_owned()),
+                        input_schema: kt.input_schema,
+                        annotations: Some(ToolAnnotations {
+                            title: Some(kt.name.to_owned()),
+                            read_only_hint: Some(kt.read_only),
+                        }),
+                    })
+                    .collect();
+                let result = ListToolsResult {
+                    tools,
+                    next_cursor: None,
+                };
+                vec![ResourceContents {
+                    uri: uri.to_owned(),
+                    mime_type: Some("application/json".to_owned()),
+                    text: serde_json::to_string_pretty(&result).unwrap_or_else(|_| "{}".to_owned()),
+                }]
+            }
+            "arpagona://audit/recent" => {
+                let records = self
+                    .audit_store
+                    .as_ref()
+                    .map(|store| store.recent(10).into_iter().cloned().collect::<Vec<_>>())
+                    .unwrap_or_default();
+                vec![ResourceContents {
+                    uri: uri.to_owned(),
+                    mime_type: Some("application/json".to_owned()),
+                    text: serde_json::to_string_pretty(&records)
+                        .unwrap_or_else(|_| "[]".to_owned()),
+                }]
+            }
+            "arpagona://audit/stats" => {
+                let summary = if let Some(ref store) = self.audit_store {
+                    let all = store.all().to_vec();
+                    let total = all.len();
+                    let blocked = all.iter().filter(|r| r.outcome == "Blocked").count();
+                    let approved = all.iter().filter(|r| r.outcome == "Approved").count();
+                    let pending = all
+                        .iter()
+                        .filter(|r| r.outcome == "RequiresOverride")
+                        .count();
+                    serde_json::json!({
+                        "total_governance_decisions": total,
+                        "blocked": blocked,
+                        "approved": approved,
+                        "requires_override": pending,
+                    })
+                } else {
+                    serde_json::json!({
+                        "message": "Audit store not configured. Set audit_path in McpServerConfig."
+                    })
+                };
+                vec![ResourceContents {
+                    uri: uri.to_owned(),
+                    mime_type: Some("application/json".to_owned()),
+                    text: serde_json::to_string_pretty(&summary)
+                        .unwrap_or_else(|_| "{}".to_owned()),
+                }]
+            }
+            _ => {
+                return Err(JsonRpcError::invalid_params(
+                    req.id.clone(),
+                    format!("Unknown resource URI: {uri}"),
+                ));
+            }
+        };
+
+        serde_json::to_value(&ReadResourceResult { contents }).map_err(|e| {
+            JsonRpcError::internal_error(req.id.clone(), format!("Serialization error: {e}"))
+        })
+    }
+
+    // -----------------------------------------------------------------------
+    // Handler: prompts/list
+    // -----------------------------------------------------------------------
+
+    fn handle_prompts_list(&mut self, req: &JsonRpcRequest) -> Result<Value, JsonRpcError> {
+        if !self.initialized {
+            return Err(JsonRpcError::new(
+                req.id.clone(),
+                -32000,
+                "Server not initialized. Send 'initialize' first.",
+            ));
+        }
+
+        let prompts = vec![
+            McpPrompt {
+                name: "assess_governance".to_owned(),
+                description: Some(
+                    "Analyze governance decisions and identify patterns in blocked/approved tool calls"
+                        .to_owned(),
+                ),
+                arguments: Some(vec![
+                    PromptArgument {
+                        name: "filter".to_owned(),
+                        description: Some(
+                            "Optional filter: 'blocked', 'approved', or 'all' (default)"
+                                .to_owned(),
+                        ),
+                        required: false,
+                    },
+                    PromptArgument {
+                        name: "limit".to_owned(),
+                        description: Some(
+                            "Maximum number of audit records to analyze (default: 10)"
+                                .to_owned(),
+                        ),
+                        required: false,
+                    },
+                ]),
+            },
+            McpPrompt {
+                name: "summarize_context".to_owned(),
+                description: Some(
+                    "Summarize the current server context: available tools, resources, and governance status"
+                        .to_owned(),
+                ),
+                arguments: None,
+            },
+            McpPrompt {
+                name: "inspect_audit_record".to_owned(),
+                description: Some(
+                    "Get a detailed analysis of a specific governance decision by audit ID"
+                        .to_owned(),
+                ),
+                arguments: Some(vec![PromptArgument {
+                    name: "audit_id".to_owned(),
+                    description: Some("The audit event ID to inspect".to_owned()),
+                    required: true,
+                }]),
+            },
+        ];
+
+        serde_json::to_value(&ListPromptsResult {
+            prompts,
+            next_cursor: None,
+        })
+        .map_err(|e| {
+            JsonRpcError::internal_error(req.id.clone(), format!("Serialization error: {e}"))
+        })
+    }
+
+    // -----------------------------------------------------------------------
+    // Handler: prompts/get
+    // -----------------------------------------------------------------------
+
+    fn handle_prompts_get(&mut self, req: &JsonRpcRequest) -> Result<Value, JsonRpcError> {
+        if !self.initialized {
+            return Err(JsonRpcError::new(
+                req.id.clone(),
+                -32000,
+                "Server not initialized. Send 'initialize' first.",
+            ));
+        }
+
+        let params = req.params.as_ref().ok_or_else(|| {
+            JsonRpcError::invalid_params(req.id.clone(), "Missing params for prompts/get")
+        })?;
+
+        let name = params.get("name").and_then(Value::as_str).ok_or_else(|| {
+            JsonRpcError::invalid_params(req.id.clone(), "Missing 'name' in prompts/get params")
+        })?;
+
+        let arguments = params
+            .get("arguments")
+            .and_then(|a| a.as_object())
+            .cloned()
+            .unwrap_or_default();
+
+        match name {
+            "assess_governance" => {
+                let filter = arguments
+                    .get("filter")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("all");
+                let limit = arguments
+                    .get("limit")
+                    .and_then(|v| v.as_u64())
+                    .unwrap_or(10);
+
+                let records = self
+                    .audit_store
+                    .as_ref()
+                    .map(|store| {
+                        let all: Vec<_> = store
+                            .all()
+                            .iter()
+                            .filter(|r| match filter {
+                                "blocked" => r.outcome == "Blocked",
+                                "approved" => r.outcome == "Approved",
+                                _ => true,
+                            })
+                            .take(limit as usize)
+                            .collect();
+                        all
+                    })
+                    .unwrap_or_default();
+
+                let records_json =
+                    serde_json::to_string_pretty(&records).unwrap_or_else(|_| "[]".to_owned());
+
+                let message = if records.is_empty() {
+                    format!(
+                        "No governance audit records were found for filter '{}'.\n\n\
+                         The audit store is {}configured on this server.",
+                        filter,
+                        if self.audit_store.is_some() {
+                            ""
+                        } else {
+                            "NOT "
+                        }
+                    )
+                } else {
+                    format!(
+                        "Governance Analysis for filter: {} (showing {} of {})\n\n\
+                         Below are the governance decision records matching your filter.\n\
+                         Each record shows the tool name, outcome (Approved/Blocked/RequiresOverride),\n\
+                         and the governance summary provided by the DecisionGate.\n\n\
+                         {}\n\n\
+                         Note: This analysis is informative only and does not override or bypass\n\
+                         any governance decision. Use 'inspect_audit_record' to drill into a specific ID.",
+                        filter,
+                        records.len(),
+                        self.audit_store
+                            .as_ref()
+                            .map(|s| s.len())
+                            .unwrap_or(0),
+                        records_json
+                    )
+                };
+
+                serde_json::to_value(&GetPromptResult {
+                    messages: vec![PromptMessage {
+                        role: "assistant".to_owned(),
+                        content: PromptMessageContent::Text {
+                            text: message,
+                            mime_type: None,
+                        },
+                    }],
+                    description: Some(format!(
+                        "Governance analysis with filter '{}', limit {}",
+                        filter, limit
+                    )),
+                })
+                .map_err(|e| {
+                    JsonRpcError::internal_error(
+                        req.id.clone(),
+                        format!("Serialization error: {e}"),
+                    )
+                })
+            }
+            "summarize_context" => {
+                let tool_count = known_tools().len();
+                let resource_count = 4;
+                let audit_enabled = self.audit_store.is_some();
+                let audit_count = self.audit_store.as_ref().map(|s| s.len()).unwrap_or(0);
+
+                let message = format!(
+                    "Arpagona MCP Server Context Summary\n\n\
+                     - Tools exposed: {}\n\
+                     - Resources available: {}\n\
+                     - Prompts available: 3\n\
+                     - Audit store: {}\n\
+                     - Governance decisions recorded: {}\n\n\
+                     This server provides read-only access to Arpagona's tool runtime\n\
+                     and governance audit trail. Every tool/call is evaluated through\n\
+                     the DecisionGate before execution. Blocked calls produce structured\n\
+                     error responses with governance reasons.",
+                    tool_count,
+                    resource_count,
+                    if audit_enabled { "enabled" } else { "disabled" },
+                    audit_count
+                );
+
+                serde_json::to_value(&GetPromptResult {
+                    messages: vec![PromptMessage {
+                        role: "assistant".to_owned(),
+                        content: PromptMessageContent::Text {
+                            text: message,
+                            mime_type: None,
+                        },
+                    }],
+                    description: Some("Server context summary".to_owned()),
+                })
+                .map_err(|e| {
+                    JsonRpcError::internal_error(
+                        req.id.clone(),
+                        format!("Serialization error: {e}"),
+                    )
+                })
+            }
+            "inspect_audit_record" => {
+                let audit_id = arguments
+                    .get("audit_id")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("");
+
+                let record = self.audit_store.as_ref().and_then(|store| {
+                    store
+                        .all()
+                        .iter()
+                        .find(|r| r.audit_event.id.to_string() == audit_id)
+                });
+
+                let message = if let Some(ref rec) = record {
+                    let rec_json =
+                        serde_json::to_string_pretty(rec).unwrap_or_else(|_| "{}".to_owned());
+                    format!(
+                        "Audit Record: {}\n\n\
+                         Full record details:\n\
+                         {}\n\n\
+                         Governance Decision: {}\n\
+                         Tool: {}\n\n\
+                         This is a permanent record of a governance decision.\n\
+                         It cannot be modified after creation.",
+                        audit_id, rec_json, rec.outcome, rec.tool_name
+                    )
+                } else {
+                    format!(
+                        "No audit record found with ID: {}\n\n\
+                         To see available audit records, use:\n\
+                         - resources/read arpagona://audit/recent\n\
+                         - assess_governance prompt to filter results",
+                        audit_id
+                    )
+                };
+
+                serde_json::to_value(&GetPromptResult {
+                    messages: vec![PromptMessage {
+                        role: "assistant".to_owned(),
+                        content: PromptMessageContent::Text {
+                            text: message,
+                            mime_type: None,
+                        },
+                    }],
+                    description: Some(format!("Inspect audit record: {}", audit_id)),
+                })
+                .map_err(|e| {
+                    JsonRpcError::internal_error(
+                        req.id.clone(),
+                        format!("Serialization error: {e}"),
+                    )
+                })
+            }
+            other => Err(JsonRpcError::invalid_params(
+                req.id.clone(),
+                format!("Unknown prompt name: {other}"),
+            )),
+        }
     }
 }
 
@@ -588,5 +1095,170 @@ mod tests {
         let result1 = server.handle_initialize(&req).unwrap();
         let result2 = server.handle_initialize(&req).unwrap();
         assert_eq!(result1["protocol_version"], result2["protocol_version"]);
+    }
+
+    #[test]
+    fn test_resources_list_returns_resources() {
+        let mut server = McpServer::new(McpServerConfig::default());
+        let init_req = make_request("initialize", None);
+        server.handle_initialize(&init_req).unwrap();
+
+        let req = make_request("resources/list", None);
+        let result = server.handle_resources_list(&req).unwrap();
+        let resources = result["resources"].as_array().unwrap();
+        assert!(!resources.is_empty(), "Should have at least one resource");
+        let uris: Vec<&str> = resources.iter().filter_map(|r| r["uri"].as_str()).collect();
+        assert!(uris.contains(&"arpagona://server/info"));
+        assert!(uris.contains(&"arpagona://tools/list"));
+        assert!(uris.contains(&"arpagona://audit/recent"));
+    }
+
+    #[test]
+    fn test_resources_list_before_initialize_fails() {
+        let mut server = McpServer::new(McpServerConfig::default());
+        let req = make_request("resources/list", None);
+        let result = server.handle_resources_list(&req);
+        assert!(result.is_err(), "Should fail before initialize");
+    }
+
+    #[test]
+    fn test_resources_templates_list_returns_templates() {
+        let mut server = McpServer::new(McpServerConfig::default());
+        let init_req = make_request("initialize", None);
+        server.handle_initialize(&init_req).unwrap();
+
+        let req = make_request("resources/templates/list", None);
+        let result = server.handle_resources_templates_list(&req).unwrap();
+        let templates = result["resource_templates"].as_array().unwrap();
+        assert!(!templates.is_empty(), "Should have at least one template");
+        assert_eq!(
+            templates[0]["uri_template"],
+            "arpagona://audit/by-id/{audit_id}"
+        );
+    }
+
+    #[test]
+    fn test_resources_read_server_info() {
+        let mut server = McpServer::new(McpServerConfig::default());
+        let init_req = make_request("initialize", None);
+        server.handle_initialize(&init_req).unwrap();
+
+        let req = make_request(
+            "resources/read",
+            Some(json!({"uri": "arpagona://server/info"})),
+        );
+        let result = server.handle_resources_read(&req).unwrap();
+        let contents = result["contents"].as_array().unwrap();
+        assert!(!contents.is_empty());
+        assert!(contents[0]["text"]
+            .as_str()
+            .unwrap_or("")
+            .contains("arpagona-mcp"));
+    }
+
+    #[test]
+    fn test_resources_read_tools_list() {
+        let mut server = McpServer::new(McpServerConfig::default());
+        let init_req = make_request("initialize", None);
+        server.handle_initialize(&init_req).unwrap();
+
+        let req = make_request(
+            "resources/read",
+            Some(json!({"uri": "arpagona://tools/list"})),
+        );
+        let result = server.handle_resources_read(&req).unwrap();
+        let contents = result["contents"].as_array().unwrap();
+        assert!(!contents.is_empty());
+        assert!(contents[0]["text"]
+            .as_str()
+            .unwrap_or("")
+            .contains("read_file"));
+    }
+
+    #[test]
+    fn test_resources_read_unknown_uri_fails() {
+        let mut server = McpServer::new(McpServerConfig::default());
+        let init_req = make_request("initialize", None);
+        server.handle_initialize(&init_req).unwrap();
+
+        let req = make_request(
+            "resources/read",
+            Some(json!({"uri": "arpagona://unknown/resource"})),
+        );
+        let result = server.handle_resources_read(&req);
+        assert!(result.is_err(), "Should fail for unknown URI");
+    }
+
+    #[test]
+    fn test_prompts_list_returns_prompts() {
+        let mut server = McpServer::new(McpServerConfig::default());
+        let init_req = make_request("initialize", None);
+        server.handle_initialize(&init_req).unwrap();
+
+        let req = make_request("prompts/list", None);
+        let result = server.handle_prompts_list(&req).unwrap();
+        let prompts = result["prompts"].as_array().unwrap();
+        assert!(!prompts.is_empty(), "Should have at least one prompt");
+        let names: Vec<&str> = prompts.iter().filter_map(|p| p["name"].as_str()).collect();
+        assert!(names.contains(&"assess_governance"));
+        assert!(names.contains(&"summarize_context"));
+        assert!(names.contains(&"inspect_audit_record"));
+    }
+
+    #[test]
+    fn test_prompts_get_summarize_context() {
+        let mut server = McpServer::new(McpServerConfig::default());
+        let init_req = make_request("initialize", None);
+        server.handle_initialize(&init_req).unwrap();
+
+        let req = make_request("prompts/get", Some(json!({"name": "summarize_context"})));
+        let result = server.handle_prompts_get(&req).unwrap();
+        let messages = result["messages"].as_array().unwrap();
+        assert!(!messages.is_empty(), "Should have at least one message");
+        let text = messages[0]["content"]["text"].as_str().unwrap_or("");
+        assert!(text.contains("Tools exposed"), "Should mention tools");
+        assert!(
+            text.contains("Resources available"),
+            "Should mention resources"
+        );
+        assert!(text.contains("Prompts available"), "Should mention prompts");
+    }
+
+    #[test]
+    fn test_prompts_get_unknown_name_fails() {
+        let mut server = McpServer::new(McpServerConfig::default());
+        let init_req = make_request("initialize", None);
+        server.handle_initialize(&init_req).unwrap();
+
+        let req = make_request("prompts/get", Some(json!({"name": "nonexistent_prompt"})));
+        let result = server.handle_prompts_get(&req);
+        assert!(result.is_err(), "Should fail for unknown prompt name");
+    }
+
+    #[test]
+    fn test_prompts_get_before_initialize_fails() {
+        let mut server = McpServer::new(McpServerConfig::default());
+        let req = make_request("prompts/get", Some(json!({"name": "summarize_context"})));
+        let result = server.handle_prompts_get(&req);
+        assert!(result.is_err(), "Should fail before initialize");
+    }
+
+    #[test]
+    fn test_resources_templates_list_before_initialize_fails() {
+        let mut server = McpServer::new(McpServerConfig::default());
+        let req = make_request("resources/templates/list", None);
+        let result = server.handle_resources_templates_list(&req);
+        assert!(result.is_err(), "Should fail before initialize");
+    }
+
+    #[test]
+    fn test_resources_read_before_initialize_fails() {
+        let mut server = McpServer::new(McpServerConfig::default());
+        let req = make_request(
+            "resources/read",
+            Some(json!({"uri": "arpagona://server/info"})),
+        );
+        let result = server.handle_resources_read(&req);
+        assert!(result.is_err(), "Should fail before initialize");
     }
 }

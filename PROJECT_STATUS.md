@@ -565,3 +565,36 @@ providers (fastembed, ONNX, etc.) via future feature-gated implementations.
 ### Risks
 - Weight rebalancing (25/25/25/5/20) changes the relative importance of each overlap dimension. Traces that previously resonated by decision overlap alone may score lower. This is intentional — decision overlap was the least semantically meaningful dimension; embedding overlap replaces it with higher semantic weight.
 - Character n-gram embedding is a simplified stand-in for real embeddings. Captures morphology but not true synonymy ("car" ≠ "automobile"). This is documented as a limitation.
+
+## Latest Session Update — Session 39: Track A Phase 4 — MCP Resources + Prompts
+
+### What was built
+- **MCP Resource types** (`McpResource`, `McpResourceTemplate`, `ResourceContents`, `ResourceAnnotations`) in `crates/mcp-server/src/types.rs`
+- **MCP Prompt types** (`McpPrompt`, `PromptArgument`, `PromptMessage`, `PromptMessageContent`) in `crates/mcp-server/src/types.rs`
+- **Handle resources/list** — exposes server info, tools list, recent governance audit, and audit stats as discoverable resources
+- **Handle resources/templates/list** — exposes `arpagona://audit/by-id/{audit_id}` template for parameterized audit record lookup
+- **Handle resources/read** — returns JSON content for each resource URI; handles server/info, tools/list, audit/recent, audit/stats
+- **Handle prompts/list** — exposes 3 prompt templates: `assess_governance`, `summarize_context`, `inspect_audit_record`
+- **Handle prompts/get** — generates structured prompt messages with dynamic data from the audit store
+- **Dispatch routing** — all new methods routed in `handle_request_to_message`
+- **Capability advertisement** — `initialize` now advertises `resources: {}` and `prompts: {}` capabilities
+- **12 new tests** covering resources list, read, templates, prompts list/get, error cases, and pre-initialize guards
+
+### Functional-alpha chain advancement
+```
+MCP Server -> Resources (Phase 4) -> Prompts (Phase 4) -> Structured data surfaces for external agents
+```
+
+### What was NOT added
+- No real execution capabilities
+- No shell access
+- No browser automation
+- No SurrealDB persistence
+- No Decision Gate bypass
+- No LLM calls
+- No notification support (Phase 5 — deferred)
+
+### Risks
+- Resource URIs are hardcoded (`arpagona://` scheme). If the URI scheme changes in the future, the handler match arms and resource listing must be updated in sync.
+- Prompt templates contain English prose directly in Rust strings. Internationalization or template externalization is deferred.
+- The `audit/stats` and `audit/recent` resources only work when `audit_path` is configured in `McpServerConfig`. When not configured, they return empty/error content.
