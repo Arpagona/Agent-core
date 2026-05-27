@@ -12,17 +12,16 @@ P1 (open PRs) takes priority over alternation.
 
 ## Next action
 
-**Track B Step B4 — SQLite persistence for holographic memory.** PR #115 created this run implementing `SqliteHolographicMemoryStore`.
+**Track A Phase 5 — MCP notifications / tools/list_changed.** PR #117 created this run implementing Track A Phase 5.
 
-Wait for CI on PR #115. If CI passes green, auto-merge. Then advance to **Track B Step B5 — periodic consolidation + redundant trace merging.**
+Wait for CI on PR #117. If CI passes green, auto-merge. Then advance to **Track B Step B6 — governance of memory writes via DecisionGate (`MemoryWriteKind::HolographicTrace`).**
 
-B5 consolidates redundant traces in the holographic memory store by merging traces with overlapping signatures within a configurable time window, reducing memory bloat from repeated similar observations.
+Step B6 adds DecisionGate governance to holographic memory writes, ensuring that storing a `HolographicTrace` is a governed action subject to the same `ProposedAction -> DecisionGate -> Decision -> Audit` path used by other memory operations.
 
-Proof to seek: `cargo test --workspace` green. A new PR exists with:
-- `consolidate_traces(window_minutes, similarity_threshold)` method on `HolographicMemoryStore` trait
-- Default no-op implementation on `InMemoryHolographicMemoryStore`
-- SQLite implementation that queries for trace pairs with similar signatures within a time window, merges keywords/concepts/entities, updates activation counts, removes duplicates
-- CLI command `memory holographic consolidate [--window 60] [--threshold 0.7]`
-- Tests proving merged traces retain key content and redundant traces are removed
+Implementation requires:
+- Adding `MemoryWriteKind::HolographicTrace` variant to the existing `MemoryWriteKind` enum
+- Adding a governance path in the holographic memory store that creates `ProposedAction` → evaluates through DecisionGate → records `AuditEvent`
+- Tests proving that ungoverned holographic memory writes are blocked and governed writes produce audit traces
+- Readback showing the governance decision context
 
-Do not: add real execution, shell access, LLM calls, browser automation, email sending, or SurrealDB persistence.
+Do not: add real execution, shell access, LLM calls, browser automation, email sending, or SurrealDB persistence beyond existing usage.
