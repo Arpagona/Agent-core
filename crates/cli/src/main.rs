@@ -9993,4 +9993,138 @@ mod tests {
             _ => panic!("expected executor inspect --offline --state-file"),
         }
     }
+
+    // ── LLM / C1 tests ─────────────────────────────────────────────────────
+
+    #[test]
+    fn cli_parses_cognitive_run_with_llm_flag() {
+        let cli = Cli::parse_from([
+            "arpagona",
+            "cognitive",
+            "run",
+            "--objective",
+            "Analyse le marché français",
+            "--llm",
+        ]);
+        match cli.command {
+            Command::Cognitive(CognitiveCommand {
+                command: CognitiveSubcommand::Run(args),
+            }) => {
+                assert!(args.llm);
+                assert_eq!(args.provider, "ollama", "default provider should be ollama");
+                assert!(!args.json);
+            }
+            _ => panic!("expected cognitive run with --llm"),
+        }
+    }
+
+    #[test]
+    fn cli_parses_cognitive_run_with_llm_and_provider() {
+        let cli = Cli::parse_from([
+            "arpagona",
+            "cognitive",
+            "run",
+            "--objective",
+            "Analyse les journaux",
+            "--llm",
+            "--provider",
+            "mock",
+        ]);
+        match cli.command {
+            Command::Cognitive(CognitiveCommand {
+                command: CognitiveSubcommand::Run(args),
+            }) => {
+                assert!(args.llm);
+                assert_eq!(args.provider, "mock");
+            }
+            _ => panic!("expected cognitive run with --llm --provider mock"),
+        }
+    }
+
+    #[test]
+    fn cli_parses_cognitive_run_with_llm_and_json() {
+        let cli = Cli::parse_from([
+            "arpagona",
+            "cognitive",
+            "run",
+            "--objective",
+            "Research quantum",
+            "--llm",
+            "--json",
+        ]);
+        match cli.command {
+            Command::Cognitive(CognitiveCommand {
+                command: CognitiveSubcommand::Run(args),
+            }) => {
+                assert!(args.llm);
+                assert!(args.json);
+            }
+            _ => panic!("expected cognitive run with --llm --json"),
+        }
+    }
+
+    #[test]
+    fn cli_parses_cognitive_run_with_llm_provider_and_assess() {
+        let cli = Cli::parse_from([
+            "arpagona",
+            "cognitive",
+            "run",
+            "--objective",
+            "Governed market analysis",
+            "--llm",
+            "--provider",
+            "openai",
+            "--assess",
+            "--json",
+        ]);
+        match cli.command {
+            Command::Cognitive(CognitiveCommand {
+                command: CognitiveSubcommand::Run(args),
+            }) => {
+                assert!(args.llm);
+                assert_eq!(args.provider, "openai");
+                assert!(args.assess);
+                assert!(args.json);
+            }
+            _ => panic!("expected cognitive run with --llm --provider openai --assess --json"),
+        }
+    }
+
+    #[test]
+    fn cli_parses_cognitive_run_with_provider_and_all_flags() {
+        let cli = Cli::parse_from([
+            "arpagona",
+            "cognitive",
+            "run",
+            "--objective",
+            "Full pipeline test",
+            "--domain",
+            "business",
+            "--context",
+            "sensitivity:low",
+            "--assess",
+            "--allocate",
+            "--resonate",
+            "--observe",
+            "--llm",
+            "--provider",
+            "ollama",
+            "--json",
+        ]);
+        match cli.command {
+            Command::Cognitive(CognitiveCommand {
+                command: CognitiveSubcommand::Run(args),
+            }) => {
+                assert!(args.llm);
+                assert_eq!(args.provider, "ollama");
+                assert!(args.assess);
+                assert!(args.allocate);
+                assert!(args.resonate);
+                assert!(args.observe);
+                assert!(args.json);
+                assert_eq!(args.domain.as_deref(), Some("business"));
+            }
+            _ => panic!("expected cognitive run with all flags including --llm"),
+        }
+    }
 }
