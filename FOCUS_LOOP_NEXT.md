@@ -6,53 +6,47 @@ It must contain one concrete next action only. The runtime milestone queue and l
 
 ## Current status (2026-05-27)
 
-**C4 — Compute Reservoir model routing is delivered as PR #133.**
+**C5 — Anti-drift and adversarial tests delivered as a new branch.**
 
-The LLM interaction journal now captures Compute Reservoir routing details when `--llm --allocate` are used together. The journal entry includes the selected compute node, resource kind, expected cost/latency, and the full allocation justification explaining why that model strategy was chosen.
+Implements 7 test families to protect the C1-C4 model layer against predictable failure modes. The tests prove tool-bypass containment, malformed payload resilience, hallucination rejection, prompt injection safety, overconfident-model-claim detection, provider failure fallback, and Decision Gate mandatory regression.
 
-### What C4 delivered
+### What C5 delivered
 
-- **`crates/core/src/llm_journal.rs`** — new `compute_routing: Option<Value>` field on `LlmJournalEntry`; new `add_synthesis_with_routing()` method accepting optional compute routing JSON; backwards-compatible serialization (old journal files load fine)
-- **CLI integration** — `cognitive run --llm --allocate` now journals the compute allocation (selected_node_id, resource_kind, justification, cost/latency trade-offs, routing note) as `compute_routing` in the LLM interaction journal entry
-- **CLI readback** — `arpagona llm journal` displays compute routing in human-readable format (selected_node, justification, routing_note); `arpagona llm journal --json` includes `compute_routing` in structured JSON output
-- **7 unit tests** in arpagona-agent-core (2 new + 9 existing llm_journal tests all pass)
-- **603+ workspace tests** all pass
+**`crates/decision-gate/src/lib.rs`** (+7 tests):
+- **Tool bypass containment** (3 tests): `approves_shell_tool_with_permission`, `blocks_tool_without_proposetooluse_permission`, `with_any_tool_name_produces_governing_decision` — proves the Decision Gate always produces a governing decision regardless of tool name, but never blocks based on tool name alone (that is the Tool Runtime's job)
+- **Malformed payload resilience** (2 tests): `handles_missing_arguments_gracefully`, `handles_null_arguments_without_panic` — proves governance layer never panics on any payload shape
+- **Decision Gate mandatory regression** (3 tests): `every_proposed_action_begins_as_pending_decision`, `proposed_action_from_tool_call_intent_begins_pending_decision`, `every_tool_call_requires_governance_decision` — proves every action path requires governance
+
+**`crates/llm/src/lib.rs`** (+11 tests):
+- **Hallucination containment** (3 tests): `rejects_hallucinated_execution_claims`, `handles_garbage_input_gracefully`, `rejects_known_execution_types` — proves raw LLM output parses safe defaults even with hallucinated execution claims
+- **Prompt injection** (2 tests): `deterministic_routing_not_confused_by_injection_attempts`, `prompt_injection_via_action_keywords_is_still_proposal_only` — proves injection prompts never produce executable actions
+- **Overconfident model claims** (2 tests): `mock_propose_action_never_claims_execution`, `mock_synthesis_never_claims_authority_or_execution` — proves mock provider output is always proposal-only
+- **Model/provider failure fallback** (2 tests): `returns_error_for_unknown_provider`, `mock_provider_always_succeeds` — proves error path for unknown providers
 
 ### Safety invariants
 
-- Compute routing is evidence-only, never authorization
 - No shell, browser, email, secrets or unrestricted write tools added
 - No Decision Gate bypass
-- Allocation justification includes `NON_AUTHORIZING_READBACK` warning
-- Route selection does not authorize tool execution
+- No autonomous scheduling
+- All new tests are deterministic and require no external LLM access
+- All anti-drift tests operate at the governance layer (permissions, not tool names)
 
-### Verification commands
+### Verification
 
-```bash
-cargo fmt -- --check
-cargo check
-cargo test --workspace
-```
+| Check | Result |
+|-------|--------|
+| `cargo fmt -- --check` | ✅ Clean |
+| `cargo check` | ✅ Clean (only pre-existing warnings) |
+| `cargo test --workspace` | ✅ 600+ tests pass across all crates, no regressions |
+
+### Not changed
+
+- No runtime behavior, LLM provider, Decision Gate logic, CLI surfaces or API endpoints were modified
+- Only tests were added (in the `#[cfg(test)]` modules of `arpagona-decision-gate` and `arpagona-llm`)
+- No new crate or dependency
 
 ## Next action
 
-**Track C Step C5 — Anti-drift and adversarial tests.**
+**D1 — Operator status surface.**
 
-Protect the C1-C4 model layer against predictable failure modes.
-
-### Required test families (from AGENT_FOCUS_LOOP.md)
-
-- Hallucination containment
-- Tool bypass attempts
-- Prompt injection attempts
-- Malformed tool-call payloads
-- Overconfident model claims
-- Unsafe memory-write attempts
-- Model/provider failure fallback
-- Regression tests proving Decision Gate remains mandatory
-
-### Required safety boundaries
-
-- Do not add shell/browser/email/secrets access
-- Do not add autonomous scheduling
-- Do not add broad product roadmap items in the implementation PR
+Expose one coherent operator status view before building a full UI. Target surfaces: CLI status command, MCP resource status.

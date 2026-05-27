@@ -727,4 +727,205 @@ mod tests {
             "proposed action should use DirectToolCall type"
         );
     }
+    // ── C5 anti-drift: tool bypass attempts ─────────────────────────────────
+    //
+    // The Decision Gate is a permission gate, not a tool whitelist.
+    // Tool name validation is the responsibility of the Tool Runtime layer
+    // (crates/tool-runtime). These tests prove that the governance layer:
+    // - Approves tool-call intents when permissions and risk level allow
+    // - Never blocks solely based on tool name (that's the runtime's job)
+    // - Every tool-call intent always produces a governing Decision
+
+    #[test]
+    fn govern_tool_call_approves_shell_tool_with_permission() {
+        // The Decision Gate approves when ProposeToolUse permission is granted
+        // and risk is Low/Informational. Tool name validation belongs to the
+        // Tool Runtime, not the governance layer.
+        let intent = ToolCallIntent {
+            tool: "shell".to_owned(),
+            arguments: json!({"command": "rm -rf /"}),
+            rationale: "Execute system cleanup".to_owned(),
+            risk_level: RiskLevel::Low,
+        };
+        let (decision, _) = govern_tool_call(&intent, &[Permission::ProposeToolUse]);
+        assert_eq!(
+            decision.status,
+            DecisionStatus::Approved,
+            "Decision Gate approves based on permissions, not tool names: {}",
+            decision.reason
+        );
+        // The unsafe tool name must produce a governing decision regardless
+        assert!(
+            decision.id.as_str().starts_with("decision-direct-tc-"),
+            "every tool call must produce a governance decision"
+        );
+    }
+
+    #[test]
+    fn govern_tool_call_blocks_tool_without_proposetooluse_permission() {
+        let intent = ToolCallIntent {
+            tool: "read_file".to_owned(),
+            arguments: json!({"path": "test.md"}),
+            rationale: "Need to read a file".to_owned(),
+            risk_level: RiskLevel::Informational,
+        };
+        let (decision, _) = govern_tool_call(&intent, &[]);
+        // Without ProposeToolUse permission, the gate produces RequiresOverride
+        // (since override engine classifies this as overridable)
+        assert_ne!(
+            decision.status,
+            DecisionStatus::Approved,
+            "without ProposeToolUse, tool calls should not be approved"
+        );
+    }
+
+    #[test]
+    fn govern_tool_call_with_any_tool_name_produces_governing_decision() {
+        // Every tool name, including dangerous ones, must produce a valid
+        // Decision rather than panicking or silently executing
+        let test_tools = [
+            "shell",
+            "bash",
+            "exec",
+            "sh",
+            "sudo",
+            "rm",
+            "mv",
+            "chmod",
+            "write",
+            "curl",
+            "wget",
+            "ssh",
+            "eval",
+            "system",
+            "command",
+            "read_file",
+            "list_files",
+            "search_text",
+            "",
+        ];
+        for tool in &test_tools {
+            let intent = ToolCallIntent {
+                tool: tool.to_string(),
+                arguments: json!({}),
+                rationale: format!("Test tool name: {tool}"),
+                risk_level: RiskLevel::Informational,
+            };
+            let (decision, proposal) = govern_tool_call(&intent, &[Permission::ProposeToolUse]);
+            // Must produce a Decision (not panic)
+            assert!(
+                matches!(
+                    decision.status,
+                    DecisionStatus::Approved
+                        | DecisionStatus::Blocked
+                        | DecisionStatus::NeedsHumanApproval
+                ),
+                "every tool name must produce a decision: {tool} -> {:?}",
+                decision.status
+            );
+            // The proposed action must use DirectToolCall type
+            assert_eq!(
+                proposal.action_type,
+                ActionType::DirectToolCall,
+                "{tool} should produce DirectToolCall type"
+            );
+            assert_eq!(
+                proposal.status,
+                ProposedActionStatus::PendingDecision,
+                "{tool} proposal must begin as PendingDecision"
+            );
+        }
+    }
+
+    // ── C5 anti-drift: malformed tool-call payloads ─────────────────────────
+
+    #[test]
+    fn govern_tool_call_handles_missing_arguments_gracefully() {
+        let intent = ToolCallIntent {
+            tool: "read_file".to_owned(),
+            arguments: json!({}),
+            rationale: "Missing path argument".to_owned(),
+            risk_level: RiskLevel::Informational,
+        };
+        let (decision, _) = govern_tool_call(&intent, &[Permission::ProposeToolUse]);
+        assert_eq!(
+            decision.status,
+            DecisionStatus::Approved,
+            "governance should approve tool calls with valid permissions: {}",
+            decision.reason
+        );
+    }
+
+    #[test]
+    fn govern_tool_call_handles_null_arguments_without_panic() {
+        let intent = ToolCallIntent {
+            tool: "read_file".to_owned(),
+            arguments: serde_json::Value::Null,
+            rationale: "Null arguments".to_owned(),
+            risk_level: RiskLevel::Informational,
+        };
+        let (decision, _) = govern_tool_call(&intent, &[Permission::ProposeToolUse]);
+        assert!(
+            matches!(
+                decision.status,
+                DecisionStatus::Approved | DecisionStatus::Blocked
+            ),
+            "should produce a decision without panicking: {}",
+            decision.reason
+        );
+    }
+
+    // ── C5 anti-drift: Decision Gate mandatory regression tests ─────────────
+
+    #[test]
+    fn every_proposed_action_begins_as_pending_decision() {
+        let action = proposed_action(ActionType::ReadDocument, RiskLevel::Informational);
+        assert_eq!(action.status, ProposedActionStatus::PendingDecision);
+
+        let action2 = proposed_action(ActionType::WriteDocument, RiskLevel::Critical);
+        assert_eq!(action2.status, ProposedActionStatus::PendingDecision);
+    }
+
+    #[test]
+    fn proposed_action_from_tool_call_intent_begins_pending_decision() {
+        let intent = ToolCallIntent {
+            tool: "read_file".to_owned(),
+            arguments: json!({"path": "test.md"}),
+            rationale: "Testing".to_owned(),
+            risk_level: RiskLevel::Informational,
+        };
+        let (_, proposal) = govern_tool_call(&intent, &[Permission::ProposeToolUse]);
+        assert_eq!(
+            proposal.status,
+            ProposedActionStatus::PendingDecision,
+            "all tool-call proposals must begin as PendingDecision"
+        );
+    }
+
+    #[test]
+    fn every_tool_call_requires_governance_decision() {
+        // Prove the only way to evaluate a ToolCallIntent is through govern_tool_call
+        let intent = ToolCallIntent {
+            tool: "read_file".to_owned(),
+            arguments: json!({"path": "test.md"}),
+            rationale: "Prove governance path".to_owned(),
+            risk_level: RiskLevel::Informational,
+        };
+        let (decision, _) = govern_tool_call(&intent, &[Permission::ProposeToolUse]);
+        // A Decision must be produced through proper governance
+        assert!(
+            matches!(
+                decision.status,
+                DecisionStatus::Approved
+                    | DecisionStatus::Blocked
+                    | DecisionStatus::NeedsHumanApproval
+            ),
+            "govern_tool_call must produce a valid decision"
+        );
+        assert!(
+            decision.id.as_str().starts_with("decision-direct-tc-"),
+            "decision ID should reference the tool-call prefix: {}",
+            decision.id.as_str()
+        );
+    }
 }

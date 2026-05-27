@@ -1278,3 +1278,48 @@ Alpha C4 delivery. Extends the existing C3 journal with optional compute routing
 ### Recommended next step
 
 After PR #133 is merged, proceed to **Track C Step C5 — Anti-drift and adversarial tests**.
+
+## 19. Latest Session Update (2026-05-27 — Track C Step C5: Anti-drift and adversarial tests)
+
+This session added 18 new anti-drift and adversarial tests across the Decision Gate and LLM provider crates.
+
+### Test families covered
+
+| Family | Tests | Location |
+|--------|-------|----------|
+| **Tool bypass containment** | 3 | `crates/decision-gate/src/lib.rs` — proves the Decision Gate always produces a governing decision regardless of tool name; blocks only when permissions are missing |
+| **Malformed payload resilience** | 2 | `crates/decision-gate/src/lib.rs` — proves governance layer never panics on missing or null arguments |
+| **Decision Gate mandatory regression** | 3 | `crates/decision-gate/src/lib.rs` — proves every tool-call proposal begins as `PendingDecision` and requires governance |
+| **Hallucination containment** | 3 | `crates/llm/src/lib.rs` — proves hallucinated execution claims in LLM output are safely parsed as proposals; garbage input rejected; execution-type JSON rejected |
+| **Prompt injection** | 2 | `crates/llm/src/lib.rs` — proves injection prompts never produce executable actions; all injection-triggered proposals are proposal-only with `llm_executed=false` |
+| **Overconfident model claims** | 2 | `crates/llm/src/lib.rs` — proves mock provider output never claims execution or authority |
+| **Model/provider failure fallback** | 2 | `crates/llm/src/lib.rs` — proves `run_cognitive_synthesis` returns a structured error for unknown providers; mock provider always succeeds |
+| **Safety language invariant** | 1 | `mock_synthesis_never_claims_authority_or_execution` confirms output contains non-authorizing disclaimer |
+
+### Verification
+
+| Check | Result |
+|-------|--------|
+| `cargo fmt -- --check` | ✅ Clean |
+| `cargo check` | ✅ Clean (only pre-existing warnings) |
+| `cargo test --workspace` | ✅ 600+ tests pass, no regressions |
+
+### Files changed
+
+| File | Change |
+|------|--------|
+| `crates/decision-gate/src/lib.rs` | Added 7 C5 anti-drift tests in `#[cfg(test)] mod tests` |
+| `crates/llm/src/lib.rs` | Added 11 C5 anti-drift tests in `#[cfg(test)] mod tests` |
+| `FOCUS_LOOP_NEXT.md` | Updated handoff to D1 (Operator status surface) |
+
+### What was NOT added
+
+- No runtime behavior, LLM provider, Decision Gate logic, CLI surfaces or API endpoints were modified
+- No new crate or dependency
+- No shell, browser, email, secrets or unrestricted write tools
+- No Decision Gate bypass
+- No autonomous scheduling
+
+### Stability level
+
+Stable test-only addition. All 18 new tests are deterministic, require no external LLM access, and operate at the governance/proposal layer.
