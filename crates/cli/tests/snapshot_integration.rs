@@ -879,3 +879,210 @@ fn cognitive_govern_chain_produces_decisions_and_audit_events_offline() {
         "governance_warning should indicate offline governance readback"
     );
 }
+
+#[test]
+fn cognitive_observe_govern_pipeline_produces_governance_results_from_tool_observations() {
+    // The --observe --govern pipeline: ToolRuntime observations -> governance via
+    // DecisionGate -> Decision -> AuditEvent. Proves that ToolRuntime results (read_file,
+    // list_files, search_text) propagate through the full governed learning chain
+    // in a single offline invocation, without requiring the API server.
+    let output = std::process::Command::new(ARPAGONA_BIN)
+        .args([
+            "cognitive",
+            "run",
+            "--objective",
+            "Analyse the codebase structure and dependencies",
+            "--assess",
+            "--observe",
+            "--govern",
+            "--json",
+        ])
+        .output()
+        .expect("failed to run cognitive run --assess --observe --govern --json");
+
+    assert!(
+        output.status.success(),
+        "cognitive run --assess --observe --govern --json failed:\nstdout: {}\nstderr: {}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr),
+    );
+
+    // Parse JSON output
+    let stdout: String = String::from_utf8(output.stdout).expect("valid utf-8");
+    let parsed: serde_json::Value =
+        serde_json::from_str(&stdout).expect("output should be valid JSON");
+
+    // -- Assert --observe flags --
+    let wm = parsed
+        .get("working_memory")
+        .expect("output should have working_memory");
+
+    // cognitive_observations must be present from --observe
+    let observations = wm
+        .get("cognitive_observations")
+        .expect("working_memory should have cognitive_observations (from --observe)");
+    let obs_array = observations
+        .as_array()
+        .expect("cognitive_observations should be an array");
+    assert!(
+        !obs_array.is_empty(),
+        "cognitive_observations should not be empty"
+    );
+
+    // Each observation must have tool_name, kind, status
+    for (i, obs) in obs_array.iter().enumerate() {
+        let tool_name = obs
+            .get("tool_name")
+            .and_then(|v| v.as_str())
+            .unwrap_or("missing");
+        assert!(
+            !tool_name.is_empty(),
+            "observation #{} should have a non-empty tool_name",
+            i
+        );
+        let kind = obs.get("kind").and_then(|v| v.as_str()).unwrap_or("");
+        assert!(
+            !kind.is_empty(),
+            "observation #{} should have a non-empty kind",
+            i
+        );
+        let status = obs.get("status").and_then(|v| v.as_str()).unwrap_or("");
+        assert!(
+            !status.is_empty(),
+            "observation #{} should have a non-empty status",
+            i
+        );
+    }
+
+    // observed flag must be true
+    assert_eq!(
+        wm.get("observed").and_then(|v| v.as_bool()),
+        Some(true),
+        "observed flag should be true"
+    );
+
+    // -- Assert --assess flags --
+    assert_eq!(
+        parsed.get("assessed").and_then(|v| v.as_bool()),
+        Some(true),
+        "assessed flag should be true"
+    );
+
+    // failure_insight_candidates must be present
+    let fic = wm.get("failure_insight_candidates").expect(
+        "working_memory should have failure_insight_candidates (from --assess + observations)",
+    );
+    assert!(
+        fic.as_array().map_or(false, |a| !a.is_empty()),
+        "failure_insight_candidates should not be empty"
+    );
+
+    // -- Assert --govern flags --
+    assert_eq!(
+        parsed.get("governed").and_then(|v| v.as_bool()),
+        Some(true),
+        "governed flag should be true"
+    );
+
+    // decision_count must be present and > 0
+    let decision_count = parsed
+        .get("decision_count")
+        .and_then(|v| v.as_u64())
+        .expect("output should have decision_count (positive integer)");
+    assert!(
+        decision_count > 0,
+        "decision_count should be > 0, got {}",
+        decision_count
+    );
+
+    // audit_event_count must be present and > 0
+    let audit_event_count = parsed
+        .get("audit_event_count")
+        .and_then(|v| v.as_u64())
+        .expect("output should have audit_event_count (positive integer)");
+    assert!(
+        audit_event_count > 0,
+        "audit_event_count should be > 0, got {}",
+        audit_event_count
+    );
+
+    // -- Assert governance_results structure --
+    let governance_results = parsed
+        .get("governance_results")
+        .expect("output should have governance_results");
+    let results_array = governance_results
+        .as_array()
+        .expect("governance_results should be an array");
+    assert!(
+        !results_array.is_empty(),
+        "governance_results should not be empty"
+    );
+    assert!(
+        results_array.len() as u64 >= decision_count,
+        "governance_results length ({}) should be >= decision_count ({})",
+        results_array.len(),
+        decision_count
+    );
+
+    // Each governance result must have proposed_action_id, decision, audit_event
+    for (i, result) in results_array.iter().enumerate() {
+        let proposed_action_id = result
+            .get("proposed_action_id")
+            .and_then(|v| v.as_str())
+            .unwrap_or("missing");
+        assert!(
+            !proposed_action_id.is_empty(),
+            "governance_result #{} should have non-empty proposed_action_id",
+            i
+        );
+
+        let decision = result
+            .get("decision")
+            .expect(&format!("governance_result #{} should have a decision", i));
+        let decision_status = decision
+            .get("status")
+            .and_then(|v| v.as_str())
+            .expect(&format!(
+                "governance_result #{} decision should have a status field",
+                i
+            ));
+        assert!(
+            ["approved", "rejected", "needs_human_review", "blocked"].contains(&decision_status),
+            "governance_result #{} decision status should be a valid DecisionGate status, got: {}",
+            i,
+            decision_status
+        );
+
+        let audit_event = result.get("audit_event").expect(&format!(
+            "governance_result #{} should have an audit_event",
+            i
+        ));
+        let event_type = audit_event
+            .get("event_type")
+            .and_then(|v| v.as_str())
+            .expect(&format!(
+                "governance_result #{} audit_event should have event_type",
+                i
+            ));
+        assert!(
+            !event_type.is_empty(),
+            "governance_result #{} audit_event event_type should be non-empty",
+            i
+        );
+    }
+
+    // -- Assert governance_warning present --
+    let warning = parsed
+        .get("governance_warning")
+        .expect("output should have governance_warning");
+    assert!(
+        warning.as_str().map_or(false, |s| !s.is_empty()),
+        "governance_warning should be a non-empty string"
+    );
+    assert!(
+        warning
+            .as_str()
+            .map_or(false, |s| s.contains("Offline governance readback")),
+        "governance_warning should indicate offline governance readback"
+    );
+}

@@ -795,3 +795,41 @@ Added 7 CLI parser tests for the `--context` flag on `cognitive run`, addressing
 - No file access, tool runtime, or execution behavior changes
 
 
+## 2026-05-27 — P3 end-to-end integration test for --assess --observe --govern pipeline
+
+### Summary
+
+Added the missing end-to-end integration test for the P3 Cognitive Observation to Governed Learning chain: ToolRuntime results (`--observe`) → FailureInsightCandidates (`--assess`) → DecisionGate/Decision/AuditEvent (`--govern`) — all offline, no API server required.
+
+### What was changed
+
+**`crates/cli/tests/snapshot_integration.rs`** — new test `cognitive_observe_govern_pipeline_produces_governance_results_from_tool_observations`:
+
+- Spawns `arpagona cognitive run --assess --observe --govern --json` as a subprocess (same cross-process binary pattern as existing integration tests)
+- Proves cognitive_observations are produced from ToolRuntime (read_file, list_files)
+- Proves each observation has tool_name, kind, and status fields
+- Proves `observed` flag is `true`
+- Proves failure_insight_candidates are present (from both improvement_candidates and observation assessments)
+- Proves governance_results contain proposed_action, decision, and audit_event per entry
+- Proves decision_count > 0 and audit_event_count > 0
+- Proves governance_warning indicates offline governance readback
+
+### Verification
+
+- `cargo fmt -- --check`: ✅ clean
+- `cargo check`: ✅ clean
+- `cargo test --workspace`: ✅ all tests pass (including the new integration test)
+
+### What was NOT changed
+
+- No changes to core domain types, Decision Gate, CLI handler logic, tool runtime, or any other crate
+- No new capabilities added
+- No Decision Gate bypass
+- No LLM calls, browser automation, email, or restricted capabilities
+- No file access, execution, or governance behavior changes
+
+### Track C / P3 advancement
+
+This completes the remaining gap for P3: the `--observe --govern` offline pipeline now has end-to-end test coverage. P3 is functionally complete when combined with the existing `--assess --govern` integration test (cognitive_govern_chain_produces_decisions_and_audit_events_offline) and the `--assess --observe --propose` test (cognitive_propose_pipeline_produces_governed_proposals).
+
+
