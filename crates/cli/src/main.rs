@@ -19,7 +19,7 @@ use arpagona_graph_memory::{
 };
 use arpagona_holographic_memory::{
     HolographicMemoryError, HolographicMemoryStore, HolographicQuery, HolographicTrace,
-    InMemoryHolographicMemoryStore, SourceKind,
+    InMemoryHolographicMemoryStore, MemoryGraphTraversalResult, SourceKind,
 };
 use arpagona_llm::run_cognitive_synthesis;
 use arpagona_tool_runtime::{ToolRuntime, ToolRuntimeConfig};
@@ -754,6 +754,11 @@ enum HolographicSubcommand {
     /// holographic traces using keyword extraction and role-based concepts.
     /// Optionally finds similar traces by resonance after processing.
     FromConversation(HolographicFromConversationArgs),
+    /// Explore the linked-memory graph from a trace, following linked_memory_ids chains.
+    ///
+    /// Uses BFS traversal with configurable depth limit and cycle detection.
+    /// Returns all reachable traces in discovery order with traversal metadata.
+    Explore(HolographicExploreArgs),
 }
 
 #[derive(Debug, Args)]
@@ -825,6 +830,25 @@ struct HolographicFromConversationArgs {
     /// Maximum number of resonance matches when --find-similar is set.
     #[arg(long, default_value = "5")]
     limit: usize,
+    /// Emit structured JSON instead of human-oriented text.
+    #[arg(long)]
+    json: bool,
+}
+
+#[derive(Debug, Args)]
+struct HolographicExploreArgs {
+    /// The trace ID to start traversal from.
+    #[arg(long)]
+    trace_id: String,
+    /// Project scope for the traces.
+    #[arg(long, default_value = "default")]
+    project_id: String,
+    /// Maximum traversal depth (0 = root only).
+    #[arg(long, default_value_t = 10)]
+    max_depth: usize,
+    /// Path to the holographic memory JSON file.
+    #[arg(long, default_value = "target/holographic-store.json")]
+    file: String,
     /// Emit structured JSON instead of human-oriented text.
     #[arg(long)]
     json: bool,
@@ -1426,6 +1450,7 @@ async fn run() -> Result<(), Box<dyn Error>> {
                 HolographicSubcommand::FromConversation(args) => {
                     memory_holographic_from_conversation(args)?
                 }
+                HolographicSubcommand::Explore(args) => memory_holographic_explore(args)?,
             },
         },
         Command::Tool(tool) => match tool.command {
@@ -2598,6 +2623,94 @@ fn memory_holographic_from_conversation(
             }
         }
 
+        println!();
+        println!(
+            "⚠️  Holographic memory is recall evidence only. It does not authorize any action."
+        );
+    }
+
+    Ok(())
+}
+
+fn memory_holographic_explore(args: HolographicExploreArgs) -> Result<(), Box<dyn Error>> {
+    // Load the store
+    let store = match InMemoryHolographicMemoryStore::load_from_file(&args.file) {
+        Ok(s) => s,
+        Err(HolographicMemoryError::PersistenceError(_)) => {
+            eprintln!("No holographic store found at: {}", args.file);
+            eprintln!("Add some traces first with `memory holographic add`.");
+            return Ok(());
+        }
+        Err(e) => {
+            return Err(format!("Failed to load holographic store: {}", e).into());
+        }
+    };
+
+    // Run the traversal
+    let result = store.traverse_linked_memories(&args.trace_id, args.max_depth);
+
+    let traversal = match result {
+        Ok(r) => r,
+        Err(HolographicMemoryError::TraceNotFound(id)) => {
+            eprintln!("Trace '{}' not found in the holographic store.", id);
+            eprintln!("Available traces:");
+            let traces = store.list_traces(&args.project_id);
+            if traces.is_empty() {
+                eprintln!("  (no traces for project '{}')", args.project_id);
+            } else {
+                for t in &traces {
+                    eprintln!("  {}: {}", t.id, t.content_summary);
+                }
+            }
+            return Ok(());
+        }
+        Err(e) => {
+            return Err(format!("Traversal error: {}", e).into());
+        }
+    };
+
+    if args.json {
+        println!("{}", serde_json::to_string_pretty(&traversal)?);
+    } else {
+        println!("🔗 Holographic Memory Graph Traversal");
+        println!();
+        println!("{}", traversal.traversal_summary);
+        println!();
+        println!("  Root trace:    {}", traversal.root_trace_id);
+        println!("  Visited:       {} traces", traversal.visited_traces.len());
+        println!(
+            "  Max depth:     {} / {} configured",
+            traversal.reachable_depth, traversal.max_depth_limit
+        );
+        if traversal.cycle_detected {
+            println!("  ⚠️  Cycle(s) detected and broken.");
+        }
+        if traversal.depth_limit_reached {
+            println!("  ⏹️  Depth limit reached; chain may extend further.");
+        }
+        println!();
+        println!("  Traversal order:");
+        for (i, trace_id) in traversal.visited_trace_ids.iter().enumerate() {
+            let indent = "    ".to_owned();
+            // Find the trace data
+            if let Some(trace) = traversal.visited_traces.iter().find(|t| t.id == *trace_id) {
+                let keywords_str = if trace.keywords.is_empty() {
+                    String::new()
+                } else {
+                    format!(" [keywords: {}]", trace.keywords.join(", "))
+                };
+                println!(
+                    "{}{}. {} ({}){}",
+                    indent,
+                    i + 1,
+                    trace_id,
+                    trace.content_summary,
+                    keywords_str,
+                );
+            } else {
+                println!("{}{}. {} (unknown trace)", indent, i + 1, trace_id);
+            }
+        }
         println!();
         println!(
             "⚠️  Holographic memory is recall evidence only. It does not authorize any action."

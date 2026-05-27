@@ -12,16 +12,16 @@ P1 (open PRs) takes priority over alternation.
 
 ## Next action
 
-**Step 1: Merge PR #110** (`feat/mcp-a2-persistent-governance-audit`) if CI is green. This is Track A Phase 2 refinement — persistent governance audit store for MCP DecisionGate decisions.
+**Track A Phase 3 — HTTP/SSE transport.** PR #111 (`feat/b2-recursive-memory-graph`) is Track B Step B2 (done this run). The alternation was Track B (this run), so the next step is Track A.
 
-**Step 2: Track B Step B2 — Recursive memory graph.** After PR #110 is merged, switch to Track B. Step B2 is about building a recursive memory graph that follows `linked_memory_ids` in depth, enabling Holographic Memory to traverse related traces.
+Phase 3 adds native HTTP transport and Server-Sent Events (SSE) support via an Axum endpoint `/mcp`. This enables remote MCP clients (not just stdio) to connect to the ARPAGONA MCP server.
 
-Why: The alternation was Track B (B1, done via PR #109), then Track A (A2 refinement, done via PR #110). The next step in the alternation is Track B Step B2.
+Why: Phase A2 (persistent governance audit) is merged via PR #110. Phase B2 (recursive memory graph) is done via PR #111. The next step in the alternation is Track A Phase 3.
 
 Proof to seek: `cargo test --workspace` green. A new PR exists with:
-- BFS/DFS traversal of HolographicTrace linked_memory_ids
-- Configurable depth limit to prevent infinite loops
-- CLI command to explore trace chains
-- Tests proving correct traversal, cycle detection, and depth limiting
+- Axum route at `/mcp` accepting JSON-RPC messages over HTTP POST
+- SSE endpoint for server-to-client notifications (tools/list_changed)
+- MCP protocol compatibility (JSON-RPC 2.0, methods: tools/list, tools/call)
+- Tests for HTTP request/response roundtrip
 
-Do not: add vector databases, embeddings, LLM calls, persistence changes, Decision Gate bypasses, or execution capabilities.
+Do not: add new tools, broaden execution, add LLM calls, bypass Decision Gate, or modify existing MCP tool governance.

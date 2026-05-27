@@ -1974,3 +1974,44 @@ Deliberately not changed:
 - No SurrealDB dependency added (pure serde_json + std::fs)
 - No Decision Gate bypass
 - No automatic memory write without operator command
+
+## Session 37 — 2026-05-27: Track B Step B2 — Recursive Memory Graph
+
+**Track:** B (Step B2)
+**Branch:** `feat/b2-recursive-memory-graph`
+
+### Summary
+
+Implemented recursive linked-memory graph traversal for Holographic Memory, enabling BFS traversal of `linked_memory_ids` chains with configurable depth limits and cycle detection. Added CLI command `arpagona memory holographic explore --trace-id <id> [--max-depth <n>]` for operator-facing trace chain exploration.
+
+### Changes
+
+**`crates/holographic-memory/src/lib.rs`:**
+- Added `MemoryGraphTraversalResult` struct with: `root_trace_id`, `visited_traces`, `visited_trace_ids`, `reachable_depth`, `max_depth_limit`, `cycle_detected`, `depth_limit_reached`, `traversal_summary`
+- Added `traverse_linked_memories` to the `HolographicMemoryStore` trait using BFS with cycle detection via `HashSet<String>` visited set
+- Configurable `max_depth` parameter with automatic depth-limit detection
+- 7 new tests: single trace (no links), basic chain, depth limit, cycle detection (back-edge), diamond pattern (no duplicates), nonexistent root error, max_depth=0 returns root only
+
+**`crates/cli/src/main.rs`:**
+- Added `Explore(HolographicExploreArgs)` variant to `HolographicSubcommand`
+- Added `memory_holographic_explore` handler with store loading, traversal, and `--json` / human-readable output
+
+### Verification
+
+| Check | Status |
+|---|---|
+| `cargo fmt -- --check` | ✅ Clean |
+| `cargo check` | ✅ Clean |
+| `cargo test -p arpagona-holographic-memory` | ✅ 34 passed (7 new traversal tests) |
+| `cargo test --workspace` | ✅ 436+ tests passed |
+
+Deliberately not changed:
+- No vector databases, embeddings, or LLM calls
+- No Decision Gate bypasses
+- No execution capabilities expanded
+- No SurrealDB dependency added
+- No existing holographic-memory APIs modified (only extended via trait method)
+- No automatic memory write without operator command
+- No persistence model changes
+- No authorization or readback-as-authorization behavior
+- No MCP integration changes
