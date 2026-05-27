@@ -29,8 +29,9 @@
     29|- `crates/tool-registry` exists as an alpha minimal declarative catalogue for tool definitions, capabilities, schemas, permissions, risk levels and enabled/disabled states, without execution.
     30|- `Reservoir Echo` currently exists inside the Cognitive Runtime primitives as short-term volatile cognitive continuity.
     31|- `crates/graph-memory` exists as an experimental SurrealDB adapter for Graph Memory persistence, alpha audit trace lookup by workspace, task, proposed action and decision, governed approved memory fact and FailureInsight persistence/readback helpers with non-authorizing trace proof readback, an in-memory demo/test store helper, and schema-backed CLI status readback.
-    32|- `crates/holographic-memory` exists as an alpha Rust kernel for symbolic associative memory: deterministic distributed signatures, resonance-based retrieval, project-scoped isolation, and an in-memory store with 22 tests.
-    33|- `crates/llm` exists as an experimental provider abstraction that can produce `ProposedAction` objects with `PendingDecision`, without executing tools.
+| `crates/holographic-memory` exists as an alpha Rust kernel for symbolic associative memory: deterministic distributed signatures, resonance-based retrieval, project-scoped isolation, SQLite persistence with drop/reopen survival, and an in-memory store with 22+ tests including consolidation, activation, and file-backed persistence.
+- `crates/mcp-server` exists as an alpha native MCP (Model Context Protocol) server with stdio and HTTP/SSE transport, DecisionGate governance for tools/call, audit store persistence, MCP resources + prompts, and notifications (`tools/list_changed`). All phases A1-A5 are merged and passing 52+ tests.
+- `crates/llm` exists as an experimental provider abstraction
     34|- `crates/runtime` exists as an experimental cognitive runtime loop that stops at action proposal.
     35|- `apps/api-server` exists as an alpha Axum API server.
     36|- `crates/cli` exists as an alpha terminal interface and provides read-only local supervision surfaces for decision-scoped audit readback, Failure-to-Insight vocabulary, Graph Memory alpha status, governed memory-write proposal readback and a local `memory demo failure-insight` loop for proposal → Decision Gate → audit → in-memory persistence → readback proof.
@@ -65,7 +66,7 @@
     65|| Core domain types | Stable foundation | Shared typed language | Includes minimal Failure-to-Insight vocabulary; remains pure, serializable and dependency-light. |
     66|| Decision Gate | Alpha | Pre-execution governance | Extracted into `crates/decision-gate`; `crates/core` no longer reexports the Decision Gate logic. |
     67|| Reservoir Echo | Alpha | Short-term cognitive continuity | Volatile traces only. Not persistent memory. Not model routing. Not Compute Reservoir. |
-    68|| Holographic Memory | Alpha V0 crate | Symbolic associative memory kernel | `crates/holographic-memory`: 22 tests, in-memory store, deterministic signatures, no LLM/vector DB/persistence/authorization. Canonical phrase: "Holographic Memory reactivates paths to truth. It does not replace truth." |
+    68|| Holographic Memory | Alpha V0 crate | Symbolic associative memory kernel | `crates/holographic-memory`: 22+ tests, SQLite persistence with drop/reopen survival, in-memory store, deterministic signatures, consolidation, resonance retrieval, no LLM/vector DB/authorization. Canonical phrase: "Holographic Memory reactivates paths to truth. It does not replace truth." |
     69|| Compute Reservoir | Alpha minimal | Compute/model/resource routing | `crates/compute-reservoir` provides serializable types and pure allocation only; no model calls, execution, I/O, persistence or Decision Gate replacement. |
     70|| Tool Registry | Alpha minimal | Declarative catalogue of tools and permissions | `crates/tool-registry` declares tools, capabilities, schemas, governance notes and lookup/status changes only; no execution path. |
     71|| `crates/graph-memory` | Experimental | SurrealDB Graph Memory adapter | Adds alpha audit-event queries by task, proposed action and decision plus governed FailureInsight memory trace proof readback, an in-memory demo/test helper and schema-backed CLI status readback; broader persistence conventions and graph schema still need stabilization. |
@@ -75,11 +76,12 @@
     75|| `crates/runtime` | Experimental | Cognitive runtime loop | Must remain proposal-only until governance layers are ready for controlled integration. |
     76|| `apps/api-server` | Alpha | REST access to alpha objects | Must not take business governance responsibility. |
     77|| `crates/cli` | Alpha supervision surface | Local Mission Control precursor | Provides read-only audit, Failure-to-Insight, Graph Memory status, governed memory-write proposal supervision and a local FailureInsight memory demo loop. Must not become an execution bypass. |
-    78|| Neutral Orchestrator | Not implemented | Coordination layer | Deferred until governance, compute and tool layers are coherent enough for controlled integration. |
-    79|| Mission Control Web | Deferred | Human supervision UI | Do not expand yet. CLI supervision comes first. |
-    80|| Scheduler / autonomous loops | Deferred | Controlled recurring work | Must wait for Decision Gate, Tool Registry, Audit and human approval path. |
-    81|| MCP integration | Deferred | External tool ecosystem | Must wait for Tool Registry and security hardening. |
-    82|| Browser automation | Deferred | Controlled web interaction | Must wait for governance, audit and security hardening. |
+| `crates/mcp-server` | Alpha | Native MCP server | Stdio + HTTP/SSE transport, DecisionGate governance, audit store, resources + prompts, notifications (A1-A5). 52+ tests across all phases. Must not add unsafe MCP capabilities (shell, browser, network, unrestricted file write). |
+|| Neutral Orchestrator | Not implemented | Coordination layer | Deferred until governance, compute and tool layers are coherent enough for controlled integration. |
+|| Mission Control Web | Deferred | Human supervision UI | Do not expand yet. CLI supervision comes first. |
+|| Scheduler / autonomous loops | Deferred | Controlled recurring work | Must wait for Decision Gate, Tool Registry, Audit and human approval path. |
+| MCP operator-readiness (A6) | 🔜 | External agent integration docs | MCP itself is now an active Alpha layer (see `crates/mcp-server` row). A6 covers documentation, examples and client smoke tests. Unsafe MCP capabilities remain forbidden. |
+|| Browser automation | Deferred | Controlled web interaction | Must wait for governance, audit and security hardening. |
     83|| Security hardening | Deferred | Production-grade protection | Final V0 hardening stage, not a reason to bypass governance now.
     84|
     85|## 3. What Is Stable
