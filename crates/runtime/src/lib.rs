@@ -5,6 +5,10 @@
 //! tools, does not call the Decision Gate automatically, and does not mutate
 //! external state.
 
+mod governed_tool_executor;
+
+pub use governed_tool_executor::{govern_and_execute_tool_call, GovernedToolCallResult};
+
 use arpagona_agent_core::{
     AgentId, CognitiveCycleInput, CognitiveCyclePlan, CognitiveLayer, CognitivePulse,
     ProposedAction, ProposedActionId, ProposedActionStatus, ReservoirState, RippleKind, TaskId,

@@ -1068,3 +1068,60 @@ The output is clearly advisory text — no ProposedAction, no Decision, no Audit
 - The default provider is `ollama` (local Ollama endpoint). If Ollama is not running and `--provider` is not set to `mock`, the `--llm` flag will produce a connection error. Users should set `--provider mock` for deterministic behavior, or ensure an Ollama instance is available.
 - The OpenAI provider requires `OPENAI_API_KEY` in the environment. The `arpagona auth openai` command can help operators configure this.
 - C1 is intentionally proposal-only. Real LLM tool-calling is deferred to C2.
+
+## 17. Latest Session Update (2026-05-27 — Track C Step C2: governed direct tool-call bridge)
+
+This session delivered the governed direct tool-calling bridge (Track C Step C2).
+
+### What was added
+
+**`crates/runtime/src/governed_tool_executor.rs`** — new bridge module:
+- `govern_and_execute_tool_call()` — evaluates a `ToolCallIntent` through the Decision Gate and executes through the bounded Tool Runtime if approved
+- `GovernedToolCallResult` — structured result carrying both the `Decision` and (when approved) the `ToolExecutionResult`
+
+**`crates/runtime/Cargo.toml`** — added dependencies on `arpagona-decision-gate` and `arpagona-tool-runtime`
+
+**`crates/runtime/src/lib.rs`** — added `mod governed_tool_executor` and re-exports for the public types
+
+**Inherited from foundation commit (cherry-picked):**
+- `ActionType::DirectToolCall` + `ToolCallIntent` in `crates/core/src/action.rs`
+- `govern_tool_call()` in `crates/decision-gate/src/lib.rs`
+- Execution registry + API server stubs
+
+### Tests (9 new)
+
+| Test | What it proves |
+|------|---------------|
+| `approved_tool_call_executes_via_tool_runtime` | read_file + ProposeToolUse → approved + executed |
+| `approved_list_files_executes_via_tool_runtime` | list_files + permission → approved + executed |
+| `approved_search_text_executes_via_tool_runtime` | search_text + permission → approved + executed |
+| `blocked_tool_call_without_permission` | No permissions → Blocked |
+| `blocked_high_risk_tool_call` | Critical risk → NeedsHumanApproval |
+| `malformed_tool_call_missing_arguments` | Permission OK → runtime fails on missing arg |
+| `absolute_path_in_tool_call_is_blocked_by_runtime` | /etc/passwd → runtime blocks on safety |
+| `unknown_tool_in_tool_call_requires_human_approval` | Unknown tool, Medium risk → NeedsHumanApproval |
+| `governed_tool_call_result_is_not_authorization` | Result is observation, not authorization |
+
+### Verification
+
+- `cargo fmt -- --check`: clean
+- `cargo check`: clean (only pre-existing warnings)
+- `cargo test --workspace`: 595+ tests pass, no regressions
+
+### Stability level
+
+Alpha runtime bridge. The `governed_tool_executor` module is a new bridge between the cognitive runtime, Decision Gate and Tool Runtime. The underlying crates remain at their existing stability levels.
+
+### Not changed (per C2 safety boundaries)
+
+- ✅ No shell/browser/email/secrets access
+- ✅ No unrestricted write tools
+- ✅ No autonomous scheduling
+- ✅ No Decision Gate bypass
+- ✅ No readback treated as authorization
+- ✅ C3 (journaling) deferred to next PR
+- ✅ Helm chart, Docker, CI, deployment unchanged
+
+### Recommended next step
+
+After PR #131 is merged, proceed to **Track C Step C3 — Prompt, response, decision and risk journaling**.

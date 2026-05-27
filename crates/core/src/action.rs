@@ -31,6 +31,11 @@ pub enum ActionType {
     ReadDocument,
     WriteDocument,
     ProposeToolUse,
+    /// A direct tool-call intent emitted by an LLM. This is distinct from
+    /// ProposeToolUse (which is triggered by MCP clients) — DirectToolCall
+    /// represents an LLM-initiated tool call that must pass through the
+    /// Decision Gate before execution.
+    DirectToolCall,
     SimulateEmail,
     ManageTask,
     Custom(String),
@@ -89,6 +94,24 @@ pub struct MemoryWriteIntent {
     pub decision_id: Option<DecisionId>,
     pub audit_event_id: Option<AuditEventId>,
     pub invalidation_note: Option<String>,
+}
+
+/// A tool-call intent emitted by an LLM, to be evaluated by the Decision Gate
+/// before execution. This is proposal vocabulary only — creating this value
+/// does not execute the tool, approve the call, or bypass governance.
+///
+/// A DirectToolCall may only become a controlled effect after the normal
+/// `ProposedAction -> DecisionGate -> Decision -> Audit` path approves it.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct ToolCallIntent {
+    /// The tool the LLM wants to call (e.g. "read_file", "search_text").
+    pub tool: String,
+    /// Arguments for the tool as a JSON object.
+    pub arguments: serde_json::Value,
+    /// The LLM's rationale for calling this tool.
+    pub rationale: String,
+    /// Risk estimate for this tool call (from LLM or assessment bridge).
+    pub risk_level: RiskLevel,
 }
 
 impl MemoryWriteIntent {
@@ -281,6 +304,7 @@ impl std::str::FromStr for ActionType {
             "read_document" => Ok(ActionType::ReadDocument),
             "write_document" => Ok(ActionType::WriteDocument),
             "propose_tool_use" => Ok(ActionType::ProposeToolUse),
+            "direct_tool_call" => Ok(ActionType::DirectToolCall),
             "simulate_email" => Ok(ActionType::SimulateEmail),
             "manage_task" => Ok(ActionType::ManageTask),
             other => Ok(ActionType::Custom(other.to_owned())),

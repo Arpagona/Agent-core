@@ -214,6 +214,23 @@ pub fn execution_capability(action_type: &ActionType) -> ExecutionCapability {
                 "Tool use may have side effects. Real execution is disabled.".to_owned(),
             ),
         },
+        ActionType::DirectToolCall => ExecutionCapability {
+            action_type: ActionType::DirectToolCall,
+            executor_id: None,
+            supports_dry_run: true,
+            supports_real_execution: false,
+            required_permissions: vec![Permission::ProposeToolUse],
+            touched_resource_kinds: vec!["llm_tool_call".to_owned()],
+            max_allowed_risk: RiskLevel::Medium,
+            reversibility: "Fully reversible — governance evaluation only, no execution.".to_owned(),
+            human_approval_required: true,
+            notes: Some(
+                "DirectToolCall represents an LLM-initiated tool-call intent being evaluated by the Decision Gate.".to_owned(),
+            ),
+            safety_warning: Some(
+                "LLM tool-call execution is disabled by default. May have side effects when enabled.".to_owned(),
+            ),
+        },
         ActionType::SimulateEmail => ExecutionCapability {
             action_type: ActionType::SimulateEmail,
             executor_id: None,
@@ -288,6 +305,7 @@ pub fn list_execution_capabilities() -> Vec<ExecutionCapability> {
         WriteDocument,
         ProposeToolUse,
         SimulateEmail,
+        DirectToolCall,
         ManageTask,
     ];
     known

@@ -396,7 +396,10 @@ pub fn classify_override_policy(action: &ProposedAction) -> OverridePolicy {
 fn is_destructive_or_dangerous(action: &ProposedAction) -> bool {
     matches!(
         action.action_type,
-        ActionType::SimulateEmail | ActionType::Custom(_) | ActionType::ProposeToolUse
+        ActionType::SimulateEmail
+            | ActionType::Custom(_)
+            | ActionType::ProposeToolUse
+            | ActionType::DirectToolCall
     )
 }
 
@@ -414,6 +417,7 @@ fn is_write_or_execution_action(action: &ProposedAction) -> bool {
             | ActionType::SimulateEmail
             | ActionType::ManageTask
             | ActionType::ProposeToolUse
+            | ActionType::DirectToolCall
             | ActionType::Custom(_)
     )
 }
