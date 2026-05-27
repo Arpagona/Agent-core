@@ -221,6 +221,7 @@ impl Executor for NoopExecutor {
             WriteDocument,
             ProposeToolUse,
             SimulateEmail,
+            DirectToolCall,
             ManageTask,
         ]
     }

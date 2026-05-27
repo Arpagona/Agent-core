@@ -7,8 +7,9 @@
 pub mod override_engine;
 
 use arpagona_agent_core::{
-    ActionType, ActorRef, AuditEvent, AuditEventId, Decision, DecisionActor, DecisionId,
-    DecisionStatus, OverridePolicy, Permission, Policy, PolicyId, ProposedAction, RiskLevel,
+    ActionType, ActorRef, AgentId, AuditEvent, AuditEventId, Decision, DecisionActor, DecisionId,
+    DecisionStatus, OverridePolicy, Permission, Policy, PolicyId, ProposedAction, ProposedActionId,
+    ProposedActionStatus, RiskLevel, WorkspaceId,
 };
 use chrono::Utc;
 
@@ -234,13 +235,55 @@ fn risk_rank(risk: &RiskLevel) -> u8 {
     }
 }
 
+/// Evaluate a tool-call intent through the Decision Gate, producing a
+/// governance result. This is the core entry point for governed direct
+/// tool-calling (Track C Step C2).
+///
+/// The function:
+/// 1. Wraps the intent as a ProposedAction with ActionType::DirectToolCall
+/// 2. Runs the intent through evaluate_proposed_action
+/// 3. Returns the decision with audit context
+pub fn govern_tool_call(
+    intent: &arpagona_agent_core::action::ToolCallIntent,
+    granted_permissions: &[Permission],
+) -> (Decision, ProposedAction) {
+    static NEXT_ID: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
+    let id = NEXT_ID.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+
+    let proposed_action = ProposedAction {
+        id: ProposedActionId::new(format!("direct-tc-{id}")),
+        workspace_id: WorkspaceId::new("llm-workspace"),
+        task_id: None,
+        proposed_by: AgentId::new("llm"),
+        action_type: ActionType::DirectToolCall,
+        target: Some(intent.tool.clone()),
+        payload: serde_json::json!({
+            "tool": intent.tool,
+            "arguments": intent.arguments,
+            "rationale": intent.rationale,
+        }),
+        risk_level: intent.risk_level.clone(),
+        required_permissions: vec![Permission::ProposeToolUse],
+        rationale: format!(
+            "LLM tool-call intent: {} — {}",
+            intent.tool, intent.rationale
+        ),
+        context_refs: vec![],
+        status: ProposedActionStatus::PendingDecision,
+        created_at: chrono::Utc::now(),
+    };
+
+    let decision = evaluate_proposed_action(&proposed_action, &[], granted_permissions);
+    (decision, proposed_action)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use arpagona_agent_core::{
-        AgentId, AuditEventType, MemoryWriteIntent, MemoryWriteKind, MemoryWriteProvenance,
-        MemoryWriteTarget, PolicyId, ProposedActionId, ProposedActionStatus, SourceId, TaskId,
-        WorkspaceId,
+        action::ToolCallIntent, AgentId, AuditEventType, MemoryWriteIntent, MemoryWriteKind,
+        MemoryWriteProvenance, MemoryWriteTarget, PolicyId, ProposedActionId, ProposedActionStatus,
+        SourceId, TaskId, WorkspaceId,
     };
     use serde_json::json;
 
@@ -626,6 +669,62 @@ mod tests {
         assert_eq!(
             event.payload["causal_trace"]["decision_status"],
             json!("approved")
+        );
+    }
+
+    #[test]
+    fn govern_tool_call_allows_read_tool_with_permission() {
+        let intent = ToolCallIntent {
+            tool: "read_file".to_owned(),
+            arguments: json!({"path": "test.md"}),
+            rationale: "Need to read a file".to_owned(),
+            risk_level: RiskLevel::Informational,
+        };
+        let (decision, _) = govern_tool_call(&intent, &[Permission::ProposeToolUse]);
+        assert_eq!(
+            decision.status,
+            DecisionStatus::Approved,
+            "read_file with ProposeToolUse permission should be approved: {}",
+            decision.reason
+        );
+    }
+
+    #[test]
+    fn govern_tool_call_blocks_tool_without_permission() {
+        let intent = ToolCallIntent {
+            tool: "read_file".to_owned(),
+            arguments: json!({"path": "/etc/passwd"}),
+            rationale: "Check system file".to_owned(),
+            risk_level: RiskLevel::Informational,
+        };
+        let (decision, _) = govern_tool_call(&intent, &[]);
+        assert_eq!(
+            decision.status,
+            DecisionStatus::Blocked,
+            "read_file without permission should be blocked: {}",
+            decision.reason
+        );
+    }
+
+    #[test]
+    fn govern_tool_call_blocks_write_tool_without_permission() {
+        let intent = ToolCallIntent {
+            tool: "write_document".to_owned(),
+            arguments: json!({"path": "test.md", "content": "data"}),
+            rationale: "Update documentation".to_owned(),
+            risk_level: RiskLevel::Low,
+        };
+        let (decision, proposal) = govern_tool_call(&intent, &[Permission::ReadDocument]);
+        assert_eq!(
+            decision.status,
+            DecisionStatus::Blocked,
+            "write_document with only ReadDocument permission should be blocked: {}",
+            decision.reason
+        );
+        assert_eq!(
+            proposal.action_type,
+            ActionType::DirectToolCall,
+            "proposed action should use DirectToolCall type"
         );
     }
 }

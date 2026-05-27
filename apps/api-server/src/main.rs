@@ -923,6 +923,21 @@ fn describe_action_effects(action: &ProposedAction) -> (Vec<String>, Vec<String>
                 ),
             )
         }
+        ActionType::DirectToolCall => {
+            let target = action.target.as_deref().unwrap_or("unknown tool");
+            (
+                vec![format!(
+                    "Would evaluate LLM tool-call intent for: {}",
+                    target
+                )],
+                vec![format!("llm_tool_call:{}", target)],
+                "Fully reversible — governance evaluation only, no execution.".to_owned(),
+                format!(
+                    "Would route LLM tool-call intent for '{}' through the Decision Gate.",
+                    target
+                ),
+            )
+        }
         ActionType::SimulateEmail => (
             vec!["Would simulate an email draft.".to_owned()],
             vec!["email draft (memory)".to_owned()],
@@ -1435,6 +1450,13 @@ fn simulate_action(action: &ProposedAction) -> (Value, Vec<String>, SandboxRunSt
                 "description": "Propose tool execution",
                 "tool": action.target,
                 "effect_type": "proposal",
+            }));
+        }
+        ActionType::DirectToolCall => {
+            effects.push(json!({
+                "description": "Evaluate LLM tool-call intent through Decision Gate",
+                "tool": action.target,
+                "effect_type": "llm_tool_call_governance",
             }));
         }
         ActionType::SimulateEmail => {
