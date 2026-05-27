@@ -12,16 +12,16 @@ P1 (open PRs) takes priority over alternation.
 
 ## Next action
 
-**Track A Phase 3 — HTTP/SSE transport.** PR #111 (`feat/b2-recursive-memory-graph`) is Track B Step B2 (done this run). The alternation was Track B (this run), so the next step is Track A.
+**Track A Phase 3 — HTTP/SSE transport.** PR #112 (`feat/a3-http-sse-transport`) is now open with CI running. Track A Phase 3 is done this run.
 
-Phase 3 adds native HTTP transport and Server-Sent Events (SSE) support via an Axum endpoint `/mcp`. This enables remote MCP clients (not just stdio) to connect to the ARPAGONA MCP server.
+The alternation was Track A (this run), so the next step is Track B.
 
-Why: Phase A2 (persistent governance audit) is merged via PR #110. Phase B2 (recursive memory graph) is done via PR #111. The next step in the alternation is Track A Phase 3.
+**After PR #112 merges, advance Track B Step B3 — optional local embeddings for semantic generalization.** This adds optional semantic embedding support (fastembed or similar) to the Holographic Memory crate, enabling concept-level generalization beyond symbolic keyword matching.
 
 Proof to seek: `cargo test --workspace` green. A new PR exists with:
-- Axum route at `/mcp` accepting JSON-RPC messages over HTTP POST
-- SSE endpoint for server-to-client notifications (tools/list_changed)
-- MCP protocol compatibility (JSON-RPC 2.0, methods: tools/list, tools/call)
-- Tests for HTTP request/response roundtrip
+- Optional embedding dependency (e.g., fastembed as an optional cargo feature)
+- Integration test proving resonance with semantic overlap (not just keyword match)
+- CLI command or flag to enable/use embeddings
+- Guard for when embeddings are not available (graceful fallback to symbolic-only mode)
 
-Do not: add new tools, broaden execution, add LLM calls, bypass Decision Gate, or modify existing MCP tool governance.
+Do not: add vector databases, LLM calls, Decision Gate bypasses, execution capabilities, or SurrealDB persistence for embeddings.
