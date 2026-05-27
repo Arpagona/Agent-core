@@ -29,10 +29,12 @@
 //! stdout, making it compatible with any MCP client that supports the
 //! stdio transport.
 
+pub mod audit_store;
 pub mod governance;
 pub mod server;
 pub mod transport;
 pub mod types;
 
+pub use audit_store::{McpGovernanceAuditRecord, McpGovernanceAuditStore};
 pub use server::{McpServer, McpServerConfig};
 pub use types::*;
