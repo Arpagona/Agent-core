@@ -745,3 +745,39 @@ Total tool-runtime tests: 22 (16 existing + 3 updated + 3 new)
 - No file access broadened or unblocked
 
 
+## 21. Latest Session Update (2026-05-27 — Compute Reservoir allocation justification tests, DV-2026-05-26-004)
+
+This session closed DV-2026-05-26-004 (medium severity) from the daily validation backlog by adding 4 targeted allocation justification tests to the Compute Reservoir crate.
+
+### What was changed
+
+**`crates/compute-reservoir/src/lib.rs`** — 4 new tests in the `#[cfg(test)] mod tests` block:
+
+| Test | Covers | Verifies |
+|------|--------|----------|
+| `p4_public_low_complexity_prefers_cheap_local_with_justification` | Public/low-complexity + local_first | local-small selected; justification mentions cost/locality |
+| `p4_high_sensitivity_justifies_local_resource_by_sensitivity` | Confidential sensitivity + complex reasoning | local-small selected; sensitivity blocks cloud; justification mentions sensitivity |
+| `p4_complex_high_value_justifies_strong_model_by_capability` | Complex/high-value with budget | cloud-strong selected (only node with ComplexReasoning); justification mentions resource |
+| `p4_justification_explains_fallback_when_ideal_missing` | Capability gap with local-first + zero budget | FallbackSelected; fallback.reason explains compatibility |
+
+### Tests
+
+- Compute Reservoir: 19 tests (15 existing + 4 new) — all pass
+- Full workspace: 530+ tests pass
+- `cargo fmt -- --check`: ✅ clean
+- `cargo check`: ✅ clean
+
+### Backlog status changes
+
+- **DV-2026-05-26-004**: moved from Open → Fixed (this session)
+- **DV-2026-05-27-001**: moved from Open → Closed (superseded — PR #103 already merged)
+
+### What was NOT changed
+
+- No changes to core domain types, Decision Gate, allocation logic, CLI, API server, MCP server
+- No new capabilities added
+- No Decision Gate bypass
+- No LLM calls, browser automation, email, or restricted capabilities
+- No file access or tool behavior changes
+
+
