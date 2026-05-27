@@ -47,7 +47,9 @@ All items resolved or closed.
 
 **Track C Step C1 — Real LLM integration in proposal-only mode.**
 
-Connect `arpagona cognitive run --llm` to the existing LLM/provider abstraction so the model can enrich WorkingMemory, observations, plans and ProposedActions, but cannot execute tools, approve actions, write memory directly or bypass Decision Gate.
+Connect `arpagona cognitive run --llm` to the existing LLM/provider abstraction so the model can enrich WorkingMemory, observations, plans and ProposedActions, but cannot approve actions, write memory directly or bypass Decision Gate.
+
+Direct LLM tool-calls are intentionally **not required in C1**. They are planned for **C2 — Governed direct tool-calling by the LLM**, where direct tool-call intents are allowed only through Decision Gate, bounded Tool Runtime/MCP execution, observation readback and audit.
 
 ## Proof to seek
 
@@ -55,20 +57,28 @@ Connect `arpagona cognitive run --llm` to the existing LLM/provider abstraction 
 - `cargo check`
 - `cargo test --workspace`
 - CLI smoke test with `--llm`
-- tests proving LLM output remains proposal-only
+- tests proving C1 LLM output remains proposal-only
 - audit/readback includes provider, model, prompt summary and decision path where practical
 
-## Required safety boundaries
+## Required safety boundaries for C1
 
 Do not:
 
-- add direct tool execution by LLM;
+- add direct LLM approval;
+- add direct LLM memory writes;
+- bypass Decision Gate;
 - add shell/browser/email/secrets access;
 - add autonomous scheduling;
 - treat LLM confidence as authorization;
-- allow direct LLM memory writes;
-- bypass Decision Gate;
 - add broad product roadmap items in the implementation PR.
+
+## Required C2 interpretation
+
+C2 must **not** prohibit direct tool-calls by the LLM. C2 must make them safe:
+
+```text
+LLM ToolCall Intent → DecisionGate → bounded Tool Runtime/MCP → Observation → Audit
+```
 
 ## Expected outcome
 
