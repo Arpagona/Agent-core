@@ -1401,7 +1401,8 @@ fn simulate_action(action: &ProposedAction) -> (Value, Vec<String>, SandboxRunSt
         | ActionType::CreateMemoryFact
         | ActionType::LinkMemoryFact
         | ActionType::InvalidateMemoryFact
-        | ActionType::CreateFailureInsightMemory => {
+        | ActionType::CreateFailureInsightMemory
+        | ActionType::CreateHolographicTrace => {
             effects.push(json!({
                 "description": "Write data to Graph Memory",
                 "target": action.target,

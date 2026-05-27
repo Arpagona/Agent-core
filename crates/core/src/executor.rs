@@ -216,6 +216,7 @@ impl Executor for NoopExecutor {
             LinkMemoryFact,
             InvalidateMemoryFact,
             CreateFailureInsightMemory,
+            CreateHolographicTrace,
             ReadDocument,
             WriteDocument,
             ProposeToolUse,

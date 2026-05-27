@@ -273,6 +273,7 @@ fn memory_write_intent_for_audit(action: &ProposedAction) -> Option<Value> {
             | ActionType::LinkMemoryFact
             | ActionType::InvalidateMemoryFact
             | ActionType::CreateFailureInsightMemory
+            | ActionType::CreateHolographicTrace
     ) {
         return None;
     }

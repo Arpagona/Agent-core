@@ -484,6 +484,46 @@ mod tests {
             .contains("human confirmation"));
     }
 
+    #[test]
+    fn missing_write_memory_permission_blocks_create_holographic_trace() {
+        let action = memory_write_action(MemoryWriteKind::CreateHolographicTrace, RiskLevel::Low);
+
+        let decision = evaluate_proposed_action(&action, &[], &[]);
+        let event = audit_event_for_decision(&action, &decision);
+        let trace = &event.payload["causal_trace"];
+
+        assert_eq!(decision.status, DecisionStatus::Blocked);
+        assert!(decision.reason.contains("required permission"));
+        assert_eq!(trace["action_type"], json!("create_holographic_trace"));
+        assert_eq!(trace["required_permission"], json!("write_memory"));
+        assert_eq!(
+            trace["matched_policy_or_fallback_rule"],
+            json!("missing_permission")
+        );
+        assert_eq!(trace["block_reason_category"], json!("missing_permission"));
+        assert!(trace["suggested_next_action"]
+            .as_str()
+            .unwrap()
+            .contains("WriteMemory"));
+    }
+
+    #[test]
+    fn low_risk_holographic_trace_with_permission_is_approved() {
+        let action = memory_write_action(MemoryWriteKind::CreateHolographicTrace, RiskLevel::Low);
+
+        let decision = evaluate_proposed_action(&action, &[], &[Permission::WriteMemory]);
+        let event = audit_event_for_decision(&action, &decision);
+        let trace = &event.payload["causal_trace"];
+
+        assert_eq!(decision.status, DecisionStatus::Approved);
+        assert!(decision.reason.contains("Approved"));
+        assert_eq!(trace["action_type"], json!("create_holographic_trace"));
+        assert_eq!(
+            trace["matched_policy_or_fallback_rule"],
+            json!("permission_granted_default_allow")
+        );
+    }
+
     // ── Read-only informational auto-grant tests ──────────────────────────
 
     fn read_only_action(action_type: ActionType, risk_level: RiskLevel) -> ProposedAction {

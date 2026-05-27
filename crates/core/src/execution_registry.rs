@@ -141,10 +141,13 @@ pub fn execution_capability(action_type: &ActionType) -> ExecutionCapability {
         | ActionType::CreateMemoryFact
         | ActionType::LinkMemoryFact
         | ActionType::InvalidateMemoryFact
-        | ActionType::CreateFailureInsightMemory => {
+        | ActionType::CreateFailureInsightMemory
+        | ActionType::CreateHolographicTrace => {
             let human = matches!(
                 action_type,
-                ActionType::InvalidateMemoryFact | ActionType::CreateFailureInsightMemory
+                ActionType::InvalidateMemoryFact
+                    | ActionType::CreateFailureInsightMemory
+                    | ActionType::CreateHolographicTrace
             );
             ExecutionCapability {
                 action_type: action_type.clone(),
@@ -280,6 +283,7 @@ pub fn list_execution_capabilities() -> Vec<ExecutionCapability> {
         LinkMemoryFact,
         InvalidateMemoryFact,
         CreateFailureInsightMemory,
+        CreateHolographicTrace,
         ReadDocument,
         WriteDocument,
         ProposeToolUse,

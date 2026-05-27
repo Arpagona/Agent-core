@@ -653,3 +653,52 @@ Alpha experimental. The SQLite store is a new backend option alongside the exist
 - The dual-layer cache design means the in-memory cache is the "source of truth" during a session. If a second process modifies the SQLite file externally, the cache will be stale until the store is reconstructed. This is acceptable for the expected single-process deployment model.
 - `rusqlite` with `bundled` feature adds ~3MB to the build from compiled C SQLite source. The build time impact is one-time per fresh build.
 
+## Session 2026-05-27T18:00Z — Track B Step B6: DecisionGate governance for holographic memory writes
+
+### What was done
+
+Added `MemoryWriteKind::CreateHolographicTrace` variant and its `ActionType::CreateHolographicTrace` counterpart to the ARPAGONA governance vocabulary.
+
+**Scope of changes:**
+
+| File | Change |
+|------|--------|
+| `crates/core/src/action.rs` | Added `CreateHolographicTrace` to `ActionType` enum, `MemoryWriteKind` enum, `action_type()` mapping, and `FromStr` parser |
+| `crates/core/src/audit.rs` | Added `CreateHolographicTrace` to `memory_write_intent_for_audit` match |
+| `crates/core/src/executor.rs` | Added `CreateHolographicTrace` to NoopExecutor supported types |
+| `crates/core/src/execution_registry.rs` | Added `CreateHolographicTrace` to memory-write execution capability and known types list |
+| `crates/decision-gate/src/lib.rs` | Added 2 tests: missing-permission block and low-risk approval |
+| `crates/decision-gate/src/override_engine.rs` | Added `CreateHolographicTrace` to is_simulative_or_mutative list |
+| `apps/api-server/src/main.rs` | Added `CreateHolographicTrace` to effects generation match |
+
+### Tests (4 new, all passing)
+
+- `tests::missing_write_memory_permission_blocks_create_holographic_trace` — proves missing `WriteMemory` permission produces `Blocked` with proper audit trace
+- `tests::low_risk_holographic_trace_with_permission_is_approved` — proves `CreateHolographicTrace` at low risk with permission produces `Approved`
+- `tests::memory_write_kind_maps_to_specific_action_type` (extended) — proves the new variant maps to `ActionType::CreateHolographicTrace`
+- Existing DecisionGate tests for `CreateFailureInsightMemory` pattern extend naturally to the new variant
+
+### Verification
+
+- `cargo fmt -- --check`: clean
+- `cargo check`: clean
+- `cargo test --workspace`: 555+ tests, all passing (0 regressions)
+
+### Next step
+
+Track A Phase 5 (PR #117) was merged earlier in this run. The deferred action was Track B Step B6, now completed.
+
+### Not changed
+
+- No changes to CLI, MCP server, conversation-memory, holographic-memory stores, or graph-memory crates
+- No actual memory writes — this is governance vocabulary only
+- No Decision Gate bypass
+- No broad capability expansion
+- No LLM calls, browser automation, email, or restricted capabilities
+
+### Risks
+
+- The `CreateHolographicTrace` action type is treated as a governed memory-write, meaning it inherits the same permission requirements (`WriteMemory`) and risk-based approval rules as `CreateFailureInsightMemory`. This is correct — holographic traces are persistent memory data.
+- `ProposeToolUse`-style `NotOverridable` policy does NOT apply to `CreateHolographicTrace` since it is not in the simulative action list with restricted override — it follows standard override rules.
+
+

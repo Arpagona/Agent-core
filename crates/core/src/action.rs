@@ -27,6 +27,7 @@ pub enum ActionType {
     LinkMemoryFact,
     InvalidateMemoryFact,
     CreateFailureInsightMemory,
+    CreateHolographicTrace,
     ReadDocument,
     WriteDocument,
     ProposeToolUse,
@@ -55,6 +56,7 @@ pub enum MemoryWriteKind {
     LinkMemoryFact,
     InvalidateMemoryFact,
     CreateFailureInsightMemory,
+    CreateHolographicTrace,
 }
 
 impl MemoryWriteKind {
@@ -64,6 +66,7 @@ impl MemoryWriteKind {
             Self::LinkMemoryFact => ActionType::LinkMemoryFact,
             Self::InvalidateMemoryFact => ActionType::InvalidateMemoryFact,
             Self::CreateFailureInsightMemory => ActionType::CreateFailureInsightMemory,
+            Self::CreateHolographicTrace => ActionType::CreateHolographicTrace,
         }
     }
 }
@@ -274,6 +277,7 @@ impl std::str::FromStr for ActionType {
             "link_memory_fact" => Ok(ActionType::LinkMemoryFact),
             "invalidate_memory_fact" => Ok(ActionType::InvalidateMemoryFact),
             "create_failure_insight_memory" => Ok(ActionType::CreateFailureInsightMemory),
+            "create_holographic_trace" => Ok(ActionType::CreateHolographicTrace),
             "read_document" => Ok(ActionType::ReadDocument),
             "write_document" => Ok(ActionType::WriteDocument),
             "propose_tool_use" => Ok(ActionType::ProposeToolUse),
@@ -298,6 +302,10 @@ mod tests {
         assert_eq!(
             MemoryWriteKind::CreateFailureInsightMemory.action_type(),
             ActionType::CreateFailureInsightMemory
+        );
+        assert_eq!(
+            MemoryWriteKind::CreateHolographicTrace.action_type(),
+            ActionType::CreateHolographicTrace
         );
     }
 
