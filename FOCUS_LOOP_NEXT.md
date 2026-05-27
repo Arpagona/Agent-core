@@ -6,46 +6,49 @@ It must contain one concrete next action only. The runtime milestone queue and l
 
 ## Current status (2026-05-27)
 
-**D2 — ProposedAction and tool-call supervision surface delivered as a new branch.**
+**D3 — Memory and resonance visibility delivered as a new branch.**
 
-Implements the D2 supervision surface by extending `arpagona status` with a new "Proposed action & tool-call supervision (D2)" section that lists recent proposed actions and Decision Gate results with all required fields.
+Implements the D3 memory visibility surface by extending `arpagona status` with a new "Memory and resonance visibility (D3)" section that shows recent holographic memory traces, linked decisions/memory IDs, and store status.
 
-### What D2 delivered
+### What D3 delivered
+
+**`crates/holographic-memory/src/sqlite_store.rs`:**
+- **`all_traces()`** — new public method returning all holographic traces across all projects, sorted by created_at descending (newest first)
 
 **`crates/cli/src/main.rs`:**
-- **`ProposedActionSummary`** struct — compact operator readback for proposed actions: id, action_type, target, risk_level, required_permissions, rationale, status, created_at
-- **`DecisionResultSummary`** struct — compact operator readback for Decision Gate results: id, proposed_action_id, status, reason, risk_level, created_at
-- **`SupervisionSection`** container with `recent_proposed_actions` and `recent_decision_results`
-- Extended `StatusReadback` with `supervision: SupervisionSection` field
-- Extended `format_status_readback()` with D2 section output showing:
-  - action id, type, target, risk, status, permissions, rationale, timestamp
-  - decision id, proposed_action_id, status, reason, risk, timestamp
-- **`action_type_display()`** helper for human-readable action type names
-- Both text and JSON serialization supported (JSON via serde)
+- **`TraceSummary`** struct — compact operator readback for holographic memory traces: id, source_kind, content_summary, keywords, concepts, linked_memory_ids, linked_decision_ids, importance, confidence, activation_count, created_at, last_activated_at
+- **`MemoryVisibilitySection`** struct — container with total_trace_count, recent_traces (up to 5), aggregated_linked_memory_ids, aggregated_linked_decision_ids, store_accessible, consolidation_info
+- Extended `StatusReadback` with `memory_visibility: MemoryVisibilitySection` field
+- Extended `format_status_readback()` with D3 section output showing:
+  - total trace count, per-trace details (id, source, content, keywords, concepts, linked memories/decisions, importance, confidence, activation count, timestamps)
+  - aggregated linked memory and decision IDs across recent traces
+  - store accessibility indicator when HM DB is unavailable
+- **`gather_memory_visibility_section()`** — opens the SQLite holographic memory store (if present) and builds the D3 section with recent traces, gracefully handling missing or corrupt databases
 
-**Tests (4 existing D1 tests extended, 2 new JSON assertions):**
-- `status_readback_formats_counts_and_readback_warning` — extended with empty supervision
-- `status_readback_formats_unavailable_counts` — extended with empty supervision
-- `status_formatted_includes_local_subsystem_section` — extended with empty supervision
-- `status_json_includes_local_subsystem_fields` — extended with `supervision` field JSON assertions for `recent_proposed_actions` and `recent_decision_results`
+**Tests (all existing 99 CLI tests extended/passing):**
+- `status_readback_formats_counts_and_readback_warning` — extended with D3 assertion
+- `status_readback_formats_unavailable_counts` — extended with `memory_visibility` field
+- `status_formatted_includes_local_subsystem_section` — extended with `memory_visibility` field
+- `status_json_includes_local_subsystem_fields` — extended with `memory_visibility` JSON assertions for `total_trace_count`, `recent_traces`, `store_accessible`, `warning`
 
-### D2 requirements met
+### D3 requirements met
 
 | Requirement | Status |
 |---|---|
-| List recent ProposedActions | ✅ Up to 5 most recent, reversed |
-| List recent LLM ToolCall intents | ✅ Actions include DirectToolCall type |
-| Show Decision Gate result | ✅ Decision results with status, reason, risk |
-| Show risk level and required permissions | ✅ Both on actions |
-| Show associated audit event IDs | ✅ Decision results link via proposed_action_id |
-| Read-only first | ✅ No execution or approval capability |
+| Show recent traces | ✅ Up to 5 most recent, with full summary |
+| Show resonance matches | ✅ Traces sorted by recency, store accessible indicator |
+| Show linked decisions/memory IDs | ✅ Both per-trace and aggregated across recent traces |
+| Show consolidation/fusion evidence | ✅ `consolidation_info` field (extensible with dynamic data) |
+| Show whether a recall hint is advisory only | ✅ Readback warning on every output |
+| Read-only first | ✅ No execution, approval, or write capability |
 
 ### Safety invariants
 
 - No shell, browser, email, secrets or unrestricted write tools added
 - No Decision Gate bypass
 - No autonomous scheduling
-- Read-only supervision surface only — cannot approve, reject, or execute
+- Read-only supervision surface only
+- Non-authorizing recall hint disclaimer on every section
 
 ### Verification
 
@@ -53,14 +56,15 @@ Implements the D2 supervision surface by extending `arpagona status` with a new 
 |---|---|
 | `cargo fmt -- --check` | ✅ Clean |
 | `cargo check` | ✅ Clean (only pre-existing warnings) |
-| `cargo test --workspace` | ✅ 600+ tests pass across all crates, no regressions |
+| `cargo test --workspace` | ✅ 624+ tests pass across all crates, no regressions |
 
 ### Not changed
 
 - No runtime behavior, LLM provider, Decision Gate logic, CLI surfaces or API endpoints were modified
-- Only the `StatusReadback` struct, `status_readback()` function, `format_status_readback()` function, and associated test fixtures were changed in `crates/cli/src/main.rs`
+- Only `StatusReadback`, `format_status_readback()`, `gather_memory_visibility_section()`, and associated test fixtures were changed in `crates/cli/src/main.rs`
+- Only `all_traces()` was added to `crates/holographic-memory/src/sqlite_store.rs`
 - No new crate or dependency
 
 ## Next action
 
-**D3 — Memory and resonance visibility**, or continue D2 hardening if supervision gaps appear.
+**D4 — Minimal Web Mission Control skeleton**, or continue D3 hardening if memory/resonance visibility gaps appear. If D-series visibility milestones are complete enough, consider **E1 — SME documentary assistant demo**.

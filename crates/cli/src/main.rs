@@ -31,7 +31,7 @@ use clap::{Args, Parser, Subcommand, ValueEnum};
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
-use std::collections::HashMap;
+use std::collections::{BTreeSet, HashMap};
 use std::env;
 use std::error::Error;
 use std::io::{self, Write};
@@ -1178,6 +1178,8 @@ struct StatusReadback {
     local: LocalSubsystemStatus,
     /// D2 supervision — recent proposed actions and Decision Gate results.
     supervision: SupervisionSection,
+    /// D3 memory and resonance visibility — recent holographic memory traces.
+    memory_visibility: MemoryVisibilitySection,
 }
 
 /// Non-API-dependent subsystem status, gathered locally without requiring the API server.
@@ -1324,6 +1326,46 @@ struct DecisionResultSummary {
 struct SupervisionSection {
     recent_proposed_actions: Vec<ProposedActionSummary>,
     recent_decision_results: Vec<DecisionResultSummary>,
+    warning: &'static str,
+}
+
+/// Compact summary of a holographic memory trace for operator visibility (D3).
+#[derive(Debug, Serialize)]
+struct TraceSummary {
+    id: String,
+    source_kind: String,
+    content_summary: String,
+    keywords: Vec<String>,
+    concepts: Vec<String>,
+    linked_memory_ids: Vec<String>,
+    linked_decision_ids: Vec<String>,
+    importance: f32,
+    confidence: f32,
+    activation_count: u64,
+    created_at: String,
+    last_activated_at: Option<String>,
+}
+
+/// Memory and resonance visibility section (D3).
+///
+/// Shows recent holographic memory traces, resonance context, linked
+/// decisions/memory IDs, and consolidation evidence. Read-only — does
+/// not authorize actions or treat recall hints as approval.
+#[derive(Debug, Serialize)]
+struct MemoryVisibilitySection {
+    /// Total traces across all projects in the holographic memory store.
+    total_trace_count: Option<usize>,
+    /// Recent traces ordered by creation time (newest first).
+    recent_traces: Vec<TraceSummary>,
+    /// All linked memory IDs aggregated from recent traces (deduplicated).
+    aggregated_linked_memory_ids: Vec<String>,
+    /// All linked decision IDs aggregated from recent traces (deduplicated).
+    aggregated_linked_decision_ids: Vec<String>,
+    /// Whether the holographic memory store is locally accessible.
+    store_accessible: bool,
+    /// Consolidation evidence string (summary of most recent consolidation).
+    consolidation_info: Option<String>,
+    /// Readback-only warning — recall hints are advisory, not authorization.
     warning: &'static str,
 }
 
@@ -1922,6 +1964,7 @@ async fn status_readback(client: &Client, api_url: &str) -> StatusReadback {
                 recent_decision_results: vec![],
                 warning: AUDIT_READBACK_WARNING,
             },
+            memory_visibility: gather_memory_visibility_section(),
         };
     }
 
@@ -2030,6 +2073,7 @@ async fn status_readback(client: &Client, api_url: &str) -> StatusReadback {
             recent_decision_results,
             warning: AUDIT_READBACK_WARNING,
         },
+        memory_visibility: gather_memory_visibility_section(),
     }
 }
 
@@ -2096,6 +2140,91 @@ async fn gather_local_subsystem_status() -> LocalSubsystemStatus {
         backlog_open_count: backlog_count,
         mcp_server_binary_available: mcp_available,
         cli_version,
+        warning: AUDIT_READBACK_WARNING,
+    }
+}
+
+/// Gather the D3 memory visibility section from the local holographic memory store.
+///
+/// Opens the SQLite-backed holographic memory store if it exists and reads
+/// recent traces. Builds a `MemoryVisibilitySection` with trace summaries,
+/// linked memory/decision IDs, and consolidation hints.
+fn gather_memory_visibility_section() -> MemoryVisibilitySection {
+    let hm_db_path = PathBuf::from("target/holographic-memory.db");
+    if !hm_db_path.exists() {
+        return MemoryVisibilitySection {
+            total_trace_count: None,
+            recent_traces: vec![],
+            aggregated_linked_memory_ids: vec![],
+            aggregated_linked_decision_ids: vec![],
+            store_accessible: false,
+            consolidation_info: None,
+            warning: AUDIT_READBACK_WARNING,
+        };
+    }
+
+    // Try to open the SQLite store. If it fails (corrupt DB, etc.), report
+    // the store as inaccessible rather than crashing.
+    let store = match SqliteHolographicMemoryStore::new(&hm_db_path.to_string_lossy()) {
+        Ok(s) => s,
+        Err(_) => {
+            return MemoryVisibilitySection {
+                total_trace_count: None,
+                recent_traces: vec![],
+                aggregated_linked_memory_ids: vec![],
+                aggregated_linked_decision_ids: vec![],
+                store_accessible: false,
+                consolidation_info: None,
+                warning: AUDIT_READBACK_WARNING,
+            };
+        }
+    };
+
+    let total_count = store.len();
+
+    // Get all traces sorted by created_at descending, take the 5 most recent
+    let all_traces: Vec<HolographicTrace> = store.all_traces();
+    let recent_traces: Vec<HolographicTrace> = all_traces.into_iter().take(5).collect();
+
+    // Build trace summaries
+    let trace_summaries: Vec<TraceSummary> = recent_traces
+        .iter()
+        .map(|t| TraceSummary {
+            id: t.id.clone(),
+            source_kind: serde_json::to_string(&t.source_kind)
+                .unwrap_or_else(|_| "unknown".to_owned()),
+            content_summary: t.content_summary.clone(),
+            keywords: t.keywords.clone(),
+            concepts: t.concepts.clone(),
+            linked_memory_ids: t.linked_memory_ids.clone(),
+            linked_decision_ids: t.linked_decision_ids.clone(),
+            importance: t.importance,
+            confidence: t.confidence,
+            activation_count: t.activation_count,
+            created_at: t.created_at.clone(),
+            last_activated_at: t.last_activated_at.clone(),
+        })
+        .collect();
+
+    // Aggregated linked IDs from recent traces
+    let mut mem_ids: BTreeSet<String> = BTreeSet::new();
+    let mut dec_ids: BTreeSet<String> = BTreeSet::new();
+    for t in &recent_traces {
+        for mid in &t.linked_memory_ids {
+            mem_ids.insert(mid.clone());
+        }
+        for did in &t.linked_decision_ids {
+            dec_ids.insert(did.clone());
+        }
+    }
+
+    MemoryVisibilitySection {
+        total_trace_count: Some(total_count),
+        recent_traces: trace_summaries,
+        aggregated_linked_memory_ids: mem_ids.into_iter().collect(),
+        aggregated_linked_decision_ids: dec_ids.into_iter().collect(),
+        store_accessible: true,
+        consolidation_info: None, // Not tracked dynamically — TBD
         warning: AUDIT_READBACK_WARNING,
     }
 }
@@ -2319,6 +2448,107 @@ fn format_status_readback(readback: &StatusReadback) -> String {
         }
     }
     push_readback_line(&mut output, &style_dim(readback.supervision.warning));
+    push_readback_line(&mut output, "");
+
+    // D3 — Memory and resonance visibility
+    push_readback_line(
+        &mut output,
+        &style_info("Memory and resonance visibility (D3)"),
+    );
+    if !readback.memory_visibility.store_accessible {
+        push_readback_line(&mut output, "  (holographic memory store not accessible)");
+    } else {
+        push_readback_field(
+            &mut output,
+            "total_trace_count:",
+            &format_optional_usize(readback.memory_visibility.total_trace_count),
+        );
+        if readback.memory_visibility.recent_traces.is_empty() {
+            push_readback_line(&mut output, "  (no recent traces)");
+        } else {
+            for trace in &readback.memory_visibility.recent_traces {
+                push_readback_line(&mut output, &format!("  trace: {}", trace.id));
+                push_readback_field(
+                    &mut output,
+                    "  source:",
+                    &action_type_display(&trace.source_kind),
+                );
+                push_readback_field(&mut output, "  content:", &trace.content_summary);
+                if !trace.keywords.is_empty() {
+                    push_readback_field(&mut output, "  keywords:", &trace.keywords.join(", "));
+                }
+                if !trace.concepts.is_empty() {
+                    push_readback_field(&mut output, "  concepts:", &trace.concepts.join(", "));
+                }
+                if !trace.linked_memory_ids.is_empty() {
+                    push_readback_field(
+                        &mut output,
+                        "  linked_memories:",
+                        &trace.linked_memory_ids.join(", "),
+                    );
+                }
+                if !trace.linked_decision_ids.is_empty() {
+                    push_readback_field(
+                        &mut output,
+                        "  linked_decisions:",
+                        &trace.linked_decision_ids.join(", "),
+                    );
+                }
+                push_readback_field(
+                    &mut output,
+                    "  importance:",
+                    &format!("{:.2}", trace.importance),
+                );
+                push_readback_field(
+                    &mut output,
+                    "  confidence:",
+                    &format!("{:.2}", trace.confidence),
+                );
+                push_readback_field(
+                    &mut output,
+                    "  activations:",
+                    &trace.activation_count.to_string(),
+                );
+                push_readback_field(&mut output, "  at:", &trace.created_at);
+                if let Some(last) = &trace.last_activated_at {
+                    push_readback_field(&mut output, "  last_activated:", last);
+                }
+                push_readback_line(&mut output, "");
+            }
+        }
+        if !readback
+            .memory_visibility
+            .aggregated_linked_memory_ids
+            .is_empty()
+        {
+            push_readback_field(
+                &mut output,
+                "aggregated_linked_memory_ids:",
+                &readback
+                    .memory_visibility
+                    .aggregated_linked_memory_ids
+                    .join(", "),
+            );
+        }
+        if !readback
+            .memory_visibility
+            .aggregated_linked_decision_ids
+            .is_empty()
+        {
+            push_readback_field(
+                &mut output,
+                "aggregated_linked_decision_ids:",
+                &readback
+                    .memory_visibility
+                    .aggregated_linked_decision_ids
+                    .join(", "),
+            );
+        }
+        if let Some(consolidation) = &readback.memory_visibility.consolidation_info {
+            push_readback_field(&mut output, "consolidation:", consolidation);
+        }
+    }
+    push_readback_line(&mut output, &style_dim(readback.memory_visibility.warning));
     output
 }
 
@@ -9301,6 +9531,15 @@ mod tests {
                 recent_decision_results: vec![],
                 warning: AUDIT_READBACK_WARNING,
             },
+            memory_visibility: MemoryVisibilitySection {
+                total_trace_count: None,
+                recent_traces: vec![],
+                aggregated_linked_memory_ids: vec![],
+                aggregated_linked_decision_ids: vec![],
+                store_accessible: false,
+                consolidation_info: None,
+                warning: AUDIT_READBACK_WARNING,
+            },
         };
 
         let formatted = format_status_readback(&readback);
@@ -9313,6 +9552,7 @@ mod tests {
         assert!(formatted.contains("last_audit_event_at:"));
         assert!(formatted.contains("Readback only"));
         assert!(formatted.contains("Local subsystems"));
+        assert!(formatted.contains("Memory and resonance visibility (D3)"));
     }
 
     #[test]
@@ -9346,6 +9586,15 @@ mod tests {
             supervision: SupervisionSection {
                 recent_proposed_actions: vec![],
                 recent_decision_results: vec![],
+                warning: AUDIT_READBACK_WARNING,
+            },
+            memory_visibility: MemoryVisibilitySection {
+                total_trace_count: None,
+                recent_traces: vec![],
+                aggregated_linked_memory_ids: vec![],
+                aggregated_linked_decision_ids: vec![],
+                store_accessible: false,
+                consolidation_info: None,
                 warning: AUDIT_READBACK_WARNING,
             },
         };
@@ -9392,6 +9641,15 @@ mod tests {
             supervision: SupervisionSection {
                 recent_proposed_actions: vec![],
                 recent_decision_results: vec![],
+                warning: AUDIT_READBACK_WARNING,
+            },
+            memory_visibility: MemoryVisibilitySection {
+                total_trace_count: None,
+                recent_traces: vec![],
+                aggregated_linked_memory_ids: vec![],
+                aggregated_linked_decision_ids: vec![],
+                store_accessible: false,
+                consolidation_info: None,
                 warning: AUDIT_READBACK_WARNING,
             },
         };
@@ -9444,6 +9702,15 @@ mod tests {
                 recent_decision_results: vec![],
                 warning: AUDIT_READBACK_WARNING,
             },
+            memory_visibility: MemoryVisibilitySection {
+                total_trace_count: None,
+                recent_traces: vec![],
+                aggregated_linked_memory_ids: vec![],
+                aggregated_linked_decision_ids: vec![],
+                store_accessible: false,
+                consolidation_info: None,
+                warning: AUDIT_READBACK_WARNING,
+            },
         };
 
         let json = serde_json::to_value(&readback).expect("JSON serialization");
@@ -9461,6 +9728,14 @@ mod tests {
         let supervision = json.get("supervision").expect("supervision field in JSON");
         assert!(supervision.get("recent_proposed_actions").is_some());
         assert!(supervision.get("recent_decision_results").is_some());
+        // D3 memory visibility fields
+        let memory_vis = json
+            .get("memory_visibility")
+            .expect("memory_visibility field in JSON");
+        assert!(memory_vis.get("total_trace_count").is_some());
+        assert!(memory_vis.get("recent_traces").is_some());
+        assert!(memory_vis.get("store_accessible").is_some());
+        assert!(memory_vis.get("warning").is_some());
     }
 
     #[test]

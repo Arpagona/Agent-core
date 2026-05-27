@@ -202,6 +202,16 @@ impl SqliteHolographicMemoryStore {
     pub fn is_empty(&self) -> bool {
         self.cache.is_empty()
     }
+
+    /// Return all traces across all projects, sorted by created_at descending.
+    ///
+    /// This is a convenience method for operator visibility (D3) that does
+    /// not require a specific project_id. Traces are returned newest first.
+    pub fn all_traces(&self) -> Vec<HolographicTrace> {
+        let mut traces: Vec<HolographicTrace> = self.cache.values().cloned().collect();
+        traces.sort_by(|a, b| b.created_at.cmp(&a.created_at));
+        traces
+    }
 }
 
 impl HolographicMemoryStore for SqliteHolographicMemoryStore {
