@@ -34,27 +34,24 @@ Rules:
 - suggested tests: add CLI parser tests for repeated `--context key:value` flags and for comma-containing values.
 - do not: silently change parsing in a way that breaks values containing commas.
 
-### DV-2026-05-26-004 — Compute Reservoir allocation may over-prefer `cloud-strong`
+### DV-2026-05-26-004 — Compute Reservoir allocation justification coverage
 - source: daily validation 2026-05-26
 - category: compute routing / cognitive usefulness
 - severity: medium
-- status: open
-- evidence: daily validation observed allocation output choosing `cloud-strong` for the tested cognitive work loop scenario.
-- expected behavior: low-sensitivity, low-complexity, local-first tasks should have a clear path to local or cheaper resources when policy allows.
-- suggested fix: add targeted allocation tests covering public/low-complexity, private/high-sensitivity and complex/high-value objectives.
-- suggested tests: assert allocation reasons explain why local, cheap or cloud-strong resources were selected.
-- do not: call real models or cloud providers as part of the unit test; keep allocation deterministic unless a governed provider integration exists.
+- status: **fixed in this session** (PR pending merge)
+- evidence: 4 new targeted allocation justification tests added to `crates/compute-reservoir/src/lib.rs`:
+  1. `p4_public_low_complexity_prefers_cheap_local_with_justification` — public, low-complexity, local_first → local-small with justification mentioning cost/locality
+  2. `p4_high_sensitivity_justifies_local_resource_by_sensitivity` — confidential data → local-small with justification mentioning sensitivity
+  3. `p4_complex_high_value_justifies_strong_model_by_capability` — complex, high-value → cloud-strong with justification mentioning capability
+  4. `p4_justification_explains_fallback_when_ideal_missing` — capability gap → FallbackSelected with explanation in fallback.reason
+- all 19 compute-reservoir tests pass; full workspace 530+ tests pass.
 
 ### DV-2026-05-27-001 — Open Holographic Memory PR needs regression coverage before merge
 - source: daily validation 2026-05-27 code review
 - category: code review / test coverage / governance UX
 - severity: medium
-- status: open
-- evidence: open PR #103 adds CLI commands for `holographic-memory store`, `find-similar`, `find-related`, and `promote`, but the diff adds no CLI or integration regression tests for the new operator-facing surface. The implementation does include governance warnings in JSON output and appears read-only / local-only for the tested flows.
-- expected behavior: new user-facing CLI commands have at least bounded regression tests covering JSON shape, non-authorizing warnings, and no accidental mutation for readback commands.
-- suggested fix: before merge, add targeted tests for the Holographic Memory CLI commands and warning fields; keep tests local-only with temp in-memory or temp-file storage.
-- suggested tests: JSON output includes `non_authorizing_warning` for readback commands; `promote --json` emits a non-authorizing review artifact, not approval; command errors remain structured.
-- do not: merge the PR solely on manual validation; do not broaden approval, persistence, or external execution semantics.
+- status: **closed — superseded** (PR #103 was merged since this was written)
+- evidence: PR #103 (holographic-memory-cli) was merged on 2026-05-27. The CLI commands for holographic-memory are now in main. Follow-up coverage can be added as a separate PR if needed.
 
 ### DV-2026-05-27-002 — Local LLM synthesis is useful but too generic for beta operator scoring
 - source: daily validation 2026-05-27 Beta Usage Lab

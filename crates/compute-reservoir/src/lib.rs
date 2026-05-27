@@ -1073,4 +1073,211 @@ mod tests {
         assert!(resonance_json.contains("business"));
         assert!(resonance_json.contains("non_authorizing_warning"));
     }
+
+    // ─── DV-2026-05-26-004 — Allocation justification tests ────────
+
+    #[test]
+    fn p4_public_low_complexity_prefers_cheap_local_with_justification() {
+        // Public data, low complexity, local_first = true
+        // → should select local-small and justify with cost/locality
+        let wm = WorkingMemory {
+            objective: None,
+            context_items: vec![],
+            assumptions: vec![],
+            constraints: vec![],
+            missing_context: vec![],
+            sensitivity_estimate: SensitivityEstimate::Public,
+            complexity_estimate: 0.2,
+            local_first: true,
+            cost_sensitive: false,
+            proposed_next_action_kind: "stopwithreport".to_owned(),
+            required_observations_count: 1,
+            required_observations: vec![],
+            cognitive_observations: vec![],
+            improvement_candidates: vec![],
+            failure_insight_candidates: vec![],
+            proposed_next_action: None,
+            cycle_status: arpagona_agent_core::cognitive_work::CycleStatus::Completed,
+            evidence_only_warning: String::new(),
+        };
+
+        let allocation = allocate_for_working_memory(
+            &wm,
+            &[cloud_strong(), local_small()],
+            &ComputePolicy::default(),
+        );
+
+        // Should prefer local-small over cloud-strong
+        assert_eq!(
+            allocation.selected_node_id,
+            Some(ComputeNodeId::new("local-small"))
+        );
+        assert_eq!(allocation.status, ComputeAllocationStatus::Selected);
+
+        // Justification should explain why local was chosen
+        let lower = allocation.justification.to_lowercase();
+        assert!(
+            lower.contains("local") || lower.contains("cost") || lower.contains("budget"),
+            "Justification should mention local/cost/budget: {}",
+            allocation.justification
+        );
+    }
+
+    #[test]
+    fn p4_high_sensitivity_justifies_local_resource_by_sensitivity() {
+        // Confidential data with complex reasoning requirement
+        // → cloud-strong can't handle it (max_data_sensitivity: Confidential... wait it CAN)
+        // Actually cloud-strong max is Internal, so Confidential blocks cloud.
+        // → local-small selected with justification mentioning sensitivity
+        let wm = WorkingMemory {
+            objective: None,
+            context_items: vec![],
+            assumptions: vec![],
+            constraints: vec![],
+            missing_context: vec![],
+            sensitivity_estimate: SensitivityEstimate::Confidential,
+            complexity_estimate: 0.8,
+            local_first: true,
+            cost_sensitive: true,
+            proposed_next_action_kind: "proposeplan".to_owned(),
+            required_observations_count: 5,
+            required_observations: vec![],
+            cognitive_observations: vec![],
+            improvement_candidates: vec![],
+            failure_insight_candidates: vec![],
+            proposed_next_action: None,
+            cycle_status: arpagona_agent_core::cognitive_work::CycleStatus::Completed,
+            evidence_only_warning: String::new(),
+        };
+
+        // First verify: cloud-strong (max Internal) is filtered out for Confidential data
+        // local-small (max Secret) is compatible
+        let allocation = allocate_for_working_memory(
+            &wm,
+            &[cloud_strong(), local_small()],
+            &ComputePolicy::default(),
+        );
+
+        assert_eq!(
+            allocation.selected_node_id,
+            Some(ComputeNodeId::new("local-small"))
+        );
+        assert_eq!(
+            allocation.resource_kind,
+            Some(ComputeResourceKind::LocalLlm)
+        );
+
+        // The justification should mention sensitivity or the resource's locality
+        let lower = allocation.justification.to_lowercase();
+        let has_sensitivity_reason = lower.contains("sensitivity")
+            || lower.contains("confidential")
+            || lower.contains("local");
+        assert!(
+            has_sensitivity_reason,
+            "Justification should mention sensitivity or locality: {}",
+            allocation.justification
+        );
+    }
+
+    #[test]
+    fn p4_complex_high_value_justifies_strong_model_by_capability() {
+        // Public, high-complexity, high-value objective with budget for cloud
+        // → cloud-strong should be selected, justification should mention capability
+        let wm = WorkingMemory {
+            objective: None,
+            context_items: vec![],
+            assumptions: vec![],
+            constraints: vec![],
+            missing_context: vec![],
+            sensitivity_estimate: SensitivityEstimate::Internal,
+            complexity_estimate: 0.95,
+            local_first: false,
+            cost_sensitive: false,
+            proposed_next_action_kind: "proposeplan".to_owned(),
+            required_observations_count: 6,
+            required_observations: vec![],
+            cognitive_observations: vec![],
+            improvement_candidates: vec![],
+            failure_insight_candidates: vec![],
+            proposed_next_action: None,
+            cycle_status: arpagona_agent_core::cognitive_work::CycleStatus::Completed,
+            evidence_only_warning: String::new(),
+        };
+
+        let allocation = allocate_for_working_memory(
+            &wm,
+            &[local_small(), cloud_strong()],
+            &ComputePolicy::default(),
+        );
+
+        // cloud-strong has ComplexReasoning; local-small doesn't
+        // So cloud-strong is the only compatible node
+        assert_eq!(
+            allocation.selected_node_id,
+            Some(ComputeNodeId::new("cloud-strong"))
+        );
+        assert_eq!(allocation.status, ComputeAllocationStatus::Selected);
+
+        // Justification should mention the selected resource
+        assert!(
+            allocation.justification.contains("cloud"),
+            "Justification should mention cloud: {}",
+            allocation.justification
+        );
+    }
+
+    #[test]
+    fn p4_justification_explains_fallback_when_ideal_missing() {
+        // WorkingMemory with local_first, zero budget, needs a capability only
+        // cloud-strong has (ComplexReasoning) but cloud is blocked by zero budget
+        // local-small lacks ComplexReasoning → fallback to compatible local
+        // → justification should mention fallback
+        let wm = WorkingMemory {
+            objective: None,
+            context_items: vec![],
+            assumptions: vec![],
+            constraints: vec![],
+            missing_context: vec![],
+            sensitivity_estimate: SensitivityEstimate::Public,
+            complexity_estimate: 0.9,
+            local_first: true,
+            cost_sensitive: true,
+            proposed_next_action_kind: "proposeplan".to_owned(),
+            required_observations_count: 5,
+            required_observations: vec![],
+            cognitive_observations: vec![],
+            improvement_candidates: vec![],
+            failure_insight_candidates: vec![],
+            proposed_next_action: None,
+            cycle_status: arpagona_agent_core::cognitive_work::CycleStatus::Completed,
+            evidence_only_warning: String::new(),
+        };
+
+        let allocation = allocate_for_working_memory(
+            &wm,
+            &[local_small(), cloud_strong()],
+            &ComputePolicy::default(),
+        );
+
+        // local_first + cost_sensitive → zero budget → cloud blocked
+        // local-small lacks ComplexReasoning → fallback
+        assert_eq!(allocation.status, ComputeAllocationStatus::FallbackSelected);
+        assert_eq!(
+            allocation.selected_node_id,
+            Some(ComputeNodeId::new("local-small"))
+        );
+
+        // The fallback struct should explain why fallback was selected
+        assert!(
+            allocation.fallback.is_some(),
+            "Fallback should be present for FallbackSelected status"
+        );
+        let fallback = allocation.fallback.as_ref().unwrap();
+        let lower = fallback.reason.to_lowercase();
+        assert!(
+            lower.contains("fallback") || lower.contains("compatible"),
+            "Fallback reason should mention fallback/compatible: {}",
+            fallback.reason
+        );
+    }
 }
