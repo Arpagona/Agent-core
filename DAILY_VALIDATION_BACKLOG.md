@@ -82,16 +82,16 @@ Rules:
 - suggested tests: run the conflict-marker scan and verify it is empty on a clean tree, or explicitly assert only the protocol example is ignored.
 - do not: weaken conflict-marker detection for actual source, config, or docs accidentally containing real merge markers.
 
-### DV-2026-05-27-004 — CLI docs coverage regressed for `executor`
-- source: daily validation 2026-05-27 CLI/documentation check
-- category: documentation / operator usability
-- severity: medium
-- status: open
-- evidence: `bash scripts/check-cli-docs-coverage.sh` exited 1 with `Missing docs for CLI commands: executor` on current `main`; `arpagona --help` exposes `executor   List and inspect executor registry state`, but `docs/cli.md` has no matching top-level section.
-- expected behavior: the docs coverage check remains green when new top-level CLI command groups are introduced, or the command is explicitly marked internal/experimental and excluded deliberately.
-- suggested fix: document the `executor` command group in `docs/cli.md` or intentionally exclude it from the coverage check with rationale.
-- suggested tests: rerun `bash scripts/check-cli-docs-coverage.sh` and verify exit 0.
-- do not: remove the docs coverage check or weaken it broadly; keep CLI surface discoverable for operators.
+|### DV-2026-05-27-004 — CLI docs coverage regressed for `executor`
+|- source: daily validation 2026-05-27 CLI/documentation check
+|- category: documentation / operator usability
+|- severity: medium
+|- status: **fixed in PR #108** (2026-05-27 focus loop)
+|- evidence: `bash scripts/check-cli-docs-coverage.sh` now exits 0 — both `executor` and `mcp-server` documentation have been added to `docs/cli.md` along with their pattern mappings in the check script.
+|- expected behavior: the docs coverage check remains green when new top-level CLI command groups are introduced, or the command is explicitly marked internal/experimental and excluded deliberately.
+|- suggested fix: documented the `executor` command group and `mcp-server` command in `docs/cli.md`; added pattern entries to `scripts/check-cli-docs-coverage.sh`.
+|- suggested tests: rerun `bash scripts/check-cli-docs-coverage.sh` and verify exit 0.
+|- do not: remove the docs coverage check or weaken it broadly; keep CLI surface discoverable for operators.
 
 ## Closed / superseded candidates
 
