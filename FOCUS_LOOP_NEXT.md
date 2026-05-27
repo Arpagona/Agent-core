@@ -47,6 +47,9 @@ Implements 7 test families to protect the C1-C4 model layer against predictable 
 
 ## Next action
 
-**D1 — Operator status surface.**
+**D1 — Operator status surface delivered (PR merged). Next: D2 — ProposedAction and tool-call supervision surface.**
 
-Expose one coherent operator status view before building a full UI. Target surfaces: CLI status command, MCP resource status.
+Handoff for the next runs:
+- D2 builds on the read-only status view: proposed actions, tool-call intents, Decision Gate results, risk levels and audit event IDs
+- C6 or H1 if anti-drift gaps appear
+- If API coverage is missing in D1 (LLM provider check), add it as a bounded follow-up
