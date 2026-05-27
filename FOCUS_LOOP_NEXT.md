@@ -12,16 +12,16 @@ P1 (open PRs) takes priority over alternation.
 
 ## Next action
 
-**Step 1: Merge PR #108** (`fix/docs-executor-mcp-server`) if CI is green. This is a documentation-only fix for DV-2026-05-27-004 (CLI docs coverage).
+**Step 1: Merge PR #109** (`feat/b1-conversation-holographic-bridge`) if CI is green. This is Track B Step B1 — the holographic conversation bridge that encodes conversation turns as distributed-signature traces.
 
-**Step 2: Track B Step B1** — Integrate Holographic Memory with `conversation-memory`. After PR #108 is merged, switch to `main`, pull, and proceed with Track B Step B1: create a bridge that encodes conversation turns as `HolographicTrace` objects using the `arpagona-holographic-memory` crate's store/resonance API.
+**Step 2: Track A Phase 2 refinement — Add governance audit persistence to MCP Phase 2.**
+After PR #109 is merged, switch to Track A. Phase 2 (DecisionGate governance for MCP tools/call) was delivered but the governance decision is evaluated per call without persistent audit storage. Add audit event persistence so each governed MCP tool call produces a durable audit event.
 
-Why: Track A Phase 2 (MCP DecisionGate governance) was the last feature run. Alternation says Track B next. Step B1 is the natural next Holographic Memory brick.
+Why: Track B B1 was just delivered. Alternation says Track A next. Phase 2 was the last Track A milestone but the audit trail is in-memory only — adding persistence makes the governance observable.
 
 Proof to seek: `cargo test --workspace` green. A new PR exists with:
-- Bridge logic in `crates/conversation-memory/` that converts conversation turns (user messages, assistant responses, tool results) into `HolographicTrace` objects using the holographic-memory distributed-signature crate
-- Integration with the holographic-memory store: after each turn, the bridge adds a trace and optionally finds-similar traces
-- Tests: conversation turns produce valid traces; resonance search across multiple turns finds related patterns; no mutation of existing conversation-memory or holographic-memory APIs
-- CLI: extend `memory holographic` with a `from-conversation` subcommand accepting turn data via file or stdin, or a documented integration entry point
+- Audit event persistence for MCP governance decisions (using the existing audit event types and graph-memory store)
+- CLI or server endpoint that lists recent MCP governance decisions
+- Tests proving audit events survive restart (via file-based persistence)
 
-Do not: add LLM calls, embeddings, vector databases, external network calls, or persistence beyond the existing in-memory holographic store. Do not modify existing holographic-memory core kernel types. Do not add Decision Gate bypasses for memory writes.
+Do not: add new tools, change MCP transport, add LLM calls, modify existing holographic-memory or conversation-memory APIs, add Decision Gate bypasses, or expand execution capabilities.

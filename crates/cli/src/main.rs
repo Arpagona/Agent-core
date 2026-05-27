@@ -728,6 +728,12 @@ enum HolographicSubcommand {
     Add(HolographicAddArgs),
     /// Search holographic memory by resonance with a query.
     Search(HolographicSearchArgs),
+    /// Encode conversation turns as holographic traces with distributed signatures.
+    ///
+    /// Reads turn data from a JSON file (Conversation format) and creates
+    /// holographic traces using keyword extraction and role-based concepts.
+    /// Optionally finds similar traces by resonance after processing.
+    FromConversation(HolographicFromConversationArgs),
 }
 
 #[derive(Debug, Args)]
@@ -778,6 +784,27 @@ struct HolographicSearchArgs {
     /// Path to the holographic memory JSON file.
     #[arg(long, default_value = "target/holographic-store.json")]
     file: String,
+    #[arg(long)]
+    json: bool,
+}
+
+#[derive(Debug, Args)]
+struct HolographicFromConversationArgs {
+    /// Path to the conversation JSON file (Conversation format).
+    #[arg(long)]
+    file: String,
+    /// Project scope for the traces.
+    #[arg(long, default_value = "default")]
+    project_id: String,
+    /// Path to the holographic memory JSON store (created if not found).
+    #[arg(long, default_value = "target/holographic-store.json")]
+    store: String,
+    /// After processing all turns, find similar traces by resonance.
+    #[arg(long)]
+    find_similar: bool,
+    /// Maximum number of resonance matches when --find-similar is set.
+    #[arg(long, default_value = "5")]
+    limit: usize,
     /// Emit structured JSON instead of human-oriented text.
     #[arg(long)]
     json: bool,
@@ -1376,6 +1403,9 @@ async fn run() -> Result<(), Box<dyn Error>> {
             MemorySubcommand::Holographic(h) => match h.command {
                 HolographicSubcommand::Add(args) => memory_holographic_add(args)?,
                 HolographicSubcommand::Search(args) => memory_holographic_search(args)?,
+                HolographicSubcommand::FromConversation(args) => {
+                    memory_holographic_from_conversation(args)?
+                }
             },
         },
         Command::Tool(tool) => match tool.command {
@@ -2429,6 +2459,124 @@ fn memory_holographic_search(args: HolographicSearchArgs) -> Result<(), Box<dyn 
                 println!("  Activated traces: {}", context.activated_trace_ids.len());
             }
         }
+        println!();
+        println!(
+            "⚠️  Holographic memory is recall evidence only. It does not authorize any action."
+        );
+    }
+
+    Ok(())
+}
+
+fn memory_holographic_from_conversation(
+    args: HolographicFromConversationArgs,
+) -> Result<(), Box<dyn Error>> {
+    use arpagona_conversation_memory::holographic_bridge::{
+        Conversation, HolographicConversationBridge,
+    };
+
+    // Read the conversation JSON file
+    let json_data = std::fs::read_to_string(&args.file)
+        .map_err(|e| format!("Failed to read conversation file '{}': {}", args.file, e))?;
+    let conversation: Conversation = serde_json::from_str(&json_data)
+        .map_err(|e| format!("Failed to parse conversation JSON: {}", e))?;
+
+    // Load or create the holographic store
+    let mut bridge =
+        match HolographicConversationBridge::load_from_file(&args.project_id, &args.store) {
+            Ok(b) => b,
+            Err(HolographicMemoryError::PersistenceError(_)) => {
+                HolographicConversationBridge::new(&args.project_id)
+            }
+            Err(e) => {
+                return Err(format!("Failed to load holographic store: {}", e).into());
+            }
+        };
+
+    // Process all turns
+    let trace_count = bridge.process_conversation(&conversation);
+
+    // Save the updated store
+    bridge
+        .save_to_file(&args.store)
+        .map_err(|e| format!("Failed to save holographic store: {}", e))?;
+
+    // Optionally find similar traces
+    let similar_context = if args.find_similar {
+        let ctx = bridge.find_similar_for_turns(&conversation.turns, args.limit);
+        Some(ctx)
+    } else {
+        None
+    };
+
+    if args.json {
+        let mut output = serde_json::json!({
+            "status": "processed",
+            "conversation_id": conversation.conversation_id,
+            "title": conversation.title,
+            "project_id": args.project_id,
+            "turn_count": conversation.turns.len(),
+            "trace_count": trace_count,
+            "store_path": args.store,
+        });
+        if let Some(ctx) = &similar_context {
+            output["find_similar"] = serde_json::json!({
+                "match_count": ctx.matches.len(),
+                "matches": ctx.matches,
+            });
+        }
+        println!("{}", serde_json::to_string_pretty(&output)?);
+    } else {
+        let title = conversation.title.as_deref().unwrap_or("(untitled)");
+        println!("✓ Processed conversation '{}'", title);
+        println!("  Conversation ID: {}", conversation.conversation_id);
+        println!("  Project:         {}", args.project_id);
+        println!("  Turns processed: {}", conversation.turns.len());
+        println!("  Traces created:  {}", trace_count);
+        println!("  Store path:      {}", args.store);
+        println!();
+
+        // Show a compact summary of what was encoded per turn
+        let traces = bridge.store().list_traces(&args.project_id);
+        let recent_traces: Vec<_> = traces.iter().rev().take(trace_count).collect();
+        if !recent_traces.is_empty() {
+            println!("  Encoded traces:");
+            for t in &recent_traces {
+                let kw_list = if t.keywords.len() > 5 {
+                    format!("{} keywords", t.keywords.len())
+                } else {
+                    t.keywords.join(", ")
+                };
+                println!(
+                    "    {:<12} keywords: {}, concepts: {}",
+                    t.id,
+                    kw_list,
+                    t.concepts.join(", ")
+                );
+            }
+        }
+
+        if let Some(ctx) = &similar_context {
+            if ctx.matches.is_empty() {
+                println!();
+                println!("  🔍 No resonance matches found.");
+            } else {
+                println!();
+                println!("  🔍 Top resonance matches:");
+                for (i, m) in ctx.matches.iter().enumerate() {
+                    println!(
+                        "    {}. {} (score: {:.3})",
+                        i + 1,
+                        m.trace.content_summary,
+                        m.score.total
+                    );
+                    if !m.matched_keywords.is_empty() {
+                        println!("       Matched keywords: {}", m.matched_keywords.join(", "));
+                    }
+                }
+            }
+        }
+
         println!();
         println!(
             "⚠️  Holographic memory is recall evidence only. It does not authorize any action."
