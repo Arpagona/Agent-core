@@ -410,6 +410,7 @@ fn is_write_or_execution_action(action: &ProposedAction) -> bool {
             | ActionType::LinkMemoryFact
             | ActionType::InvalidateMemoryFact
             | ActionType::CreateFailureInsightMemory
+            | ActionType::CreateHolographicTrace
             | ActionType::SimulateEmail
             | ActionType::ManageTask
             | ActionType::ProposeToolUse
