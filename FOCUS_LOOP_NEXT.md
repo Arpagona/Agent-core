@@ -4,26 +4,31 @@ This file is the short-lived handoff for the next scheduled focus-loop run.
 
 It must contain one concrete next action only. The runtime milestone queue and long-term rules live in `AGENT_FOCUS_LOOP.md`.
 
-Two-track alternation (from 2026-05-26):
+Two-track status (from 2026-05-28):
 - **Track A** — MCP Server (Phases 1-5 complete ✅)
 - **Track B** — Holographic Memory (Steps B1-B6 complete ✅)
 
 Both tracks are fully implemented and merged into main.
 
+Daily validation backlog:
+- **DV-2026-05-26-003**: ✅ Fixed this session — 7 CLI parser tests for `--context` flag added
+- **DV-2026-05-27-002**: still open — LLM local synthesis quality (low severity)
+- **DV-2026-05-27-003**: still open — conflict-marker scan false positive (low severity)
+- **DV-2026-05-26-001**: ✅ fixed
+- **DV-2026-05-26-004**: ✅ fixed
+
 ## Next action
 
-**Next pass should: Advance toward Track C — connect the cognitive components into a deeper cognitive loop, specifically the Governance Observation Pipeline (AGENT_FOCUS_LOOP.md P3).**
+**Advance toward Track C / P3 — Cognitive Observation to Governed Learning (AGENT_FOCUS_LOOP.md P3).**
 
-The DAILY_VALIDATION_BACKLOG.md highest-severity open items have been addressed this session (DV-2026-05-26-004: Compute Reservoir justification tests done; DV-2026-05-27-001: closed as superseded since PR #103 already merged).
-
-The most impactful next step is AGENT_FOCUS_LOOP.md P3 — Cognitive Observation to Governed Learning:
-
+The full P3 pipeline is already wired in code:
 ```text
-CognitiveObservation -> FailureInsightCandidate -> ProposedAction -> Decision Gate -> Audit -> governed FailureInsight readback
+CognitiveObservation -> FailureInsightCandidate -> ProposedAction -> Decision Gate -> Audit -> governance results
 ```
 
-Wire the existing ToolRuntime results (CognitiveObservation) through the cognitive assessment bridge and into the governed learning path. Tests must prove blocked/truncated/empty observations can produce governed learning proposals.
+What's missing for P3 completion:
+1. An end-to-end integration test for `--observe --govern` (ToolRuntime results → governed learning proposals), specifically proving blocked/truncated/empty observations produce governed learning proposals. Currently tested paths: `--assess --govern` (ImprovementCandidate → governance) and `--assess --observe --propose` (with API server). The `--observe --govern` offline path is not yet tested.
 
-If P3 is too large for one run, the next best bounded increment is **DV-2026-05-26-003** (CLI context parser docs — add parser tests for repeated `--context key:value` flags and comma-containing values).
+If P3 testing is too large for one run, the next best bounded increment is **DV-2026-05-27-003** (daily validation conflict-marker scan false positive — adjust the protocol command exclusion or document the expected false positive).
 
 Do not: add real execution, shell access, LLM calls, browser automation, email sending, or SurrealDB persistence beyond existing usage.
