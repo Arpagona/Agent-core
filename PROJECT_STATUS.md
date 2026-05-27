@@ -935,3 +935,61 @@ Stable alpha. Only prompt text, mock provider behavior, and tests changed. No pr
 
 
 
+## 18. Latest Session Update (2026-05-27 — Milestone completion verification, demo script fix, clean handoff)
+
+This session verified that all planned milestones (P1-P8, Track A A1-A5, Track B B1-B7) are fully delivered and the `scripts/demo-full-loop.sh` end-to-end demo runs successfully across all three domains (business, coding, research).
+
+### What was done
+
+**`scripts/demo-full-loop.sh`** — Fixed governance result field names in the `validate_and_format` Python function:
+
+| Before (broken) | After (correct) |
+|-----------------|-----------------|
+| `r.get('decision', {}).get('decision', 'unknown')` | `r.get('decision', {}).get('status', 'unknown')` — now shows `"approved"` |
+| `r.get('proposed_action', {}).get('risk', 'unknown')` | `r.get('proposed_action', {}).get('risk_level', 'unknown')` — now shows `"low"` |
+
+**`FOCUS_LOOP_NEXT.md`** — Updated to reflect that all planned milestones are delivered (P1-P8 ✅, Track A A1-A5 ✅, Track B B1-B7 ✅). The handoff now signals "await human direction for next strategic roadmap" per AGENT_FOCUS_LOOP.md section 10.
+
+**`PROJECT_STATUS.md`** — This section.
+
+### Milestone verification
+
+All milestones verified by demo script run:
+
+| Domain | decision_count | audit_event_count | decision_status | risk_level |
+|--------|---------------|------------------|----------------|------------|
+| Business | 1 | 1 | approved | low |
+| Coding | 2 | 2 | approved (×2) | low (×2) |
+| Research | 1 | 1 | approved | low |
+
+The full governed chain produces:
+```
+Objective → WorkingMemory → Plan → Observations → Assessment
+→ FailureInsightCandidates → DecisionGate → Decision → AuditEvent
+```
+
+### Files changed
+
+| File | Change |
+|------|--------|
+| `scripts/demo-full-loop.sh` | Fixed governance result field names (+2/−2 lines) |
+| `FOCUS_LOOP_NEXT.md` | Full rewrite: all milestones complete, await human direction |
+| `PROJECT_STATUS.md` | This section |
+
+### Not changed (as intended)
+
+- No Rust source, test, config, CLI, API, Decision Gate, MCP, or tool runtime changes
+- No new capabilities added
+- No Decision Gate bypass
+- No LLM calls, browser automation, email, or restricted capabilities
+- No file access, execution, or governance behavior changes
+- No new strategic roadmap items
+
+### Risks
+
+- The project is now at a natural checkpoint. All planned milestones are delivered. The next run without human direction will have no bounded increment to execute. Per AGENT_FOCUS_LOOP.md section 10, new roadmap items must not be added without human direction.
+- The AGENT_FOCUS_LOOP.md track status tables (section 9) still show B4-B7 and A5 as 🔜 — they are all ✅ in reality. A documentation-only PR to sync the tables is the natural next step once human direction for the next phase is provided.
+
+### Stability
+
+Stable alpha. All existing tests continue to pass without modification. The demo script validates the full governed cognitive loop end-to-end.

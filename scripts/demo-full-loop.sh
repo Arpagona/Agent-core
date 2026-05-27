@@ -112,8 +112,8 @@ print(json.dumps({
     'proposed_actions': [{
         'id': r['proposed_action_id'],
         'action_type': r.get('proposed_action', {}).get('action_type', 'unknown'),
-        'decision': r.get('decision', {}).get('decision', 'unknown'),
-        'risk': r.get('proposed_action', {}).get('risk', 'unknown'),
+        'decision_status': r.get('decision', {}).get('status', 'unknown'),
+        'risk_level': r.get('proposed_action', {}).get('risk_level', 'unknown'),
     } for r in gov_results],
 }, indent=2))
 " 2>&1 || echo "{\"error\": \"Output validation failed — the CLI may have returned unexpected content\"}"
