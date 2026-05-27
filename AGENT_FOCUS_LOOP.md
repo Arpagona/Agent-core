@@ -321,3 +321,40 @@ At the end of every successful run, update `FOCUS_LOOP_NEXT.md` with one concret
 
 The handoff must target the next highest-priority runtime milestone, not a convenience script or cosmetic cleanup unless P0/P1 requires it.
 
+## 12. Two-track alternation (from 2026-05-26)
+
+The focus loop runs every 15 minutes and must advance **both** tracks below, alternating between them on each run.
+
+P1 (open PRs) takes priority over alternation: if an open PR is mergeable, merge it first regardless of track. If one track is blocked (e.g. awaiting merge), advance the other track.
+
+### Track A — MCP Server (connect Arpagona to external agents)
+
+| Phase | Action |
+|-------|--------|
+| A1 | ✅ Phase 1 — crate + stdio transport + tools/list + tools/call (PR #105) |
+| A2 | 🔜 Phase 2 — DecisionGate governance before tools/call |
+| A3 | Phase 3 — HTTP/SSE transport via Axum endpoint `/mcp` |
+| A4 | Phase 4 — Resources (snapshots, audit events) + Prompts |
+| A5 | Phase 5 — notifications/tools/list_changed |
+
+### Track B — Holographic Memory (internal cognitive memory)
+
+| Step | Action |
+|------|--------|
+| B1 | 🔜 Intégration avec `conversation-memory` — encoder les tours comme `HolographicTrace` |
+| B2 | Graphe mémoire récursif — suivre les `linked_memory_ids` en profondeur |
+| B3 | Embeddings locaux optionnels (généralisation sémantique) |
+| B4 | Persistance SQLite/SurrealDB |
+| B5 | Consolidation périodique + fusion traces redondantes |
+| B6 | Gouvernance des écritures via DecisionGate (`MemoryWriteKind::HolographicTrace`) |
+
+### Reporting requirement
+
+Every run report must include the chosen track:
+
+```text
+- track: A or B
+- track phase/step: e.g. A2, B1
+- alternation status: e.g. "last run was B, now A"
+```
+
