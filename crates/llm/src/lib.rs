@@ -855,17 +855,26 @@ pub const COGNITIVE_SYNTHESIS_SYSTEM_PROMPT: &str = r#"You are ARPAGONA Agent Co
 The system has run a heuristic cognitive cycle on an objective. You are given:
 1. The objective (what the user wants to achieve)
 2. The domain classification
-3. The working memory summary (assumptions, constraints, missing context)
+3. The working memory summary (Domain, Sensitivity, Complexity, Context items count,
+   Missing context count, Assumptions count, Proposed next action kind)
 4. The proposed next action
 
-Your task: synthesize this information into a short, actionable paragraph that:
-- Summarizes the current state of analysis
-- Highlights the most important gap or risk
-- Suggests what a human should do next
+Your task: synthesize this information into a structured self-scorecard with
+grounded bullets. Reference concrete field values from the working-memory summary.
+Use exactly this format:
+
+[STATE] Domain: <value>, Sensitivity: <value>, Complexity: <value>
+  - <1-2 grounded sentences about the current analysis state, referencing specific field values>
+
+[KEY GAP / RISK] <the most critical missing context, risk, or ambiguity, referencing the specific field>
+  - <why this gap matters for progress>
+
+[RECOMMENDED NEXT STEP] <what a human should do next, based on the proposed next action kind>
+  - <1 brief rationale sentence>
 
 Do NOT propose tool calls, memory writes, or system operations.
 Do NOT claim any action has been executed or authorized.
-Keep your response under 150 words. Respond in the same language as the objective."#;
+Keep your total response under 150 words. Respond in the same language as the objective."#;
 
 impl OpenAiProvider {
     /// Call OpenAI for cognitive synthesis (free-form text, non-authorizing).
@@ -930,22 +939,207 @@ impl OpenAiProvider {
 }
 
 impl MockProvider {
-    /// Mock synthesis — returns a deterministic message for testing.
+    /// Mock synthesis — returns a deterministic structured output that mimics
+    /// the format requested by `COGNITIVE_SYNTHESIS_SYSTEM_PROMPT`.
+    ///
+    /// Parses the working-memory summary prefix from the user prompt to extract
+    /// concrete field values (Domain, Sensitivity, Complexity, etc.) and produces
+    /// a grounded self-scorecard. No real LLM is called.
     pub async fn synthesize(
         &self,
         _system_prompt: &str,
         user_prompt: &str,
     ) -> Result<String, LlmError> {
-        let preview = if user_prompt.len() > 80 {
-            format!("{}...", &user_prompt[..80])
+        let (domain, sensitivity, complexity, missing, next_action) =
+            parse_wm_summary_fields(user_prompt);
+
+        let gap_line = if missing > 0 {
+            format!(
+                "Missing context: {} item(s) identified — context gaps may block progress",
+                missing
+            )
         } else {
-            user_prompt.to_owned()
+            "No missing context detected — analysis is self-contained".to_owned()
         };
+
+        let next_step_line = match next_action.as_str() {
+            "requestcontext" | "RequestContext" => {
+                "Request context: gather the missing information before proceeding further"
+            }
+            "stopwithreport" | "StopWithReport" => {
+                "Stop with report: sufficient analysis completed, ready for human review"
+            }
+            _ => "Review output: the proposed next action guides the next step",
+        };
+
         Ok(format!(
-            "[MOCK SYNTHESIS] Analyse terminée pour objectif : '{}'. \
-             Aucun LLM réel appelé. Cette sortie est une simulation non-autorisante.",
-            preview
+            "[STATE] Domain: {}, Sensitivity: {}, Complexity: {:.2}\n\
+             ﹂ Grounded assessment based on {} context items and {} assumptions.\n\
+             \n\
+             [KEY GAP / RISK] {}\n\
+             ﹂ The working memory summary flags this as the primary constraint.\n\
+             \n\
+             [RECOMMENDED NEXT STEP] {}\n\
+             ﹂ {}",
+            domain,
+            sensitivity,
+            complexity,
+            "?",
+            "?",
+            gap_line,
+            next_step_line,
+            "This synthesis is evidence-only and non-authorizing. Review before acting.",
         ))
+    }
+}
+
+/// Parse working-memory summary fields from the user prompt prefix.
+///
+/// The user prompt is structured as:
+/// ```text
+/// Objective: <text>
+///
+/// Working Memory Summary:
+/// Domain: <value>
+/// Sensitivity: <value>
+/// Complexity: <value>
+/// Context items: <count>
+/// Missing context: <count>
+/// Assumptions: <count>
+/// Proposed next action: <value>
+/// ```
+///
+/// Returns (domain, sensitivity, complexity, missing_count, next_action_kind).
+/// On parse failure, returns safe defaults.
+fn parse_wm_summary_fields(prompt: &str) -> (String, String, f32, usize, String) {
+    let mut domain = String::from("Unknown");
+    let mut sensitivity = String::from("Public");
+    let mut complexity: f32 = 0.0;
+    let mut missing: usize = 0;
+    let mut next_action = String::from("StopWithReport");
+
+    for line in prompt.lines() {
+        let line = line.trim();
+        if let Some(val) = line.strip_prefix("Domain:") {
+            domain = val.trim().to_owned();
+        } else if let Some(val) = line.strip_prefix("Sensitivity:") {
+            sensitivity = val.trim().to_owned();
+        } else if let Some(val) = line.strip_prefix("Complexity:") {
+            complexity = val.trim().parse::<f32>().unwrap_or(0.0);
+        } else if let Some(val) = line.strip_prefix("Missing context:") {
+            missing = val.trim().parse::<usize>().unwrap_or(0);
+        } else if let Some(val) = line.strip_prefix("Proposed next action:") {
+            next_action = val.trim().to_owned();
+        }
+    }
+
+    (domain, sensitivity, complexity, missing, next_action)
+}
+
+#[cfg(test)]
+mod mock_synthesis_tests {
+    use super::*;
+
+    #[test]
+    fn parse_wm_summary_extracts_all_known_fields() {
+        let prompt = "Objective: Test objective\n\nWorking Memory Summary:\nDomain: General\nSensitivity: Public\nComplexity: 0.4\nContext items: 2\nMissing context: 1\nAssumptions: 3\nProposed next action: RequestContext\n";
+        let (domain, sensitivity, complexity, missing, next_action) =
+            parse_wm_summary_fields(prompt);
+        assert_eq!(domain, "General");
+        assert_eq!(sensitivity, "Public");
+        assert!((complexity - 0.4).abs() < 0.01);
+        assert_eq!(missing, 1);
+        assert_eq!(next_action, "RequestContext");
+    }
+
+    #[test]
+    fn parse_wm_summary_returns_defaults_for_empty_prompt() {
+        let (domain, sensitivity, complexity, missing, next_action) = parse_wm_summary_fields("");
+        assert_eq!(domain, "Unknown");
+        assert_eq!(sensitivity, "Public");
+        assert!((complexity - 0.0).abs() < 0.01);
+        assert_eq!(missing, 0);
+        assert_eq!(next_action, "StopWithReport");
+    }
+
+    #[test]
+    fn parse_wm_summary_handles_missing_lines() {
+        let prompt =
+            "Objective: Test\n\nWorking Memory Summary:\nDomain: Coding\nComplexity: 0.7\n";
+        let (domain, sensitivity, complexity, missing, next_action) =
+            parse_wm_summary_fields(prompt);
+        assert_eq!(domain, "Coding");
+        // Sensitivity defaults (not present in input)
+        assert_eq!(sensitivity, "Public");
+        // Complexity correctly parsed from input
+        assert!((complexity - 0.7).abs() < 0.01);
+        assert_eq!(missing, 0);
+        // Next action defaults (not present in input)
+        assert_eq!(next_action, "StopWithReport");
+    }
+
+    #[test]
+    fn mock_synthesis_output_contains_structured_sections() {
+        let provider = MockProvider::safe_default();
+        let prompt = "Objective: Analyse financial trends\n\nWorking Memory Summary:\nDomain: Business\nSensitivity: Internal\nComplexity: 0.6\nContext items: 3\nMissing context: 2\nAssumptions: 2\nProposed next action: RequestContext\n";
+        let result = tokio::runtime::Runtime::new()
+            .unwrap()
+            .block_on(provider.synthesize(COGNITIVE_SYNTHESIS_SYSTEM_PROMPT, prompt))
+            .expect("mock synthesis should not fail");
+        assert!(
+            result.contains("[STATE]"),
+            "output should contain STATE section"
+        );
+        assert!(result.contains("Business"), "output should contain domain");
+        assert!(
+            result.contains("Internal"),
+            "output should contain sensitivity"
+        );
+        assert!(
+            result.contains("[KEY GAP / RISK]"),
+            "output should contain KEY GAP section"
+        );
+        assert!(
+            result.contains("[RECOMMENDED NEXT STEP]"),
+            "output should contain RECOMMENDED section"
+        );
+        assert!(
+            result.contains("non-authorizing"),
+            "output should contain safety warning"
+        );
+    }
+
+    #[test]
+    fn mock_synthesis_output_references_concrete_fields() {
+        let provider = MockProvider::safe_default();
+        let prompt = "Objective: Research quantum computing\n\nWorking Memory Summary:\nDomain: Research\nSensitivity: Public\nComplexity: 0.9\nContext items: 1\nMissing context: 0\nAssumptions: 1\nProposed next action: StopWithReport\n";
+        let result = tokio::runtime::Runtime::new()
+            .unwrap()
+            .block_on(provider.synthesize(COGNITIVE_SYNTHESIS_SYSTEM_PROMPT, prompt))
+            .expect("mock synthesis should not fail");
+        assert!(
+            result.contains("Research"),
+            "should reference Research domain"
+        );
+        assert!(
+            result.contains("Stop with report"),
+            "should reference StopWithReport next step"
+        );
+    }
+
+    #[test]
+    fn synthetic_synthesis_uses_request_context_for_missing_observations() {
+        let provider = MockProvider::safe_default();
+        let prompt = "Objective: Plan team offsite\n\nWorking Memory Summary:\nDomain: Business\nSensitivity: Internal\nComplexity: 0.3\nContext items: 0\nMissing context: 3\nAssumptions: 1\nProposed next action: RequestContext\n";
+        let result = tokio::runtime::Runtime::new()
+            .unwrap()
+            .block_on(provider.synthesize(COGNITIVE_SYNTHESIS_SYSTEM_PROMPT, prompt))
+            .expect("mock synthesis should not fail");
+        assert!(
+            result.contains("Request context"),
+            "should reference RequestContext next step for missing context"
+        );
+        assert!(result.contains("3"), "should reference missing count of 3");
     }
 }
 
@@ -1230,5 +1424,54 @@ mod tests {
             }
             other => panic!("expected proposed action, got {other:?}"),
         }
+    }
+
+    #[test]
+    fn cognitive_synthesis_prompt_contains_structured_sections() {
+        let prompt = COGNITIVE_SYNTHESIS_SYSTEM_PROMPT;
+        // Verify the updated prompt asks for grounded bullets referencing concrete fields
+        assert!(
+            prompt.contains("[STATE]"),
+            "prompt should request STATE section"
+        );
+        assert!(
+            prompt.contains("[KEY GAP / RISK]"),
+            "prompt should request KEY GAP section"
+        );
+        assert!(
+            prompt.contains("[RECOMMENDED NEXT STEP]"),
+            "prompt should request RECOMMENDED section"
+        );
+        assert!(
+            prompt.contains("Reference concrete field values"),
+            "prompt should ask to reference concrete field values"
+        );
+    }
+
+    #[test]
+    fn cognitive_synthesis_prompt_retains_safety_warnings() {
+        let prompt = COGNITIVE_SYNTHESIS_SYSTEM_PROMPT;
+        assert!(
+            prompt.contains("Do NOT propose tool calls"),
+            "prompt must retain the no-tool-calls warning"
+        );
+        assert!(
+            prompt.contains("Do NOT claim any action has been executed"),
+            "prompt must retain the no-authorization warning"
+        );
+    }
+
+    #[test]
+    fn cognitive_synthesis_user_prompt_contains_objective_and_wm_summary() {
+        let objective = "Analyse les tendances du marché français";
+        let wm_summary = "Domain: Business\nSensitivity: Internal\nComplexity: 0.5\nContext items: 3\nMissing context: 1\nAssumptions: 2\nProposed next action: RequestContext";
+        let user_prompt = format!(
+            "Objective: {}\n\nWorking Memory Summary:\n{}",
+            objective, wm_summary
+        );
+        assert!(user_prompt.contains(objective));
+        assert!(user_prompt.contains("Domain: Business"));
+        assert!(user_prompt.contains("Missing context: 1"));
+        assert!(user_prompt.contains("Working Memory Summary:"));
     }
 }
