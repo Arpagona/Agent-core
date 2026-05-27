@@ -1779,3 +1779,47 @@ Alpha CLI supervision surface (same as `memory demo failure-insight`, `executor 
 - No SurrealDB or persistence changes
 - No LLM, scheduler, MCP, browser automation, or security changes
 - The heuristic-based `crates/core/src/holographic.rs` resonance used by `cognitive run --resonate` remains unchanged (the CLI commands exercise the real crate directly)
+
+---
+
+## Session 35 — 2026-05-27 06:00 UTC — Merge two conflicting PRs, Track B delivered
+
+### Objective
+
+Resolve two open but conflicting PRs (P1 hygiene), merge them, and advance the two-track pipeline:
+
+1. PR #103 (`feat/holographic-memory-cli`): Track B — holographic memory CLI commands.
+2. PR #106 (`feat/demo-full-governed-loop`): Track B-adjacent demo script update.
+
+### Work completed
+
+1. **PR #103 rebased and merged** (Track B, holographic-memory CLI):
+   - Cherry-picked onto fresh main, only FOCUS_LOOP_NEXT.md conflicted.
+   - Verified: cargo fmt/check/test green. Force-pushed, CI re-ran green, auto-merged.
+2. **PR #106 rebased and merged** (demo script):
+   - Cherry-picked onto fresh main, FOCUS_LOOP_NEXT.md + PROJECT_STATUS.md conflicted.
+   - Verified: cargo fmt/check/test green, bash demo-full-loop.sh exits 0.
+   - Force-pushed, CI re-ran green, auto-merged.
+3. **Post-merge cleanup**: both remote branches deleted, no open PRs remain.
+
+### Verification
+
+- `cargo fmt -- --check`: clean
+- `cargo check`: 0 new warnings
+- `cargo test --workspace`: all tests pass (462+)
+- `bash scripts/demo-full-loop.sh`: exits 0
+- No conflict markers in any source file
+
+### Stability level
+
+Stable. CLI surface additions only. No core domain types, runtime, or Decision Gate changes.
+
+### Risks
+
+- The conversation-memory integration (Track B step B1 proper) is still pending — next handoff points to Track A Phase 2 (MCP governance) for alternation balance.
+- The `feat/dv-2026-05-27-004-cli-docs` branch (local) was stashed and cleaned. Its work product was already in main, no content lost.
+
+### Deliberately not changed
+
+- No core domain types, Decision Gate, PolicyEngine, API endpoints, executor, persistence
+- No LLM, scheduler, autonomy, security, or MCP Phase 2 work

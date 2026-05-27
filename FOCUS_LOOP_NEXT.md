@@ -12,10 +12,13 @@ Start each run checking the last handoff. If last was Track A, pick Track B next
 
 ## Next action
 
-Next pass should: Track A — Merge PR #105 (native MCP server Phase 1), then start Phase 2: add governance layer wrapping tools/call through DecisionGate before tool execution.
+Next pass should: Track A Phase 2 — Add DecisionGate governance layer to the MCP server's `tools/call` handler. Wrap each tool call through `evaluate_proposed_action` before execution. Return structured governance errors when blocked.
 
-Why: MCP Phase 1 crate and CLI exist, PR #105 is open and mergeable; Phase 2 governance is the next critical brick. After this, alternate to Track B (Holographic Memory integration with conversation-memory).
+Why: PR #103 (holographic-memory CLI, Track B) and PR #106 (demo-full-governed-loop) are both merged. Alternation says Track A next. Phase 2 governance is the natural next MCP brick — it makes the server safe for multi-agent use.
 
-Proof to seek: after merge, `cargo run --bin arpagona -- mcp-server` starts and responds to `initialize` + `tools/list`. Then a new branch `feat/mcp-phase2-governance` exists with a GovernanceLayer struct that intercepts `tools/call`, creates a ProposedAction, runs it through `evaluate_proposed_action`, and only executes if the decision is approved.
+Proof to seek: `cargo test --workspace` green. A new PR `feat/mcp-phase2-governance` exists with:
+- A `GovernanceLayer::evaluate_tool_call()` that creates `ProposedAction { action_type: ProposeToolUse, ... }` and runs it through the DecisionGate
+- `tools/call` handler checks governance before ToolRuntime execution
+- Tests: approved tool calls execute; missing permission blocks; governance summary is readable in the error response
 
-Do not: add HTTP transport, resources, prompts, or list_changed notifications. Keep governance on stdio transport only. Do not modify existing Tool Runtime or Tool Registry behaviour.
+Do not: add HTTP/SSE transport, resources, prompts, or list_changed notifications. Do not modify existing Tool Runtime, Tool Registry, or cognitive loop behavior. Do not add LLM calls.
