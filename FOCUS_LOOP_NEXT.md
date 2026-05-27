@@ -12,18 +12,17 @@ P1 (open PRs) takes priority over alternation.
 
 ## Next action
 
-**Track A Phase 4 — MCP Resources + Prompts.** PR #114 documenting Track A Phase 4 is being created this run.
+**Track B Step B4 — SQLite persistence for holographic memory.** PR #115 created this run implementing `SqliteHolographicMemoryStore`.
 
-The alternation was Track A (this run), so the next step is Track B.
+Wait for CI on PR #115. If CI passes green, auto-merge. Then advance to **Track B Step B5 — periodic consolidation + redundant trace merging.**
 
-**After PR #114 merges, advance Track B Step B4 — SQLite persistence for holographic memory.** This adds a durable SQLite storage backend for the holographic memory store, enabling traces to survive server restarts. Follow `crates/holographic-memory` crate patterns.
+B5 consolidates redundant traces in the holographic memory store by merging traces with overlapping signatures within a configurable time window, reducing memory bloat from repeated similar observations.
 
 Proof to seek: `cargo test --workspace` green. A new PR exists with:
-- SQLite-backed `HolographicMemoryStore` implementation using `rusqlite`
-- Schema creation (traces table with id, project_id, signature_json, created_at columns)
-- CRUD operations (store, retrieve by resonance, delete by project)
-- Existing in-memory store kept as default; SQLite store enabled via constructor parameter
-- Tests proving persistence across store drop/reopen cycles
-- No changes to existing resonance or signature logic
+- `consolidate_traces(window_minutes, similarity_threshold)` method on `HolographicMemoryStore` trait
+- Default no-op implementation on `InMemoryHolographicMemoryStore`
+- SQLite implementation that queries for trace pairs with similar signatures within a time window, merges keywords/concepts/entities, updates activation counts, removes duplicates
+- CLI command `memory holographic consolidate [--window 60] [--threshold 0.7]`
+- Tests proving merged traces retain key content and redundant traces are removed
 
 Do not: add real execution, shell access, LLM calls, browser automation, email sending, or SurrealDB persistence.
