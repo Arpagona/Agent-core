@@ -4,41 +4,63 @@ This file is the short-lived handoff for the next scheduled focus-loop run.
 
 It must contain one concrete next action only. The runtime milestone queue and long-term rules live in `AGENT_FOCUS_LOOP.md`.
 
-Two-track status (from 2026-05-28):
-- **Track A** — MCP Server (Phases 1-5 complete ✅, A6 operator-readiness 🔜)
-- **Track B** — Holographic Memory (Steps B1-B6 complete ✅, B7 cognitive-loop recall hints 🔜)
+## Current status (2026-05-27)
 
-Both tracks are fully implemented through the planned phases/steps and merged into main.
+**All planned milestones are delivered and merged into `main`.**
 
-Daily validation backlog:
-- All items resolved or closed.
+### Priority queue (P1-P8)
+| Milestone | Status |
+|-----------|--------|
+| P1 — Open PR cleanup | ✅ No open PRs |
+| P2 — Holographic Memory persistence (B4 SQLite, B5 consolidation, B6 governed writes) | ✅ Merged |
+| P3 — Governed MCP observability (A1-A5: stdio, DG, HTTP/SSE, resources/prompts, notifications) | ✅ Merged |
+| P4 — General Cognitive Work Loop V0 (cognitive_work.rs, --propose, --govern, 9 domains) | ✅ Merged |
+| P5 — Cognitive Observation to Governed Learning (--assess, --govern offline) | ✅ Merged (end-to-end test exists) |
+| P6 — Working Memory integration | ✅ Merged |
+| P7 — Compute Reservoir integration (--allocate, justification tests) | ✅ Merged |
+| P8 — End-to-end governed alpha demo (scripts/demo-full-loop.sh) | ✅ Verified working |
 
-P3 status (Governed MCP observability):
-- A6 operator documentation is in progress (this run). MCP server docs updated to cover full A1-A5 feature set. PROJECT_STATUS.md updated to reflect actual MCP and Holographic Memory state.
+### Track A — MCP Server
+| Step | Status |
+|------|--------|
+| A1 — stdio transport + tools/list + tools/call | ✅ |
+| A2 — DecisionGate governance | ✅ |
+| A3 — HTTP/SSE transport | ✅ |
+| A4 — Resources + Prompts | ✅ |
+| A5 — notifications/list_changed + protocol hardening | ✅ |
+| A6 — Operator readiness (docs, examples, smoke tests) | 🔜 (docs exist, demo script works) |
+
+### Track B — Holographic Memory
+| Step | Status |
+|------|--------|
+| B1 — Conversation-memory bridge | ✅ |
+| B2 — Recursive graph traversal | ✅ |
+| B3 — Local embeddings / semantic generalization | ✅ |
+| B4 — SQLite persistence | ✅ |
+| B5 — Consolidation and duplicate trace fusion | ✅ |
+| B6 — Governed writes via DecisionGate | ✅ |
+| B7 — Cognitive-loop recall hints from resonance matches | ✅ |
+
+### Daily validation backlog
+All items resolved or closed.
 
 ## Next action
 
-**Advance toward P4 — General Cognitive Work Loop V0 (AGENT_FOCUS_LOOP.md P4).**
+**Await human direction for the next strategic roadmap.**
 
-Target chain:
-```text
-Objective -> WorkingMemory -> Plan -> RequiredObservations -> ProposedNextAction -> ImprovementCandidate
+All planned milestones (P1-P8, Track A A1-A5, Track B B1-B7) are fully delivered and verified. Per AGENT_FOCUS_LOOP.md section 10, new strategic roadmap items must not be added without human direction.
+
+The `scripts/demo-full-loop.sh` script demonstrates the complete governed cognitive loop:
+```
+Objective → WorkingMemory → Plan → Observations → Assessment
+→ FailureInsightCandidates → DecisionGate → Decision → Audit
 ```
 
-Expected user-facing command:
-```bash
-arpagona cognitive run --objective "..." --domain business --json
-```
+Three domains (business, coding, research) are verified with decision_count > 0, audit_event_count > 0, and correct governance field display (decision_status: approved, risk_level: low).
 
-Required properties:
-- works for professional domains, not only code;
-- read-only and non-autonomous;
-- no LLM calls unless already supported and explicitly safe;
-- produces structured working memory, plan and next action;
-- exposes missing context and improvement candidates.
-
-The current cognitive work loop in `crates/runtime` runs the cognitive chain per-invocation but does not yet produce a fully structured working memory/plan/next-action output for all domains. The next increment should bridge the gap between the existing cognitive run loop and the P4 target chain.
-
-If P4 is too large for one run, the fallback is Track A A6 (MCP operator-readiness: documentation, examples, client smoke tests) or Track B B7 (cognitive-loop recall hints from resonance matches).
-
-Do not: add real execution, shell access, LLM calls (to remote models), browser automation, email sending, or SurrealDB persistence beyond existing usage.
+Suggested strategic directions for human review:
+1. **A6 operator-readiness** (MCP docs/examples/smoke tests deep-dive)
+2. **Real LLM integration** (connect `cognitive run --llm` to actual provider)
+3. **Web Mission Control** (deferred — needs human direction first)
+4. **Define Track C** with the next capability layer
+5. **Production hardening** (tests, edge cases, error handling for existing crates)
