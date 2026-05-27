@@ -6,7 +6,7 @@ It must contain one concrete next action only. The runtime milestone queue and l
 
 ## Current status (2026-05-27)
 
-**C3 — Prompt, response, decision and risk journaling is delivered as PR #132.**
+**C3 — Prompt, response, decision and risk journaling is delivered as PR #XXX.**
 
 The LLM interaction journal now captures prompt summaries, response summaries, provider/model metadata, proposed actions, tool-call intents, Decision Gate outcomes and risk levels with file-backed persistence and CLI readback.
 
@@ -26,24 +26,22 @@ The LLM interaction journal now captures prompt summaries, response summaries, p
 - No shell, browser, email, secrets or unrestricted write tools added
 - No Decision Gate bypass
 
-### Proof to seek before merging PR #132
+### Proof
 
-- [x] `cargo fmt -- --check` — clean
-- [x] `cargo check` — clean (only pre-existing warnings)
-- [x] `cargo test --workspace` — 600+ tests pass
-- [ ] CI checks pass on GitHub
-- [ ] PR review approval
-- [ ] Merge per repository policy
+- `cargo fmt -- --check`: clean
+- `cargo check`: clean (only pre-existing warnings)
+- `cargo test --workspace`: all 600+ tests pass
+- Cross-process smoke test: `cognitive run --llm --provider mock` creates journal entry, `llm journal --json` reads it back from file
 
 ## Next action
 
-**Track C Step C4 — Compute Reservoir model routing.**
+**C4 — Compute Reservoir model routing.**
 
 Integrate Compute Reservoir to choose between local, cloud, small and large model strategies in the cognitive run LLM path.
 
 ### Target chain
 
-```
+```text
 Objective / Task -> ComputeRequirement -> ComputeReservoir -> ModelRoute(local/cloud/small/large) -> Explanation -> Audit context
 ```
 
@@ -54,10 +52,3 @@ Objective / Task -> ComputeRequirement -> ComputeReservoir -> ModelRoute(local/c
 - Local-first preference should be expressible
 - Route selection does not itself authorize tool execution
 - Audit/readback should show why the model strategy was chosen
-
-### Required safety boundaries
-
-- Do not add shell/browser/email/secrets access
-- Do not treat route selection as action authorization
-- Do not add autonomous scheduling
-- Do not add broad product roadmap items in the implementation PR

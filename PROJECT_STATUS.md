@@ -1066,8 +1066,99 @@ The output is clearly advisory text — no ProposedAction, no Decision, no Audit
 ### Risks
 
 - The default provider is `ollama` (local Ollama endpoint). If Ollama is not running and `--provider` is not set to `mock`, the `--llm` flag will produce a connection error. Users should set `--provider mock` for deterministic behavior, or ensure an Ollama instance is available.
-- The OpenAI provider requires `OPENAI_API_KEY` in the environment. The `arpagona auth openai` command can help operators configure this.
-- C1 is intentionally proposal-only. Real LLM tool-calling is deferred to C2.
+|- The OpenAI provider requires `OPENAI_API_KEY` in the environment. The `arpagona auth openai` command can help operators configure this.
+|- C1 is intentionally proposal-only. Real LLM tool-calling is deferred to C2.
+
+## 22. Latest Session Update (2026-05-27 — C3: Prompt, response, decision and risk journaling)
+
+This session implemented Track C Step C3 — making LLM interactions auditable after the fact through an LLM interaction journal with file-backed persistence and CLI readback.
+
+### What was added
+
+**`crates/core/src/llm_journal.rs`** — new module:
+
+| Type | Purpose |
+|------|---------|
+| `LlmInteractionType` | Synthesis, ToolCallIntent, DirectToolCall |
+| `LlmJournalEntry` | id, created_at, interaction_type, prompt_summary, response_summary, provider, model, objective, proposed_actions, tool_call_intents, decision_gate_outcomes, risk_level |
+| `LlmJournal` | In-memory ring-buffer with file-backed persistence (JSON-lines) |
+
+Key methods:
+- `add_synthesis()` — convenience for cognitive synthesis interactions
+- `add_direct_tool_call()` — convenience for governed tool-call interactions with governance metadata
+- `with_file()` / `load_from_file()` — file-backed persistence
+- `recent_entries(n)` — returns N most recent entries
+- `get_entry(id)` — lookup by ID
+
+**`crates/cli/src/main.rs`** — CLI integration:
+
+| Change | Detail |
+|--------|--------|
+| `global_llm_journal()` | Global `OnceLock<Mutex<LlmJournal>>` with file persistence at `target/llm-journal.jsonl` (configurable via `ARPAGONA_LLM_JOURNAL_PATH`) |
+| `Llm` command variant | `arpagona llm journal [--limit N] [--json]` |
+| Synthesis journaling | `cognitive_run()` now journals each successful `--llm` synthesis call with objective, provider, prompt/response summaries |
+| `llm_journal_list()` handler | Human-readable and JSON output with full entry details |
+
+**CLI readback examples:**
+
+```bash
+# List recent journal entries (human-readable)
+$ arpagona llm journal
+
+# List recent entries (structured JSON)
+$ arpagona llm journal --json --limit 5
+```
+
+### Verification
+
+| Check | Result |
+|-------|--------|
+| `cargo fmt -- --check` | ✅ Clean |
+| `cargo check` | ✅ Clean (only pre-existing warnings) |
+| `cargo test --workspace` | ✅ 600+ tests pass (7 new in arpagona-agent-core) |
+| Cross-process persistence | ✅ `cognitive run --llm` → file → `llm journal` reads entries |
+
+### New tests (7 in arpagona-agent-core)
+
+| Test | What it proves |
+|------|---------------|
+| `new_journal_is_empty` | Empty journal behavior |
+| `add_synthesis_creates_entry` | Synthesis entries created correctly |
+| `journal_respects_capacity` | Ring-buffer eviction at capacity |
+| `recent_entries_returns_most_recent_first` | Correct ordering |
+| `get_entry_returns_none_for_unknown_id` | Missing entry handling |
+| `add_direct_tool_call_creates_entry_with_governance_data` | Governance metadata in tool-call entries |
+| `llm_journal_entry_serializes_and_deserializes` | Serialization round-trip |
+
+### Files changed
+
+| File | Change |
+|------|--------|
+| crates/core/src/llm_journal.rs | **New** — LLM journal types and file-backed persistence |
+| crates/core/src/lib.rs | Added `pub mod llm_journal; ` and `pub use llm_journal::*;` |
+| crates/cli/src/main.rs | Added global journal, Llm command/subcommand, synthesis journaling, readback handler |
+| FOCUS_LOOP_NEXT.md | Updated handoff to C4 |
+| PROJECT_STATUS.md | This section |
+
+### Stability level
+
+Alpha C3 delivery. File-backed persistence is append-only JSON-lines. The journal stores prompt/response summaries, not raw secrets.
+
+### What was NOT added
+
+- No MCP resource for LLM journal (deferred — CLI readback is the primary surface for now)
+- No journaling for the governed tool executor (C2 bridge) yet — deferred to C3 follow-up or C4
+- No shell, browser, email, secrets or unrestricted write tools
+- No Decision Gate bypass
+- No autonomous scheduling
+- No broad product roadmap items
+
+### Risks
+
+- File-backed journal is append-only with no compaction. A small number of entries per CLI invocation is expected; compaction can be added if needed.
+- The `LlmJournal` struct uses `#[serde(skip)]` on the `path` field, so serialization round-trips only work for the entries, not the file path configuration.
+- Journal entries are not persisted to Graph Memory or SurrealDB — the JSON-lines file is independent of the main audit system.
+
 
 ## 17. Latest Session Update (2026-05-27 — Track C Step C2: governed direct tool-call bridge)
 

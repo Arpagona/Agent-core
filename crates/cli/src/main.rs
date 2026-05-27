@@ -1,5 +1,6 @@
 use arpagona_agent_core::{
     holographic::{resonate_for_working_memory, RESONANCE_NON_AUTHORIZING_WARNING},
+    llm_journal::LlmJournal,
     ActionType, AgentId, AuditEvent, AuditEventId, AuditTraceSummary, CognitiveCycleResult,
     CorrectionTarget, Decision, DecisionId, DecisionStatus, DetectionSignal, DetectionSignalType,
     ExecutorRegistry, ExecutorState, FailureClass, FailureInsight, FailureInsightId,
@@ -35,6 +36,21 @@ use std::env;
 use std::error::Error;
 use std::io::{self, Write};
 use std::process::Command as ProcessCommand;
+use std::sync::{Mutex, OnceLock};
+
+/// Global LLM journal for the CLI session.
+///
+/// All LLM interactions (synthesis, tool-call intents, governed executions)
+/// are recorded here for operator readback via `arpagona llm journal`.
+/// Entries are persisted to a JSON-lines file for cross-invocation readback.
+fn global_llm_journal() -> &'static Mutex<LlmJournal> {
+    static JOURNAL: OnceLock<Mutex<LlmJournal>> = OnceLock::new();
+    JOURNAL.get_or_init(|| {
+        let path = env::var("ARPAGONA_LLM_JOURNAL_PATH")
+            .unwrap_or_else(|_| "target/llm-journal.jsonl".to_owned());
+        Mutex::new(LlmJournal::with_file(100, path))
+    })
+}
 
 const DEFAULT_API_URL: &str = "http://127.0.0.1:3000";
 const DEFAULT_WORKSPACE_ID: &str = "workspace-alpha";
@@ -95,6 +111,8 @@ enum Command {
     McpServer(McpServerArgs),
     /// Read recent MCP governance audit decisions from a persisted file.
     McpGovernanceAudit(McpGovernanceAuditArgs),
+    /// Read the LLM interaction journal (C3 — prompt/response/decision/risk traces).
+    Llm(LlmCommand),
 }
 
 #[derive(Debug, Args)]
@@ -191,6 +209,29 @@ pub struct McpGovernanceAuditArgs {
     pub audit_path: String,
     /// Maximum number of recent entries to show.
     #[arg(long, default_value_t = 20)]
+    pub limit: usize,
+    /// Emit structured JSON instead of human-readable text.
+    #[arg(long)]
+    pub json: bool,
+}
+
+/// Arguments for the `llm` command group.
+#[derive(Debug, Args)]
+pub struct LlmCommand {
+    #[command(subcommand)]
+    pub command: LlmSubcommand,
+}
+
+#[derive(Debug, Subcommand)]
+pub enum LlmSubcommand {
+    /// Show recent LLM interaction journal entries.
+    Journal(LlmJournalArgs),
+}
+
+#[derive(Debug, Args)]
+pub struct LlmJournalArgs {
+    /// Maximum number of recent entries to show (default: 10).
+    #[arg(long, default_value_t = 10)]
     pub limit: usize,
     /// Emit structured JSON instead of human-readable text.
     #[arg(long)]
@@ -1507,6 +1548,9 @@ async fn run() -> Result<(), Box<dyn Error>> {
         },
         Command::McpServer(args) => mcp_server(args)?,
         Command::McpGovernanceAudit(args) => mcp_governance_audit(args)?,
+        Command::Llm(llm) => match llm.command {
+            LlmSubcommand::Journal(args) => llm_journal_list(args)?,
+        },
     }
 
     Ok(())
@@ -6800,6 +6844,79 @@ fn mcp_governance_audit(args: McpGovernanceAuditArgs) -> Result<(), Box<dyn Erro
     Ok(())
 }
 
+/// Display recent LLM interaction journal entries (C3 readback).
+///
+/// Reads from the in-memory global journal and displays recent LLM interactions
+/// including prompt summaries, response summaries, provider/model metadata,
+/// proposed actions, tool-call intents, and Decision Gate outcomes.
+fn llm_journal_list(args: LlmJournalArgs) -> Result<(), Box<dyn Error>> {
+    let journal = global_llm_journal().lock().unwrap();
+    let entries = journal.recent_entries(args.limit);
+
+    if args.json {
+        let json_output = serde_json::to_string_pretty(&serde_json::json!({
+            "total_entries": journal.len(),
+            "displayed_entries": entries.len(),
+            "entries": entries.iter().map(|e| serde_json::json!({
+                "id": e.id,
+                "created_at": e.created_at,
+                "interaction_type": e.interaction_type,
+                "prompt_summary": e.prompt_summary,
+                "response_summary": e.response_summary,
+                "provider": e.provider,
+                "model": e.model,
+                "objective": e.objective,
+                "proposed_actions": e.proposed_actions,
+                "tool_call_intents": e.tool_call_intents,
+                "decision_gate_outcomes": e.decision_gate_outcomes,
+                "risk_level": e.risk_level,
+            })).collect::<Vec<_>>(),
+        }))
+        .unwrap();
+        println!("{json_output}");
+    } else {
+        println!("LLM Interaction Journal — {} entries total", journal.len());
+        println!("Showing {} most recent entries:", entries.len());
+        println!();
+        for (i, entry) in entries.iter().enumerate() {
+            let created = entry.created_at.format("%Y-%m-%d %H:%M:%S");
+            println!(
+                "  #{:<4} | {:<12} | {}",
+                entries.len() - i,
+                format!("{:?}", entry.interaction_type),
+                created
+            );
+            println!("        | provider: {}", entry.provider);
+            if let Some(ref model) = entry.model {
+                println!("        | model: {}", model);
+            }
+            if let Some(ref obj) = entry.objective {
+                println!("        | objective: {}", &obj[..obj.len().min(80)]);
+            }
+            println!(
+                "        | prompt: {}",
+                &entry.prompt_summary[..entry.prompt_summary.len().min(120)]
+            );
+            println!(
+                "        | response: {}",
+                &entry.response_summary[..entry.response_summary.len().min(120)]
+            );
+            if let Some(ref dg) = entry.decision_gate_outcomes {
+                println!(
+                    "        | decision_gate: {}",
+                    serde_json::to_string(dg).unwrap_or_default()
+                );
+            }
+            if let Some(ref rl) = entry.risk_level {
+                println!("        | risk_level: {:?}", rl);
+            }
+            println!();
+        }
+    }
+
+    Ok(())
+}
+
 /// Run the General Cognitive Work Loop V0.
 async fn cognitive_run(
     client: &Client,
@@ -7141,11 +7258,22 @@ async fn cognitive_run(
                     Ok(synthesis) => {
                         obj.insert(
                             "llm_synthesis".to_owned(),
-                            serde_json::Value::String(synthesis),
+                            serde_json::Value::String(synthesis.clone()),
                         );
                         obj.insert(
                             "llm_provider".to_owned(),
                             serde_json::Value::String(resolved_provider.to_owned()),
+                        );
+                        // Journal the LLM interaction (C3 — prompt/response/decision journaling)
+                        global_llm_journal().lock().unwrap().add_synthesis(
+                            &args.objective,
+                            resolved_provider,
+                            None, // model info not tracked yet in this path
+                            format!("Cognitive synthesis: domain={:?}, complexity={:.2}, context_items={}",
+                                result.objective.domain, wm.complexity_estimate, wm.context_items.len()),
+                            format!("Synthesis ({} chars): extracted {} chars of structured output",
+                                synthesis.len(),
+                                synthesis.len().min(200)),
                         );
                     }
                     Err(e) => {
