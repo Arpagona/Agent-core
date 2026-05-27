@@ -12,17 +12,18 @@ P1 (open PRs) takes priority over alternation.
 
 ## Next action
 
-**Track B Step B4 — SQLite persistence for holographic memory.** PR #113 documenting Track B Step B3 (optional local embeddings) is created. Track B Step B3 is done this run.
+**Track A Phase 4 — MCP Resources + Prompts.** PR #114 documenting Track A Phase 4 is being created this run.
 
-The alternation was Track B (this run), so the next step is Track A.
+The alternation was Track A (this run), so the next step is Track B.
 
-**After PR #113 merges, advance Track A Phase 2 — DecisionGate governance before MCP tools/call.** This adds a governance layer to the MCP server that wraps every tool call through `DecisionGate` before allowing execution, following the `mcp-governance-layer-pattern.md` reference.
+**After PR #114 merges, advance Track B Step B4 — SQLite persistence for holographic memory.** This adds a durable SQLite storage backend for the holographic memory store, enabling traces to survive server restarts. Follow `crates/holographic-memory` crate patterns.
 
 Proof to seek: `cargo test --workspace` green. A new PR exists with:
-- Wrapped `tools/call` dispatch to evaluate via `evaluate_tool_call` helper
-- GovernanceDecision enum returned from tool call (Approved/Blocked/NeedsHumanApproval)
-- Audit trail entries for each governed tool call
-- Tests proving tool calls are blocked without permission, approved with permission, and produce audit events
-- Graceful handling of `NeedsHumanApproval` states
+- SQLite-backed `HolographicMemoryStore` implementation using `rusqlite`
+- Schema creation (traces table with id, project_id, signature_json, created_at columns)
+- CRUD operations (store, retrieve by resonance, delete by project)
+- Existing in-memory store kept as default; SQLite store enabled via constructor parameter
+- Tests proving persistence across store drop/reopen cycles
+- No changes to existing resonance or signature logic
 
 Do not: add real execution, shell access, LLM calls, browser automation, email sending, or SurrealDB persistence.

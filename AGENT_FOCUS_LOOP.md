@@ -332,19 +332,19 @@ P1 (open PRs) takes priority over alternation: if an open PR is mergeable, merge
 | Phase | Action |
 |-------|--------|
 | A1 | ✅ Phase 1 — crate + stdio transport + tools/list + tools/call (PR #105) |
-| A2 | 🔜 Phase 2 — DecisionGate governance before tools/call |
-| A3 | Phase 3 — HTTP/SSE transport via Axum endpoint `/mcp` |
-| A4 | Phase 4 — Resources (snapshots, audit events) + Prompts |
-| A5 | Phase 5 — notifications/tools/list_changed |
+| A2 | ✅ Phase 2 — DecisionGate governance before tools/call (PR #107 + PR #110) |
+| A3 | ✅ Phase 3 — HTTP/SSE transport via Axum endpoint `/mcp` (PR #112) |
+| A4 | ✅ Phase 4 — Resources + Prompts (current PR) |
+| A5 | 🔜 Phase 5 — notifications/tools/list_changed |
 
 ### Track B — Holographic Memory (internal cognitive memory)
 
 | Step | Action |
 |------|--------|
-| B1 | 🔜 Intégration avec `conversation-memory` — encoder les tours comme `HolographicTrace` |
-| B2 | Graphe mémoire récursif — suivre les `linked_memory_ids` en profondeur |
-| B3 | Embeddings locaux optionnels (généralisation sémantique) |
-| B4 | Persistance SQLite/SurrealDB |
+| B1 | ✅ Intégration avec `conversation-memory` — encoder les tours comme `HolographicTrace` (PR #109) |
+| B2 | ✅ Graphe mémoire récursif — suivre les `linked_memory_ids` en profondeur (PR #111) |
+| B3 | ✅ Embeddings locaux optionnels (généralisation sémantique) (PR #113) |
+| B4 | 🔜 Persistance SQLite/SurrealDB |
 | B5 | Consolidation périodique + fusion traces redondantes |
 | B6 | Gouvernance des écritures via DecisionGate (`MemoryWriteKind::HolographicTrace`) |
 
