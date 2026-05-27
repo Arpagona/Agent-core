@@ -1176,6 +1176,8 @@ struct StatusReadback {
     warning: &'static str,
     /// Non-API-dependent subsystem status gathered locally.
     local: LocalSubsystemStatus,
+    /// D2 supervision — recent proposed actions and Decision Gate results.
+    supervision: SupervisionSection,
 }
 
 /// Non-API-dependent subsystem status, gathered locally without requiring the API server.
@@ -1288,6 +1290,41 @@ struct MemoryProposalSummary {
     persistence_readback_hint: String,
     supersession_hint: String,
     suggested_next_action: String,
+}
+
+/// Compact summary of a proposed action for operator supervision (D2).
+#[derive(Debug, Serialize)]
+struct ProposedActionSummary {
+    id: String,
+    action_type: String,
+    target: Option<String>,
+    risk_level: String,
+    required_permissions: Vec<String>,
+    rationale: String,
+    status: String,
+    created_at: String,
+}
+
+/// Compact summary of a Decision Gate result for operator supervision (D2).
+#[derive(Debug, Serialize)]
+struct DecisionResultSummary {
+    id: String,
+    proposed_action_id: String,
+    status: String,
+    reason: String,
+    risk_level: String,
+    created_at: String,
+}
+
+/// ProposedAction and tool-call supervision section (D2).
+///
+/// Shows recent proposed actions, direct tool-call intents, and their
+/// Decision Gate results. Read-only — does not authorize execution.
+#[derive(Debug, Serialize)]
+struct SupervisionSection {
+    recent_proposed_actions: Vec<ProposedActionSummary>,
+    recent_decision_results: Vec<DecisionResultSummary>,
+    warning: &'static str,
 }
 
 const AUDIT_READBACK_WARNING: &str =
@@ -1880,6 +1917,11 @@ async fn status_readback(client: &Client, api_url: &str) -> StatusReadback {
             last_audit_event_at: None,
             warning: AUDIT_READBACK_WARNING,
             local: gather_local_subsystem_status().await,
+            supervision: SupervisionSection {
+                recent_proposed_actions: vec![],
+                recent_decision_results: vec![],
+                warning: AUDIT_READBACK_WARNING,
+            },
         };
     }
 
@@ -1922,6 +1964,55 @@ async fn status_readback(client: &Client, api_url: &str) -> StatusReadback {
             .map(|event| event.created_at.to_rfc3339())
     });
 
+    // Build D2 supervision section from fetched data.
+    let recent_proposed_actions = actions
+        .as_ref()
+        .map(|actions| {
+            actions
+                .iter()
+                .rev()
+                .take(5)
+                .map(|action| ProposedActionSummary {
+                    id: action.id.to_string(),
+                    action_type: serde_json::to_string(&action.action_type)
+                        .unwrap_or_else(|_| "unknown".to_owned()),
+                    target: action.target.clone(),
+                    risk_level: serde_json::to_string(&action.risk_level)
+                        .unwrap_or_else(|_| "unknown".to_owned()),
+                    required_permissions: action
+                        .required_permissions
+                        .iter()
+                        .map(|p| format!("{p:?}"))
+                        .collect(),
+                    rationale: action.rationale.clone(),
+                    status: serde_json::to_string(&action.status)
+                        .unwrap_or_else(|_| "unknown".to_owned()),
+                    created_at: action.created_at.to_rfc3339(),
+                })
+                .collect::<Vec<_>>()
+        })
+        .unwrap_or_default();
+    let recent_decision_results = decisions
+        .as_ref()
+        .map(|decisions| {
+            decisions
+                .iter()
+                .rev()
+                .take(5)
+                .map(|decision| DecisionResultSummary {
+                    id: decision.id.to_string(),
+                    proposed_action_id: decision.proposed_action_id.to_string(),
+                    status: serde_json::to_string(&decision.status)
+                        .unwrap_or_else(|_| "unknown".to_owned()),
+                    reason: decision.reason.clone(),
+                    risk_level: serde_json::to_string(&decision.risk_level)
+                        .unwrap_or_else(|_| "unknown".to_owned()),
+                    created_at: decision.created_at.to_rfc3339(),
+                })
+                .collect::<Vec<_>>()
+        })
+        .unwrap_or_default();
+
     StatusReadback {
         api_health,
         task_count: tasks.as_ref().map(Vec::len),
@@ -1934,6 +2025,11 @@ async fn status_readback(client: &Client, api_url: &str) -> StatusReadback {
         last_audit_event_at,
         warning: AUDIT_READBACK_WARNING,
         local: gather_local_subsystem_status().await,
+        supervision: SupervisionSection {
+            recent_proposed_actions,
+            recent_decision_results,
+            warning: AUDIT_READBACK_WARNING,
+        },
     }
 }
 
@@ -2175,6 +2271,54 @@ fn format_status_readback(readback: &StatusReadback) -> String {
         &readback.local.mcp_server_binary_available.to_string(),
     );
     push_readback_line(&mut output, &style_dim(readback.local.warning));
+    push_readback_line(&mut output, "");
+    push_readback_line(
+        &mut output,
+        &style_info("Proposed action & tool-call supervision (D2)"),
+    );
+    if readback.supervision.recent_proposed_actions.is_empty() {
+        push_readback_line(&mut output, "  (no recent proposed actions)");
+    } else {
+        for action in &readback.supervision.recent_proposed_actions {
+            push_readback_line(&mut output, &format!("  action: {}", action.id));
+            push_readback_field(
+                &mut output,
+                "  type:",
+                &action_type_display(&action.action_type),
+            );
+            if let Some(target) = &action.target {
+                push_readback_field(&mut output, "  target:", target);
+            }
+            push_readback_field(&mut output, "  risk:", &action.risk_level);
+            push_readback_field(&mut output, "  status:", &action.status);
+            push_readback_field(
+                &mut output,
+                "  permissions:",
+                &action.required_permissions.join(", "),
+            );
+            push_readback_field(&mut output, "  rationale:", &action.rationale);
+            push_readback_field(&mut output, "  at:", &action.created_at);
+            push_readback_line(&mut output, "");
+        }
+    }
+    if readback.supervision.recent_decision_results.is_empty() {
+        push_readback_line(&mut output, "  (no recent decision results)");
+    } else {
+        for decision in &readback.supervision.recent_decision_results {
+            push_readback_line(&mut output, &format!("  decision: {}", decision.id));
+            push_readback_field(
+                &mut output,
+                "  proposed_action_id:",
+                &decision.proposed_action_id,
+            );
+            push_readback_field(&mut output, "  status:", &decision.status);
+            push_readback_field(&mut output, "  reason:", &decision.reason);
+            push_readback_field(&mut output, "  risk:", &decision.risk_level);
+            push_readback_field(&mut output, "  at:", &decision.created_at);
+            push_readback_line(&mut output, "");
+        }
+    }
+    push_readback_line(&mut output, &style_dim(readback.supervision.warning));
     output
 }
 
@@ -2189,6 +2333,11 @@ fn format_optional_json(value: &Option<Value>) -> String {
         .as_ref()
         .map(|value| value.to_string())
         .unwrap_or_else(|| "-".to_owned())
+}
+
+/// Strip surrounding quotes from a JSON-encoded string for display.
+fn action_type_display(json_str: &str) -> String {
+    json_str.trim_matches('"').to_owned()
 }
 
 fn memory_status(args: MemoryStatusArgs) -> Result<(), Box<dyn Error>> {
@@ -9147,6 +9296,11 @@ mod tests {
                 cli_version: env!("CARGO_PKG_VERSION").to_owned(),
                 warning: AUDIT_READBACK_WARNING,
             },
+            supervision: SupervisionSection {
+                recent_proposed_actions: vec![],
+                recent_decision_results: vec![],
+                warning: AUDIT_READBACK_WARNING,
+            },
         };
 
         let formatted = format_status_readback(&readback);
@@ -9189,6 +9343,11 @@ mod tests {
                 cli_version: env!("CARGO_PKG_VERSION").to_owned(),
                 warning: AUDIT_READBACK_WARNING,
             },
+            supervision: SupervisionSection {
+                recent_proposed_actions: vec![],
+                recent_decision_results: vec![],
+                warning: AUDIT_READBACK_WARNING,
+            },
         };
 
         let formatted = format_status_readback(&readback);
@@ -9228,6 +9387,11 @@ mod tests {
                 backlog_open_count: Some(0),
                 mcp_server_binary_available: false,
                 cli_version: "0.1.0".to_owned(),
+                warning: AUDIT_READBACK_WARNING,
+            },
+            supervision: SupervisionSection {
+                recent_proposed_actions: vec![],
+                recent_decision_results: vec![],
                 warning: AUDIT_READBACK_WARNING,
             },
         };
@@ -9275,6 +9439,11 @@ mod tests {
                 cli_version: "0.1.0".to_owned(),
                 warning: AUDIT_READBACK_WARNING,
             },
+            supervision: SupervisionSection {
+                recent_proposed_actions: vec![],
+                recent_decision_results: vec![],
+                warning: AUDIT_READBACK_WARNING,
+            },
         };
 
         let json = serde_json::to_value(&readback).expect("JSON serialization");
@@ -9288,6 +9457,10 @@ mod tests {
         assert!(local.get("cli_version").is_some());
         assert!(local.get("mcp_server_binary_available").is_some());
         assert!(local.get("warning").is_some());
+        // D2 supervision fields
+        let supervision = json.get("supervision").expect("supervision field in JSON");
+        assert!(supervision.get("recent_proposed_actions").is_some());
+        assert!(supervision.get("recent_decision_results").is_some());
     }
 
     #[test]

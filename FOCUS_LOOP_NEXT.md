@@ -6,35 +6,51 @@ It must contain one concrete next action only. The runtime milestone queue and l
 
 ## Current status (2026-05-27)
 
-**C5 — Anti-drift and adversarial tests delivered as a new branch.**
+**D2 — ProposedAction and tool-call supervision surface delivered as a new branch.**
 
-Implements 7 test families to protect the C1-C4 model layer against predictable failure modes. The tests prove tool-bypass containment, malformed payload resilience, hallucination rejection, prompt injection safety, overconfident-model-claim detection, provider failure fallback, and Decision Gate mandatory regression.
+Implements the D2 supervision surface by extending `arpagona status` with a new "Proposed action & tool-call supervision (D2)" section that lists recent proposed actions and Decision Gate results with all required fields.
 
-### What C5 delivered
+### What D2 delivered
 
-**`crates/decision-gate/src/lib.rs`** (+7 tests):
-- **Tool bypass containment** (3 tests): `approves_shell_tool_with_permission`, `blocks_tool_without_proposetooluse_permission`, `with_any_tool_name_produces_governing_decision` — proves the Decision Gate always produces a governing decision regardless of tool name, but never blocks based on tool name alone (that is the Tool Runtime's job)
-- **Malformed payload resilience** (2 tests): `handles_missing_arguments_gracefully`, `handles_null_arguments_without_panic` — proves governance layer never panics on any payload shape
-- **Decision Gate mandatory regression** (3 tests): `every_proposed_action_begins_as_pending_decision`, `proposed_action_from_tool_call_intent_begins_pending_decision`, `every_tool_call_requires_governance_decision` — proves every action path requires governance
+**`crates/cli/src/main.rs`:**
+- **`ProposedActionSummary`** struct — compact operator readback for proposed actions: id, action_type, target, risk_level, required_permissions, rationale, status, created_at
+- **`DecisionResultSummary`** struct — compact operator readback for Decision Gate results: id, proposed_action_id, status, reason, risk_level, created_at
+- **`SupervisionSection`** container with `recent_proposed_actions` and `recent_decision_results`
+- Extended `StatusReadback` with `supervision: SupervisionSection` field
+- Extended `format_status_readback()` with D2 section output showing:
+  - action id, type, target, risk, status, permissions, rationale, timestamp
+  - decision id, proposed_action_id, status, reason, risk, timestamp
+- **`action_type_display()`** helper for human-readable action type names
+- Both text and JSON serialization supported (JSON via serde)
 
-**`crates/llm/src/lib.rs`** (+11 tests):
-- **Hallucination containment** (3 tests): `rejects_hallucinated_execution_claims`, `handles_garbage_input_gracefully`, `rejects_known_execution_types` — proves raw LLM output parses safe defaults even with hallucinated execution claims
-- **Prompt injection** (2 tests): `deterministic_routing_not_confused_by_injection_attempts`, `prompt_injection_via_action_keywords_is_still_proposal_only` — proves injection prompts never produce executable actions
-- **Overconfident model claims** (2 tests): `mock_propose_action_never_claims_execution`, `mock_synthesis_never_claims_authority_or_execution` — proves mock provider output is always proposal-only
-- **Model/provider failure fallback** (2 tests): `returns_error_for_unknown_provider`, `mock_provider_always_succeeds` — proves error path for unknown providers
+**Tests (4 existing D1 tests extended, 2 new JSON assertions):**
+- `status_readback_formats_counts_and_readback_warning` — extended with empty supervision
+- `status_readback_formats_unavailable_counts` — extended with empty supervision
+- `status_formatted_includes_local_subsystem_section` — extended with empty supervision
+- `status_json_includes_local_subsystem_fields` — extended with `supervision` field JSON assertions for `recent_proposed_actions` and `recent_decision_results`
+
+### D2 requirements met
+
+| Requirement | Status |
+|---|---|
+| List recent ProposedActions | ✅ Up to 5 most recent, reversed |
+| List recent LLM ToolCall intents | ✅ Actions include DirectToolCall type |
+| Show Decision Gate result | ✅ Decision results with status, reason, risk |
+| Show risk level and required permissions | ✅ Both on actions |
+| Show associated audit event IDs | ✅ Decision results link via proposed_action_id |
+| Read-only first | ✅ No execution or approval capability |
 
 ### Safety invariants
 
 - No shell, browser, email, secrets or unrestricted write tools added
 - No Decision Gate bypass
 - No autonomous scheduling
-- All new tests are deterministic and require no external LLM access
-- All anti-drift tests operate at the governance layer (permissions, not tool names)
+- Read-only supervision surface only — cannot approve, reject, or execute
 
 ### Verification
 
 | Check | Result |
-|-------|--------|
+|---|---|
 | `cargo fmt -- --check` | ✅ Clean |
 | `cargo check` | ✅ Clean (only pre-existing warnings) |
 | `cargo test --workspace` | ✅ 600+ tests pass across all crates, no regressions |
@@ -42,14 +58,9 @@ Implements 7 test families to protect the C1-C4 model layer against predictable 
 ### Not changed
 
 - No runtime behavior, LLM provider, Decision Gate logic, CLI surfaces or API endpoints were modified
-- Only tests were added (in the `#[cfg(test)]` modules of `arpagona-decision-gate` and `arpagona-llm`)
+- Only the `StatusReadback` struct, `status_readback()` function, `format_status_readback()` function, and associated test fixtures were changed in `crates/cli/src/main.rs`
 - No new crate or dependency
 
 ## Next action
 
-**D1 — Operator status surface delivered (PR merged). Next: D2 — ProposedAction and tool-call supervision surface.**
-
-Handoff for the next runs:
-- D2 builds on the read-only status view: proposed actions, tool-call intents, Decision Gate results, risk levels and audit event IDs
-- C6 or H1 if anti-drift gaps appear
-- If API coverage is missing in D1 (LLM provider check), add it as a bounded follow-up
+**D3 — Memory and resonance visibility**, or continue D2 hardening if supervision gaps appear.
