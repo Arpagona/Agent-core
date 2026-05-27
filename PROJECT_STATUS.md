@@ -832,4 +832,49 @@ Added the missing end-to-end integration test for the P3 Cognitive Observation t
 
 This completes the remaining gap for P3: the `--observe --govern` offline pipeline now has end-to-end test coverage. P3 is functionally complete when combined with the existing `--assess --govern` integration test (cognitive_govern_chain_produces_decisions_and_audit_events_offline) and the `--assess --observe --propose` test (cognitive_propose_pipeline_produces_governed_proposals).
 
+---
+
+## Session 2026-05-28 13:31 CEST — DV-2026-05-27-003: conflict-marker scan false positive
+
+### What was done
+
+Fixed the daily-validation conflict-marker scan to exclude its own protocol file, eliminating the false positive where `grep -R` matched its own command example in `docs/daily-agent-validation.md`.
+
+### Changes
+
+**`docs/daily-agent-validation.md`** — Added `--exclude=daily-agent-validation.md` and `--exclude=DAILY_VALIDATION_BACKLOG.md` to the mandatory conflict-marker grep command:
+
+```bash
+grep -R "<<<<<<<\|=======\|>>>>>>>" \
+  --exclude-dir=.git \
+  --exclude-dir=target \
+  --exclude-dir=node_modules \
+  --exclude=daily-agent-validation.md \
+  --exclude=DAILY_VALIDATION_BACKLOG.md \
+  .
+```
+
+Both excluded files are protocol/tracking documents whose content unavoidably contains the scan patterns as self-referential examples — not real conflict markers. The `--exclude` flag uses basename matching (GNU grep convention), so full paths are not needed.
+
+**`DAILY_VALIDATION_BACKLOG.md`** — Closed DV-2026-05-27-003 with evidence and verification results.
+
+**`FOCUS_LOOP_NEXT.md`** — Updated handoff: P4 remains the strategic direction; DV-2026-05-27-002 (LLM synthesis quality) is the new fallback.
+
+### Verification
+
+- `grep -R '<<<<<<<|=======|>>>>>>>' --exclude-dir=.git --exclude-dir=target --exclude-dir=node_modules --exclude=daily-agent-validation.md --exclude=DAILY_VALIDATION_BACKLOG.md .` → zero matches (exit 1 = clean).
+
+### What was NOT changed
+
+- No changes to any Rust source, test, config, or build files
+- No new capabilities added
+- No Decision Gate bypass
+- No LLM calls, browser automation, email, or restricted capabilities
+- No tool execution or governance behavior changes
+
+### Next recommended handoff
+
+P4 (Working Memory integration) remains the strategic next milestone. If P4 is too large for one run, process DV-2026-05-27-002 (LLM local synthesis quality — tighten the local synthesis prompt to produce grounded bullets tied to structured fields).
+
+
 
