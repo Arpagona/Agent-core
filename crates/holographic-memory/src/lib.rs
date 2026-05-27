@@ -416,6 +416,55 @@ impl ReconstructedContext {
 }
 
 // ---------------------------------------------------------------------------
+// MemoryGraphTraversalResult
+// ---------------------------------------------------------------------------
+
+/// The result of a recursive linked-memory graph traversal.
+///
+/// Produced by `HolographicMemoryStore::traverse_linked_memories`, this
+/// describes all traces reachable from a root trace by following
+/// `linked_memory_ids` chains up to a configurable depth.
+#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct MemoryGraphTraversalResult {
+    /// The trace ID that was the root of the traversal.
+    pub root_trace_id: String,
+    /// All traces visited during the traversal (in order of discovery).
+    pub visited_traces: Vec<HolographicTrace>,
+    /// The IDs of all visited traces (in order of discovery).
+    pub visited_trace_ids: Vec<String>,
+    /// The maximum depth reached during traversal (0 = only the root).
+    pub reachable_depth: usize,
+    /// The depth limit that was configured for this traversal.
+    pub max_depth_limit: usize,
+    /// Whether a cycle was detected and broken.
+    pub cycle_detected: bool,
+    /// Whether the traversal hit the depth limit before exhausting the chain.
+    pub depth_limit_reached: bool,
+    /// Deterministic summary of the traversal (no LLM).
+    pub traversal_summary: String,
+}
+
+impl MemoryGraphTraversalResult {
+    /// Create a result for a single trace with no linked memories.
+    pub fn single(root_trace: HolographicTrace) -> Self {
+        let root_id = root_trace.id.clone();
+        Self {
+            root_trace_id: root_id.clone(),
+            visited_traces: vec![root_trace],
+            visited_trace_ids: vec![root_id.clone()],
+            reachable_depth: 0,
+            max_depth_limit: 1,
+            cycle_detected: false,
+            depth_limit_reached: false,
+            traversal_summary: format!(
+                "Traversal from '{}': visited 1 traces across 0 depth levels.",
+                root_id
+            ),
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
 // Deterministic encoding helpers
 // ---------------------------------------------------------------------------
 
@@ -640,6 +689,17 @@ pub trait HolographicMemoryStore {
     ///
     /// Returns an error if the trace is not found.
     fn activate_trace(&mut self, trace_id: &str) -> Result<(), HolographicMemoryError>;
+
+    /// Recursively traverse the linked-memory graph starting from a root trace.
+    ///
+    /// Follows `linked_memory_ids` chains using BFS, respecting the configured
+    /// `max_depth`. Detects and breaks cycles. Returns all reachable traces
+    /// in discovery order with traversal metadata.
+    fn traverse_linked_memories(
+        &self,
+        root_trace_id: &str,
+        max_depth: usize,
+    ) -> Result<MemoryGraphTraversalResult, HolographicMemoryError>;
 }
 
 // ---------------------------------------------------------------------------
@@ -855,6 +915,117 @@ impl HolographicMemoryStore for InMemoryHolographicMemoryStore {
             .ok_or_else(|| HolographicMemoryError::TraceNotFound(trace_id.to_owned()))?;
         trace.activation_count = trace.activation_count.saturating_add(1);
         Ok(())
+    }
+
+    fn traverse_linked_memories(
+        &self,
+        root_trace_id: &str,
+        max_depth: usize,
+    ) -> Result<MemoryGraphTraversalResult, HolographicMemoryError> {
+        // Verify root trace exists
+        let root_trace = self
+            .traces
+            .get(root_trace_id)
+            .ok_or_else(|| HolographicMemoryError::TraceNotFound(root_trace_id.to_owned()))?
+            .clone();
+
+        if root_trace.linked_memory_ids.is_empty() || max_depth == 0 {
+            let result = MemoryGraphTraversalResult::single(root_trace);
+            return Ok(result);
+        }
+
+        // BFS traversal using VecDeque
+        let mut visited: HashSet<String> = HashSet::new();
+        let mut discovery_order: Vec<String> = Vec::new();
+        let mut visited_traces_vec: Vec<HolographicTrace> = Vec::new();
+        let mut cycle_detected = false;
+        let mut depth_limit_reached = false;
+
+        // (trace_id, current_depth)
+        let mut queue: std::collections::VecDeque<(String, usize)> =
+            std::collections::VecDeque::new();
+
+        // Start with root
+        visited.insert(root_trace_id.to_owned());
+        discovery_order.push(root_trace_id.to_owned());
+        visited_traces_vec.push(root_trace.clone());
+
+        // Enqueue root's linked memories at depth 1
+        for linked_id in &root_trace.linked_memory_ids {
+            queue.push_back((linked_id.clone(), 1));
+        }
+
+        let mut max_reached_depth: usize = 0;
+
+        while let Some((current_id, depth)) = queue.pop_front() {
+            if depth > max_depth {
+                depth_limit_reached = true;
+                continue;
+            }
+
+            if depth > max_reached_depth {
+                max_reached_depth = depth;
+            }
+
+            // Cycle detection
+            if visited.contains(&current_id) {
+                cycle_detected = true;
+                continue;
+            }
+
+            // Look up the trace
+            if let Some(trace) = self.traces.get(&current_id) {
+                visited.insert(current_id.clone());
+                discovery_order.push(current_id.clone());
+                visited_traces_vec.push(trace.clone());
+
+                // Enqueue this trace's linked memories at next depth
+                let next_depth = depth + 1;
+                for linked_id in &trace.linked_memory_ids {
+                    if !visited.contains(linked_id) {
+                        queue.push_back((linked_id.clone(), next_depth));
+                    } else {
+                        cycle_detected = true;
+                    }
+                }
+            } else {
+                // linked_memory_id references a trace that doesn't exist
+                // Still mark it visited so we don't retry it
+                visited.insert(current_id.clone());
+            }
+        }
+
+        // Build summary
+        let parts: Vec<String> = {
+            let mut p = Vec::new();
+            p.push(format!(
+                "Traversal from '{}': visited {} traces across {} depth levels.",
+                root_trace_id,
+                visited_traces_vec.len(),
+                max_reached_depth
+            ));
+            if cycle_detected {
+                p.push("Cycle(s) detected and broken.".to_owned());
+            }
+            if depth_limit_reached {
+                p.push(format!(
+                    "Depth limit ({}) reached; chain may extend further.",
+                    max_depth
+                ));
+            }
+            p
+        };
+
+        Ok(MemoryGraphTraversalResult {
+            root_trace_id: root_trace_id.to_owned(),
+            visited_traces: visited_traces_vec,
+            visited_trace_ids: discovery_order,
+            reachable_depth: max_reached_depth,
+            max_depth_limit: max_depth,
+            cycle_detected,
+            depth_limit_reached,
+            traversal_summary: parts.join("\n"),
+        })
     }
 }
 
@@ -1864,5 +2035,283 @@ mod tests {
         );
 
         let _ = std::fs::remove_file(&path);
+    }
+
+    // -----------------------------------------------------------------------
+    // Traversal tests — recursive linked-memory graph
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn traverse_single_trace_no_links() {
+        let mut store = InMemoryHolographicMemoryStore::new();
+        let trace = make_trace(
+            "root",
+            "proj",
+            SourceKind::ManualNote,
+            vec![],
+            vec![],
+            vec![],
+            vec![],
+            vec![],
+            1.0,
+            1.0,
+        );
+        store.add_trace(trace).unwrap();
+
+        let result = store
+            .traverse_linked_memories("root", 5)
+            .expect("traversal should succeed");
+
+        assert_eq!(result.visited_trace_ids, vec!["root"]);
+        assert_eq!(result.reachable_depth, 0);
+        assert!(!result.cycle_detected);
+        assert!(!result.depth_limit_reached);
+        assert!(
+            result.traversal_summary.contains("visited 1 traces"),
+            "summary: {}",
+            result.traversal_summary
+        );
+    }
+
+    #[test]
+    fn traverse_basic_chain() {
+        let mut store = InMemoryHolographicMemoryStore::new();
+
+        // Chain: root -> mid -> leaf
+        let root = make_trace(
+            "root",
+            "proj",
+            SourceKind::ManualNote,
+            vec![],
+            vec![],
+            vec![],
+            vec![],
+            vec!["mid".to_owned()],
+            1.0,
+            1.0,
+        );
+        let mid = make_trace(
+            "mid",
+            "proj",
+            SourceKind::ManualNote,
+            vec![],
+            vec![],
+            vec![],
+            vec![],
+            vec!["leaf".to_owned()],
+            1.0,
+            1.0,
+        );
+        let leaf = make_trace(
+            "leaf",
+            "proj",
+            SourceKind::ManualNote,
+            vec![],
+            vec![],
+            vec![],
+            vec![],
+            vec![],
+            1.0,
+            1.0,
+        );
+        store.add_trace(root).unwrap();
+        store.add_trace(mid).unwrap();
+        store.add_trace(leaf).unwrap();
+
+        let result = store
+            .traverse_linked_memories("root", 10)
+            .expect("traversal should succeed");
+
+        assert_eq!(result.visited_trace_ids, vec!["root", "mid", "leaf"]);
+        assert_eq!(result.reachable_depth, 2);
+        assert_eq!(result.visited_traces.len(), 3);
+        assert!(!result.cycle_detected);
+        assert!(!result.depth_limit_reached);
+    }
+
+    #[test]
+    fn traverse_depth_limit() {
+        let mut store = InMemoryHolographicMemoryStore::new();
+
+        // Chain: root -> a -> b -> c -> d
+        let mut prev_id = "d".to_owned();
+        for id in &["c", "b", "a", "root"] {
+            let t = make_trace(
+                id,
+                "proj",
+                SourceKind::ManualNote,
+                vec![],
+                vec![],
+                vec![],
+                vec![],
+                vec![prev_id.clone()],
+                1.0,
+                1.0,
+            );
+            store.add_trace(t).unwrap();
+            prev_id = id.to_string();
+        }
+        // The chain: root -> a -> b -> c -> d
+        // root links to "a", "a" links to "b", "b" links to "c", "c" links to "d"
+
+        // depth limit of 2 should visit: root, a, b (depth 0=root, 1=a, 2=b)
+        let result = store
+            .traverse_linked_memories("root", 2)
+            .expect("traversal should succeed");
+
+        assert_eq!(result.visited_trace_ids, vec!["root", "a", "b"]);
+        assert_eq!(result.reachable_depth, 2);
+        assert!(result.depth_limit_reached);
+        assert_eq!(result.visited_traces.len(), 3);
+        assert!(result.traversal_summary.contains("Depth limit"));
+    }
+
+    #[test]
+    fn traverse_cycle_detection() {
+        let mut store = InMemoryHolographicMemoryStore::new();
+
+        // Cycle: root -> a -> root (back edge)
+        let root = make_trace(
+            "root",
+            "proj",
+            SourceKind::ManualNote,
+            vec![],
+            vec![],
+            vec![],
+            vec![],
+            vec!["a".to_owned()],
+            1.0,
+            1.0,
+        );
+        let a = make_trace(
+            "a",
+            "proj",
+            SourceKind::ManualNote,
+            vec![],
+            vec![],
+            vec![],
+            vec![],
+            vec!["root".to_owned()],
+            1.0,
+            1.0,
+        );
+        store.add_trace(root).unwrap();
+        store.add_trace(a).unwrap();
+
+        let result = store
+            .traverse_linked_memories("root", 10)
+            .expect("traversal should succeed");
+
+        // Should visit root, then a. When a tries to link back to root, cycle is detected.
+        assert_eq!(result.visited_trace_ids, vec!["root", "a"]);
+        assert!(result.cycle_detected);
+        assert!(result.traversal_summary.contains("Cycle"));
+    }
+
+    #[test]
+    fn traverse_diamond_no_duplicates() {
+        let mut store = InMemoryHolographicMemoryStore::new();
+
+        // Diamond: root -> [a, b] -> shared
+        let root = make_trace(
+            "root",
+            "proj",
+            SourceKind::ManualNote,
+            vec![],
+            vec![],
+            vec![],
+            vec![],
+            vec!["a".to_owned(), "b".to_owned()],
+            1.0,
+            1.0,
+        );
+        let a = make_trace(
+            "a",
+            "proj",
+            SourceKind::ManualNote,
+            vec![],
+            vec![],
+            vec![],
+            vec![],
+            vec!["shared".to_owned()],
+            1.0,
+            1.0,
+        );
+        let b = make_trace(
+            "b",
+            "proj",
+            SourceKind::ManualNote,
+            vec![],
+            vec![],
+            vec![],
+            vec![],
+            vec!["shared".to_owned()],
+            1.0,
+            1.0,
+        );
+        let shared = make_trace(
+            "shared",
+            "proj",
+            SourceKind::ManualNote,
+            vec![],
+            vec![],
+            vec![],
+            vec![],
+            vec![],
+            1.0,
+            1.0,
+        );
+        store.add_trace(root).unwrap();
+        store.add_trace(a).unwrap();
+        store.add_trace(b).unwrap();
+        store.add_trace(shared).unwrap();
+
+        let result = store
+            .traverse_linked_memories("root", 10)
+            .expect("traversal should succeed");
+
+        // root, a, b visited (depth 1), shared visited once (depth 2).
+        // "shared" is only visited once (either via a or b), the second path triggers cycle.
+        assert_eq!(result.visited_trace_ids.len(), 4);
+        assert_eq!(result.visited_trace_ids[0], "root");
+        assert_eq!(result.visited_traces.len(), 4);
+        assert!(!result.depth_limit_reached);
+        // Second path to "shared" is a cycle
+        assert!(result.cycle_detected);
+    }
+
+    #[test]
+    fn traverse_nonexistent_root_returns_error() {
+        let store = InMemoryHolographicMemoryStore::new();
+        let result = store.traverse_linked_memories("does-not-exist", 5);
+        assert!(
+            matches!(result, Err(HolographicMemoryError::TraceNotFound(_))),
+            "traversing a nonexistent root should return TraceNotFound"
+        );
+    }
+
+    #[test]
+    fn traverse_max_depth_zero_returns_root_only() {
+        let mut store = InMemoryHolographicMemoryStore::new();
+        let root = make_trace(
+            "root",
+            "proj",
+            SourceKind::ManualNote,
+            vec![],
+            vec![],
+            vec![],
+            vec![],
+            vec!["a".to_owned()],
+            1.0,
+            1.0,
+        );
+        store.add_trace(root).unwrap();
+
+        let result = store
+            .traverse_linked_memories("root", 0)
+            .expect("traversal with depth 0 should succeed");
+
+        assert_eq!(result.visited_trace_ids, vec!["root"]);
+        assert_eq!(result.reachable_depth, 0);
     }
 }
