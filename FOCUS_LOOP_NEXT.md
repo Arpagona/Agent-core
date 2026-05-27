@@ -6,21 +6,21 @@ It must contain one concrete next action only. The runtime milestone queue and l
 
 ## Current status (2026-05-27)
 
-**All planned milestones are delivered and merged into `main`.**
+**Phase 1 alpha foundation is delivered and merged into `main`.**
 
-### Priority queue (P1-P8)
+### Completed Phase 1 queue
 | Milestone | Status |
 |-----------|--------|
 | P1 — Open PR cleanup | ✅ No open PRs |
-| P2 — Holographic Memory persistence (B4 SQLite, B5 consolidation, B6 governed writes) | ✅ Merged |
-| P3 — Governed MCP observability (A1-A5: stdio, DG, HTTP/SSE, resources/prompts, notifications) | ✅ Merged |
-| P4 — General Cognitive Work Loop V0 (cognitive_work.rs, --propose, --govern, 9 domains) | ✅ Merged |
-| P5 — Cognitive Observation to Governed Learning (--assess, --govern offline) | ✅ Merged (end-to-end test exists) |
+| P2 — Holographic Memory persistence | ✅ Merged |
+| P3 — Governed MCP observability | ✅ Merged |
+| P4 — General Cognitive Work Loop V0 | ✅ Merged |
+| P5 — Cognitive Observation to Governed Learning | ✅ Merged |
 | P6 — Working Memory integration | ✅ Merged |
-| P7 — Compute Reservoir integration (--allocate, justification tests) | ✅ Merged |
-| P8 — End-to-end governed alpha demo (scripts/demo-full-loop.sh) | ✅ Verified working |
+| P7 — Compute Reservoir integration | ✅ Merged |
+| P8 — End-to-end governed alpha demo | ✅ Verified working |
 
-### Track A — MCP Server
+### Completed Track A — MCP Server
 | Step | Status |
 |------|--------|
 | A1 — stdio transport + tools/list + tools/call | ✅ |
@@ -28,9 +28,8 @@ It must contain one concrete next action only. The runtime milestone queue and l
 | A3 — HTTP/SSE transport | ✅ |
 | A4 — Resources + Prompts | ✅ |
 | A5 — notifications/list_changed + protocol hardening | ✅ |
-| A6 — Operator readiness (docs, examples, smoke tests) | 🔜 (docs exist, demo script works) |
 
-### Track B — Holographic Memory
+### Completed Track B — Holographic Memory
 | Step | Status |
 |------|--------|
 | B1 — Conversation-memory bridge | ✅ |
@@ -46,21 +45,35 @@ All items resolved or closed.
 
 ## Next action
 
-**Await human direction for the next strategic roadmap.**
+**Track C Step C1 — Real LLM integration in proposal-only mode.**
 
-All planned milestones (P1-P8, Track A A1-A5, Track B B1-B7) are fully delivered and verified. Per AGENT_FOCUS_LOOP.md section 10, new strategic roadmap items must not be added without human direction.
+Connect `arpagona cognitive run --llm` to the existing LLM/provider abstraction so the model can enrich WorkingMemory, observations, plans and ProposedActions, but cannot execute tools, approve actions, write memory directly or bypass Decision Gate.
 
-The `scripts/demo-full-loop.sh` script demonstrates the complete governed cognitive loop:
+## Proof to seek
+
+- `cargo fmt -- --check`
+- `cargo check`
+- `cargo test --workspace`
+- CLI smoke test with `--llm`
+- tests proving LLM output remains proposal-only
+- audit/readback includes provider, model, prompt summary and decision path where practical
+
+## Required safety boundaries
+
+Do not:
+
+- add direct tool execution by LLM;
+- add shell/browser/email/secrets access;
+- add autonomous scheduling;
+- treat LLM confidence as authorization;
+- allow direct LLM memory writes;
+- bypass Decision Gate;
+- add broad product roadmap items in the implementation PR.
+
+## Expected outcome
+
+A new PR exists for C1 with one bounded implementation increment proving that real model integration can participate in the cognitive loop while preserving the mandatory governed action path:
+
+```text
+Objective → WorkingMemory → LLM-assisted reasoning → ProposedAction → DecisionGate → Audit
 ```
-Objective → WorkingMemory → Plan → Observations → Assessment
-→ FailureInsightCandidates → DecisionGate → Decision → Audit
-```
-
-Three domains (business, coding, research) are verified with decision_count > 0, audit_event_count > 0, and correct governance field display (decision_status: approved, risk_level: low).
-
-Suggested strategic directions for human review:
-1. **A6 operator-readiness** (MCP docs/examples/smoke tests deep-dive)
-2. **Real LLM integration** (connect `cognitive run --llm` to actual provider)
-3. **Web Mission Control** (deferred — needs human direction first)
-4. **Define Track C** with the next capability layer
-5. **Production hardening** (tests, edge cases, error handling for existing crates)
