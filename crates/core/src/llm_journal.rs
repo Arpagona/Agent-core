@@ -57,6 +57,9 @@ pub struct LlmJournalEntry {
     pub decision_gate_outcomes: Option<Value>,
     /// Risk level, if applicable.
     pub risk_level: Option<RiskLevel>,
+    /// Compute Reservoir routing details: why this provider/model was chosen,
+    /// including justification, cost/latency/risk trade-offs.
+    pub compute_routing: Option<Value>,
 }
 
 /// In-memory ring-buffer for LLM interaction journal entries.
@@ -166,6 +169,28 @@ impl LlmJournal {
         prompt_summary: String,
         response_summary: String,
     ) -> String {
+        self.add_synthesis_with_routing(
+            objective,
+            provider,
+            model,
+            prompt_summary,
+            response_summary,
+            None,
+        )
+    }
+
+    /// Convenience: build and add a synthesis entry with optional Compute Reservoir routing info.
+    ///
+    /// Returns the generated entry ID.
+    pub fn add_synthesis_with_routing(
+        &mut self,
+        objective: &str,
+        provider: &str,
+        model: Option<String>,
+        prompt_summary: String,
+        response_summary: String,
+        compute_routing: Option<Value>,
+    ) -> String {
         let id = format!("llm-journal-{}", self.next_id);
         let entry = LlmJournalEntry {
             id: id.clone(),
@@ -180,6 +205,7 @@ impl LlmJournal {
             tool_call_intents: None,
             decision_gate_outcomes: None,
             risk_level: None,
+            compute_routing,
         };
         self.add_entry(entry);
         id
@@ -213,6 +239,7 @@ impl LlmJournal {
             tool_call_intents: Some(tool_call_intents),
             decision_gate_outcomes: Some(decision_gate_outcome),
             risk_level,
+            compute_routing: None,
         };
         self.add_entry(entry);
         id
@@ -342,6 +369,53 @@ mod tests {
     }
 
     #[test]
+    fn add_synthesis_with_routing_stores_compute_routing() {
+        let mut journal = LlmJournal::new(10);
+        let routing = serde_json::json!({
+            "selected_node_id": "local-smol",
+            "resource_kind": "local_llm",
+            "expected_cost_cents": 0,
+            "expected_latency_ms": 800,
+            "justification": "Low complexity task, local-first preference",
+        });
+        let id = journal.add_synthesis_with_routing(
+            "Test objective",
+            "ollama",
+            Some("qwen3.5:9b".to_owned()),
+            "Prompt about test".to_owned(),
+            "Synthesis result".to_owned(),
+            Some(routing.clone()),
+        );
+        assert_eq!(journal.len(), 1);
+        let entry = journal.get_entry(&id).expect("entry should exist");
+        assert_eq!(entry.provider, "ollama");
+        assert_eq!(entry.model.as_deref(), Some("qwen3.5:9b"));
+        let stored_routing = entry
+            .compute_routing
+            .as_ref()
+            .expect("compute_routing should be set");
+        assert_eq!(
+            stored_routing["selected_node_id"], "local-smol",
+            "routing should contain selected_node_id"
+        );
+        assert_eq!(
+            stored_routing["justification"], "Low complexity task, local-first preference",
+            "routing should contain justification"
+        );
+    }
+
+    #[test]
+    fn synthesis_without_routing_has_none() {
+        let mut journal = LlmJournal::new(10);
+        journal.add_synthesis("obj", "mock", None, "prompt".into(), "response".into());
+        let entry = journal.all_entries().last().expect("entry should exist");
+        assert!(
+            entry.compute_routing.is_none(),
+            "entry without routing should have compute_routing = None"
+        );
+    }
+
+    #[test]
     fn llm_journal_entry_serializes_and_deserializes() {
         let entry = LlmJournalEntry {
             id: "test-entry".to_owned(),
@@ -356,6 +430,7 @@ mod tests {
             tool_call_intents: None,
             decision_gate_outcomes: None,
             risk_level: Some(RiskLevel::Low),
+            compute_routing: None,
         };
         let json = serde_json::to_string(&entry).expect("should serialize");
         let decoded: LlmJournalEntry = serde_json::from_str(&json).expect("should deserialize");

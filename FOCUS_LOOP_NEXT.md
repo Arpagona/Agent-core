@@ -6,49 +6,53 @@ It must contain one concrete next action only. The runtime milestone queue and l
 
 ## Current status (2026-05-27)
 
-**C3 — Prompt, response, decision and risk journaling is delivered as PR #XXX.**
+**C4 — Compute Reservoir model routing is delivered as PR #133.**
 
-The LLM interaction journal now captures prompt summaries, response summaries, provider/model metadata, proposed actions, tool-call intents, Decision Gate outcomes and risk levels with file-backed persistence and CLI readback.
+The LLM interaction journal now captures Compute Reservoir routing details when `--llm --allocate` are used together. The journal entry includes the selected compute node, resource kind, expected cost/latency, and the full allocation justification explaining why that model strategy was chosen.
 
-### What C3 delivered
+### What C4 delivered
 
-- **`crates/core/src/llm_journal.rs`** — `LlmJournal`, `LlmJournalEntry`, `LlmInteractionType` types with file-backed persistence
-- **CLI integration** — `cognitive run --llm` automatically journals synthesis interactions
-- **CLI readback** — `arpagona llm journal [--json]` displays recent LLM interaction traces
-- **Cross-process persistence** — entries survive separate process invocations via `target/llm-journal.jsonl`
-- **7 unit tests** in arpagona-agent-core: empty journal, add_synthesis, capacity eviction, recent entries, direct_tool_call with governance data, serialization round-trip
-- **Configurable** via `ARPAGONA_LLM_JOURNAL_PATH` env var
+- **`crates/core/src/llm_journal.rs`** — new `compute_routing: Option<Value>` field on `LlmJournalEntry`; new `add_synthesis_with_routing()` method accepting optional compute routing JSON; backwards-compatible serialization (old journal files load fine)
+- **CLI integration** — `cognitive run --llm --allocate` now journals the compute allocation (selected_node_id, resource_kind, justification, cost/latency trade-offs, routing note) as `compute_routing` in the LLM interaction journal entry
+- **CLI readback** — `arpagona llm journal` displays compute routing in human-readable format (selected_node, justification, routing_note); `arpagona llm journal --json` includes `compute_routing` in structured JSON output
+- **7 unit tests** in arpagona-agent-core (2 new + 9 existing llm_journal tests all pass)
+- **603+ workspace tests** all pass
 
 ### Safety invariants
 
-- Journals store prompt/response _summaries_, not raw secrets
-- Journaled data is evidence/debugging-only, never authorization
+- Compute routing is evidence-only, never authorization
 - No shell, browser, email, secrets or unrestricted write tools added
 - No Decision Gate bypass
+- Allocation justification includes `NON_AUTHORIZING_READBACK` warning
+- Route selection does not authorize tool execution
 
-### Proof
+### Verification commands
 
-- `cargo fmt -- --check`: clean
-- `cargo check`: clean (only pre-existing warnings)
-- `cargo test --workspace`: all 600+ tests pass
-- Cross-process smoke test: `cognitive run --llm --provider mock` creates journal entry, `llm journal --json` reads it back from file
+```bash
+cargo fmt -- --check
+cargo check
+cargo test --workspace
+```
 
 ## Next action
 
-**C4 — Compute Reservoir model routing.**
+**Track C Step C5 — Anti-drift and adversarial tests.**
 
-Integrate Compute Reservoir to choose between local, cloud, small and large model strategies in the cognitive run LLM path.
+Protect the C1-C4 model layer against predictable failure modes.
 
-### Target chain
+### Required test families (from AGENT_FOCUS_LOOP.md)
 
-```text
-Objective / Task -> ComputeRequirement -> ComputeReservoir -> ModelRoute(local/cloud/small/large) -> Explanation -> Audit context
-```
+- Hallucination containment
+- Tool bypass attempts
+- Prompt injection attempts
+- Malformed tool-call payloads
+- Overconfident model claims
+- Unsafe memory-write attempts
+- Model/provider failure fallback
+- Regression tests proving Decision Gate remains mandatory
 
-### Required properties (from AGENT_FOCUS_LOOP.md)
+### Required safety boundaries
 
-- Model route selection must be explainable
-- Cost/latency/privacy trade-offs should be represented where practical
-- Local-first preference should be expressible
-- Route selection does not itself authorize tool execution
-- Audit/readback should show why the model strategy was chosen
+- Do not add shell/browser/email/secrets access
+- Do not add autonomous scheduling
+- Do not add broad product roadmap items in the implementation PR
