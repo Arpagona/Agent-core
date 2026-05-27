@@ -319,7 +319,7 @@ P1 open PR cleanup always takes priority.
 | A2 | ✅ Phase 2 — DecisionGate governance before `tools/call` |
 | A3 | ✅ Phase 3 — HTTP/SSE transport via Axum endpoint `/mcp` |
 | A4 | ✅ Phase 4 — Resources + Prompts |
-| A5 | 🔜 Phase 5 — notifications / `tools/list_changed` / protocol hardening |
+| A5 | ✅ Phase 5 — notifications / `tools/list_changed` / protocol hardening |
 | A6 | 🔜 MCP operator-readiness: documentation, examples, client smoke tests |
 
 ### Track B — Holographic Memory / internal cognitive memory
@@ -329,10 +329,10 @@ P1 open PR cleanup always takes priority.
 | B1 | ✅ Conversation-memory bridge — encode turns as `HolographicTrace` |
 | B2 | ✅ Recursive memory graph traversal via `linked_memory_ids` |
 | B3 | ✅ Optional local embeddings / semantic generalization |
-| B4 | 🔜 SQLite persistence for holographic memory |
-| B5 | 🔜 Consolidation and duplicate trace fusion |
-| B6 | 🔜 Governed writes via DecisionGate, e.g. `MemoryWriteKind::HolographicTrace` |
-| B7 | 🔜 Cognitive-loop recall hints from resonance matches |
+| B4 | ✅ SQLite persistence for holographic memory |
+| B5 | ✅ Consolidation and duplicate trace fusion |
+| B6 | ✅ Governed writes via DecisionGate, e.g. `MemoryWriteKind::HolographicTrace` |
+| B7 | ✅ Cognitive-loop recall hints from resonance matches |
 
 ## 10. Forbidden work
 
@@ -407,5 +407,5 @@ The handoff must target the next highest-priority runtime milestone, not a conve
 The current preferred next handoff, unless blocked, is:
 
 ```text
-Track B Step B4 — SQLite persistence for holographic memory.
+Await human direction for the next strategic roadmap — all planned milestones are delivered.
 ```
