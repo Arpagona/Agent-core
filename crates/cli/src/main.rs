@@ -900,6 +900,12 @@ enum HolographicSubcommand {
     /// activation counts, and removes the redundant trace. Operates on the SQLite
     /// store only (InMemory store is a no-op).
     Consolidate(HolographicConsolidateArgs),
+    /// Show holographic memory store status: totals, recent traces, most activated traces,
+    /// linked memory/decision IDs, and consolidation info.
+    ///
+    /// Reads from the SQLite-backed store (target/holographic-memory.db) by default.
+    /// Falls back to the JSON file store if the SQLite DB is not accessible.
+    Status(HolographicStatusArgs),
 }
 
 #[derive(Debug, Args)]
@@ -1014,6 +1020,17 @@ struct HolographicConsolidateArgs {
     threshold: f32,
     /// Path to the SQLite holographic memory database file.
     #[arg(long, default_value = "target/holographic-store.db")]
+    db: String,
+    /// Emit structured JSON instead of human-oriented text.
+    #[arg(long)]
+    json: bool,
+}
+
+/// Status arguments for `memory holographic status`.
+#[derive(Debug, Args)]
+struct HolographicStatusArgs {
+    /// Path to the SQLite holographic memory database file.
+    #[arg(long, default_value = "target/holographic-memory.db")]
     db: String,
     /// Emit structured JSON instead of human-oriented text.
     #[arg(long)]
@@ -1472,6 +1489,8 @@ struct MemoryVisibilitySection {
     total_trace_count: Option<usize>,
     /// Recent traces ordered by creation time (newest first).
     recent_traces: Vec<TraceSummary>,
+    /// Most frequently activated traces, ordered by activation_count (highest first).
+    most_activated_traces: Vec<TraceSummary>,
     /// All linked memory IDs aggregated from recent traces (deduplicated).
     aggregated_linked_memory_ids: Vec<String>,
     /// All linked decision IDs aggregated from recent traces (deduplicated).
@@ -1761,6 +1780,7 @@ async fn run() -> Result<(), Box<dyn Error>> {
                 }
                 HolographicSubcommand::Explore(args) => memory_holographic_explore(args)?,
                 HolographicSubcommand::Consolidate(args) => memory_holographic_consolidate(args)?,
+                HolographicSubcommand::Status(args) => memory_holographic_status(args)?,
             },
         },
         Command::Tool(tool) => match tool.command {
@@ -2275,6 +2295,7 @@ fn gather_memory_visibility_section() -> MemoryVisibilitySection {
         return MemoryVisibilitySection {
             total_trace_count: None,
             recent_traces: vec![],
+            most_activated_traces: vec![],
             aggregated_linked_memory_ids: vec![],
             aggregated_linked_decision_ids: vec![],
             store_accessible: false,
@@ -2291,6 +2312,7 @@ fn gather_memory_visibility_section() -> MemoryVisibilitySection {
             return MemoryVisibilitySection {
                 total_trace_count: None,
                 recent_traces: vec![],
+                most_activated_traces: vec![],
                 aggregated_linked_memory_ids: vec![],
                 aggregated_linked_decision_ids: vec![],
                 store_accessible: false,
@@ -2300,11 +2322,9 @@ fn gather_memory_visibility_section() -> MemoryVisibilitySection {
         }
     };
 
-    let total_count = store.len();
-
-    // Get all traces sorted by created_at descending, take the 5 most recent
     let all_traces: Vec<HolographicTrace> = store.all_traces();
-    let recent_traces: Vec<HolographicTrace> = all_traces.into_iter().take(5).collect();
+    let recent_traces: Vec<&HolographicTrace> = all_traces.iter().take(5).collect();
+    let total_count = store.len();
 
     // Build trace summaries
     let trace_summaries: Vec<TraceSummary> = recent_traces
@@ -2341,6 +2361,32 @@ fn gather_memory_visibility_section() -> MemoryVisibilitySection {
     MemoryVisibilitySection {
         total_trace_count: Some(total_count),
         recent_traces: trace_summaries,
+
+        // Most activated traces (top 5 by activation_count, descending)
+        most_activated_traces: {
+            let mut sorted: Vec<TraceSummary> = all_traces
+                .iter()
+                .map(|t| TraceSummary {
+                    id: t.id.clone(),
+                    source_kind: serde_json::to_string(&t.source_kind)
+                        .unwrap_or_else(|_| "unknown".to_owned()),
+                    content_summary: t.content_summary.clone(),
+                    keywords: t.keywords.clone(),
+                    concepts: t.concepts.clone(),
+                    linked_memory_ids: t.linked_memory_ids.clone(),
+                    linked_decision_ids: t.linked_decision_ids.clone(),
+                    importance: t.importance,
+                    confidence: t.confidence,
+                    activation_count: t.activation_count,
+                    created_at: t.created_at.clone(),
+                    last_activated_at: t.last_activated_at.clone(),
+                })
+                .collect();
+            sorted.sort_by(|a, b| b.activation_count.cmp(&a.activation_count));
+            sorted.truncate(5);
+            sorted
+        },
+
         aggregated_linked_memory_ids: mem_ids.into_iter().collect(),
         aggregated_linked_decision_ids: dec_ids.into_iter().collect(),
         store_accessible: true,
@@ -2636,6 +2682,28 @@ fn format_status_readback(readback: &StatusReadback) -> String {
                 push_readback_line(&mut output, "");
             }
         }
+
+        // Most activated traces
+        if !readback.memory_visibility.most_activated_traces.is_empty() {
+            push_readback_line(
+                &mut output,
+                &format!(
+                    "  most_activated_traces (top {}):",
+                    readback.memory_visibility.most_activated_traces.len()
+                ),
+            );
+            for trace in &readback.memory_visibility.most_activated_traces {
+                push_readback_line(&mut output, &format!("    trace: {}", trace.id));
+                push_readback_field(&mut output, "    content:", &trace.content_summary);
+                push_readback_field(
+                    &mut output,
+                    "    activations:",
+                    &trace.activation_count.to_string(),
+                );
+                push_readback_line(&mut output, "");
+            }
+        }
+
         if !readback
             .memory_visibility
             .aggregated_linked_memory_ids
@@ -3578,6 +3646,196 @@ fn memory_holographic_consolidate(args: HolographicConsolidateArgs) -> Result<()
         println!(
             "⚠️  Holographic memory is recall evidence only. It does not authorize any action."
         );
+    }
+
+    Ok(())
+}
+
+/// Handler for `memory holographic status` — show holographic memory store status.
+///
+/// Reads from the SQLite-backed store by default. Reports total trace count,
+/// recent traces, most activated traces, aggregated linked IDs, and store backend type.
+fn memory_holographic_status(args: HolographicStatusArgs) -> Result<(), Box<dyn Error>> {
+    let hm_db_path = std::path::PathBuf::from(&args.db);
+
+    // Try SQLite store first; if the file doesn't exist, report as empty store
+    if !hm_db_path.exists() {
+        if args.json {
+            let output = serde_json::json!({
+                "store_type": "sqlite",
+                "store_path": args.db,
+                "store_accessible": false,
+                "total_trace_count": 0,
+                "recent_traces": [],
+                "most_activated_traces": [],
+                "aggregated_linked_memory_ids": [],
+                "aggregated_linked_decision_ids": [],
+                "consolidation_info": null,
+                "warning": AUDIT_READBACK_WARNING,
+            });
+            println!("{}", serde_json::to_string_pretty(&output)?);
+        } else {
+            println!("Holographic memory store status");
+            println!("  store_type: SQLite");
+            println!("  store_path: {}", args.db);
+            println!("  store_accessible: false");
+            println!("  (no database file found — add traces first)");
+            println!();
+            println!("⚠️  {}", AUDIT_READBACK_WARNING);
+        }
+        return Ok(());
+    }
+
+    // Open the SQLite store
+    let store = match SqliteHolographicMemoryStore::new(&args.db) {
+        Ok(s) => s,
+        Err(e) => {
+            eprintln!("Failed to open SQLite store at {}: {}", args.db, e);
+            return Ok(());
+        }
+    };
+
+    let total_count = store.len();
+    let all_traces: Vec<HolographicTrace> = store.all_traces();
+
+    // Recent traces: top 5 by created_at (already sorted newest-first by all_traces)
+    let recent_traces: Vec<TraceSummary> = all_traces
+        .iter()
+        .take(5)
+        .map(|t| TraceSummary {
+            id: t.id.clone(),
+            source_kind: serde_json::to_string(&t.source_kind)
+                .unwrap_or_else(|_| "unknown".to_owned()),
+            content_summary: t.content_summary.clone(),
+            keywords: t.keywords.clone(),
+            concepts: t.concepts.clone(),
+            linked_memory_ids: t.linked_memory_ids.clone(),
+            linked_decision_ids: t.linked_decision_ids.clone(),
+            importance: t.importance,
+            confidence: t.confidence,
+            activation_count: t.activation_count,
+            created_at: t.created_at.clone(),
+            last_activated_at: t.last_activated_at.clone(),
+        })
+        .collect();
+
+    // Most activated traces: top 5 by activation_count
+    let mut most_activated: Vec<TraceSummary> = all_traces
+        .iter()
+        .map(|t| TraceSummary {
+            id: t.id.clone(),
+            source_kind: serde_json::to_string(&t.source_kind)
+                .unwrap_or_else(|_| "unknown".to_owned()),
+            content_summary: t.content_summary.clone(),
+            keywords: t.keywords.clone(),
+            concepts: t.concepts.clone(),
+            linked_memory_ids: t.linked_memory_ids.clone(),
+            linked_decision_ids: t.linked_decision_ids.clone(),
+            importance: t.importance,
+            confidence: t.confidence,
+            activation_count: t.activation_count,
+            created_at: t.created_at.clone(),
+            last_activated_at: t.last_activated_at.clone(),
+        })
+        .collect();
+    most_activated.sort_by(|a, b| b.activation_count.cmp(&a.activation_count));
+    most_activated.truncate(5);
+
+    // Aggregated linked IDs from all traces
+    let mut mem_ids: std::collections::BTreeSet<String> = std::collections::BTreeSet::new();
+    let mut dec_ids: std::collections::BTreeSet<String> = std::collections::BTreeSet::new();
+    for t in &all_traces {
+        for mid in &t.linked_memory_ids {
+            mem_ids.insert(mid.clone());
+        }
+        for did in &t.linked_decision_ids {
+            dec_ids.insert(did.clone());
+        }
+    }
+    let aggregated_linked_memory_ids: Vec<String> = mem_ids.into_iter().collect();
+    let aggregated_linked_decision_ids: Vec<String> = dec_ids.into_iter().collect();
+
+    if args.json {
+        let output = serde_json::json!({
+            "store_type": "sqlite",
+            "store_path": args.db,
+            "store_accessible": true,
+            "total_trace_count": total_count,
+            "recent_traces": recent_traces,
+            "most_activated_traces": most_activated,
+            "aggregated_linked_memory_ids": aggregated_linked_memory_ids,
+            "aggregated_linked_decision_ids": aggregated_linked_decision_ids,
+            "consolidation_info": null,
+            "warning": AUDIT_READBACK_WARNING,
+        });
+        println!("{}", serde_json::to_string_pretty(&output)?);
+    } else {
+        println!("Holographic memory store status");
+        println!("  store_type: SQLite");
+        println!("  store_path: {}", args.db);
+        println!("  store_accessible: true");
+        println!("  total_trace_count: {}", total_count);
+
+        if !recent_traces.is_empty() {
+            println!();
+            println!("  Recent traces (top 5):");
+            for trace in &recent_traces {
+                println!("    trace: {}", trace.id);
+                println!("      content: {}", trace.content_summary);
+                if !trace.keywords.is_empty() {
+                    println!("      keywords: {}", trace.keywords.join(", "));
+                }
+                if !trace.concepts.is_empty() {
+                    println!("      concepts: {}", trace.concepts.join(", "));
+                }
+                if !trace.linked_memory_ids.is_empty() {
+                    println!(
+                        "      linked_memories: {}",
+                        trace.linked_memory_ids.join(", ")
+                    );
+                }
+                if !trace.linked_decision_ids.is_empty() {
+                    println!(
+                        "      linked_decisions: {}",
+                        trace.linked_decision_ids.join(", ")
+                    );
+                }
+                println!(
+                    "      importance: {:.2}, confidence: {:.2}, activations: {}",
+                    trace.importance, trace.confidence, trace.activation_count
+                );
+                println!("      created_at: {}", trace.created_at);
+            }
+        }
+
+        if !most_activated.is_empty() {
+            println!();
+            println!("  Most activated traces (top 5):");
+            for trace in &most_activated {
+                println!(
+                    "    trace: {} ({} activations)",
+                    trace.id, trace.activation_count
+                );
+                println!("      content: {}", trace.content_summary);
+            }
+        }
+
+        if !aggregated_linked_memory_ids.is_empty() {
+            println!();
+            println!(
+                "  Linked memory IDs: {}",
+                aggregated_linked_memory_ids.join(", ")
+            );
+        }
+        if !aggregated_linked_decision_ids.is_empty() {
+            println!(
+                "  Linked decision IDs: {}",
+                aggregated_linked_decision_ids.join(", ")
+            );
+        }
+
+        println!();
+        println!("⚠️  {}", AUDIT_READBACK_WARNING);
     }
 
     Ok(())
@@ -10075,6 +10333,65 @@ mod tests {
     }
 
     #[test]
+    fn cli_parses_memory_holographic_status() {
+        let cli = Cli::parse_from(["arpagona", "memory", "holographic", "status"]);
+        match cli.command {
+            Command::Memory(MemoryCommand {
+                command: MemorySubcommand::Holographic(h),
+            }) => match h.command {
+                HolographicSubcommand::Status(args) => {
+                    assert!(!args.json);
+                    assert_eq!(args.db, "target/holographic-memory.db");
+                }
+                _ => panic!("expected holographic status"),
+            },
+            _ => panic!("expected memory holographic status"),
+        }
+    }
+
+    #[test]
+    fn cli_parses_memory_holographic_status_json() {
+        let cli = Cli::parse_from(["arpagona", "memory", "holographic", "status", "--json"]);
+        match cli.command {
+            Command::Memory(MemoryCommand {
+                command: MemorySubcommand::Holographic(h),
+            }) => match h.command {
+                HolographicSubcommand::Status(args) => {
+                    assert!(args.json);
+                    assert_eq!(args.db, "target/holographic-memory.db");
+                }
+                _ => panic!("expected holographic status with --json"),
+            },
+            _ => panic!("expected memory holographic status with --json"),
+        }
+    }
+
+    #[test]
+    fn cli_parses_memory_holographic_status_custom_db() {
+        let cli = Cli::parse_from([
+            "arpagona",
+            "memory",
+            "holographic",
+            "status",
+            "--db",
+            "custom/path.db",
+            "--json",
+        ]);
+        match cli.command {
+            Command::Memory(MemoryCommand {
+                command: MemorySubcommand::Holographic(h),
+            }) => match h.command {
+                HolographicSubcommand::Status(args) => {
+                    assert!(args.json);
+                    assert_eq!(args.db, "custom/path.db");
+                }
+                _ => panic!("expected holographic status with custom db"),
+            },
+            _ => panic!("expected memory holographic status with custom db"),
+        }
+    }
+
+    #[test]
     fn memory_proposal_readback_filters_and_explains_memory_write_intent() {
         let actions = vec![
             serde_json::from_value::<ProposedAction>(json!({
@@ -10302,6 +10619,7 @@ mod tests {
             memory_visibility: MemoryVisibilitySection {
                 total_trace_count: None,
                 recent_traces: vec![],
+                most_activated_traces: vec![],
                 aggregated_linked_memory_ids: vec![],
                 aggregated_linked_decision_ids: vec![],
                 store_accessible: false,
@@ -10359,6 +10677,7 @@ mod tests {
             memory_visibility: MemoryVisibilitySection {
                 total_trace_count: None,
                 recent_traces: vec![],
+                most_activated_traces: vec![],
                 aggregated_linked_memory_ids: vec![],
                 aggregated_linked_decision_ids: vec![],
                 store_accessible: false,
@@ -10414,6 +10733,7 @@ mod tests {
             memory_visibility: MemoryVisibilitySection {
                 total_trace_count: None,
                 recent_traces: vec![],
+                most_activated_traces: vec![],
                 aggregated_linked_memory_ids: vec![],
                 aggregated_linked_decision_ids: vec![],
                 store_accessible: false,
@@ -10473,6 +10793,7 @@ mod tests {
             memory_visibility: MemoryVisibilitySection {
                 total_trace_count: None,
                 recent_traces: vec![],
+                most_activated_traces: vec![],
                 aggregated_linked_memory_ids: vec![],
                 aggregated_linked_decision_ids: vec![],
                 store_accessible: false,
