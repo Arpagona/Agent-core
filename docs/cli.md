@@ -489,6 +489,45 @@ Démarre le serveur MCP natif en mode transport stdio (Phase 1). Le serveur rép
 
 Cette commande est une extension alpha expérimentale du Tool Runtime. Elle n'ajoute pas d'exécution non supervisée, d'accès shell, de modification de fichiers, d'autonomie ou d'intégration réseau externe.
 
+### MCP Governance Audit — Lecture des décisions d'audit MCP
+
+```bash
+cargo run -p arpagona-cli -- mcp-governance-audit
+cargo run -p arpagona-cli -- mcp-governance-audit --json
+cargo run -p arpagona-cli -- mcp-governance-audit --audit-path target/mcp-audit.jsonl --limit 50
+```
+
+Options :
+
+- `--audit-path <PATH>` — Chemin vers le fichier journal d'audit de gouvernance MCP (défaut : `target/mcp-audit.jsonl`).
+- `--limit <N>` — Nombre maximum d'entrées récentes à afficher (défaut : 20).
+- `--json` — Sortie structurée JSON.
+
+Lit et affiche les décisions d'audit de gouvernance MCP récentes depuis un fichier JSONL persistant. Chaque entrée documente une décision `tools/call` passée par le Decision Gate du serveur MCP : outil appelé, arguments, risque, résultat de la décision (allowed/blocked), horodatage et identifiant d'audit.
+
+Cette commande est une surface de supervision alpha read-only. Les entrées d'audit sont produites par le serveur MCP lors de l'évaluation de `tools/call` par le Decision Gate ; la commande ne fait que les lire.
+
+### LLM — Journal d'interaction LLM (C3)
+
+```bash
+cargo run -p arpagona-cli -- llm journal
+cargo run -p arpagona-cli -- llm journal --json
+cargo run -p arpagona-cli -- llm journal --limit 20
+```
+
+Sous-commandes :
+
+- `journal` — Affiche les entrées récentes du journal d'interaction LLM.
+
+Options `journal` :
+
+- `--limit <N>` — Nombre maximum d'entrées récentes à afficher (défaut : 10).
+- `--json` — Sortie structurée JSON.
+
+Affiche les traces récentes d'interaction LLM : résumé du prompt, résumé de la réponse, fournisseur/modèle utilisé, actions proposées ou intentions d'appel d'outil émises par le LLM, résultat du Decision Gate, niveau de risque et horodatage.
+
+Cette commande est une surface de supervision alpha read-only. Elle n'exécute aucun appel LLM, n'approuve aucune action et ne modifie aucun état.
+
 ## Installation
 
 ```bash
