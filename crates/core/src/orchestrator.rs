@@ -170,6 +170,8 @@ pub enum ContextSource {
     ToolRuntime,
     /// Active working memory from previous cycles.
     WorkingMemory,
+    /// Temporally enriched memory retrieval via Compressed Cognitive Attention.
+    CompressedCognitiveAttention,
 }
 
 // ─── ContextBundle ─────────────────────────────────────────────────────────
@@ -975,5 +977,128 @@ mod tests {
         assert_eq!(outcome.objective_id, obj_id);
         assert_eq!(outcome.context_bundle_id, cb_id);
         assert!(outcome.proposal_request_id.as_str().starts_with("pr-"));
+    }
+}
+
+// ─── MemoryQueryRequest ──────────────────────────────────────────────────
+
+/// Request to query memory sources for advisory context.
+///
+/// The orchestrator sends this request to the context assembly pipeline.
+/// Each memory source adapter (GraphMemory, HolographicMemory, etc.) processes
+/// the request and returns a MemoryQueryResponse.
+///
+/// Pure domain: no I/O, no execution, no authorization.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct MemoryQueryRequest {
+    /// The orchestrator cycle ID.
+    pub cycle_id: OrchestratorCycleId,
+    /// The objective being processed.
+    pub objective_id: ObjectiveId,
+    /// The objective text (used as query for all adapters).
+    pub objective_text: String,
+    /// The workspace to scope queries within.
+    pub workspace_id: WorkspaceId,
+    /// Which sources to query (default: all available).
+    pub requested_sources: Vec<ContextSource>,
+    /// Maximum items per source (prevents overstuffing).
+    pub max_items_per_source: usize,
+    /// Timestamp of the request.
+    pub created_at: DateTime<Utc>,
+}
+
+impl MemoryQueryRequest {
+    /// Create a new MemoryQueryRequest requesting all available sources.
+    pub fn new(
+        cycle_id: OrchestratorCycleId,
+        objective_id: ObjectiveId,
+        objective_text: impl Into<String>,
+        workspace_id: WorkspaceId,
+    ) -> Self {
+        Self {
+            cycle_id,
+            objective_id,
+            objective_text: objective_text.into(),
+            workspace_id,
+            requested_sources: vec![
+                ContextSource::GraphMemory,
+                ContextSource::HolographicMemory,
+                ContextSource::ReservoirEcho,
+                ContextSource::ToolRuntime,
+                ContextSource::WorkingMemory,
+                ContextSource::CompressedCognitiveAttention,
+            ],
+            max_items_per_source: 10,
+            created_at: Utc::now(),
+        }
+    }
+
+    /// Restrict to specific sources.
+    pub fn with_sources(mut self, sources: Vec<ContextSource>) -> Self {
+        self.requested_sources = sources;
+        self
+    }
+
+    /// Override the max items per source.
+    pub fn with_max_items(mut self, max: usize) -> Self {
+        self.max_items_per_source = max;
+        self
+    }
+}
+
+// ─── MemoryQueryResponse ─────────────────────────────────────────────────
+
+/// Advisory response from a memory source adapter.
+///
+/// Each source adapter returns one response containing the context items
+/// it retrieved. All items are advisory and non-authorizing — no item in
+/// this response may approve, authorize or execute an action.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct MemoryQueryResponse {
+    /// The source this response came from.
+    pub source: ContextSource,
+    /// Advisory context items retrieved from this source.
+    pub items: Vec<ContextItem>,
+    /// Whether the source was available for querying.
+    pub available: bool,
+    /// Human-readable explanation of the query result.
+    pub explanation: String,
+}
+
+impl MemoryQueryResponse {
+    /// Create a new MemoryQueryResponse.
+    pub fn new(source: ContextSource) -> Self {
+        let explanation = format!("No items retrieved from {:?}", &source);
+        Self {
+            source,
+            items: vec![],
+            available: true,
+            explanation,
+        }
+    }
+
+    /// Add items to this response.
+    pub fn with_items(mut self, items: Vec<ContextItem>) -> Self {
+        let count = items.len();
+        self.items = items;
+        self.explanation = format!("Retrieved {} item(s) from {:?}", count, self.source);
+        self
+    }
+
+    /// Mark this source as unavailable.
+    pub fn with_unavailable(mut self) -> Self {
+        self.available = false;
+        self.explanation = format!("{:?} is unavailable", self.source);
+        self
+    }
+
+    /// Return true if any items are present.
+    pub fn has_items(&self) -> bool {
+        !self.items.is_empty()
+    }
+
+    /// Return the number of items.
+    pub fn item_count(&self) -> usize {
+        self.items.len()
     }
 }

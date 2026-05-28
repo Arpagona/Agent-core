@@ -40,6 +40,10 @@ use arpagona_agent_core::permission::Permission;
 use arpagona_agent_core::risk::RiskLevel;
 use chrono::{DateTime, Utc};
 
+pub mod context_assembler;
+
+pub use context_assembler::{ContextAssembler, SimulatedContextAssembler};
+
 // ─── OrchestratorCycle ──────────────────────────────────────────────────────
 
 /// A single orchestrated work cycle.
@@ -147,6 +151,9 @@ pub struct OrchestratorEngine {
     local_preferred: bool,
     /// The base compute route justification.
     compute_route_justification: String,
+    /// Pluggable context assembler for gathering advisory context from memory sources.
+    /// Defaults to SimulatedContextAssembler (no-op, deterministic, zero I/O).
+    context_assembler: Box<dyn ContextAssembler>,
 }
 
 impl Default for OrchestratorEngine {
@@ -159,12 +166,14 @@ impl OrchestratorEngine {
     /// Create a new orchestrator engine with default settings.
     ///
     /// Default compute route: "local_deterministic" with local-first preference.
+    /// Default context assembler: SimulatedContextAssembler (no-op, zero I/O).
     pub fn new() -> Self {
         Self {
             compute_route_label: "local_deterministic".to_owned(),
             local_preferred: true,
             compute_route_justification: "Local deterministic compute selected by default for V0 deterministic loop skeleton."
                 .to_owned(),
+            context_assembler: Box::new(SimulatedContextAssembler::new()),
         }
     }
 
@@ -183,6 +192,20 @@ impl OrchestratorEngine {
     /// Configure the compute route justification.
     pub fn with_compute_route_justification(mut self, justification: impl Into<String>) -> Self {
         self.compute_route_justification = justification.into();
+        self
+    }
+
+    /// Configure a custom ContextAssembler for memory-aware context assembly.
+    ///
+    /// Use this to plug in real memory adapters (GraphMemoryAdapter, etc.)
+    /// once they are implemented. Defaults to SimulatedContextAssembler.
+    ///
+    /// # Safety
+    ///
+    /// The provided assembler must return advisory items only. No response
+    /// may contain approval, authorization or execution tokens.
+    pub fn with_context_assembler(mut self, assembler: Box<dyn ContextAssembler>) -> Self {
+        self.context_assembler = assembler;
         self
     }
 
@@ -284,7 +307,15 @@ impl OrchestratorEngine {
 
     // ─── Step implementations ──────────────────────────────────────────────
 
-    /// Assemble a synthetic advisory ContextBundle.
+    /// Assemble an advisory ContextBundle using the configured ContextAssembler.
+    ///
+    /// The assembler queries all configured memory sources (Graph Memory,
+    /// Holographic Memory, Reservoir Echo, etc.) and returns advisory context
+    /// items. The `context_hint` from the ObjectiveInput is always preserved
+    /// as an additional `graph_memory_item` regardless of assembler results.
+    ///
+    /// Every item in the bundle is advisory. The advisory_warning field is
+    /// set at construction and must never be removed.
     fn assemble_context(
         &self,
         input: &ObjectiveInput,
@@ -297,7 +328,52 @@ impl OrchestratorEngine {
         let mut bundle =
             ContextBundle::new(bundle_id, input.cycle_id.clone(), objective.id.clone());
 
-        // Add a synthetic context item from the input
+        // Step 1: Create a MemoryQueryRequest and query the assembler
+        let request = arpagona_agent_core::orchestrator::MemoryQueryRequest::new(
+            input.cycle_id.clone(),
+            objective.id.clone(),
+            &input.text,
+            input.workspace_id.clone(),
+        );
+
+        let responses = self.context_assembler.assemble(&request);
+
+        // Step 2: Map responses to ContextBundle fields
+        for response in &responses {
+            match response.source {
+                ContextSource::GraphMemory => {
+                    for item in &response.items {
+                        bundle.graph_memory_items.push(item.clone());
+                    }
+                }
+                ContextSource::HolographicMemory => {
+                    for item in &response.items {
+                        bundle.holographic_resonance_items.push(item.clone());
+                    }
+                }
+                ContextSource::ReservoirEcho => {
+                    for item in &response.items {
+                        bundle.reservoir_traces.push(item.clone());
+                    }
+                }
+                _ => {
+                    // ToolRuntime, WorkingMemory, CompressedCognitiveAttention
+                    // items are added to graph_memory_items as a generic
+                    // bucket for now. Future milestones may add dedicated
+                    // fields per source.
+                    for item in &response.items {
+                        bundle.graph_memory_items.push(item.clone());
+                    }
+                }
+            }
+
+            if !response.available {
+                bundle.unavailable_sources.push(response.source.clone());
+            }
+        }
+
+        // Step 3: Preserve context_hint as a special-case graph_memory_item
+        // This guarantees backward compatibility with existing tests.
         if let Some(ref context_hint) = input.context_hint {
             bundle
                 .graph_memory_items
@@ -307,12 +383,6 @@ impl OrchestratorEngine {
                     source: "objective_input".to_owned(),
                 });
         }
-
-        // Mark HolographicMemory and ReservoirEcho as unavailable (synthetic)
-        bundle.unavailable_sources = vec![
-            ContextSource::HolographicMemory,
-            ContextSource::ReservoirEcho,
-        ];
 
         bundle
     }
