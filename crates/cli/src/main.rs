@@ -2433,13 +2433,20 @@ fn read_handoff_next_action() -> Option<String> {
         return None;
     }
     let content = std::fs::read_to_string(path).ok()?;
+    // Look for the ## Next action section and return the first actionable line
+    let mut found_section = false;
     for line in content.lines() {
         let trimmed = line.trim();
-        if !trimmed.is_empty()
-            && !trimmed.starts_with('#')
-            && !trimmed.starts_with('-')
-            && trimmed.len() > 3
-        {
+        if !found_section {
+            if trimmed.eq_ignore_ascii_case("## Next action")
+                || trimmed.eq_ignore_ascii_case("## next action")
+            {
+                found_section = true;
+            }
+            continue;
+        }
+        // After finding ## Next action, return first non-empty non-header line
+        if !trimmed.is_empty() && !trimmed.starts_with('#') && trimmed.len() > 3 {
             return Some(trimmed.to_owned());
         }
     }
@@ -2457,14 +2464,24 @@ fn count_backlog_open_items() -> Option<usize> {
         return None;
     }
     let content = std::fs::read_to_string(path).ok()?;
+    // Only count DV entries within the ## Open candidates section
+    // (stop counting when we reach ## Closed / superseded candidates or nested Open entries
+    // whose status line says "fixed" or "superseded")
     let mut in_open_section = false;
-    let mut count = 0usize;
+    let mut count = 0_usize;
     for line in content.lines() {
         let trimmed = line.trim();
-        if trimmed.starts_with("## ") && !trimmed.starts_with("###") {
-            // H2 section header — toggle open-section tracking
-            in_open_section = trimmed == "## Open candidates";
-        } else if in_open_section && trimmed.starts_with("###") && trimmed.contains("DV-") {
+        if trimmed.eq_ignore_ascii_case("## Open candidates") {
+            in_open_section = true;
+            continue;
+        }
+        if in_open_section
+            && (trimmed.starts_with("## ")
+                || trimmed.eq_ignore_ascii_case("## Closed / superseded candidates"))
+        {
+            break;
+        }
+        if in_open_section && trimmed.starts_with("###") && trimmed.contains("DV-") {
             count += 1;
         }
     }
