@@ -860,7 +860,11 @@ The system has run a heuristic cognitive cycle on an objective. You are given:
 4. The proposed next action
 
 Your task: synthesize this information into a structured self-scorecard with
-grounded bullets. Reference concrete field values from the working-memory summary.
+grounded bullets. You MUST reference concrete field values from the working-memory
+summary — cite the objective text, domain name, context items count, assumptions count,
+and missing context count directly. Do not use generic phrases like "the objective"
+without naming what it is, or "some context items" without the actual count.
+
 Use exactly this format:
 
 [STATE] Domain: <value>, Sensitivity: <value>, Complexity: <value>
@@ -869,7 +873,7 @@ Use exactly this format:
 [KEY GAP / RISK] <the most critical missing context, risk, or ambiguity, referencing the specific field>
   - <why this gap matters for progress>
 
-[RECOMMENDED NEXT STEP] <what a human should do next, based on the proposed next action kind>
+[RECOMMENDED NEXT STEP] <what a human should do next, based on the proposed next action kind, including the domain and relevant counts>
   - <1 brief rationale sentence>
 
 Do NOT propose tool calls, memory writes, or system operations.
@@ -950,45 +954,62 @@ impl MockProvider {
         _system_prompt: &str,
         user_prompt: &str,
     ) -> Result<String, LlmError> {
-        let (domain, sensitivity, complexity, missing, next_action) =
+        let (domain, sensitivity, complexity, missing, context_items, assumptions, next_action) =
             parse_wm_summary_fields(user_prompt);
 
         let gap_line = if missing > 0 {
             format!(
-                "Missing context: {} item(s) identified — context gaps may block progress",
-                missing
+                "Missing context: {} item(s) identified — gaps may block progress in {} domain",
+                missing, domain
             )
         } else {
-            "No missing context detected — analysis is self-contained".to_owned()
+            format!(
+                "No missing context detected — analysis is self-contained for {} domain",
+                domain
+            )
         };
 
         let next_step_line = match next_action.as_str() {
             "requestcontext" | "RequestContext" => {
-                "Request context: gather the missing information before proceeding further"
+                format!("Request context: gather the {} missing fields before proceeding with {} analysis", missing, domain)
             }
             "stopwithreport" | "StopWithReport" => {
-                "Stop with report: sufficient analysis completed, ready for human review"
+                format!("Stop with report: {} analysis complete ({} items from {} context), ready for human review", domain, assumptions, context_items)
             }
-            _ => "Review output: the proposed next action guides the next step",
+            _ => {
+                format!(
+                    "Review output: follow {} next step for {} domain",
+                    next_action, domain
+                )
+            }
+        };
+
+        let assumption_line = match assumptions {
+            0 => "No explicit assumptions — output may be conservative".to_owned(),
+            _ => format!(
+                "Working with {} documented assumption(s) in {} context",
+                assumptions, context_items
+            ),
         };
 
         Ok(format!(
             "[STATE] Domain: {}, Sensitivity: {}, Complexity: {:.2}\n\
-             ﹂ Grounded assessment based on {} context items and {} assumptions.\n\
+             ﹂ {} context item(s), {} assumption(s), {} missing context gap(s).\n\
              \n\
              [KEY GAP / RISK] {}\n\
-             ﹂ The working memory summary flags this as the primary constraint.\n\
+             ﹂ {}\n\
              \n\
              [RECOMMENDED NEXT STEP] {}\n\
-             ﹂ {}",
+             ﹂ This synthesis is evidence-only and non-authorizing. Review before acting.",
             domain,
             sensitivity,
             complexity,
-            "?",
-            "?",
+            context_items,
+            assumptions,
+            missing,
             gap_line,
+            assumption_line,
             next_step_line,
-            "This synthesis is evidence-only and non-authorizing. Review before acting.",
         ))
     }
 }
@@ -1009,13 +1030,15 @@ impl MockProvider {
 /// Proposed next action: <value>
 /// ```
 ///
-/// Returns (domain, sensitivity, complexity, missing_count, next_action_kind).
+/// Returns (domain, sensitivity, complexity, missing_count, context_items, assumptions, next_action_kind).
 /// On parse failure, returns safe defaults.
-fn parse_wm_summary_fields(prompt: &str) -> (String, String, f32, usize, String) {
+fn parse_wm_summary_fields(prompt: &str) -> (String, String, f32, usize, usize, usize, String) {
     let mut domain = String::from("Unknown");
     let mut sensitivity = String::from("Public");
     let mut complexity: f32 = 0.0;
     let mut missing: usize = 0;
+    let mut context_items: usize = 0;
+    let mut assumptions: usize = 0;
     let mut next_action = String::from("StopWithReport");
 
     for line in prompt.lines() {
@@ -1026,14 +1049,26 @@ fn parse_wm_summary_fields(prompt: &str) -> (String, String, f32, usize, String)
             sensitivity = val.trim().to_owned();
         } else if let Some(val) = line.strip_prefix("Complexity:") {
             complexity = val.trim().parse::<f32>().unwrap_or(0.0);
+        } else if let Some(val) = line.strip_prefix("Context items:") {
+            context_items = val.trim().parse::<usize>().unwrap_or(0);
         } else if let Some(val) = line.strip_prefix("Missing context:") {
             missing = val.trim().parse::<usize>().unwrap_or(0);
+        } else if let Some(val) = line.strip_prefix("Assumptions:") {
+            assumptions = val.trim().parse::<usize>().unwrap_or(0);
         } else if let Some(val) = line.strip_prefix("Proposed next action:") {
             next_action = val.trim().to_owned();
         }
     }
 
-    (domain, sensitivity, complexity, missing, next_action)
+    (
+        domain,
+        sensitivity,
+        complexity,
+        missing,
+        context_items,
+        assumptions,
+        next_action,
+    )
 }
 
 #[cfg(test)]
@@ -1043,22 +1078,27 @@ mod mock_synthesis_tests {
     #[test]
     fn parse_wm_summary_extracts_all_known_fields() {
         let prompt = "Objective: Test objective\n\nWorking Memory Summary:\nDomain: General\nSensitivity: Public\nComplexity: 0.4\nContext items: 2\nMissing context: 1\nAssumptions: 3\nProposed next action: RequestContext\n";
-        let (domain, sensitivity, complexity, missing, next_action) =
+        let (domain, sensitivity, complexity, missing, context_items, assumptions, next_action) =
             parse_wm_summary_fields(prompt);
         assert_eq!(domain, "General");
         assert_eq!(sensitivity, "Public");
         assert!((complexity - 0.4).abs() < 0.01);
         assert_eq!(missing, 1);
+        assert_eq!(context_items, 2);
+        assert_eq!(assumptions, 3);
         assert_eq!(next_action, "RequestContext");
     }
 
     #[test]
     fn parse_wm_summary_returns_defaults_for_empty_prompt() {
-        let (domain, sensitivity, complexity, missing, next_action) = parse_wm_summary_fields("");
+        let (domain, sensitivity, complexity, missing, context_items, assumptions, next_action) =
+            parse_wm_summary_fields("");
         assert_eq!(domain, "Unknown");
         assert_eq!(sensitivity, "Public");
         assert!((complexity - 0.0).abs() < 0.01);
         assert_eq!(missing, 0);
+        assert_eq!(context_items, 0);
+        assert_eq!(assumptions, 0);
         assert_eq!(next_action, "StopWithReport");
     }
 
@@ -1066,7 +1106,7 @@ mod mock_synthesis_tests {
     fn parse_wm_summary_handles_missing_lines() {
         let prompt =
             "Objective: Test\n\nWorking Memory Summary:\nDomain: Coding\nComplexity: 0.7\n";
-        let (domain, sensitivity, complexity, missing, next_action) =
+        let (domain, sensitivity, complexity, missing, context_items, assumptions, next_action) =
             parse_wm_summary_fields(prompt);
         assert_eq!(domain, "Coding");
         // Sensitivity defaults (not present in input)
@@ -1074,6 +1114,8 @@ mod mock_synthesis_tests {
         // Complexity correctly parsed from input
         assert!((complexity - 0.7).abs() < 0.01);
         assert_eq!(missing, 0);
+        assert_eq!(context_items, 0);
+        assert_eq!(assumptions, 0);
         // Next action defaults (not present in input)
         assert_eq!(next_action, "StopWithReport");
     }
@@ -1140,6 +1182,77 @@ mod mock_synthesis_tests {
             "should reference RequestContext next step for missing context"
         );
         assert!(result.contains("3"), "should reference missing count of 3");
+    }
+
+    #[test]
+    fn mock_synthesis_references_context_items_and_assumptions() {
+        // DV-2026-05-28-005: mock output must reference concrete field values
+        // including context_items and assumptions counts, not generic placeholders.
+        let provider = MockProvider::safe_default();
+        let prompt = "Objective: Audit compliance documents\n\nWorking Memory Summary:\nDomain: General\nSensitivity: Confidential\nComplexity: 0.7\nContext items: 5\nMissing context: 2\nAssumptions: 3\nProposed next action: RequestContext\n";
+        let result = tokio::runtime::Runtime::new()
+            .unwrap()
+            .block_on(provider.synthesize(COGNITIVE_SYNTHESIS_SYSTEM_PROMPT, prompt))
+            .expect("mock synthesis should not fail");
+
+        // Must reference context items count
+        assert!(
+            result.contains("5"),
+            "mock output should reference context_items=5: {}",
+            result
+        );
+        // Must use concrete field descriptions, not '?'
+        assert!(
+            !result.contains('?'),
+            "mock output should not contain '?' placeholders: {}",
+            result
+        );
+        // Must reference assumptions count
+        assert!(
+            result.contains("assumption"),
+            "mock output should reference assumptions: {}",
+            result
+        );
+        // Must reference the domain in the recommended next step
+        assert!(
+            result.contains("General") || result.contains("Compliance"),
+            "mock output should reference concrete request fields: {}",
+            result
+        );
+        // Must still contain safety warning
+        assert!(
+            result.contains("non-authorizing"),
+            "mock output must retain safety warning"
+        );
+    }
+
+    #[test]
+    fn mock_synthesis_with_zero_context_still_self_contained() {
+        // DV-2026-05-28-005: zero context items should produce coherent output
+        let provider = MockProvider::safe_default();
+        let prompt = "Objective: Quick pass\n\nWorking Memory Summary:\nDomain: General\nSensitivity: Public\nComplexity: 0.1\nContext items: 0\nMissing context: 0\nAssumptions: 0\nProposed next action: StopWithReport\n";
+        let result = tokio::runtime::Runtime::new()
+            .unwrap()
+            .block_on(provider.synthesize(COGNITIVE_SYNTHESIS_SYSTEM_PROMPT, prompt))
+            .expect("mock synthesis should not fail");
+
+        // Even with zero context/output, all 3 sections must be present
+        assert!(result.contains("[STATE]"), "STATE section required");
+        assert!(
+            result.contains("[KEY GAP / RISK]"),
+            "KEY GAP section required"
+        );
+        assert!(
+            result.contains("[RECOMMENDED NEXT STEP]"),
+            "RECOMMENDED section required"
+        );
+        // Must reference the domain
+        assert!(
+            result.contains("General"),
+            "output should use domain General"
+        );
+        // No question marks (no placeholder text)
+        assert!(!result.contains('?'), "no '?' placeholders: {}", result);
     }
 
     // ── C1 Proposal-only safety tests ──────────────────────────────────────
@@ -1564,7 +1677,7 @@ mod tests {
             "prompt should request RECOMMENDED section"
         );
         assert!(
-            prompt.contains("Reference concrete field values"),
+            prompt.contains("reference concrete field values"),
             "prompt should ask to reference concrete field values"
         );
     }

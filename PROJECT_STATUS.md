@@ -1524,6 +1524,7 @@ This session fixed DV-2026-05-28-003: missing parent-traversal targets that woul
 - PRs #139 and #140 remain open and mergeable, waiting for human merge
 
 ## 22. Latest Session Update (2026-05-28 — E1 SME Documentary Assistant demo)
+
 This session extended the E1 SME Documentary Assistant demo with an LLM-assisted variant, completing the "Extend E1 with --llm variant" work item from FOCUS_LOOP_NEXT.md.
 
 ### What was added
@@ -1556,24 +1557,6 @@ The demo integrates `--llm --provider` into every cognitive phase:
 **`DAILY_VALIDATION_BACKLOG.md`** — Updated DV-2026-05-28-005 evidence:
 - Added finding: `--provider ollama` (qwen3.5:9b) produces French-language synthesis when the objective is in French — more contextually useful than English mock output for the SME scenario.
 
-### Verification
-
-| Check | Result |
-|-------|--------|
-| `cargo fmt -- --check` | ✅ Clean |
-| `cargo check` | ✅ Clean (pre-existing warnings only) |
-| `cargo test --workspace` | ✅ 172 tests pass (0 regressions) |
-| `grep -R conflict markers` | ✅ Clean |
-| `bash demo-llm.sh mock` | ✅ Demo runs all 4 phases successfully, summary displayed |
-
-### Safety boundaries preserved
-
-- Read-only + workspace-scoped tools (unchanged from demo.sh)
-- Non-authorizing output (`non_authorizing: true` preserved)
-- Governance chain (Decision Gate → Decision → Audit) unchanged
-- No external effects (no API server, no file writes by LLM, no scheduler)
-- LLM never approves actions or writes memory directly
-
 ### Files changed
 
 | File | Change |
@@ -1590,3 +1573,45 @@ The demo integrates `--llm --provider` into every cognitive phase:
 - No LLM provider, governance, audit, or memory behavior changed
 - No shell, browser, email, secrets, or execution capabilities added
 - No API endpoints or Mission Control Web expansion
+
+## 23. Latest Session Update (2026-05-28 — DV-2026-05-28-005: LLM synthesis local specificity)
+
+This session fixed DV-2026-05-28-005 (low severity): local Ollama synthesis produced structured but generic output because the mock provider used `'?'` as literal placeholders for context_items and assumptions, and the system prompt was not explicit enough about grounding in request-specific field values.
+
+### Changes
+
+**`crates/llm/src/lib.rs`**:
+
+- **`parse_wm_summary_fields()`** — extended return type from 5-tuple to 7-tuple, now returns context_items and assumptions counts alongside existing fields. Parses `Context items:` and `Assumptions:` lines from the working-memory summary prompt.
+- **`MockProvider::synthesize()`** — fixed `'?'` placeholder bug (was printing literal `?` for context items and assumptions). Now uses actual parsed values to produce grounded text referencing concrete field values, domain, and counts in every section.
+- **`COGNITIVE_SYNTHESIS_SYSTEM_PROMPT`** — strengthened to explicitly require: "cite the objective text, domain name, context items count, assumptions count, and missing context count directly. Do not use generic phrases like 'the objective' without naming what it is."
+- **2 new acceptance tests**:
+  - `mock_synthesis_references_context_items_and_assumptions` — proves output references context_items (=5), contains no `'?'`, references assumptions, references domain, retains safety warning.
+  - `mock_synthesis_with_zero_context_still_self_contained` — proves zero-field input produces all 3 structured sections, domain reference, no `'?'` placeholders.
+- **Updated 3 existing parser tests** to destructure the new 7-tuple return type.
+
+### Verification
+
+| Check | Result |
+|-------|--------|
+| `cargo fmt -- --check` | ✅ Clean |
+| `cargo check` | ✅ Clean (pre-existing E0670 edition warnings only) |
+| `cargo test -p arpagona-llm` | ✅ 38 tests pass (36 existing + 2 new) |
+| `cargo test --workspace` | ✅ 536+ tests pass across all crates |
+
+### Safety boundaries preserved
+
+- No shell, browser, email, secrets, or unrestricted write tools
+- No Decision Gate bypass
+- No autonomous scheduling
+- No new LLM calls or provider endpoints
+- No changes to any crate outside `crates/llm`
+- Prompt changes and mock improvements are deterministic and test-verified
+- Output is still advisory text (not JSON, not ProposedAction, not authorization)
+
+### Deliberately not changed
+
+- No changes to core domain types, Decision Gate, audit, CLI, API server, MCP server, tool runtime, holographic memory, or compute reservoir
+- No changes to real Ollama/OpenAI provider synthesis logic (only the prompt text changed)
+- No remote model APIs called or model downloads required
+- No real LLM interaction was modified

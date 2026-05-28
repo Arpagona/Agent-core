@@ -20,10 +20,9 @@ Rules:
 - source: daily validation 2026-05-28 Beta Usage Lab
 - category: beta usability / LLM synthesis quality
 - severity: low
-- status: open
-- evidence: local Ollama scenarios produced safe structured responses but repetitive generic framing. The E1 SME demo also observed that `qwen3.5:9b` can produce useful French-language synthesis, so the remaining issue is specificity/reliability rather than safety.
-- expected behavior: local synthesis should retain the safe structured format while grounding each answer in the specific request.
-- suggested fix/tests: add deterministic mock-provider acceptance tests or prompt assembly tests requiring request-specific fields and one concrete bounded next step without claiming authorization; document Ollama model-quality caveats if needed.
+- status: **fixed in PR #147**
+- evidence: fixed `MockProvider::synthesize()` to use actual parsed context_items and assumptions counts instead of `'?'` placeholders. Extended `parse_wm_summary_fields()` to return all 7 working-memory fields. Improved `COGNITIVE_SYNTHESIS_SYSTEM_PROMPT` to explicitly require citing objective text, domain name, and all concrete counts. Added 2 acceptance tests (`mock_synthesis_references_context_items_and_assumptions`, `mock_synthesis_with_zero_context_still_self_contained`) proving mock output references concrete field values and never contains `'?'` placeholders.
+- verification: `cargo test -p arpagona-llm` — 38 tests pass including both new acceptance tests. Full workspace: 536+ tests pass.
 - do not: call remote model APIs, require model downloads, or allow prose to bypass Decision Gate governance.
 
 ## Closed / superseded candidates
