@@ -495,9 +495,37 @@
    493|
    494|Recommended next step: wait for CI to complete on #77, then merge into `main`. After merge, create `scripts/demo-full-loop.sh` for a single-repeatable-command governed FailureInsight demo path.
    495|
-##  17. Latest Session Update (2026-05-28 — Milestone E2: Business Prospecting Workflow Demo)
+## 27. Latest Session Update (2026-05-29 — Phase 2 completion verification + handoff correction)
 
-   This session completed the Track E E2 milestone: Business/prospecting workflow demo, building on the E1 SME Documentary Assistant foundation.
+This session verified the C1 milestone (Real LLM integration in proposal-only mode) and confirmed Phase 2 is fully delivered. C1 was already implemented and tested (integration test `cognitive_llm_mock_provides_proposal_only_synthesis` passes) but the handoff file still pointed to it as "next action."
+
+### Verification performed
+
+- Confirmed existing C1 artifacts:
+  - `--llm` CLI flag on `cognitive run` with `--provider` (mock, openai, ollama) ✅
+  - `docs/cli.md` documents `--llm` and `--provider` ✅
+  - Integration test `cognitive_llm_mock_provides_proposal_only_synthesis` passes ✅
+  - C3 LLM journaling (prompt/response/risk traces) active ✅
+  - C4 Compute Reservoir routing via `--allocate` integrated ✅
+  - No tool execution, no memory writes, no Decision Gate bypass ✅
+- All tests pass: `cargo fmt -- --check` ✅, `cargo check` ✅, `cargo test` ✅
+- All DV-2026-05-28-* entries remain resolved
+
+### Changed
+
+| File | Change |
+|------|--------|
+| `FOCUS_LOOP_NEXT.md` | Updated to reflect Phase 2 completion; corrected stale C1-as-next-action; proposes Phase 3 candidates for GONA arbitration |
+
+Stability level: documentation handoff. No code changes.
+
+Phase 2 completion summary:
+- Track C (C1-C5): ✅ All complete
+- Track D: ✅ D1-D3+D5 complete, D4 deferred
+- Track E (E1-E5): ✅ All complete
+- H1: ✅ All sub-items complete
+
+Next work requires GONA arbitration on Phase 3 priorities.
 
 ### Verification
 
