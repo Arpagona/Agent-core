@@ -30,10 +30,10 @@ Rules:
 - source: daily validation 2026-05-28 CLI/documentation check
 - category: documentation / operator usability
 - severity: medium
-- status: open
-- evidence: `bash scripts/check-cli-docs-coverage.sh` exited 1 with `Missing docs for CLI commands: mcp-governance-audit llm` after the baseline Cargo checks passed.
+- status: **fixed in this session** (PR #140)
+- evidence: `bash scripts/check-cli-docs-coverage.sh` now exits 0 after adding both commands to `docs/cli.md` and their patterns to the coverage script.
 - expected behavior: every exposed top-level CLI command is documented in `docs/cli.md` or deliberately classified as internal/experimental in the coverage script.
-- suggested fix/tests: add concise operator documentation for `mcp-governance-audit` and `llm` in `docs/cli.md`, update the coverage patterns if needed, then verify `bash scripts/check-cli-docs-coverage.sh` exits 0.
+- suggested fix/tests: done — see PR #140. Added `### MCP Governance Audit — Lecture des décisions d'audit MCP` and `### LLM — Journal d'interaction LLM (C3)` sections to `docs/cli.md` with commands, options, and alpha read-only caveats. Added pattern entries in `scripts/check-cli-docs-coverage.sh`.
 - do not: remove the coverage check or hide user-facing commands without explicit rationale.
 
 ### DV-2026-05-28-003 — Missing parent-traversal target is reported as non-security `invalid_path`
