@@ -1,0 +1,15 @@
+[package]
+name = "arpagona-compressed-cognitive-attention"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+description = "Deterministic compressed convolution memory retrieval for ARPAGONA Agent Core"
+
+[dependencies]
+serde.workspace = true
+chrono.workspace = true
+
+[dev-dependencies]
+serde_json.workspace = true

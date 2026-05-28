@@ -4,33 +4,26 @@ This file is the short-lived handoff for the next scheduled focus-loop run.
 
 It must contain one concrete next action only. The runtime milestone queue and long-term rules live in `AGENT_FOCUS_LOOP.md`.
 
-## Current status (2026-05-28 DEEP cron — H1 clean-up: PR #161, #163 merged; stale tokio feature + unused var fixed)
+## Current status (2026-05-28 DEEP cron — Compressed Convolutional Memory Retrieval crate)
 
-**main is green:** ✅ `cargo fmt -- --check` passes, ✅ `cargo check` passes (0 warnings), ✅ `cargo test` passes (~668 tests, 0 failures across all crates).
+**main is green:** ✅ `cargo fmt -- --check` passes, ✅ `cargo check` passes (0 warnings), ✅ `cargo test` passes (718 tests, 0 failures across all crates).
 
-PRs merged this run:**
-|- PR #161 (fix/h1-backlog-handoff-accuracy) — ✅ merged after CI green
-|- PR #163 (feat/h1-binary-file-error-msg) — ✅ rebased, CI green, merged
-|- PR #?? (fix/h1-stale-tokio-feature) — H1 stale feature cleanup + unused var fix
-|- **NEW: PR #?? (docs/handoff-phase2-complete)** — this run: handoff correction after C1 verification
+**PRs merged this run:**
+| - PR #165 (docs/handoff-phase2-complete) — ✅ merged after mergeable+green checks
 
-**Open PRs:** None.
+**Open PRs:**
+| - PR #??? (feat/compressed-cognitive-attention) — open, waiting for CI
 
-Phase 2 delivery status (verified this run):
-|- Track C: C1-C5 all complete ✅ — C1 (Real LLM integration) verified: `--llm` CLI flag, mock/openai/ollama providers, integration test `cognitive_llm_mock_provides_proposal_only_synthesis` passes, documented in docs/cli.md, C3 journaling active, C4 compute routing integrated.
-|- Track D: D1-D3+D5 complete, D4 deferred
-|- Track E: E1-E5 all complete ✅
-|- H1: All sub-items complete ✅
+**Phase 2 delivery status:** All C1-C5, D1-D3+D5, E1-E5, H1 milestones confirmed complete ✅.
 
-All DV entries resolved. No remaining open items.
+**New crate added:** `crates/compressed-cognitive-attention` — deterministic compressed convolution memory retrieval. Standalone crate, 50 tests, no governance bypass, library-only with no integration hooks yet.
 
 ## Next action
 
-**Phase 2 complete.** All C, D (except D4 deferred), E, H1 milestones delivered. Next work needs GONA arbitration.
+**Open PR: `feat/compressed-cognitive-attention`** — If CI is green and mergeable, merge it. Then GONA must decide the Phase 3 priority:
 
-Logical candidates for Phase 3 (in priority order per PROJECT_OBJECTIVES.md §12):
-1. **Compressed Convolutional Memory Retrieval** (§8) — standalone deterministic Rust crate (`crates/compressed-cognitive-attention`): compressed latent projection, local temporal convolution, cosine scoring, top-k retrieval. No LLM/GPU/authorization.
-2. **Neutral Orchestrator** (§11) — coordination layer that turns objectives into tasks, recalls context, requests compute allocation.
-3. **Phase 3 roadmap definition** — GONA to define the next milestone queue.
+1. **Neutral Orchestrator** (§11) — coordination layer (objectives → tasks → context → compute → proposals)
+2. **Phase 3 roadmap definition** — GONA to write the next milestone queue document
+3. **Integrate compressed-cognitive-attention** into the runtime loop (belongs after Graph Memory/Reservoir integration design)
 
-Decision needed from GONA/Thibaud before next bounded increment.
+If CI has not run yet, wait for it before merging.

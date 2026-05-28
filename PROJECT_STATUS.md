@@ -509,6 +509,97 @@ This session verified the C1 milestone (Real LLM integration in proposal-only mo
   - C4 Compute Reservoir routing via `--allocate` integrated ✅
   - No tool execution, no memory writes, no Decision Gate bypass ✅
 - All tests pass: `cargo fmt -- --check` ✅, `cargo check` ✅, `cargo test` ✅
+
+## 28. Latest Session Update (2026-05-28 DEEP cron — Compressed Convolutional Memory Retrieval crate)
+
+This session created the first standalone crate for memory retrieval using deterministic compressed projection with temporal convolution.
+
+### What was added
+
+**New crate: `crates/compressed-cognitive-attention`** (`arpagona-compressed-cognitive-attention`)
+
+Pure deterministic Rust implementation of the Compressed Convolutional Memory Retrieval pipeline:
+
+```text
+Ordered memory events (embedding vectors)
+  → Deterministic projection (embedding_dim → latent_dim)
+  → Local temporal convolution (window-based smoothing)
+  → Cosine scoring against query
+  → Top-k retrieval with readback explanation
+```
+
+**Core types:**
+- `MemoryEvent` — embedding vector with optional timestamp and label
+- `Config` — embedding_dim, latent_dim, window_size, top_k, projection_seed
+- `ProjectionMatrix` — deterministic matrix (fixed-seed LCG, no rand crate)
+- `RetrievalResult` — id, score, rank, latent vector
+- `RetrievalResponse` — structured response with `non_authorizing: true` invariant
+
+**Core functions:**
+- `generate_projection_matrix()` — deterministic LCG-based matrix generation
+- `project()` — embedding → latent with L2 normalization
+- `convolve()` — local temporal smoothing with edge-safe renormalization
+- `cosine_similarity()` — pure cosine score [-1, 1]
+- `retrieve()` — full pipeline: validate → project query → project events → convolve → score → sort → top-k → explain
+
+**Safety invariants:**
+- ✅ No LLM calls — pure deterministic arithmetic
+- ✅ No GPU dependency — standard f64 operations
+- ✅ No persistent mutation — all pure functions
+- ✅ No authorization semantics — every response is `non_authorizing: true`
+- ✅ No I/O — no filesystem access, no API calls
+- ✅ No system state dependence — deterministic: same inputs → same outputs
+
+**Documentation:** `docs/compressed-cognitive-attention.md`
+
+**Tests:** 50 tests covering:
+- LCG determinism (3 tests)
+- Projection matrix generation (5 tests: determinism, dimensions, different seed, 1x1, value range)
+- Projection (5 tests: dim mismatch, basic, determinism, normalization, zero embedding)
+- Convolution (7 tests: empty, no-op, smoothing, left edge, right edge, large window, smoothing counts)
+- Cosine similarity (8 tests: identical, orthogonal, opposite, partial, zero vector, dim mismatch, all zeros, empty)
+- L2 norm (2 tests)
+- Config validation (6 tests: all error conditions + valid)
+- Full retrieval pipeline (12 tests: empty, basic, top-k, config rejection, query dim mismatch, event dim mismatch, determinism, timestamp sorting, temporal effect, explanation format, single event, identical query/event)
+- Non-authorizing invariant (1 test)
+- Serialization round-trips (3 tests: MemoryEvent, Config, RetrievalResponse)
+
+### Changed files
+
+| File | Change |
+|------|--------|
+| `Cargo.toml` | Added `crates/compressed-cognitive-attention` to workspace members |
+| `crates/compressed-cognitive-attention/Cargo.toml` | New crate manifest |
+| `crates/compressed-cognitive-attention/src/lib.rs` | Full implementation + 50 tests |
+| `docs/compressed-cognitive-attention.md` | New design document |
+
+### Verification
+
+- `cargo fmt -- --check`: ✅ clean
+- `cargo check`: ✅ clean (0 warnings)
+- `cargo test`: ✅ 718 tests pass (50 in the new crate, no regressions in any existing crate)
+
+### Deliberately NOT changed
+
+No new capabilities added:
+- No CLI commands added (the crate is a library only — no `--compressed` flag or new subcommand)
+- No LLM integration — the crate is pure math, no model calls
+- No Graph Memory integration — standalone retrieval crate
+- No Holographic Memory integration — separate memory layer
+- No Decision Gate bypass — retrieval is non-authorizing
+- No persistence, I/O, scheduler, browser, shell, email, MCP, or web expansion
+- No existing crate behavior was modified
+
+Stability level: Alpha experimental crate.
+
+### Recommended next step for GONA
+
+1. **Merge this PR** to establish the crate in the workspace.
+2. **Decide Phase 3 milestones** — the remaining candidates are:
+   - Neutral Orchestrator (§11 — coordination layer)
+   - Phase 3 roadmap definition (docs)
+   - Integration of this crate into the cognitive runtime loop
+3. The crate is ready for integration when GONA decides the priority. No integration hooks exist yet — they belong in a future Cycle Trace / Runtime milestone.
 - All DV-2026-05-28-* entries remain resolved
 
 ### Changed
