@@ -16,6 +16,8 @@ Rules:
 
 ## Open candidates
 
+*(No open DV entries remain.)*
+
 ### DV-2026-05-28-005 — Local Ollama synthesis remains structured but often generic against operator prompts
 - source: daily validation 2026-05-28 Beta Usage Lab
 - category: beta usability / LLM synthesis quality
