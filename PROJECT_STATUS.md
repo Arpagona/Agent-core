@@ -2453,3 +2453,62 @@ Phase 3 starts with **Neutral Orchestrator**, but not with broad implementation 
 - No scheduler/autonomy expansion.
 - No Decision Gate bypass.
 - `compressed-cognitive-attention` runtime integration remains deferred until memory/context semantics are designed.
+
+## Latest Session Update (2026-05-30 — P3-1 Neutral Orchestrator V0 domain contract)
+
+This session implemented Phase 3 milestone P3-1: the Neutral Orchestrator V0 pure domain contract.
+
+### Changes
+
+| File | Change |
+|------|--------|
+| `crates/core/src/ids.rs` | Added 4 orchestrator-specific ID types: `OrchestratorCycleId`, `ContextBundleId`, `ComputeRouteId`, `ProposalRequestId` |
+| `crates/core/src/orchestrator.rs` | **New module** with 7 domain types, 2 warning constants, 1 builder, 20-unit-test module (25 tests) |
+| `crates/core/src/lib.rs` | Registered `pub mod orchestrator` with re-export |
+
+### Domain types added
+
+All pure, serializable, non-authorizing:
+
+- `ObjectiveInput` — entry point for an orchestrated work cycle; includes `to_objective()` and builder methods
+- `OrchestratorContextRequest` — formal request to assemble advisory context from specified sources
+- `ContextSource` — enum: GraphMemory, HolographicMemory, ReservoirEcho, ToolRuntime, WorkingMemory
+- `ContextBundle` — advisory context collection with `advisory_warning` constant, per-source context fields, `has_context()`/`is_empty()` methods
+- `ComputeRouteRequest` — advisory compute route request
+- `ComputeRouteResult` — advisory compute route response with `advisory_warning` constant
+- `ProposalRequest` — bundles objective, context bundle, and compute route into a single request
+- `OrchestratorOutcome` — linked cycle outcome with explicit IDs for every step (objective → context → compute → proposal → action → decision → audit); always `non_authorizing: true`
+- `build_demo_orchestrator_cycle()` — pure builder that creates the full domain chain from an `ObjectiveInput`
+
+### Tests
+
+- **25 tests** in `orchestrator::tests` module (201 total in core crate)
+- Tests cover: serialization roundtrips, non-authorizing invariants (5 tests proving no approval/authorization/execution fields exist on context bundles, compute routes, outcomes), advisory warnings, ID linkage integrity, empty context handling, builder chain consistency, cross-ID consistency
+- 3 structural safety tests (`context_bundle_never_authorizes_actions`, `compute_route_result_never_authorizes_actions`, `orchestrator_outcome_has_no_approval_fields`) prove by JSON field absence
+
+### Verification
+
+- `cargo fmt -- --check`: clean
+- `cargo check`: clean (0 warnings)
+- `cargo test --workspace`: 669+ tests pass (201 core + 26 api-server + 111 cli + 9 graph-memory integration + 50 compressed-cognitive-attention + 19 compute-reservoir + 28 conversation-memory + 59 decision-gate + 24 graph-memory + 67 holographic-memory + 36 llm + 52 mcp-server + 12 runtime + 11 tool-registry + 29 tool-runtime)
+
+### Safety boundaries preserved
+
+- No execution, provider calls, scheduler, approval semantics
+- Every context/cache/route type carries an explicit static advisory warning
+- `OrchestratorOutcome` enforces `non_authorizing: true` at construction with no setter to change it
+- No CLI, API, MCP endpoint, or Web expansion
+- No Decision Gate bypass
+- No Graph Memory, Holographic Memory, Reservoir Echo, or Tool Runtime integration yet (that's P3-2/P3-4)
+- `compressed-cognitive-attention` runtime integration remains deferred
+
+### Phase 3 queue progress
+
+| Milestone | Status |
+|-----------|--------|
+| P3-0 — Roadmap definition | ✅ (#168) |
+| **P3-1 — Domain contract** | **✅ (#169)** |
+| P3-2 — Deterministic loop skeleton | 🔜 |
+| P3-3 — CLI/MCP readback | 📋 |
+| P3-4 — Memory-aware context design | 📋 |
+| P3-5 — Product-facing scenario | 📋 |
