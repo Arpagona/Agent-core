@@ -4,41 +4,30 @@ This file is the short-lived handoff for the next scheduled focus-loop run.
 
 It must contain one concrete next action only. The runtime milestone queue and long-term rules live in `AGENT_FOCUS_LOOP.md`.
 
-## Current status (2026-05-29 GONA arbitration — Phase 3 selected)
+## Current status (2026-05-30 DEEP implementation — P3-1 merged)
 
-**main is green:** ✅ PR #167 was merged after both GitHub CI checks passed.
+**main is green:** ✅ PR #169 (P3-1 Neutral Orchestrator V0 domain contract) was merged after all checks passed.
 
-**Phase 2 delivery status:** All C1-C5, D1-D3+D5, E1-E5, H1 milestones confirmed complete ✅.
+**Open PRs:** None known after PR #169 merge.
 
-**DV backlog:** All DV-2026-05-28-* entries closed ✅.
-
-**Open PRs:** None known after PR #167 merge, unless a newer PR appears before the next run.
-
-**Phase 3 GONA decision:** Phase 3 starts with a bounded Neutral Orchestrator track. `docs/phase3-roadmap.md` defines the queue. Do not integrate `compressed-cognitive-attention` into the runtime loop until memory/context semantics are designed.
+**Phase 3 progress:**
+- P3-0 (Roadmap definition): ✅ Completed in #168
+- **P3-1 (Domain contract): ✅ Completed in #169**
+- P3-2 (Deterministic loop skeleton): 🔜
 
 ## Next action
 
-**P3-1 — Neutral Orchestrator V0 domain contract.**
+**P3-2 — Neutral Orchestrator V0 deterministic loop skeleton.**
 
-Create one bounded implementation PR that adds the smallest pure domain contract for orchestrated work cycles.
+Implement a deterministic in-process skeleton in a dedicated crate (e.g. `crates/neutral-orchestrator`) that wires the existing bricks:
 
-Expected shape:
+- accepts a bounded `ObjectiveInput`;
+- assembles a synthetic/advisory `ContextBundle`;
+- requests or simulates compute route advice via `ComputeRouteRequest`/`ComputeRouteResult`;
+- creates a `ProposalRequest`;
+- sends any proposed action/tool-call intent through the Decision Gate;
+- records an `AuditEvent`-linked `OrchestratorOutcome`;
+- exposes readback data for CLI/MCP later;
+- tests prove blocked, allowed-simulation and malformed paths.
 
-```text
-ObjectiveInput
-  -> OrchestratorContextRequest
-  -> ContextBundle(advisory)
-  -> ComputeRouteRequest
-  -> ProposalRequest
-  -> ProposedAction or ToolCallIntent
-  -> Decision Gate
-  -> Audit-linked OrchestratorOutcome
-```
-
-Acceptance criteria:
-- Add pure serializable domain types first; prefer a dedicated crate or clearly bounded module only if that fits the current crate layout.
-- No execution, provider calls, scheduler behavior, approval semantics, browser, shell, email, secrets, unrestricted writes, or hidden autonomy.
-- Include explicit IDs linking objective, context bundle, compute route, proposal, decision and audit event.
-- Tests must prove context, memory recall and compute route are advisory only and cannot authorize actions.
-- Update `PROJECT_STATUS.md` after the change.
-- Run required verification for code changes: `cargo fmt -- --check`, `cargo check`, `cargo test --workspace`.
+The skeleton must remain deterministic and in-process — no external effects, no scheduler, no approval semantics.

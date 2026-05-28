@@ -39,6 +39,8 @@ macro_rules! id_type {
 
 id_type!(AgentId);
 id_type!(AuditEventId);
+id_type!(ContextBundleId);
+id_type!(ComputeRouteId);
 id_type!(DecisionId);
 id_type!(EpisodeId);
 id_type!(FactId);
@@ -48,7 +50,9 @@ id_type!(HolographicPatternId);
 id_type!(HolographicTraceId);
 id_type!(ObjectiveId);
 id_type!(ObservationId);
+id_type!(OrchestratorCycleId);
 id_type!(PolicyId);
+id_type!(ProposalRequestId);
 id_type!(ProposedActionId);
 id_type!(SourceId);
 id_type!(TaskId);
