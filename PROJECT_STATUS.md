@@ -2139,3 +2139,57 @@ This session added `--json` support to `arpagona audit list`, completing the JSO
 - No new CLI commands, API endpoints, or persisted state
 - No scheduling, autonomy, MCP expansion, browser automation, email, secrets, or unrestricted shell
 - No readback-as-authorization behavior
+
+## 28. Latest Session Update (2026-05-28 DEEP cron — H1: PR #159, #162 merged; binary file error messages, PR #163)
+
+This session:
+1. Merged PR #159 (fix/h1-backlog-count-accuracy) and PR #162 (feat/audit-list-json) onto main
+2. Rebased PR #161 (fix/h1-backlog-handoff-accuracy) to resolve conflicts with merged PRs
+3. Added binary file detection to Tool Runtime `read_file`
+
+### Binary file detection (code change)
+
+**`crates/tool-runtime/src/lib.rs`:**
+- Added `is_binary_file()` — sniffs first 8 KiB for null bytes (standard binary heuristic)
+- Added binary-file check in `execute_read_file()` before `read_to_string()`
+- Binary files return `code: "binary_file"` with message explaining the file cannot be read as text and suggesting `search_text` or `list_files` instead
+- 4-byte minimum length heuristic avoids false positives on accidental null bytes in very short files
+
+**Tests:** 4 new tests (tool-runtime: 25 → 29):
+| Test | Verifies |
+|------|----------|
+| `read_file_binary_file_returns_clear_error` | Binary with null bytes → Failed, error code `binary_file`, not security |
+| `read_file_binary_file_with_only_null_bytes_is_detected` | 100-byte null-only file → blocked cleanly |
+| `read_file_text_file_no_null_bytes_still_succeeds` | Text file still works (regression guard) |
+| `is_binary_file_detects_null_bytes` | Helper edge cases: binary/text/empty/short with null |
+
+### Verification
+
+| Check | Result |
+|-------|--------|
+| `cargo fmt -- --check` | ✅ Clean |
+| `cargo check` | ✅ Clean (0 warnings) |
+| `cargo test --workspace` | ✅ ~660+ tests pass (0 failures) |
+
+### Safety boundaries preserved
+
+- No change to security model; binary detection is after path resolution
+- No new capabilities, CLI flags, permissions, or governance logic
+- No Decision Gate bypass, scheduler, autonomy, MCP expansion, browser automation, email, secrets, or unrestricted shell
+- No readback-as-authorization behavior
+
+### Files changed
+
+| File | Change |
+|------|--------|
+| `crates/tool-runtime/src/lib.rs` | +135: `is_binary_file()` helper + binary check in `execute_read_file()` + 4 tests |
+| `FOCUS_LOOP_NEXT.md` | Updated handoff — PR #159, #162 merged; #163 open |
+| `DAILY_VALIDATION_BACKLOG.md` | No changes (all DV entries resolved) |
+
+### Deliberately not changed
+
+- No changes to core, decision-gate, tool-registry, holographic-memory, mcp-server, api-server, or cli crates
+- No changes to `search_text` or `list_files` tools
+- No change to `ToolExecutionError` types
+- No changes to existing security boundaries
+- No new CLI flags or commands
