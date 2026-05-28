@@ -1729,7 +1729,7 @@ mod tests {
                 true,
             ),
         ];
-        for (json_str, is_proposed_action) in &hallucinated_cases {
+        for (json_str, _is_proposed_action) in &hallucinated_cases {
             let turn = parse_agent_turn(json_str);
             assert!(
                 turn.is_ok(),

@@ -128,23 +128,6 @@ impl ExecutionResult {
             proposal_id,
         }
     }
-
-    pub(crate) fn blocked(
-        proposal_id: ProposedActionId,
-        action_type: ActionType,
-        reason: impl Into<String>,
-        audit_event_id: Option<AuditEventId>,
-    ) -> Self {
-        Self {
-            status: ExecutionStatus::ExecutionBlocked,
-            reason: reason.into(),
-            touched_resources: vec![],
-            reversible: true,
-            audit_event_id,
-            action_type,
-            proposal_id,
-        }
-    }
 }
 
 /// The Executor trait defines the interface for executing approved actions.

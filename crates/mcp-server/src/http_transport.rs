@@ -209,7 +209,7 @@ async fn handle_mcp_sse(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{McpServerConfig, RequestId};
+    use crate::McpServerConfig;
     use axum::http;
     use serde_json::json;
     use tower::util::ServiceExt;
@@ -247,19 +247,6 @@ mod tests {
                     .uri(uri)
                     .header(http::header::CONTENT_TYPE, "application/json")
                     .body(axum::body::Body::from(body.to_string()))
-                    .unwrap(),
-            ),
-        )
-        .unwrap()
-    }
-
-    fn get(router: axum::Router, uri: &str) -> axum::response::Response {
-        futures::executor::block_on(
-            router.oneshot(
-                axum::http::Request::builder()
-                    .method(http::Method::GET)
-                    .uri(uri)
-                    .body(axum::body::Body::empty())
                     .unwrap(),
             ),
         )
