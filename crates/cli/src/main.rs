@@ -467,6 +467,10 @@ enum ActionSubcommand {
     Policy(PolicyActionCommand),
     /// Execute a proposal (disabled — always returns ExecutionDisabled).
     Execute(ExecuteActionArgs),
+    /// Read-only supervision: list recent proposed actions and tool-call intents
+    /// from the LLM journal with Decision Gate results, risk levels, and audit event IDs.
+    /// Works offline — no API server required.
+    Supervise(ActionSuperviseArgs),
 }
 
 #[derive(Debug, Args)]
@@ -622,6 +626,20 @@ struct ExecuteActionArgs {
     /// Emit structured JSON instead of human-oriented text.
     #[arg(long)]
     json: bool,
+}
+
+/// Args for `arpagona action supervise` — read-only supervision surface.
+#[derive(Debug, Args)]
+pub struct ActionSuperviseArgs {
+    /// Maximum number of entries to show.
+    #[arg(long, default_value = "10")]
+    pub limit: usize,
+    /// Emit structured JSON instead of human-oriented text.
+    #[arg(long)]
+    pub json: bool,
+    /// Optional: filter by interaction type (synthesis, tool_call_intent, direct_tool_call, governance).
+    #[arg(long)]
+    pub interaction_type: Option<String>,
 }
 
 #[derive(Debug, Args)]
@@ -1704,6 +1722,7 @@ async fn run() -> Result<(), Box<dyn Error>> {
             }
             ActionSubcommand::Policy(args) => policy_action(&client, &api_url, args).await?,
             ActionSubcommand::Execute(args) => execute_action(&client, &api_url, args).await?,
+            ActionSubcommand::Supervise(args) => action_supervise(args)?,
         },
         Command::Agent(agent) => match agent.command {
             AgentSubcommand::Propose(args) => propose_agent_action(&client, &api_url, args).await?,
@@ -7819,6 +7838,173 @@ fn llm_journal_list(args: LlmJournalArgs) -> Result<(), Box<dyn Error>> {
     Ok(())
 }
 
+/// Read-only supervision surface for `arpagona action supervise`.
+///
+/// Reads from the LLM journal and displays entries with proposed actions,
+/// tool-call intents, Decision Gate outcomes, risk levels, and audit event IDs.
+/// Works offline — no API server required.
+fn action_supervise(args: ActionSuperviseArgs) -> Result<(), Box<dyn Error>> {
+    let journal = global_llm_journal().lock().unwrap();
+    let all_entries = journal.all_entries();
+
+    // Filter by interaction type if specified
+    let filtered: Vec<_> = if let Some(ref filter_type) = args.interaction_type {
+        all_entries
+            .iter()
+            .filter(|e| {
+                let type_str = format!("{:?}", e.interaction_type).to_lowercase();
+                type_str.contains(&filter_type.to_lowercase())
+                    || (filter_type.to_lowercase() == "governance"
+                        && e.proposed_actions.is_some()
+                        && e.decision_gate_outcomes.is_some())
+            })
+            .collect()
+    } else {
+        // Default: only show entries with governance-relevant data
+        all_entries
+            .iter()
+            .filter(|e| {
+                e.proposed_actions.is_some()
+                    || e.tool_call_intents.is_some()
+                    || e.decision_gate_outcomes.is_some()
+            })
+            .collect()
+    };
+
+    let limit = args.limit.min(filtered.len());
+    let entries: Vec<_> = filtered.iter().rev().take(limit).collect();
+
+    if args.json {
+        let json_entries: Vec<serde_json::Value> = entries
+            .iter()
+            .map(|e| {
+                serde_json::json!({
+                    "id": e.id,
+                    "created_at": e.created_at,
+                    "interaction_type": format!("{:?}", e.interaction_type),
+                    "provider": e.provider,
+                    "model": e.model,
+                    "objective": e.objective,
+                    "prompt_summary": e.prompt_summary,
+                    "response_summary": e.response_summary,
+                    "proposed_actions": e.proposed_actions,
+                    "tool_call_intents": e.tool_call_intents,
+                    "decision_gate_outcomes": e.decision_gate_outcomes,
+                    "risk_level": e.risk_level,
+                })
+            })
+            .collect();
+        let output = serde_json::json!({
+            "supervision_entries": json_entries,
+            "total_entries": journal.len(),
+            "total_governance_entries": filtered.len(),
+            "shown_entries": entries.len(),
+            "non_authorizing_warning": "Readback only — these supervision entries are evidence, not authorization. No execution without explicit Decision Gate approval."
+        });
+        println!("{}", serde_json::to_string_pretty(&output)?);
+    } else {
+        println!(
+            "Action Supervision Surface — {} entries showing ({} total, {} with governance data)",
+            entries.len(),
+            journal.len(),
+            filtered.len()
+        );
+        println!("{}", "-".repeat(72));
+        println!();
+
+        if entries.is_empty() {
+            println!("No governance-related entries found in the LLM journal.");
+            println!("Run `arpagona cognitive run --objective \"...\" --govern --json` to generate governance data.");
+        }
+
+        for entry in entries {
+            let created = entry.created_at.format("%Y-%m-%d %H:%M:%S");
+            println!(
+                "Entry: #{} | {} | {}",
+                &entry.id[entry.id.len().saturating_sub(12)..],
+                format!("{:?}", entry.interaction_type),
+                created
+            );
+            println!("  Provider: {}", entry.provider);
+            if let Some(ref model) = entry.model {
+                println!("  Model: {}", model);
+            }
+            if let Some(ref obj) = entry.objective {
+                println!("  Objective: {}", &obj[..obj.len().min(80)]);
+            }
+            if let Some(ref rl) = entry.risk_level {
+                println!("  Risk Level: {:?}", rl);
+            }
+            if let Some(ref pa) = entry.proposed_actions {
+                let pa_str = serde_json::to_string_pretty(pa).unwrap_or_default();
+                if pa_str.len() > 200 {
+                    println!(
+                        "  Proposed Actions: {} entries",
+                        pa.as_array().map(|a| a.len()).unwrap_or(0)
+                    );
+                    println!("    {}", &pa_str[..pa_str.len().min(200)]);
+                } else {
+                    println!("  Proposed Actions: {}", pa_str);
+                }
+            }
+            if let Some(ref tci) = entry.tool_call_intents {
+                let tci_str = serde_json::to_string_pretty(tci).unwrap_or_default();
+                if tci_str.len() > 200 {
+                    println!(
+                        "  Tool-Call Intents: {} entries",
+                        tci.as_array().map(|a| a.len()).unwrap_or(0)
+                    );
+                    println!("    {}", &tci_str[..tci_str.len().min(200)]);
+                } else {
+                    println!("  Tool-Call Intents: {}", tci_str);
+                }
+            }
+            if let Some(ref dg) = entry.decision_gate_outcomes {
+                let dg_str = serde_json::to_string_pretty(dg).unwrap_or_default();
+                if dg_str.len() > 200 {
+                    println!(
+                        "  Decision Gate Outcomes: {} entries",
+                        dg.as_array().map(|a| a.len()).unwrap_or(0)
+                    );
+                    println!("    {}", &dg_str[..dg_str.len().min(200)]);
+                } else {
+                    println!("  Decision Gate Outcomes: {}", dg_str);
+                }
+                // Extract and show audit event IDs
+                if let Some(arr) = dg.as_array() {
+                    for (idx, outcome) in arr.iter().enumerate() {
+                        let audit_id = outcome
+                            .get("audit_event")
+                            .and_then(|ae| ae.get("id"))
+                            .and_then(|v| v.as_str())
+                            .map(|s| s.to_owned());
+                        let decision_status = outcome
+                            .get("decision")
+                            .and_then(|d| d.get("status"))
+                            .and_then(|v| v.as_str())
+                            .map(|s| s.to_owned());
+                        if let (Some(aid), Some(ds)) = (&audit_id, &decision_status) {
+                            println!(
+                                "    Audit Entry #{}: decision={}, event_id={}",
+                                idx + 1,
+                                ds,
+                                aid
+                            );
+                        }
+                    }
+                }
+            }
+            println!();
+        }
+
+        println!("{}", "-".repeat(72));
+        println!("⚠  Readback only — supervision entries are evidence, not authorization.");
+        println!("   No execution without explicit Decision Gate approval.");
+    }
+
+    Ok(())
+}
+
 /// Run the General Cognitive Work Loop V0.
 async fn cognitive_run(
     client: &Client,
@@ -8077,6 +8263,63 @@ async fn cognitive_run(
                                         .to_owned(),
                                 ),
                             );
+
+                            // Journal governance results to the LLM journal for D2 supervision readback
+                            let proposed_actions_json: Vec<Value> = governance_results
+                                .iter()
+                                .filter_map(|r| r.get("proposed_action").cloned())
+                                .collect();
+                            let governance_outcomes_json: Vec<Value> = governance_results
+                                .iter()
+                                .map(|r| {
+                                    let entry = serde_json::json!({
+                                        "proposed_action_id": r.get("proposed_action_id"),
+                                        "decision": r.get("decision"),
+                                        "audit_event": r.get("audit_event"),
+                                    });
+                                    entry
+                                })
+                                .collect();
+                            let max_risk = governance_results
+                                .iter()
+                                .filter_map(|r| r.get("decision").and_then(|d| d.get("risk_level")))
+                                .filter_map(|v| v.as_str())
+                                .map(|s| s.to_owned())
+                                .collect::<Vec<_>>()
+                                .join(", ");
+                            let risk = if max_risk.is_empty() {
+                                None
+                            } else {
+                                Some(max_risk)
+                            };
+                            global_llm_journal()
+                                .lock()
+                                .unwrap()
+                                .add_governance(
+                                    &args.objective,
+                                    "offline-governance",
+                                    None,
+                                    format!(
+                                        "Offline governance: {:?} FailureInsightCandidates → DecisionGate → AuditEvents",
+                                        failure_insight_candidates.len(),
+                                    ),
+                                    format!(
+                                        "Governance complete: {} decisions, {} audit events",
+                                        decisions.len(),
+                                        audit_events.len(),
+                                    ),
+                                    serde_json::to_value(&proposed_actions_json).unwrap_or_default(),
+                                    serde_json::to_value(&governance_outcomes_json).unwrap_or_default(),
+                                    risk.as_deref().and_then(|risk_str| {
+                                        match risk_str {
+                                            "low" => Some(RiskLevel::Low),
+                                            "medium" => Some(RiskLevel::Medium),
+                                            "high" => Some(RiskLevel::High),
+                                            "critical" => Some(RiskLevel::Critical),
+                                            _ => None,
+                                        }
+                                    }),
+                                );
                         }
                         Err(e) => {
                             obj.insert(
@@ -9276,6 +9519,55 @@ mod tests {
                 assert_eq!(args.permissions, vec!["simulate_email"]);
             }
             _ => panic!("expected action evaluate"),
+        }
+    }
+
+    #[test]
+    fn cli_parses_action_supervise_defaults() {
+        let cli = Cli::parse_from(["arpagona", "action", "supervise"]);
+        match cli.command {
+            Command::Action(ActionCommand {
+                command: ActionSubcommand::Supervise(args),
+            }) => {
+                assert_eq!(args.limit, 10);
+                assert!(!args.json);
+                assert!(args.interaction_type.is_none());
+            }
+            _ => panic!("expected action supervise"),
+        }
+    }
+
+    #[test]
+    fn cli_parses_action_supervise_with_limit_and_json() {
+        let cli = Cli::parse_from(["arpagona", "action", "supervise", "--limit", "25", "--json"]);
+        match cli.command {
+            Command::Action(ActionCommand {
+                command: ActionSubcommand::Supervise(args),
+            }) => {
+                assert_eq!(args.limit, 25);
+                assert!(args.json);
+            }
+            _ => panic!("expected action supervise"),
+        }
+    }
+
+    #[test]
+    fn cli_parses_action_supervise_with_interaction_type() {
+        let cli = Cli::parse_from([
+            "arpagona",
+            "action",
+            "supervise",
+            "--interaction-type",
+            "governance",
+        ]);
+        match cli.command {
+            Command::Action(ActionCommand {
+                command: ActionSubcommand::Supervise(args),
+            }) => {
+                assert_eq!(args.interaction_type.as_deref(), Some("governance"));
+                assert_eq!(args.limit, 10);
+            }
+            _ => panic!("expected action supervise"),
         }
     }
 
