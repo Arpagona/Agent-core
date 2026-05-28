@@ -118,7 +118,7 @@ announce "Phase 5 — Lecture opérateur"
 TMPF=$(mktemp)
 "$BINARY" status --json 2>/dev/null > "$TMPF" || true
 if grep -q tool_runtime_tool_count "$TMPF"; then
-  TC=$(grep -o '"tool_runtime_tool_count":[0-9]*' "$TMPF" | grep -o '[0-9]*' || echo "0")
+  TC=$(grep -o '"tool_runtime_tool_count": *[0-9]*' "$TMPF" | grep -o '[0-9]*' || echo "0")
   ok "Statut système: $TC outils"
 else
   fail "Statut système"
