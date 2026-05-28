@@ -2,7 +2,7 @@
 
 This file is the canonical instruction file for the scheduled ARPAGONA focus loop.
 
-The project has reached the first governed alpha checkpoint. The previous P1-P8 queue, Track A MCP milestones and Track B Holographic Memory milestones are considered delivered unless a regression is found. The focus loop must now advance the next strategic layer: real model integration, governed direct tool-calling, operator control and product-ready demonstrations, while preserving the founding safety rule.
+The project has completed Phase 2. The previous P1-P8 queue, Track A MCP milestones, Track B Holographic Memory milestones, and Phase 2 C/D/E/H milestones are considered delivered unless a regression is found. The focus loop must now advance Phase 3: a bounded Neutral Orchestrator layer that coordinates objectives, context, compute routing, proposal generation, governance decisions and audit outcomes without adding hidden autonomy or external-effect bypasses.
 
 ```text
 Build hard on internal cognitive architecture. Gate every external effect.
@@ -25,34 +25,36 @@ Objective -> Working Memory -> LLM ToolCall Intent -> Decision Gate -> Tool Runt
 Each run must either:
 
 1. finish, merge or clean work that blocks this chain;
-2. implement one substantial milestone from the active Phase 2 roadmap;
+2. implement one substantial milestone from the active Phase 3 roadmap;
 3. or report `NO-OP` with the precise blocker.
 
 ## 2. Current strategic posture
 
-The Phase 1 alpha foundation is complete:
+The Phase 1 alpha foundation and Phase 2 governed runtime layer are complete enough to serve as the base for Phase 3:
 
 - governed cognitive loop demo exists;
 - MCP server foundation exists;
 - Holographic Memory has durable and governed integration paths;
 - Working Memory and Compute Reservoir are integrated enough for alpha scenarios;
+- real-model proposal-only paths, governed direct tool-call paths, traceability, operator readbacks, demo scenarios and hardening work are delivered as Phase 2;
+- compressed-cognitive-attention exists as a standalone library crate on main, but is not yet integrated into the runtime loop;
 - CLI and MCP readback surfaces exist for local supervision.
 
-The active Phase 2 objective is now:
+The active Phase 3 objective is now:
 
 ```text
-A real-model cognitive runtime with governed direct tool-calling, operator visibility and product-grade demo scenarios.
+A bounded Neutral Orchestrator that coordinates the existing cognitive/runtime bricks into governed, inspectable work cycles without gaining direct execution authority.
 ```
 
-The current acceleration pillars are:
+The Phase 3 acceleration pillars are:
 
-1. **Real LLM integration under governance** — LLMs may enrich working memory, observations, plans and proposals.
-2. **Governed direct tool-calling** — direct tool-calls by the LLM are allowed only when routed through the Decision Gate, Tool Runtime/MCP constraints and Audit. They must not bypass governance.
-3. **Prompt/response/risk traceability** — prompts, responses, decisions, risk levels and model/tool-call context must become readable after the fact.
-4. **Compute-aware model routing** — Compute Reservoir must help choose local/cloud/small/large model strategies.
-5. **Operator control** — CLI/MCP first, then minimal Web Mission Control only after the control surfaces are clear.
-6. **Product demonstration** — ARPAGONA Agent must become demonstrable through concrete SME/business scenarios, not only internal tests.
-7. **Safety boundary preservation** — no unrestricted shell, no unrestricted write, no secrets access, no browser automation, no hidden autonomy.
+1. **Neutral Orchestrator V0** — define and implement coordination contracts for objective intake, context assembly, compute routing, proposal routing, Decision Gate outcomes and audit linkage.
+2. **Governance-preserving orchestration** — orchestration must route through existing Decision Gate, Tool Runtime/MCP constraints and Audit; it must not become an approval or execution layer.
+3. **Memory-aware context assembly** — use Graph Memory, Holographic Memory, Reservoir Echo and compressed-cognitive-attention only as advisory context sources, never as authorization.
+4. **Compute-aware delegation** — ask Compute Reservoir for routing advice and record the explanation, without treating compute allocation as permission to act.
+5. **Operator inspectability** — expose orchestrator state through read-only CLI/MCP surfaces before any Web Mission Control expansion.
+6. **Product-facing scenarios** — keep SME/business demo usefulness visible; avoid architecture for architecture's sake.
+7. **Safety boundary preservation** — no unrestricted shell, no unrestricted write, no secrets access, no browser automation, no hidden autonomy, no scheduler expansion.
 
 ## 3. Files to read first
 

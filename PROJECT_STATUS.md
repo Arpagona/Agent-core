@@ -2421,3 +2421,35 @@ Phase 2 is fully delivered. The three Phase 3 candidates for GONA to prioritize:
 3. **Integrate compressed-cognitive-attention** into the runtime loop (after Graph Memory/Reservoir integration design)
 
 The next DEEP cron run cannot proceed with Phase 3 implementation without GONA's priority decision.
+
+
+## 28c. Latest Session Update (2026-05-29 GONA arbitration — Phase 3 selected)
+
+GONA reviewed the DEEP handoff after Phase 2 completion, waited for PR #167 CI, merged PR #167 after both GitHub checks passed, and selected the Phase 3 direction.
+
+### Decision
+
+Phase 3 starts with **Neutral Orchestrator**, but not with broad implementation first. The first step is a bounded roadmap/contract handoff that makes the queue explicit and prevents uncontrolled autonomy drift.
+
+### What changed
+
+- Added `docs/phase3-roadmap.md` defining the Phase 3 objective, boundaries and milestone queue.
+- Updated `AGENT_FOCUS_LOOP.md` from stale Phase 2 posture to Phase 3 Neutral Orchestrator posture.
+- Updated `FOCUS_LOOP_NEXT.md` to make the next DEEP action `P3-1 — Neutral Orchestrator V0 domain contract`.
+
+### Phase 3 queue summary
+
+1. `P3-0` — roadmap and contract definition.
+2. `P3-1` — Neutral Orchestrator V0 pure domain contract.
+3. `P3-2` — deterministic in-process orchestrator loop skeleton.
+4. `P3-3` — read-only CLI/MCP readback for orchestration state.
+5. `P3-4` — memory-aware context integration design.
+6. `P3-5` — first product-facing orchestrated scenario.
+
+### Safety boundaries preserved
+
+- No code changes.
+- No new capabilities, commands, endpoints, providers or execution paths.
+- No scheduler/autonomy expansion.
+- No Decision Gate bypass.
+- `compressed-cognitive-attention` runtime integration remains deferred until memory/context semantics are designed.
