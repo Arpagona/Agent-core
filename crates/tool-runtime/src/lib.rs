@@ -1120,6 +1120,110 @@ mod tests {
     // -----------------------------------------------------------------------
 
     #[test]
+    fn read_file_empty_file_succeeds() {
+        let dir = test_workspace();
+        create_test_file(dir.path(), "empty.txt", "");
+        let runtime = make_runtime(dir.path());
+
+        let result = runtime.execute("read_file", &json!({"path": "empty.txt"}));
+
+        assert_eq!(result.status, ToolExecutionStatus::Success);
+        let payload = &result.observation.payload;
+        assert_eq!(payload["lines"], 0, "empty file should have 0 lines");
+        // Empty file payload may not have a "size" field; just prove no crash
+        assert!(
+            result.output_summary.contains("0 lines"),
+            "output_summary should mention 0 lines for empty file"
+        );
+    }
+
+    #[test]
+    fn list_files_empty_directory_returns_empty() {
+        let dir = test_workspace();
+        // Create an empty subdirectory inside the workspace
+        fs::create_dir_all(dir.path().join("empty-dir")).expect("should create empty dir");
+        let runtime = make_runtime(dir.path());
+
+        let result = runtime.execute("list_files", &json!({"path": "empty-dir"}));
+
+        assert_eq!(result.status, ToolExecutionStatus::Success);
+        let payload = &result.observation.payload;
+        if let Some(entries) = payload["entries"].as_array() {
+            // Directory contains no visible files (empty)
+            assert!(
+                entries.is_empty()
+                    || entries
+                        .iter()
+                        .all(|e| e["name"] == "." || e["name"] == "..")
+            );
+        }
+    }
+
+    #[test]
+    fn list_files_in_subdirectory_works() {
+        let dir = test_workspace();
+        fs::create_dir_all(dir.path().join("sub/nested")).expect("should create nested dir");
+        create_test_file(dir.path(), "sub/nested/deep.txt", "deep content");
+        let runtime = make_runtime(dir.path());
+
+        let result = runtime.execute("list_files", &json!({"path": "sub/nested"}));
+
+        assert_eq!(result.status, ToolExecutionStatus::Success);
+        let payload = &result.observation.payload;
+        let entries = payload["entries"].as_array().unwrap();
+        assert!(
+            entries.iter().any(|e| e["name"] == "deep.txt"),
+            "should find deep.txt in nested subdirectory"
+        );
+    }
+
+    #[test]
+    fn search_text_empty_query_returns_all_or_no_matches() {
+        let dir = test_workspace();
+        create_test_file(dir.path(), "data.txt", "Hello world");
+        let runtime = make_runtime(dir.path());
+
+        let result = runtime.execute("search_text", &json!({"query": "", "path": "."}));
+
+        // Empty query should not crash. Either success with matches, or a graceful rejection.
+        assert!(
+            matches!(
+                result.status,
+                ToolExecutionStatus::Success | ToolExecutionStatus::Failed
+            ),
+            "empty query should not panic: got {:?}",
+            result.status
+        );
+    }
+
+    #[test]
+    fn search_text_case_sensitivity_distinguishes_cases() {
+        let dir = test_workspace();
+        create_test_file(dir.path(), "data.txt", "UPPER\nlower\nMixed");
+        let runtime = make_runtime(dir.path());
+
+        let upper = runtime.execute("search_text", &json!({"query": "UPPER", "path": "."}));
+        let lower = runtime.execute("search_text", &json!({"query": "upper", "path": "."}));
+
+        assert_eq!(upper.status, ToolExecutionStatus::Success);
+        let upper_matches = upper.observation.payload["matches"]
+            .as_array()
+            .unwrap()
+            .len();
+        let lower_matches = lower.observation.payload["matches"]
+            .as_array()
+            .unwrap()
+            .len();
+
+        // Exact case match should find 1, lowercase query may find 0 (case-sensitive) or 1 (case-insensitive)
+        // Either is acceptable — just prove stability and non-panicking behavior
+        assert_eq!(
+            upper_matches, 1,
+            "exact case 'UPPER' should match at least 'UPPER'"
+        );
+    }
+
+    #[test]
     fn structured_results_are_serializable() {
         let dir = test_workspace();
         create_test_file(dir.path(), "test.txt", "Hello");

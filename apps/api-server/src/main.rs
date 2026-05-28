@@ -582,7 +582,7 @@ async fn override_proposed_action(
     let mut store = state.lock()?;
 
     // Check if override is configured
-    let override_engine = store.override_engine.as_mut().ok_or_else(|| {
+    let _override_engine = store.override_engine.as_mut().ok_or_else(|| {
         ApiError::bad_request(
             "override_not_configured: ARPAGONA_OVERRIDE_PASSWORD is not set. \
                  Set the environment variable to enable override, or set \
@@ -1000,10 +1000,10 @@ async fn dry_run_proposal(
     // Run policy check
     let policy_result = PolicyEngine::evaluate_dry_run(&policy_input);
 
-    let (expected_effects, touched_resources, reversibility, summary) =
+    let (_expected_effects, _touched_resources, _reversibility, _summary) =
         describe_action_effects(&action);
 
-    let capability = execution_capability(&action.action_type);
+    let _capability = execution_capability(&action.action_type);
 
     let (dry_run_status, policy_blocked_reason): (DryRunStatus, Option<String>) =
         match &policy_result.decision {

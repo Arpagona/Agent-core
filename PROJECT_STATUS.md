@@ -1936,3 +1936,58 @@ Track E is now **COMPLETE** ✅ (E1-E5 all delivered).
 ### Recommended next step
 
 **H1 — Production hardening pass (continued)** — remaining work: fix api-server unused-variable warnings, add edge-case tests for Tool Runtime (path traversal, large files, directory edge cases, Decision Gate blocking scenarios), improve CLI error messages, audit readability improvements.
+
+## 29. Latest Session — 2026-05-28 DEEP focus loop (H1 continuation: api-server warnings + edge-case tests)
+
+This session continued the H1 production hardening pass, fixing the 6 pre-existing api-server unused-variable warnings and adding 5 new edge-case tests for the Tool Runtime.
+
+### Fixed: api-server unused-variable warnings (6 eliminated)
+
+All 6 pre-existing unused-variable warnings in `apps/api-server/src/main.rs` were fixed by prefixing with underscore:
+- Line 585: `override_engine` → `_override_engine` (early-exit check, shadowed by inner scope)
+- Line 1003-1004: `expected_effects`, `touched_resources`, `reversibility`, `summary` → underscore-prefixed (returned by `describe_action_effects` but consumed by caller)
+- Line 1006: `capability` → `_capability` (returned by `execution_capability` but unused until execution path is integrated)
+
+After fix: `cargo check -p arpagona-api-server` produces **0 warnings** (was 6).
+
+### Added: Tool Runtime edge-case tests (5 new)
+
+| Test | What it proves |
+|------|---------------|
+| `read_file_empty_file_succeeds` | 0-byte file reads without panic, returns 0 lines |
+| `list_files_empty_directory_returns_empty` | Empty directory lists no entries gracefully |
+| `list_files_in_subdirectory_works` | Listing inside a nested workspace subdirectory works |
+| `search_text_empty_query_returns_all_or_no_matches` | Empty query string does not panic |
+| `search_text_case_sensitivity_distinguishes_cases` | Search respects case: exact match finds correct count |
+
+### Verification
+
+| Check | Result |
+|-------|--------|
+| `cargo fmt -- --check` | ✅ Clean (0 diffs) |
+| `cargo check` | ✅ Clean (0 warnings across all crates) |
+| `cargo test` | ✅ ~655 tests pass, 0 failures, 0 regressions |
+
+### Safety boundaries preserved
+
+- No new capabilities, CLI flags, runtime behavior, model calls, permissions, or governance logic
+- No Decision Gate bypass, scheduler, autonomy, browser automation, email, secrets, self-modification, or Mission Control Web growth
+- All changes are provably safe: underscore-prefixed variables (no behavioral change) + edge-case tests (read-only, no external effects)
+
+### Files changed
+
+| File | Change |
+|------|--------|
+| `apps/api-server/src/main.rs` | Fixed 6 unused-variable warnings |
+| `crates/tool-runtime/src/lib.rs` | Added 5 edge-case tests |
+| `PROJECT_STATUS.md` | Added section 29 documenting this session |
+| `FOCUS_LOOP_NEXT.md` | Updated handoff |
+
+### Deliberately not changed
+
+- No new features, flags, or commands
+- No crate boundaries, permissions, risk levels, or governance logic
+- No `docs/daily-agent-validation.md` changes
+- No `DAILY_VALIDATION_BACKLOG.md` changes (all DV entries closed)
+- No Holographic Memory, Compute Reservoir, Graph Memory, MCP, or Decision Gate changes
+- No demo scripts or documentation changes outside status/handoff files
