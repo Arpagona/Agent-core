@@ -2114,6 +2114,7 @@ This session added `--json` support to `arpagona audit list`, completing the JSO
 | Check | Result |
 |-------|--------|
 | `cargo fmt -- --check` | ✅ Clean |
+<<<<<<< HEAD
 | `cargo check` | ✅ Clean (0 warnings) |
 | `cargo test` | ✅ All 660+ tests pass, including 2 new parser tests |
 
