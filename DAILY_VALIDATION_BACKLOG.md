@@ -16,6 +16,15 @@ Rules:
 
 ## Open candidates
 
+### DV-2026-05-28-003 — Lexical parent traversal should be classified as security before filesystem lookup
+- source: FOCUS_LOOP_NEXT.md handoff + daily validation 2026-05-28 code audit
+- category: safety observability
+- severity: medium
+- status: **fixed in PR #141** (2026-05-28 focus loop)
+- evidence: `resolve_path()` in `crates/tool-runtime/src/lib.rs` now performs lexical `..` escape detection before calling `canonicalize()`. Missing parent-traversal targets that would escape the workspace (e.g. `../nonexistent.txt`) now return `Blocked`/`is_security: true` instead of `Failed`/`is_security: false`. 4 new tests added: `nonexistent_parent_traversal_is_security_blocked`, `deep_parent_traversal_is_security_blocked`, `list_files_nonexistent_parent_traversal_is_security_blocked`, `search_text_nonexistent_parent_traversal_is_security_blocked`. Existing `read_file_blocks_path_escaping_workspace` updated to expect `Blocked`/`is_security: true`.
+- verification: `cargo test -p arpagona-tool-runtime` — 28 tests pass including 4 new + 1 updated parent-traversal tests.
+- do not: weaken absolute-path blocking or broad `..` detection to allow workspace escape attempts.
+
 ### DV-2026-05-26-001 — Path escape attempts should be reported as security blocks
 - source: daily validation 2026-05-26
 - category: safety observability
