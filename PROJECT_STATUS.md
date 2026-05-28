@@ -1875,42 +1875,64 @@ No code files were changed — only handoff/documentation files updated.
 - No branch was created for new feature work (all effort went to merging existing PRs)
 - No C5 branch was created — tests confirmed already on main
 
-## 28. Latest Session (2026-05-28 — H1 workspace dead-code cleanup)
+## 28. Latest Session — Combined: H1 dead-code cleanup (merged) + E5 Product Positioning Evidence (merged)
+
+This DEEP focus loop merged two previously-open PRs and continued H1 hardening work.
+
+### Merged — H1 workspace dead-code cleanup (PR #157)
 
 This session completed a bounded H1 production hardening pass: removing unused imports, dead functions, and suppressing warnings across the workspace, without adding any new capabilities.
 
-### What was changed
-
+**Files changed:**
 | File | Change |
 |------|--------|
-| `crates/core/src/executor_registry.rs` | Removed unused `ProposedActionId` from non-test import (was only used in `#[cfg(test)]` which has its own import) |
+| `crates/core/src/executor_registry.rs` | Removed unused `ProposedActionId` from non-test import |
 | `crates/core/src/executor.rs` | Removed unused `ExecutionResult::blocked()` — 11-line dead method, never called |
 | `crates/core/src/policy_engine.rs` | Removed unused `PolicyEngineResult::needs_dry_run()` — 9-line dead method, never called |
 | `apps/api-server/src/main.rs` | Removed unused `ExecutionStatus`, `NoopExecutor`, `Executor` imports; fixed unnecessary `mut` on `result` |
 | `crates/llm/src/lib.rs` | Prefixed unused `is_proposed_action` with underscore to suppress warning |
 | `crates/mcp-server/src/http_transport.rs` | Removed unused `RequestId` test import; removed unused test helper `fn get()` |
-| `FOCUS_LOOP_NEXT.md` | Updated handoff — H1 in progress, PR #157 open |
-| `PROJECT_STATUS.md` | Added this section |
 
-### Verification
+Verification: `cargo fmt -- --check` ✅, `cargo check` ✅, `cargo test` ✅ (650+ tests pass)
 
-| Check | Result |
-|-------|--------|
-| `cargo fmt -- --check` | ✅ Clean |
-| `cargo check` | ✅ Clean (only 6 pre-existing api-server unused-variable warnings remain) |
-| `cargo test` | ✅ 650+ tests pass, 0 failures, 0 regressions |
+### Merged — E5 Product Positioning Evidence (PR #156)
+
+**New document: `docs/product-positioning-evidence.md`** — 5 evidence-backed claims with anti-claims, audience language templates, and evidence table mapping claims → demos → crates → test counts.
+
+| # | Claim | Evidence |
+|---|-------|-----------------|
+| 1 | Complete offline governed cognitive pipeline | E1/E2/E3 demos — 5-phase pipeline |
+| 2 | Read-only safe perception with bounded tool runtime | `crates/tool-runtime` — path escape blocking, size limits, `.git`/`.env` blocking |
+| 3 | Non-authorizing cognitive analysis with mandatory governance | `crates/core/src/cognitive_work.rs`, `crates/decision-gate` |
+| 4 | Complete audit traceability | `crates/graph-memory/audit_store.rs`, `demo_snapshot.rs` |
+| 5 | Layered cognitive architecture | 5 cognitive crates — Working Memory, Reservoir Echo, Holographic Memory, Graph Memory, Compute Reservoir |
+
+Track E is now **COMPLETE** ✅ (E1-E5 all delivered).
+
+### Phase 2 delivery status after this session
+
+| Track | Milestone | Status |
+|-------|-----------|--------|
+| C1–C5 | Real LLM → anti-drift tests | ✅ Complete |
+| D1–D3, D5 | Operator surfaces + approval design | ✅ Complete |
+| D4 | Web Mission Control | 🔜 Deferred |
+| E1–E5 | Demo scenarios → positioning evidence | ✅ Complete |
+| H1 | Production hardening pass | ⏳ First pass (dead-code) done — more work available |
 
 ### Safety boundaries preserved
 
-- No new capabilities added
-- No behavioral changes — only provably dead code
-- No Decision Gate bypass, scheduler, autonomy, browser automation, email, secrets access, self-modification, or Mission Control Web growth
-- No crate boundaries, permissions, risk levels, or governance logic
+- No new capabilities added by H1 (dead code removal only)
+- No new capabilities added by E5 (documentation only)
+- No Decision Gate bypass, scheduler, autonomy, browser automation, email, secrets, self-modification, or Mission Control Web growth
+- No readback-as-authorization behavior
 
 ### Deliberately not changed
 
+- 6 pre-existing api-server unused-variable warnings remain (require function-level understanding)
+- No new test additions (all existing tests pass unchanged)
+- No crate boundaries, permissions, risk levels, or governance logic
 - No new features, flags, or commands
-- No test additions (all existing tests pass unchanged)
-- No api-server function-level unused-variable fixes (6 remaining — `override_engine`, `expected_effects`, `touched_resources`, `reversibility`, `summary`, `capability` — these require understanding the function's real intent)
-- No `docs/daily-agent-validation.md` changes
-- No DAILY_VALIDATION_BACKLOG.md changes (all DV entries closed)
+
+### Recommended next step
+
+**H1 — Production hardening pass (continued)** — remaining work: fix api-server unused-variable warnings, add edge-case tests for Tool Runtime (path traversal, large files, directory edge cases, Decision Gate blocking scenarios), improve CLI error messages, audit readability improvements.
