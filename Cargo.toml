@@ -13,6 +13,7 @@ members = [
     "crates/tool-registry",
     "crates/tool-runtime",
     "crates/mcp-server",
+    "crates/neutral-orchestrator",
     "crates/compressed-cognitive-attention",
 ]
 resolver = "2"

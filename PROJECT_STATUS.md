@@ -2508,7 +2508,106 @@ All pure, serializable, non-authorizing:
 |-----------|--------|
 | P3-0 — Roadmap definition | ✅ (#168) |
 | **P3-1 — Domain contract** | **✅ (#169)** |
-| P3-2 — Deterministic loop skeleton | 🔜 |
-| P3-3 — CLI/MCP readback | 📋 |
+|| P3-2 — Deterministic loop skeleton | 🔜 |
+|| P3-3 — CLI/MCP readback | 📋 |
+|| P3-4 — Memory-aware context design | 📋 |
+
+## 29. Latest Session Update (2026-05-30 DEEP cron — P3-2 Neutral Orchestrator V0 deterministic loop skeleton)
+
+This session implemented the P3-2 milestone: a deterministic in-process loop skeleton in a dedicated `crates/neutral-orchestrator` crate.
+
+### What was added
+
+**New crate: `crates/neutral-orchestrator`** (`arpagona-neutral-orchestrator`)
+
+Pure deterministic skeleton that wires existing ARPAGONA bricks into a governed work cycle:
+
+```text
+ObjectiveInput
+  → ContextBundle (synthetic/advisory)
+  → ComputeRouteResult (deterministic)
+  → ProposalRequest
+  → ProposedAction
+  → Decision Gate
+  → AuditEvent
+  → OrchestratorOutcome (all IDs linked)
+```
+
+**Core types and functions:**
+
+- `OrchestratorEngine` — configurable engine (compute route label, local preference, justification) that orchestrates the full cycle
+- `OrchestratorCycle` — full cycle state with `causal_trace()` for human-readable readback
+- `OrchestratorError` — typed errors (EmptyObjective, ObjectiveTooLong, InvalidInput)
+- `run_deterministic_cycle()` — convenience function for single-call usage
+
+**Cycle steps (all in `OrchestratorEngine`):**
+
+1. **Validation** — rejects empty/whitespace-only objective text before any processing
+2. **Context assembly** — synthetic `ContextBundle` with non-authorizing advisory warning; marks HolographicMemory and ReservoirEcho as unavailable; includes context hint from input if provided
+3. **Compute route** — deterministic `ComputeRouteResult` (default: `local_deterministic`) with advisory warning
+4. **Proposal request** — `ProposalRequest` linking objective, context bundle, and compute route
+5. **Simulation action** — `ProposedAction` (ReadDocument, Low risk) for deterministic Decision Gate evaluation
+6. **Decision Gate** — `arpagona-decision-gate::evaluate_proposed_action()` with granted permissions
+7. **Audit event** — `AuditEvent::decision_created_for_action()` with full causal trace payload
+8. **OrchestratorOutcome** — all IDs linked: cycle → objective → context → compute → proposal → action → decision → audit
+
+**Key invariants:**
+
+- ✅ Deterministic — same inputs produce same outputs
+- ✅ In-process — no I/O, LLM, persistence, network, or external effects
+- ✅ Non-authorizing — every outcome has `non_authorizing: true`
+- ✅ Context/route/proposal are advisory only
+- ✅ Decision Gate carries the actual governance state
+- ✅ Configurable compute route via builder pattern
+- ✅ No scheduler, no autonomy, no approval semantics
+
+**13 tests covering:**
+- Allowed-simulation path (DecisionGate approved with permissions)
+- Blocked path (missing permissions → Blocked/RequiresOverride)
+- Malformed input (empty/whitespace-only → structured error before gate)
+- Context hint propagation
+- Custom compute route configuration
+- Causal trace format
+- Error display
+- Advisory invariant tests (3 non-authorizing field absence checks)
+- ComputeRouteRequest creation and serialization
+
+### Changed files
+
+| File | Change |
+|------|--------|
+| `Cargo.toml` | Added `crates/neutral-orchestrator` to workspace members |
+| `crates/neutral-orchestrator/Cargo.toml` | New crate manifest |
+| `crates/neutral-orchestrator/src/lib.rs` | Full implementation + 13 tests (~800 lines) |
+| `PROJECT_STATUS.md` | Added section 29 documenting this session |
+| `FOCUS_LOOP_NEXT.md` | Updated handoff — P3-2 complete, next: P3-3 CLI/MCP readback |
+
+### Verification
+
+| Check | Result |
+|-------|--------|
+| `cargo fmt -- --check` | ✅ Clean |
+| `cargo check` | ✅ Clean (0 warnings) |
+| `cargo test --workspace` | ✅ 730+ tests pass (13 in new crate, no regressions) |
+
+### Safety boundaries preserved
+
+- ✅ No execution, provider calls, scheduler, approval semantics
+- ✅ No CLI commands added (readback surface belongs to P3-3)
+- ✅ No API endpoint, MCP resource, or Web expansion
+- ✅ No Decision Gate bypass — every cycle goes through `evaluate_proposed_action`
+- ✅ No Graph Memory, Holographic Memory, Reservoir Echo, or Tool Runtime integration yet (that's P3-4+)
+- ✅ No compressed-cognitive-attention integration
+- ✅ No readback-as-authorization behavior
+
+### Phase 3 queue progress
+
+| Milestone | Status |
+|-----------|--------|
+| P3-0 — Roadmap definition | ✅ (#168) |
+| P3-1 — Domain contract | ✅ (#169) |
+| **P3-2 — Deterministic loop skeleton** | **✅ (#170)** |
+| P3-3 — CLI/MCP readback | 🔜 |
 | P3-4 — Memory-aware context design | 📋 |
+
 | P3-5 — Product-facing scenario | 📋 |
