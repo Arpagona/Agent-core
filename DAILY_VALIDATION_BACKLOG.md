@@ -16,6 +16,56 @@ Rules:
 
 ## Open candidates
 
+### DV-2026-05-28-001 — Conflict-marker scan still produces false positives outside the protocol/backlog files
+- source: daily validation 2026-05-28 repository sync
+- category: validation tooling / operator signal
+- severity: low
+- status: open
+- evidence: the mandatory scan `grep -R "<<<<<<<\|=======\|>>>>>>>" --exclude-dir=.git --exclude-dir=target --exclude-dir=node_modules --exclude=daily-agent-validation.md --exclude=DAILY_VALIDATION_BACKLOG.md .` returned matches in `PROJECT_STATUS.md` because that document embeds the grep pattern and previous run evidence, not unresolved merge markers. A stricter line-anchored scan for actual conflict marker lines would avoid this noise.
+- expected behavior: daily validation should flag real unresolved conflict markers while avoiding self-referential documentation examples in status/protocol artifacts.
+- suggested fix/tests: update the protocol scan to use line-anchored marker detection such as `^<<<<<<<`, `^=======`, `^>>>>>>>` or explicitly exclude generated/status handoff files, then add a validation note/test fixture proving prose examples do not trip the blocker.
+- do not: weaken detection for real source/config/document conflicts or ignore grep failures broadly.
+
+### DV-2026-05-28-002 — CLI documentation coverage is missing `mcp-governance-audit` and `llm`
+- source: daily validation 2026-05-28 CLI/documentation check
+- category: documentation / operator usability
+- severity: medium
+- status: **fixed in this session** (PR #140)
+- evidence: `bash scripts/check-cli-docs-coverage.sh` now exits 0 after adding both commands to `docs/cli.md` and their patterns to the coverage script.
+- expected behavior: every exposed top-level CLI command is documented in `docs/cli.md` or deliberately classified as internal/experimental in the coverage script.
+- suggested fix/tests: done — see PR #140. Added `### MCP Governance Audit — Lecture des décisions d'audit MCP` and `### LLM — Journal d'interaction LLM (C3)` sections to `docs/cli.md` with commands, options, and alpha read-only caveats. Added pattern entries in `scripts/check-cli-docs-coverage.sh`.
+- do not: remove the coverage check or hide user-facing commands without explicit rationale.
+
+### DV-2026-05-28-003 — Missing parent-traversal target is reported as non-security `invalid_path`
+- source: daily validation 2026-05-28 safety boundary tests
+- category: safety observability
+- severity: low
+- status: open
+- evidence: `cargo run -q --bin arpagona -- tool demo read-file ../Cargo.toml --json` exited 0 but returned `status: failed`, `error.code: invalid_path`, and `error.is_security: false` because the traversed parent target did not exist. Absolute paths, `.env`, and `.git` were correctly blocked with `is_security: true`.
+- expected behavior: parent traversal syntax should be classified as a security block before filesystem existence is considered, so blocked intent is visible even when the target path is missing.
+- suggested fix/tests: add a regression test for a missing parent-traversal target and move parent-traversal detection ahead of existence/canonicalization failure mapping.
+- do not: expose parent paths, read parent files, or broaden the Tool Runtime sandbox.
+
+### DV-2026-05-28-004 — Recent snapshot integration simplification removed useful governance regression assertions
+- source: daily validation 2026-05-28 code review
+- category: code review / test coverage
+- severity: medium
+- status: open
+- evidence: `git diff HEAD~1..HEAD` for commit `20f64f8` shows `crates/cli/tests/snapshot_integration.rs` removed detailed assertions for `failure_insight_candidates`, `cognitive_observations`, proposed-action payload metadata, priority ordering, decision statuses, audit event types, and the `cognitive_observe_govern_pipeline_produces_governance_results_from_tool_observations` test. The replacement keeps only thinner presence/id checks while adding the mock LLM synthesis test.
+- expected behavior: LLM routing metadata coverage should not reduce offline governance/readback regression coverage for `--assess`, `--observe`, `--propose`, or `--govern` paths.
+- suggested fix/tests: restore one or more focused assertions for governance result status/audit event type and ToolRuntime observation propagation, preferably as smaller targeted tests rather than the previous very large snapshot test.
+- do not: reintroduce brittle full-output snapshots or treat LLM synthesis as authorization/execution.
+
+### DV-2026-05-28-005 — Local Ollama synthesis remains structured but often generic against operator prompts
+- source: daily validation 2026-05-28 Beta Usage Lab
+- category: beta usability / LLM synthesis quality
+- severity: low
+- status: open
+- evidence: eight `cognitive run --llm --provider ollama --assess --allocate --json` scenarios with installed `qwen3.5:9b` produced structured `[STATE]`, `[KEY GAP / RISK]`, `[RECOMMENDED NEXT STEP]` responses and preserved safety, but most responses repeated generic `Complexity: 0.40`, `Assumptions: 1`, and `StopWithReport` framing instead of directly answering the specific operator request. The beta summary was saved to `target/daily-validation/beta-usage-2026-05-28.md`.
+- expected behavior: local synthesis should retain the safe structured format while grounding each answer in the specific request, especially code review, compute routing, ambiguity handling, and operator-report prompts.
+- suggested fix/tests: add deterministic mock-provider acceptance tests or prompt assembly tests requiring synthesis to reference request-specific fields and emit one concrete bounded next step without claiming authorization.
+- do not: call remote model APIs, require model downloads, or allow prose to bypass Decision Gate governance.
+
 ### DV-2026-05-26-001 — Path escape attempts should be reported as security blocks
 - source: daily validation 2026-05-26
 - category: safety observability

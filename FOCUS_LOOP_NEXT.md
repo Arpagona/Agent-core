@@ -6,19 +6,19 @@ It must contain one concrete next action only. The runtime milestone queue and l
 
 ## Current status (2026-05-28 focus loop — fix DV-2026-05-28-004)
 
-PR #139 open (docs: fix DV-2026-05-28-002) — mergeable, all checks green. DEEP does not merge main; pending human merge.
+PR #139 has been merged: `DV-2026-05-28-002` is fixed by documenting `mcp-governance-audit` and `llm`, with `bash scripts/check-cli-docs-coverage.sh` passing.
 
-PR #140 opened for DV-2026-05-28-004 (restore governance/readback regression assertions). All verification passes:
+PR #140 is the active correction for `DV-2026-05-28-004` (restore governance/readback regression assertions). Verification reported by DEEP:
 - `cargo fmt -- --check` ✅
 - `cargo check` ✅
-- `cargo test --workspace` (all tests pass) ✅
-- `cargo test --test snapshot_integration` (9 tests pass) ✅
+- `cargo test --workspace` ✅
+- `cargo test --test snapshot_integration` ✅
 
-Remaining unresolved 2026-05-28 DV entries:
-1. **DV-2026-05-28-003** — classify lexical `../` paths as security before filesystem lookup (low)
-2. **DV-2026-05-28-005** — make local Ollama synthesis more specific to the operator request (low)
-3. **DV-2026-05-28-001** — reduce false positives in the conflict-marker scan (low)
+Remaining unresolved 2026-05-28 DV entries after PR #140:
+1. **DV-2026-05-28-003** — classify lexical `../` paths as security before filesystem lookup.
+2. **DV-2026-05-28-005** — make local Ollama synthesis more specific to the operator request.
+3. **DV-2026-05-28-001** — reduce false positives in the conflict-marker scan.
 
 ## Next action
 
-**After PRs #139 and #140 are merged: fix DV-2026-05-28-003** (classify lexical `../` paths as security in Tool Runtime before filesystem canonicalization lookup, so missing parent-traversal targets return `is_security: true`).
+**After PR #140 is merged: fix DV-2026-05-28-003** (classify lexical `../` paths as security in Tool Runtime before filesystem canonicalization lookup, so missing parent-traversal targets return `is_security: true`).
