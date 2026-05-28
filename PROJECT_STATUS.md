@@ -2930,7 +2930,7 @@ implementation backed by the Tool Runtime crate.
 | P3-4 — Memory-aware context integration | ✅ (#172) |
 | P3-5 — Cycle Trace V0 | ✅ (#173) |
 | P3-4e — ToolRuntimeAdapter | ✅ (#174, merged) |
-| P3-4d — HolographicMemoryAdapter | ✅ PR #<NEW> open |
+| P3-4d — HolographicMemoryAdapter | ✅ (#175) |
 | P3-4c — ReservoirEchoAdapter | 📋 |
 | P3-4b — CompressedCognitiveAttentionAdapter | 📋 |
 | P3-4a — GraphMemoryAdapter | 📋 |

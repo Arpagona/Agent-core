@@ -6,10 +6,10 @@ It must contain one concrete next action only. The runtime milestone queue and l
 
 ## Current status (DEEP cron — P3-4e merged, P3-4d PR open)
 
-**main is green:** ✅ PR #174 (P3-4e ToolRuntimeAdapter) was merged. PR #<NEW> (P3-4d HolographicMemoryAdapter) is open.
+**main is green:** ✅ PR #174 (P3-4e ToolRuntimeAdapter) was merged. PR #175 (P3-4d HolographicMemoryAdapter) is open.
 
 **Open PRs:**
-- **#<NEW>** (feat/p3-4d-holographic-memory-adapter) — P3-4d: HolographicMemoryAdapter bridges Holographic Memory resonance retrieval into ContextAssembler. CI pending.
+- **#175** (feat/p3-4d-holographic-memory-adapter) — P3-4d: HolographicMemoryAdapter bridges Holographic Memory resonance retrieval into ContextAssembler. CI pending.
 
 **Phase 3 progress:**
 - P3-0 (Roadmap definition): ✅ Completed in #168
