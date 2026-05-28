@@ -2852,7 +2852,92 @@ This session delivered the P3-5 milestone: structured cycle traces with per-sour
 | **P3-5 — Cycle Trace V0** | **✅ (#173)** |
 | P3-4a through P3-4e — Real memory adapters | 📋 |
 
+## 28. Latest Session Update (2026-05-29 — P3-4e ToolRuntimeAdapter)
+
+This session completed Phase 3 milestone P3-4e: the first real ContextAssembler
+implementation backed by the Tool Runtime crate.
+
+### What was added
+
+**`crates/neutral-orchestrator/src/tool_runtime_adapter.rs`** — 398-line module:
+
+- `ToolRuntimeAdapter` struct wrapping a `ToolRuntime` instance
+- Implements `ContextAssembler` trait:
+  - `assemble()`: searches workspace for objective text matches via `search_text`,
+    lists workspace structure via `list_files`, returns advisory `ContextItem` values
+  - `supported_sources()`: returns `[ContextSource::ToolRuntime]`
+- `new(workspace_root)` and `from_runtime(runtime)` constructors
+- `with_max_items(n)` config override
+- `extract_search_matches()` and `extract_list_entries()` helpers for
+  parsing ToolRuntime observation payloads
+- Effective limit = `min(adapter.max_items, request.max_items_per_source)`
+- Graceful degradation: non-existent workspace → reports unavailable (no panic)
+- Filters non-ToolRuntime sources to pass-through (empty responses)
+
+**`crates/neutral-orchestrator/Cargo.toml`:**
+- Added `arpagona-tool-runtime = { path = "../tool-runtime" }` dependency
+
+**`crates/neutral-orchestrator/src/lib.rs`:**
+- Added `pub mod tool_runtime_adapter;`
+- Re-exported `ToolRuntimeAdapter`
+
+**`FOCUS_LOOP_NEXT.md`:**
+- Updated handoff: P3-5 merged, P3-4e PR #174 open, next = P3-4d HolographicMemoryAdapter
+
+### New tests (6)
+
+| Test | What it proves |
+|------|---------------|
+| `tool_runtime_adapter_returns_tool_runtime_source` | Reports correct source |
+| `tool_runtime_adapter_ignores_non_matching_sources` | Non-ToolRuntime sources pass through |
+| `tool_runtime_adapter_searches_workspace` | Real workspace search returns items |
+| `tool_runtime_adapter_works_with_limited_items` | `with_max_items(3)` caps at ≤3 |
+| `tool_runtime_adapter_handles_empty_workspace_root` | Non-existent dir does not panic |
+| `tool_runtime_adapter_completes_without_panic` | Stress test with generic query |
+
+### Files changed
+
+| File | Change |
+|------|--------|
+| crates/neutral-orchestrator/Cargo.toml | Added arpagona-tool-runtime dep |
+| crates/neutral-orchestrator/src/lib.rs | Added mod + re-export |
+| crates/neutral-orchestrator/src/tool_runtime_adapter.rs | **NEW** (398 lines) |
+| FOCUS_LOOP_NEXT.md | Updated handoff |
+
+### Verification
+- `cargo fmt -- --check`: clean
+- `cargo check`: clean
+- `cargo test --workspace`: **741+ tests pass** (27 in neutral-orchestrator, 6 new)
+
+### Deliberately not changed
+- No SimulatedContextAssembler behavior modified
+- No OrchestratorEngine defaults changed (SimulatedContextAssembler remains default)
+- No Decision Gate, Audit, or safety boundary modifications
+- No CLI subcommands added
+- No API server, Web UI, or MCP changes
+- No new external dependencies
+- No tool-runtime security boundaries weakened
+- No SurrealDB, SQLite, or other persistence backends added
+
+### Phase 3 queue progress
+
+| Milestone | Status |
+|---|---|
+| P3-0 — Roadmap definition | ✅ (#168) |
+| P3-1 — Domain contract | ✅ (#169) |
+| P3-2 — Deterministic loop skeleton | ✅ (#170) |
+| P3-3 — Orchestrator CLI readback | ✅ (#171) |
+| P3-4 — Memory-aware context integration | ✅ (#172) |
+| P3-5 — Cycle Trace V0 | ✅ (#173) |
+| **P3-4e — ToolRuntimeAdapter** | **🔜 PR #174 open, CI pending** |
+| P3-4d — HolographicMemoryAdapter | 📋 |
+| P3-4c — ReservoirEchoAdapter | 📋 |
+| P3-4b — CompressedCognitiveAttentionAdapter | 📋 |
+| P3-4a — GraphMemoryAdapter | 📋 |
+
 ### Recommended next step for GONA
 
-1. **Review PR #173** — merge when CI passes.
-2. **Decide priority among P3-4a through P3-4e** — which real memory adapter to implement first (GraphMemoryAdapter, HolographicMemoryAdapter, ReservoirEchoAdapter, CompressedCognitiveAttentionAdapter, ToolRuntimeAdapter).
+1. **Review PR #174** — merge when CI passes.
+2. Proceed to **P3-4d (HolographicMemoryAdapter)**: bridge the Holographic Memory
+   crate's `retrieve_by_resonance()` into the ContextAssembler pipeline, enabling
+   pattern-resonance-based context retrieval during orchestrator cycles.
