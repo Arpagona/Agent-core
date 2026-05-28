@@ -3002,4 +3002,78 @@ Holographic Memory crate's resonance retrieval.
 - No unrestricted shell, browser, email, secrets access, or Mission Control Web expansion
 - No scheduler, autonomy, or agent self-modification
 - No new crate dependencies beyond holographic-memory (already in workspace)
+
+## 30. Latest Session Update (2026-05-29 DEEP cron — Merge #175 + P3-4c ReservoirEchoAdapter)
+
+This session merged PR #175 (P3-4d HolographicMemoryAdapter, CI green) and implemented
+P3-4c (ReservoirEchoAdapter): a ContextAssembler adapter backed by the Reservoir Echo
+short-term cognitive continuity (`ReservoirState` from `crates/core/src/cognitive.rs`).
+
+### What was done
+
+**Merge PR #175** (feat/p3-4d-holographic-memory-adapter):
+- CI was green (2 check runs SUCCESS), mergeable state MERGEABLE
+- Merged via GitHub merge button
+- HolographicMemoryAdapter now on main
+
+**New: `crates/neutral-orchestrator/src/reservoir_echo_adapter.rs`:**
+- `ReservoirEchoAdapter` struct implementing `ContextAssembler`
+- Supports `ContextSource::ReservoirEcho`
+- Extracts keywords from objective text (same pattern as HolographicMemoryAdapter)
+- Queries `ReservoirState::strongest_traces()` filtered by tag overlap with keywords
+- Falls back to strongest traces when no keywords in objective text
+- Converts matching `ReservoirTrace` values into advisory `ContextItem` values with activation scores
+- Handles empty reservoirs, non-matching sources, lock poisoning
+- Respects `max_items_per_source` from `MemoryQueryRequest`
+- Interior mutability via `Mutex<ReservoirState>` for API consistency with other adapters
+
+**Changed files:**
+
+| File | Change |
+|------|--------|
+| `crates/neutral-orchestrator/src/lib.rs` | Added `pub mod reservoir_echo_adapter;` + reexport |
+| `crates/neutral-orchestrator/src/reservoir_echo_adapter.rs` | **NEW** — ReservoirEchoAdapter with 18 tests |
+
+### New test coverage (18 tests added to neutral-orchestrator)
+
+| Test | What it proves |
+|------|---------------|
+| `adapter_returns_reservoir_echo_source` | supported_sources contains ReservoirEcho |
+| `adapter_ignores_non_matching_sources` | Non-matching sources pass through cleanly |
+| `adapter_handles_empty_reservoir` | Empty reservoir returns available but zero items |
+| `extract_keywords_splits_whitespace` | Keyword extraction from text |
+| `extract_keywords_filters_short_tokens` | 1-2 char tokens filtered |
+| `extract_keywords_strips_punctuation` | Punctuation stripped |
+| `extract_keywords_handles_empty_text` | Empty text produces no keywords |
+| `extract_keywords_lowercases` | Keywords lowercased |
+| `has_tag_overlap_matches_keywords` | Tag-keyword matching works |
+| `has_tag_overlap_returns_false_for_no_match` | No false positives |
+| `has_tag_overlap_handles_empty_tags` | Empty tags produce no match |
+| `adapter_returns_matching_traces_by_keyword` | Only matching tags returned |
+| `adapter_returns_strongest_traces_when_no_keywords` | Falls back to strongest when no keywords |
+| `adapter_respects_max_items` | Limit enforced |
+| `adapter_context_items_contain_activation_info` | Items contain activation and content |
+| `adapter_explanation_contains_relevant_info` | Explanation references Reservoir Echo |
+| `adapter_works_with_decayed_traces` | Decayed traces returned with reduced activation |
+
+### Verification
+
+- `cargo fmt -- --check`: ✅ clean
+- `cargo check`: ✅ clean (0 warnings)
+- `cargo test --workspace`: ✅ all tests pass (no regressions, 57+ neutral-orchestrator tests)
+
+### Safety boundaries preserved
+
+- All context items are advisory and non-authorizing
+- No Decision Gate bypass — activation scores are evidence only
+- No LLM calls — pure deterministic reservoir state querying
+- No I/O, no persistence, no filesystem access beyond existing crate APIs
+- No unrestricted shell, browser, email, secrets access, or Mission Control Web expansion
+- No scheduler, autonomy, or agent self-modification
+- No new crate dependencies — ReservoirState is already in `crates/core`
+
+### Next recommended step for GONA
+
+1. **Review this PR** — P3-4c ReservoirEchoAdapter.
+2. Proceed to **P3-4b (CompressedCognitiveAttentionAdapter)**: bridge the compressed-cognitive-attention crate's temporally enriched retrieval into the ContextAssembler pipeline.
 - No Tool Runtime, API endpoint, or MCP server changes
