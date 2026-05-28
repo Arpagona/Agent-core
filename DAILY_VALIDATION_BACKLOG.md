@@ -18,6 +18,8 @@ Rules:
 
 *(No open DV entries remain.)*
 
+## Closed / superseded candidates
+
 ### DV-2026-05-28-005 — Local Ollama synthesis remains structured but often generic against operator prompts
 - source: daily validation 2026-05-28 Beta Usage Lab
 - category: beta usability / LLM synthesis quality
@@ -26,8 +28,6 @@ Rules:
 - evidence: fixed `MockProvider::synthesize()` to use actual parsed context_items and assumptions counts instead of `'?'` placeholders. Extended `parse_wm_summary_fields()` to return all 7 working-memory fields. Improved `COGNITIVE_SYNTHESIS_SYSTEM_PROMPT` to explicitly require citing objective text, domain name, and all concrete counts. Added 2 acceptance tests (`mock_synthesis_references_context_items_and_assumptions`, `mock_synthesis_with_zero_context_still_self_contained`) proving mock output references concrete field values and never contains `'?'` placeholders.
 - verification: `cargo test -p arpagona-llm` — 38 tests pass including both new acceptance tests. Full workspace: 536+ tests pass.
 - do not: call remote model APIs, require model downloads, or allow prose to bypass Decision Gate governance.
-
-## Closed / superseded candidates
 
 ### DV-2026-05-28-001 — Conflict-marker scan still produces false positives outside the protocol/backlog files
 - status: **fixed in PR #143** (2026-05-28 focus loop)

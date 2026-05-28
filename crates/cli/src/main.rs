@@ -2440,16 +2440,27 @@ fn read_handoff_next_action() -> Option<String> {
 }
 
 /// Count open candidate items in DAILY_VALIDATION_BACKLOG.md.
+///
+/// Only counts entries in the "## Open candidates" section.
+/// Entries under "## Closed / superseded candidates" or
+/// "## Older closed / superseded items" are excluded.
 fn count_backlog_open_items() -> Option<usize> {
     let path = PathBuf::from("DAILY_VALIDATION_BACKLOG.md");
     if !path.exists() {
         return None;
     }
     let content = std::fs::read_to_string(path).ok()?;
-    let count = content
-        .lines()
-        .filter(|line| line.trim().starts_with("###") && line.contains("DV-"))
-        .count();
+    let mut in_open_section = false;
+    let mut count = 0usize;
+    for line in content.lines() {
+        let trimmed = line.trim();
+        if trimmed.starts_with("## ") && !trimmed.starts_with("###") {
+            // H2 section header — toggle open-section tracking
+            in_open_section = trimmed == "## Open candidates";
+        } else if in_open_section && trimmed.starts_with("###") && trimmed.contains("DV-") {
+            count += 1;
+        }
+    }
     Some(count)
 }
 
