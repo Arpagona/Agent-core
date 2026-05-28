@@ -130,6 +130,26 @@ Rules:
 |- suggested tests: rerun `bash scripts/check-cli-docs-coverage.sh` and verify exit 0.
 |- do not: remove the docs coverage check or weaken it broadly; keep CLI surface discoverable for operators.
 
+### DV-2026-05-28-001 — Conflict-marker scan still produces false positives outside the protocol/backlog files
+- source: daily validation 2026-05-28 repository sync
+- category: validation tooling / operator signal
+- severity: low
+- status: open
+- evidence: the mandatory scan `grep -R "<<<<<<<\\|=======\\|>>>>>>>" --exclude-dir=.git --exclude-dir=target --exclude-dir=node_modules --exclude=daily-agent-validation.md --exclude=DAILY_VALIDATION_BACKLOG.md .` returned matches in `PROJECT_STATUS.md` because that document embeds the grep pattern and previous run evidence, not unresolved merge markers. A stricter line-anchored scan for actual conflict marker lines would avoid this noise.
+- expected behavior: daily validation should flag real unresolved conflict markers while avoiding self-referential documentation examples in status/protocol artifacts.
+- suggested fix/tests: update the protocol scan to use line-anchored marker detection such as `^<<<<<<<`, `^=======`, `^>>>>>>>` or explicitly exclude generated/status handoff files, then add a validation note/test fixture proving prose examples do not trip the blocker.
+- do not: weaken detection for real source/config/document conflicts or ignore grep failures broadly.
+
+### DV-2026-05-28-004 — Recent snapshot integration simplification removed useful governance regression assertions
+- source: daily validation 2026-05-28 code review
+- category: code review / test coverage
+- severity: medium
+- status: **fixed in PR #140** (2026-05-28 focus loop)
+- evidence: added `cognitive_observe_assess_govern_pipeline_has_structured_governance_results` test (offline, no API server) that verifies: cognitive_observations structure (tool_name, kind, status per entry), failure_insight_candidates presence, governance_results with proposed_action_id/decision.status/audit_event.event_type per entry, decision_count > 0, audit_event_count > 0, and governance_warning with offline readback marker. Added priority metadata assertions to existing `cognitive_propose_pipeline_produces_governed_proposals` test: priority_score in [0.0, 2.0], priority_band in [high/medium/low], sorted descending by priority_score. All 9 snapshot_integration tests pass.
+- expected behavior: targeted governance/readback regression assertions exist for the offline --assess --observe --govern pipeline. ProposedAction priority metadata is verified in the API-server-dependent propose path.
+- suggested fix/tests: done — see PR #140.
+- do not: reintroduce brittle full-output snapshots or treat LLM synthesis as authorization/execution.
+
 ## Closed / superseded candidates
 
 - **DV-2026-05-26-002 — CLI documentation can drift behind CLI surface**
