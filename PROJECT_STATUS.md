@@ -1874,3 +1874,43 @@ No code files were changed — only handoff/documentation files updated.
 - No test additions (C5 already on main)
 - No branch was created for new feature work (all effort went to merging existing PRs)
 - No C5 branch was created — tests confirmed already on main
+
+## 28. Latest Session (2026-05-28 — H1 workspace dead-code cleanup)
+
+This session completed a bounded H1 production hardening pass: removing unused imports, dead functions, and suppressing warnings across the workspace, without adding any new capabilities.
+
+### What was changed
+
+| File | Change |
+|------|--------|
+| `crates/core/src/executor_registry.rs` | Removed unused `ProposedActionId` from non-test import (was only used in `#[cfg(test)]` which has its own import) |
+| `crates/core/src/executor.rs` | Removed unused `ExecutionResult::blocked()` — 11-line dead method, never called |
+| `crates/core/src/policy_engine.rs` | Removed unused `PolicyEngineResult::needs_dry_run()` — 9-line dead method, never called |
+| `apps/api-server/src/main.rs` | Removed unused `ExecutionStatus`, `NoopExecutor`, `Executor` imports; fixed unnecessary `mut` on `result` |
+| `crates/llm/src/lib.rs` | Prefixed unused `is_proposed_action` with underscore to suppress warning |
+| `crates/mcp-server/src/http_transport.rs` | Removed unused `RequestId` test import; removed unused test helper `fn get()` |
+| `FOCUS_LOOP_NEXT.md` | Updated handoff — H1 in progress, PR #157 open |
+| `PROJECT_STATUS.md` | Added this section |
+
+### Verification
+
+| Check | Result |
+|-------|--------|
+| `cargo fmt -- --check` | ✅ Clean |
+| `cargo check` | ✅ Clean (only 6 pre-existing api-server unused-variable warnings remain) |
+| `cargo test` | ✅ 650+ tests pass, 0 failures, 0 regressions |
+
+### Safety boundaries preserved
+
+- No new capabilities added
+- No behavioral changes — only provably dead code
+- No Decision Gate bypass, scheduler, autonomy, browser automation, email, secrets access, self-modification, or Mission Control Web growth
+- No crate boundaries, permissions, risk levels, or governance logic
+
+### Deliberately not changed
+
+- No new features, flags, or commands
+- No test additions (all existing tests pass unchanged)
+- No api-server function-level unused-variable fixes (6 remaining — `override_engine`, `expected_effects`, `touched_resources`, `reversibility`, `summary`, `capability` — these require understanding the function's real intent)
+- No `docs/daily-agent-validation.md` changes
+- No DAILY_VALIDATION_BACKLOG.md changes (all DV entries closed)

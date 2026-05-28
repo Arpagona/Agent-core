@@ -4,31 +4,25 @@ This file is the short-lived handoff for the next scheduled focus-loop run.
 
 It must contain one concrete next action only. The runtime milestone queue and long-term rules live in `AGENT_FOCUS_LOOP.md`.
 
-## Current status (2026-05-28 3rd DEEP focus loop — E3 Demo Pack Complete)
+## Current status (2026-05-28 DEEP focus loop — H1 dead-code cleanup, PR #157)
 
-**main is green:** ✅ `cargo fmt -- --check` passes, ✅ `cargo check` passes, ✅ `cargo test` passes (0 failures across all crates).
+**main is green:** ✅ `cargo fmt -- --check` passes, ✅ `cargo check` passes, ✅ `cargo test` passes (650+ tests, 0 failures across all crates).
 
-**PR #154 merged** (docs handoff update).
+**PR #156** (E5 product positioning evidence) — open, mergeable, CI green. Not merged per cron instructions.
 
-**E3 milestone completed** in this session:
-- `expected-output.md` — expected output report with acceptance criteria
-- `GOVERNANCE_VALUE.md` — governance/audit value document for commercial use
-- Fixed `test_debug.sh` (absolute path → relative path, was broken)
-- Fixed `demo.sh` tool count grep (space after colon in JSON)
-- Polished `README.md` for operator-friendly quick start
+**PR #157** (H1 workspace dead-code cleanup) — open, mergeable. CI pending.
 
-E3 demo: ✅ all 11 tests pass, 5 phases green, tool count shows "3 outils".
-
-Phase 2 delivery summary:
-- Track C: C1-C5 all complete ✅
-- Track D: D1 partial, D2+D3+D5 complete, D4 deferred
-- Track E: E1+E2+E3+E4 complete ✅, **E5 remaining**
-- H1 (hardening pass) — available
+H1 progress:
+- 6 files cleaned (core: dead functions and imports, api-server: unused imports, llm: suppressed warning, mcp-server: dead test code)
+- Track D: D1 partial (missing: D4 minimal Web Mission Control) — D4 remains deferred
+- H1 has more work available: ~6 pre-existing api-server unused-variable warnings, more edge-case tests
 
 ## Next action
 
-**Recommended: E5 (Product positioning evidence)** — extract 3-5 claims the demo proves, map claims to implementation evidence, avoid overclaiming autonomy or AGI, prepare language usable for ARPAGONA Agent communication.
+**H1 — Production hardening pass (continued)** — remaining work available:
+1. Fix the 6 pre-existing api-server unused-variable warnings
+2. Add more edge-case tests for Tool Runtime and governance paths
+3. Improve error messages in key CLI surfaces
+4. Check if there are stale dependency features/flags to clean up
 
-E5 is the natural capstone for Track E. All E1-E4 now exist as concrete demo artifacts. E5 turns them into reusable marketing/positioning evidence without requiring new runtime infrastructure.
-
-**Alternative: H1 (Production hardening pass)** — edge-case tests, error handling, regression tests, audit readability, dependency cleanup. Only if product positioning is not needed right now.
+OR after PR #156 merges: **D4 — Minimal Web Mission Control skeleton** if governance surfaces are ready.
