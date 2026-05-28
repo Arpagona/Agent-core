@@ -211,6 +211,7 @@ dependencies = [
  "arpagona-holographic-memory",
  "arpagona-llm",
  "arpagona-mcp-server",
+ "arpagona-neutral-orchestrator",
  "arpagona-tool-runtime",
  "chrono",
  "clap",

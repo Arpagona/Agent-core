@@ -28,6 +28,7 @@ use arpagona_holographic_memory::{
     InMemoryHolographicMemoryStore, SourceKind,
 };
 use arpagona_llm::run_cognitive_synthesis;
+use arpagona_neutral_orchestrator::run_deterministic_cycle;
 use arpagona_tool_runtime::{ToolRuntime, ToolRuntimeConfig};
 use chrono::Utc;
 use clap::{Args, Parser, Subcommand, ValueEnum};
@@ -119,6 +120,8 @@ enum Command {
     Llm(LlmCommand),
     /// Compute Reservoir operations (C4 — compute routing preview and trade-off analysis).
     Compute(ComputeCommand),
+    /// Run the Neutral Orchestrator deterministic cycle.
+    Orchestrator(OrchestratorCommand),
 }
 
 #[derive(Debug, Args)]
@@ -168,6 +171,41 @@ pub struct RoutingArgs {
     /// Output as structured JSON.
     #[arg(long, short = 'j', default_value_t = false)]
     pub json: bool,
+}
+
+#[derive(Debug, Args)]
+pub struct OrchestratorCommand {
+    #[command(subcommand)]
+    pub command: OrchestratorSubcommand,
+}
+
+#[derive(Debug, Subcommand)]
+pub enum OrchestratorSubcommand {
+    /// Run the Neutral Orchestrator deterministic cycle with an objective.
+    Run(OrchestratorRunArgs),
+}
+
+#[derive(Debug, Args)]
+pub struct OrchestratorRunArgs {
+    /// The objective text to process through the orchestrator cycle.
+    #[arg(long)]
+    pub objective: String,
+
+    /// Output as structured JSON.
+    #[arg(long, short = 'j', default_value_t = false)]
+    pub json: bool,
+
+    /// Permissions granted for Decision Gate evaluation (repeatable).
+    #[arg(long = "perm", default_values = &["ReadDocument"])]
+    pub permissions: Vec<String>,
+
+    /// Workspace ID for the cycle.
+    #[arg(long, default_value = DEFAULT_WORKSPACE_ID)]
+    pub workspace_id: String,
+
+    /// Agent ID for the cycle.
+    #[arg(long, default_value = DEFAULT_AGENT_ID)]
+    pub agent_id: String,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, clap::ValueEnum)]
@@ -1815,6 +1853,9 @@ async fn run() -> Result<(), Box<dyn Error>> {
         },
         Command::Compute(compute) => match compute.command {
             ComputeSubcommand::Routing(args) => compute_routing(args)?,
+        },
+        Command::Orchestrator(orchestrator) => match orchestrator.command {
+            OrchestratorSubcommand::Run(args) => orchestrator_run(args)?,
         },
     }
 
@@ -9297,6 +9338,51 @@ fn cognitive_print_readback(result: &CognitiveCycleResult, assess: bool) {
     println!();
 }
 
+/// Run the Neutral Orchestrator deterministic cycle and display the result.
+fn orchestrator_run(args: OrchestratorRunArgs) -> Result<(), Box<dyn Error>> {
+    let perm: Permission = match args.permissions.first().map(|s| s.as_str()) {
+        Some("ReadDocument") => Permission::ReadDocument,
+        Some("WriteMemory") => Permission::WriteMemory,
+        Some(other) => {
+            // Try to parse via serde
+            serde_json::from_str(&format!("\"{}\"", other)).unwrap_or(Permission::ReadDocument)
+        }
+        None => Permission::ReadDocument,
+    };
+
+    let workspace_id = WorkspaceId::new(args.workspace_id);
+    let agent_id = AgentId::new(args.agent_id);
+
+    let cycle = run_deterministic_cycle(&args.objective, workspace_id, agent_id, &[perm])
+        .map_err(|e| format!("Orchestrator cycle failed: {e}"))?;
+
+    if args.json {
+        println!("{}", serde_json::to_value(&cycle.outcome)?);
+    } else {
+        println!("{}", style_info("Orchestrator Cycle Trace"));
+        println!("{}", "-".repeat(60));
+        println!("{}", cycle.causal_trace());
+        println!();
+        println!(
+            "{}",
+            style_dim("⚠  Readback only — supervision entries are evidence, not authorization.")
+        );
+        println!(
+            "{}",
+            style_dim("   No execution without explicit Decision Gate approval.")
+        );
+        println!(
+            "{}",
+            style_dim(&format!(
+                "   Non-authorizing: {}",
+                cycle.outcome.non_authorizing
+            ))
+        );
+    }
+
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -12556,5 +12642,100 @@ mod tests {
             }
             _ => panic!("expected compute routing"),
         }
+    }
+
+    #[test]
+    fn cli_parses_orchestrator_run_defaults() {
+        let cli = Cli::try_parse_from(vec![
+            "arpagona",
+            "orchestrator",
+            "run",
+            "--objective",
+            "Review project documentation",
+        ])
+        .expect("orchestrator run should parse");
+        match cli.command {
+            Command::Orchestrator(OrchestratorCommand {
+                command: OrchestratorSubcommand::Run(args),
+            }) => {
+                assert_eq!(args.objective, "Review project documentation");
+                assert!(!args.json);
+                assert_eq!(args.permissions, vec!["ReadDocument"]);
+                assert_eq!(args.workspace_id, "workspace-alpha");
+                assert_eq!(args.agent_id, "agent-alpha");
+            }
+            _ => panic!("expected orchestrator run"),
+        }
+    }
+
+    #[test]
+    fn cli_parses_orchestrator_run_with_json() {
+        let cli = Cli::try_parse_from(vec![
+            "arpagona",
+            "orchestrator",
+            "run",
+            "--objective",
+            "Analyze the dataset",
+            "--json",
+            "--perm",
+            "WriteMemory",
+            "--workspace-id",
+            "ws-prod",
+            "--agent-id",
+            "agent-delta",
+        ])
+        .expect("orchestrator run with flags should parse");
+        match cli.command {
+            Command::Orchestrator(OrchestratorCommand {
+                command: OrchestratorSubcommand::Run(args),
+            }) => {
+                assert_eq!(args.objective, "Analyze the dataset");
+                assert!(args.json);
+                assert_eq!(args.permissions, vec!["WriteMemory"]);
+                assert_eq!(args.workspace_id, "ws-prod");
+                assert_eq!(args.agent_id, "agent-delta");
+            }
+            _ => panic!("expected orchestrator run"),
+        }
+    }
+
+    #[test]
+    fn cli_parses_orchestrator_run_multiple_permissions() {
+        let cli = Cli::try_parse_from(vec![
+            "arpagona",
+            "orchestrator",
+            "run",
+            "--objective",
+            "Multi-perm test",
+            "--perm",
+            "ReadDocument",
+            "--perm",
+            "WriteMemory",
+        ])
+        .expect("orchestrator run with multiple permissions should parse");
+        match cli.command {
+            Command::Orchestrator(OrchestratorCommand {
+                command: OrchestratorSubcommand::Run(args),
+            }) => {
+                assert_eq!(args.objective, "Multi-perm test");
+                assert_eq!(args.permissions, vec!["ReadDocument", "WriteMemory"]);
+            }
+            _ => panic!("expected orchestrator run"),
+        }
+    }
+
+    #[test]
+    fn orchestrator_outcome_is_non_authorizing() {
+        let cycle = arpagona_neutral_orchestrator::run_deterministic_cycle(
+            "Test non-authorizing invariant",
+            WorkspaceId::new("ws-1"),
+            AgentId::new("agent-alpha"),
+            &[arpagona_agent_core::Permission::ReadDocument],
+        )
+        .expect("cycle should succeed");
+        assert!(
+            cycle.outcome.non_authorizing,
+            "OrchestratorOutcome must always be non-authorizing"
+        );
     }
 }

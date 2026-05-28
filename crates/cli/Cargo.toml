@@ -21,6 +21,7 @@ arpagona-holographic-memory = { path = "../holographic-memory" }
 arpagona-llm = { path = "../llm" }
 arpagona-tool-runtime = { path = "../tool-runtime" }
 arpagona-mcp-server = { path = "../mcp-server" }
+arpagona-neutral-orchestrator = { path = "../neutral-orchestrator" }
 chrono.workspace = true
 clap.workspace = true
 reqwest.workspace = true
