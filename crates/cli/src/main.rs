@@ -195,6 +195,10 @@ pub struct OrchestratorRunArgs {
     #[arg(long, short = 'j', default_value_t = false)]
     pub json: bool,
 
+    /// Output full CycleTrace with context assembly metadata (use with --json for structured output).
+    #[arg(long, default_value_t = false)]
+    pub trace: bool,
+
     /// Permissions granted for Decision Gate evaluation (repeatable).
     #[arg(long = "perm", default_values = &["ReadDocument"])]
     pub permissions: Vec<String>,
@@ -9356,8 +9360,31 @@ fn orchestrator_run(args: OrchestratorRunArgs) -> Result<(), Box<dyn Error>> {
     let cycle = run_deterministic_cycle(&args.objective, workspace_id, agent_id, &[perm])
         .map_err(|e| format!("Orchestrator cycle failed: {e}"))?;
 
-    if args.json {
+    if args.json && args.trace {
+        // Full CycleTrace JSON with context assembly metadata
+        let trace = cycle.to_cycle_trace();
+        println!("{}", serde_json::to_value(&trace)?);
+    } else if args.json {
+        // Backward-compatible: just the outcome
         println!("{}", serde_json::to_value(&cycle.outcome)?);
+    } else if args.trace {
+        // Rich human-readable trace with context assembly metadata
+        let trace = cycle.to_cycle_trace();
+        println!(
+            "{}",
+            style_info("Orchestrator Cycle Trace (with context assembly metadata)")
+        );
+        println!("{}", "-".repeat(60));
+        println!("{}", trace.format());
+        println!();
+        println!(
+            "{}",
+            style_dim("⚠  Advisory — context assembly metadata is non-authorizing.")
+        );
+        println!(
+            "{}",
+            style_dim("   No execution without explicit Decision Gate approval.")
+        );
     } else {
         println!("{}", style_info("Orchestrator Cycle Trace"));
         println!("{}", "-".repeat(60));

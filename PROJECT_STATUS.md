@@ -820,13 +820,12 @@ providers (fastembed, ONNX, etc.) via future feature-gated implementations.
 - All existing tests pass without modification
 
 ### Risks
-- Weight rebalancing (25/25/25/5/20) changes the relative importance of each overlap dimension. Traces that previously resonated by decision overlap alone may score lower. This is intentional — decision overlap was the least semantically meaningful dimension; embedding overlap replaces it with higher semantic weight.
-- Character n-gram embedding is a simplified stand-in for real embeddings. Captures morphology but not true synonymy ("car" ≠ "automobile"). This is documented as a limitation.
+|- Character n-gram embedding is a simplified stand-in for real embeddings. Captures morphology but not true synonymy ("car" ≠ "automobile"). This is documented as a limitation.
 
 ## Latest Session Update — Session 39: Track A Phase 4 — MCP Resources + Prompts
 
 ### What was built
-- **MCP Resource types** (`McpResource`, `McpResourceTemplate`, `ResourceContents`, `ResourceAnnotations`) in `crates/mcp-server/src/types.rs`
+- **MCP Resource types
 - **MCP Prompt types** (`McpPrompt`, `PromptArgument`, `PromptMessage`, `PromptMessageContent`) in `crates/mcp-server/src/types.rs`
 - **Handle resources/list** — exposes server info, tools list, recent governance audit, and audit stats as discoverable resources
 - **Handle resources/templates/list** — exposes `arpagona://audit/by-id/{audit_id}` template for parameterized audit record lookup
@@ -2765,11 +2764,95 @@ Every adapter returns advisory data only. The document specifies query contracts
 | P3-1 — Domain contract | ✅ (#169) |
 | P3-2 — Deterministic loop skeleton | ✅ (#170) |
 | P3-3 — Orchestrator CLI readback | ✅ (#171) |
-| **P3-4 — Memory-aware context integration** | **🔜 PR #172 open, CI pending** |
-| P3-5 — Cycle Trace V0 | 📋 |
+| **P3-4 — Memory-aware context integration** | **✅ (#172 merged)** |
+| P3-5 — Cycle Trace V0 | **✅ (#173 open)** |
 
 ### Recommended next step for GONA
 
-1. **Review PR #172** — if CI passes, merge per auto-merge policy.
-2. **Proceed to P3-5 — Cycle Trace V0** — orchestrator records causal traces with real context assembly metadata (source availability, item count per source, query statistics).
+1. **Review PR #173** — if CI passes, merge per auto-merge policy.
+2. **Proceed to real memory adapters (P3-4a through P3-4e)** — bridge the ContextAssembler trait to actual GraphMemory, HolographicMemory, ReservoirEcho, CompressedCognitiveAttention, and ToolRuntime sources.
 
+---
+
+## 29. Latest Session Update (2026-05-28 DEEP cron — P3-5: Cycle Trace V0)
+
+This session delivered the P3-5 milestone: structured cycle traces with per-source context assembly metadata.
+
+### What was built
+
+**Domain types** in `crates/core/src/orchestrator.rs`:
+- `ContextSourceSummary` — per-source metadata (name, item count, availability, sample preview)
+- `CycleTrace` — structured, serializable causal trace with context assembly metadata
+- `CycleTrace::from_context_bundle()` — extracts per-source summaries from a `ContextBundle`
+- `CycleTrace::format()` — human-readable trace output with per-source breakdown
+
+**Orchestrator enrichment** in `crates/neutral-orchestrator/src/lib.rs`:
+- `OrchestratorCycle::to_cycle_trace()` — converts cycle into structured trace
+- `OrchestratorCycle::causal_trace()` — now delegates to `to_cycle_trace().format()` for richer output with per-source context metadata
+
+**CLI enhancement** in `crates/cli/src/main.rs`:
+- `--trace` flag on `arpagona orchestrator run` for enriched human-readable output
+- `--json --trace` for full `CycleTrace` JSON output
+- Backward-compatible: `--json` without `--trace` returns `OrchestratorOutcome`
+
+**Documentation:** `docs/p3-5-cycle-trace-design.md`
+
+### Tests (9 new/updated, all passing)
+
+- 5 core crate tests: `cycle_trace_new_is_non_authorizing`, `cycle_trace_serializes_and_deserializes`, `cycle_trace_format_shows_context_sources`, `context_source_summary_with_sample_truncates_long_values`, `from_context_bundle_maps_all_sources`
+- 4 orchestrator tests: updated `test_deterministic_cycle_causal_trace_format`, `test_orchestrator_cycle_to_cycle_trace_is_non_authorizing`, `test_cycle_trace_serialization_round_trip`, `test_cycle_trace_with_context_hint_shows_sample`
+
+### Verification
+
+| Check | Result |
+|---|---|
+| `cargo fmt -- --check` | ✅ Clean |
+| `cargo check` | ✅ Clean (pre-existing E0670 lint noise only) |
+| `cargo test --workspace` | ✅ All tests pass across all crates |
+
+### Safety boundaries preserved
+
+- ✅ `CycleTrace.non_authorizing` is set at construction and cannot be changed
+- ✅ No approval, authorization, or execution fields in any trace type
+- ✅ All trace output carries advisory warning
+- ✅ No persistence, I/O, LLM calls, or external effects
+- ✅ Backward-compatible CLI — existing `--json` output unchanged
+- ✅ No Decision Gate bypass, scheduler, autonomy, shell, browser, email, secrets
+- ✅ No Mission Control Web expansion
+
+### Files changed
+
+| File | Change |
+|---|---|
+| `crates/core/src/orchestrator.rs` | Added `ContextSourceSummary`, `CycleTrace` types + 5 tests |
+| `crates/neutral-orchestrator/src/lib.rs` | Added `to_cycle_trace()`, updated `causal_trace()`, 4 cycle trace tests |
+| `crates/cli/src/main.rs` | Added `--trace` flag to orchestrator run |
+| `docs/p3-5-cycle-trace-design.md` | **NEW** — design document |
+| `FOCUS_LOOP_NEXT.md` | Updated handoff — P3-4 complete, P3-5 PR open |
+| `PROJECT_STATUS.md` | This section |
+
+### Deliberately not changed
+
+- No CLI subcommands added — only a `--trace` flag on existing `orchestrator run`
+- No real memory adapters — `SimulatedContextAssembler` remains the default
+- No persistence — `CycleTrace` is serializable but not auto-saved
+- No new crate dependencies
+- No changes to existing orchestrator behavior or outcome types
+- No LLM, scheduler, MCP, or API expansion
+
+### Phase 3 queue progress
+
+| Milestone | Status |
+|---|---|
+| P3-0 — Roadmap definition | ✅ (#168) |
+| P3-1 — Domain contract | ✅ (#169) |
+| P3-2 — Deterministic loop skeleton | ✅ (#170) |
+| P3-3 — Orchestrator CLI readback | ✅ (#171) |
+| P3-4 — Memory-aware context integration | ✅ (#172) |
+| **P3-5 — Cycle Trace V0** | **✅ (#173)** |
+| P3-4a through P3-4e — Real memory adapters | 📋 |
+
+### Recommended next step for GONA
+
+1. **Review PR #173** — merge when CI passes.
+2. **Decide priority among P3-4a through P3-4e** — which real memory adapter to implement first (GraphMemoryAdapter, HolographicMemoryAdapter, ReservoirEchoAdapter, CompressedCognitiveAttentionAdapter, ToolRuntimeAdapter).

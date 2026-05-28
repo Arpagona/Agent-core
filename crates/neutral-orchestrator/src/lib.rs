@@ -33,8 +33,8 @@ use arpagona_agent_core::ids::{ObjectiveId, OrchestratorCycleId};
 #[cfg(test)]
 use arpagona_agent_core::orchestrator::ComputeRouteRequest;
 use arpagona_agent_core::orchestrator::{
-    ComputeRouteResult, ContextBundle, ContextSource, ObjectiveInput, OrchestratorOutcome,
-    ProposalRequest,
+    ComputeRouteResult, ContextBundle, ContextSource, CycleTrace, ObjectiveInput,
+    OrchestratorOutcome, ProposalRequest,
 };
 use arpagona_agent_core::permission::Permission;
 use arpagona_agent_core::risk::RiskLevel;
@@ -75,55 +75,67 @@ pub struct OrchestratorCycle {
 
 impl OrchestratorCycle {
     /// Return the canonical causal trace as a human-readable string.
+    ///
+    /// This method produces a rich trace that includes per-source context
+    /// assembly metadata (item count per source, sample items, unavailable
+    /// sources) in addition to the core causal chain.
     pub fn causal_trace(&self) -> String {
-        let mut lines = vec![];
-        lines.push(format!("Cycle:       {}", self.outcome.cycle_id));
-        lines.push(format!("Objective:   {}", self.outcome.objective_id));
-        lines.push(format!(
-            "Context:     {} ({} items, {})",
-            self.outcome.context_bundle_id,
-            self.context_bundle.total_items(),
-            if self.context_bundle.is_empty() {
-                "empty"
-            } else {
-                "has context"
-            }
-        ));
-        if let Some(ref route) = self.outcome.compute_route_id {
-            lines.push(format!(
-                "Compute:     {} → {}",
-                route, self.compute_route_result.selected_route_label
-            ));
+        self.to_cycle_trace().format()
+    }
+
+    /// Convert this cycle into a structured, serializable CycleTrace.
+    ///
+    /// The CycleTrace captures the full causal chain with per-source context
+    /// assembly metadata: which sources contributed items, how many, sample
+    /// items, unavailable sources, compute route, action, decision, audit
+    /// events, and outcome.
+    ///
+    /// # Safety
+    ///
+    /// The returned trace is always non-authorizing. No field in the trace
+    /// may be interpreted as approval, authorization, or execution permission.
+    pub fn to_cycle_trace(&self) -> CycleTrace {
+        let mut trace = CycleTrace::new(
+            self.outcome.cycle_id.clone(),
+            &self.objective_input.text,
+            format!("{:?}", self.outcome.cycle_status),
+            &self.outcome.summary,
+        );
+
+        // Context assembly metadata — per-source breakdown
+        let source_summaries = CycleTrace::from_context_bundle(&self.context_bundle);
+        trace.context_source_summaries = source_summaries;
+        trace.total_context_items = self.context_bundle.total_items();
+
+        // Unavailable sources
+        for src in &self.context_bundle.unavailable_sources {
+            trace.unavailable_sources.push(format!("{:?}", src));
         }
-        lines.push(format!("Proposal:    {}", self.outcome.proposal_request_id));
-        if let Some(ref action) = self.outcome.proposed_action_id {
-            lines.push(format!("Action:      {} ({})", action, {
-                self.proposed_action
-                    .as_ref()
-                    .map(|a| format!("{:?}", a.action_type))
-                    .unwrap_or_else(|| "unknown".to_owned())
-            }));
+
+        // Domain
+        if let Some(ref domain) = self.objective_input.domain_hint {
+            trace.objective_domain = Some(format!("{:?}", domain));
         }
-        if let Some(ref decision) = self.outcome.decision_id {
-            lines.push(format!("Decision:    {} ({:?})", decision, {
-                self.decision
-                    .as_ref()
-                    .map(|d| format!("{:?}", d.status))
-                    .unwrap_or_else(|| "unknown".to_owned())
-            }));
+
+        // Compute route
+        trace.compute_route_label = Some(self.compute_route_result.selected_route_label.clone());
+        trace.compute_route_justification = Some(self.compute_route_result.justification.clone());
+
+        // Action
+        if let Some(ref action) = self.proposed_action {
+            trace.action_type = Some(format!("{:?}", action.action_type));
         }
-        lines.push(format!(
-            "Audit:       {} events",
-            self.outcome.audit_event_count()
-        ));
-        for event_id in &self.outcome.audit_event_ids {
-            lines.push(format!("  ├─ {}", event_id));
+
+        // Decision
+        if let Some(ref decision) = self.decision {
+            trace.decision_status = Some(format!("{:?}", decision.status));
         }
-        lines.push(format!("Gate:        {}", self.outcome.gate_was_applied));
-        lines.push(format!("Non-auth:    {}", self.outcome.non_authorizing));
-        lines.push(format!("Status:      {:?}", self.outcome.cycle_status));
-        lines.push(format!("Summary:     {}", self.outcome.summary));
-        lines.join("\n")
+
+        // Audit
+        trace.audit_event_count = self.outcome.audit_event_count();
+        trace.gate_was_applied = self.outcome.gate_was_applied;
+
+        trace
     }
 }
 
@@ -650,14 +662,90 @@ mod tests {
         assert!(trace.contains("Cycle:"));
         assert!(trace.contains("Objective:"));
         assert!(trace.contains("Context:"));
+        assert!(trace.contains("├─"));
+        assert!(trace.contains("graph_memory"));
+        assert!(trace.contains("holo"));
+        assert!(trace.contains("reservoir"));
+        assert!(trace.contains("Total:"));
         assert!(trace.contains("Compute:"));
-        assert!(trace.contains("Proposal:"));
         assert!(trace.contains("Action:"));
         assert!(trace.contains("Decision:"));
         assert!(trace.contains("Audit:"));
         assert!(trace.contains("Gate:"));
         assert!(trace.contains("Non-auth:"));
+        assert!(trace.contains("Status:"));
         assert!(trace.contains("Summary:"));
+    }
+
+    #[test]
+    fn test_orchestrator_cycle_to_cycle_trace_is_non_authorizing() {
+        let result = run_deterministic_cycle(
+            "Cycle trace invariant test",
+            WorkspaceId::new("ws-1"),
+            AgentId::new("agent-1"),
+            &[Permission::ReadDocument],
+        )
+        .expect("cycle should succeed");
+
+        let trace = result.to_cycle_trace();
+        assert!(trace.non_authorizing);
+        assert_eq!(trace.cycle_id, result.outcome.cycle_id);
+        assert_eq!(trace.objective_text, "Cycle trace invariant test");
+        assert!(trace.context_source_summaries.len() >= 3);
+        // All sources are "available" with the SimulatedContextAssembler
+        for summary in &trace.context_source_summaries {
+            assert!(summary.available);
+        }
+    }
+
+    #[test]
+    fn test_cycle_trace_serialization_round_trip() {
+        let result = run_deterministic_cycle(
+            "Serialization test",
+            WorkspaceId::new("ws-1"),
+            AgentId::new("agent-1"),
+            &[Permission::ReadDocument],
+        )
+        .expect("cycle should succeed");
+
+        let trace = result.to_cycle_trace();
+        let json = serde_json::to_value(&trace).expect("should serialize");
+        assert_eq!(json["objective_text"], "Serialization test");
+        assert_eq!(json["non_authorizing"], true);
+        assert!(json.get("approved").is_none());
+        assert!(json.get("authorized").is_none());
+        assert!(json.get("executed").is_none());
+
+        let decoded: CycleTrace = serde_json::from_value(json).expect("should deserialize");
+        assert_eq!(decoded.objective_text, trace.objective_text);
+        assert!(decoded.non_authorizing);
+    }
+
+    #[test]
+    fn test_cycle_trace_with_context_hint_shows_sample() {
+        let input = ObjectiveInput::new(
+            "Context trace test",
+            WorkspaceId::new("ws-1"),
+            AgentId::new("agent-1"),
+            Utc::now(),
+        )
+        .with_context("Q1 financial results");
+
+        let engine = OrchestratorEngine::new();
+        let cycle = engine
+            .run_cycle(input, &[Permission::ReadDocument])
+            .expect("cycle should succeed");
+
+        let trace = cycle.to_cycle_trace();
+        // The context hint is added as a graph_memory_item
+        let graph_mem = trace
+            .context_source_summaries
+            .iter()
+            .find(|s| s.source == "graph_memory")
+            .expect("graph_memory summary should exist");
+        assert_eq!(graph_mem.item_count, 1);
+        assert!(graph_mem.sample_key.is_some());
+        assert!(graph_mem.sample_value_preview.is_some());
     }
 
     // ─── Blocked path ───────────────────────────────────────────────────
