@@ -2676,3 +2676,100 @@ The `orchestrator_run` handler:
 1. **Review PR #171** — if CI passes, merge per auto-merge policy.
 2. **Arbitrate P3-4** — Memory-aware context integration design: define how Graph Memory, Holographic Memory, Reservoir Echo, and Compressed Cognitive Attention feed advisory context into orchestrator cycles.
 3. **No DV backlog items remain open** — all DV entries are resolved.
+
+## 31. Latest Session Update (2026-05-30 DEEP cron — P3-4: Memory-aware context integration design + ContextAssembler prototype)
+
+This session delivered the P3-4 milestone: a design document and the initial context assembly plumbing for wiring memory sources into orchestrator cycles as advisory context.
+
+### What was added
+
+**Design document:** `docs/p3-4-memory-aware-context-design.md`
+
+Defines the full pipeline for how memory sources feed advisory context into orchestrator cycles:
+
+| Source | Adapter (future) | Purpose |
+|---|---|---|
+| Graph Memory | `GraphMemoryAdapter` | Structured durable facts, past decisions |
+| Holographic Memory | `HolographicMemoryAdapter` | Pattern resonance — "what does this resemble?" |
+| Reservoir Echo | `ReservoirEchoAdapter` | Short-term volatile traces, recent cycles |
+| Compressed Cognitive Attention | `CompressedCognitiveAttentionAdapter` | Temporally enriched memory candidates |
+| Tool Runtime | `ToolRuntimeAdapter` | Workspace file-system perception |
+
+Every adapter returns advisory data only. The document specifies query contracts, output shapes, availability handling, safety invariants, and the integration pipeline.
+
+**Domain types** in `crates/core/src/orchestrator.rs`:
+
+| Type | Role |
+|---|---|
+| `MemoryQueryRequest` | Formal query sent to the context assembly pipeline (cycle_id, objective_id, objective_text, workspace_id, requested_sources, max_items_per_source) |
+| `MemoryQueryResponse` | Advisory response from a source adapter (source, items, available, explanation) |
+| `ContextSource::CompressedCognitiveAttention` | New enum variant for the compressed attention source |
+
+**ContextAssembler trait** at `crates/neutral-orchestrator/src/context_assembler.rs`:
+
+- `ContextAssembler` trait with `assemble()` and `supported_sources()` methods
+- `SimulatedContextAssembler` — default no-op implementation returning empty results for all 6 sources
+- 5 tests proving: empty responses, source availability, explanation format, source filtering, and max_items behavior
+
+**OrchestratorEngine wiring** in `crates/neutral-orchestrator/src/lib.rs`:
+
+- `context_assembler: Box<dyn ContextAssembler>` field
+- `OrchestratorEngine::new()` defaults to `SimulatedContextAssembler`
+- `with_context_assembler()` builder method for plugging in real adapters
+- `assemble_context()` now queries the assembler and maps responses to `ContextBundle` fields (graph_memory_items, holographic_resonance_items, reservoir_traces)
+- Backward compatibility preserved: `context_hint` from `ObjectiveInput` is still added as a special `graph_memory_item` after the assembler runs
+
+### Files changed
+
+| File | Change |
+|---|---|
+| `docs/p3-4-memory-aware-context-design.md` | **New** — full design document |
+| `crates/core/src/orchestrator.rs` | Added `MemoryQueryRequest`, `MemoryQueryResponse`, `ContextSource::CompressedCognitiveAttention` variant |
+| `crates/neutral-orchestrator/src/context_assembler.rs` | **New** — `ContextAssembler` trait + `SimulatedContextAssembler` + 5 tests |
+| `crates/neutral-orchestrator/src/lib.rs` | Wire `context_assembler` field into `OrchestratorEngine`; update `assemble_context()` to use it |
+| `FOCUS_LOOP_NEXT.md` | Updated handoff — P3-3 merged, P3-4 PR open |
+| `PROJECT_STATUS.md` | This update |
+
+### Verification
+
+| Check | Result |
+|---|---|
+| `cargo fmt -- --check` | ✅ Clean |
+| `cargo check` | ✅ Clean (0 warnings) |
+| `cargo test --workspace` | ✅ All tests pass (0 failures across all crates) |
+
+### Safety boundaries preserved
+
+- ✅ All `MemoryQueryResponse` items are advisory — no approval, authorization, or execution tokens
+- ✅ `SimulatedContextAssembler` requires zero I/O, zero LLM, zero persistence
+- ✅ No real memory adapters implemented yet — the trait interface is ready for future milestones
+- ✅ Backward compatible — existing orchestrator tests pass without modification
+- ✅ No new MCP resources, API endpoints, or Web expansion
+- ✅ No Decision Gate bypass
+- ✅ No scheduler, autonomy, shell, browser, email, secrets, or self-modification
+- ✅ No readback-as-authorization behavior
+
+### Deliberately not changed
+
+- No real memory adapter implementations (GraphMemory, HolographicMemory, ReservoirEcho, CompressedCognitiveAttention, ToolRuntime)
+- No I/O, persistence, LLM calls, or network access
+- No new CLI commands or MCP resources
+- No changes to `crates/graph-memory`, `crates/holographic-memory`, `crates/tool-runtime`, `crates/compressed-cognitive-attention`
+- No changes to Decision Gate, Tool Registry, or Audit behavior
+
+### Phase 3 queue progress
+
+| Milestone | Status |
+|---|---|
+| P3-0 — Roadmap definition | ✅ (#168) |
+| P3-1 — Domain contract | ✅ (#169) |
+| P3-2 — Deterministic loop skeleton | ✅ (#170) |
+| P3-3 — Orchestrator CLI readback | ✅ (#171) |
+| **P3-4 — Memory-aware context integration** | **🔜 PR #172 open, CI pending** |
+| P3-5 — Cycle Trace V0 | 📋 |
+
+### Recommended next step for GONA
+
+1. **Review PR #172** — if CI passes, merge per auto-merge policy.
+2. **Proceed to P3-5 — Cycle Trace V0** — orchestrator records causal traces with real context assembly metadata (source availability, item count per source, query statistics).
+
