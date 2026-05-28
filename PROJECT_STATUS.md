@@ -1400,3 +1400,78 @@ This session delivered D1 — the first coherent operator status view that combi
 - No API endpoints, MCP resources/prompts, Mission Control Web
 - No executor, scheduler, browser, email or network automation
 - No Graph Memory, Holographic Memory, Compute Reservoir, Tool Registry or Audit system behavior
+- No scheduler, autonomous loops, or self-modification
+
+### PR
+
+#143 — `feat/e1-sme-documentary-demo` — updated with this session's commit, all CI green, mergeable.
+
+## 20. Latest Session Update (2026-05-28 — E1 SME Documentary LLM demo variant)
+
+This session extended the E1 SME Documentary Assistant demo with an LLM-assisted variant, completing the "Extend E1 with --llm variant" work item from FOCUS_LOOP_NEXT.md.
+
+### What was added
+
+**`demos/sme-documentary/demo-llm.sh`** — standalone LLM-assisted demo script with 3 modes:
+
+- `mock` (default) — deterministic mock provider for zero-dependency demo
+- `ollama` — real local model via Ollama (qwen3.5:9b)
+- `both` — runs mock first, then Ollama comparison in Phase 5
+
+The demo integrates `--llm --provider` into every cognitive phase:
+
+| Phase | Description | LLM role |
+|-------|-------------|----------|
+| Phase 1 | Tool Runtime read-only discovery | Same as demo.sh (tool runtime does not call LLM) |
+| Phase 2 | Cognitive analysis | `--llm --provider` enriches working memory, plan, proposals with structured [STATE]/[KEY GAP/RISK]/[RECOMMENDED NEXT STEP] synthesis |
+| Phase 3 | Governed analysis pipeline | `--assess --observe --govern --llm` exercises full governance chain with LLM-enriched context |
+| Phase 4 | Operator readback + LLM journal | Shows system status and populated LLM journal entries with provider/model/summary traces |
+| Phase 5 | (both mode only) Ollama comparison | Runs same cognitive analysis with local model for side-by-side comparison |
+
+**`demos/sme-documentary/README.md`** — Updated:
+- Quick Start section restructured: standard demo and LLM-assisted demo subsections
+- LLM variant instructions show all 3 modes
+- Next Steps updated: step 1 (Real LLM integration) marked ✅
+
+**`FOCUS_LOOP_NEXT.md`** — Updated:
+- E1 LLM variant complete status
+- Next action: Track E2 (Business/prospecting workflow demo) after PRs merged
+
+**`DAILY_VALIDATION_BACKLOG.md`** — Updated DV-2026-05-28-005 evidence:
+- Added finding: `--provider ollama` (qwen3.5:9b) produces French-language synthesis when the objective is in French — more contextually useful than English mock output for the SME scenario.
+
+### Verification
+
+| Check | Result |
+|-------|--------|
+| `cargo fmt -- --check` | ✅ Clean |
+| `cargo check` | ✅ Clean (pre-existing warnings only) |
+| `cargo test --workspace` | ✅ 172 tests pass (0 regressions) |
+| `grep -R conflict markers` | ✅ Clean |
+| `bash demo-llm.sh mock` | ✅ Demo runs all 4 phases successfully, summary displayed |
+
+### Safety boundaries preserved
+
+- Read-only + workspace-scoped tools (unchanged from demo.sh)
+- Non-authorizing output (`non_authorizing: true` preserved)
+- Governance chain (Decision Gate → Decision → Audit) unchanged
+- No external effects (no API server, no file writes by LLM, no scheduler)
+- LLM never approves actions or writes memory directly
+
+### Files changed
+
+| File | Change |
+|------|--------|
+| `demos/sme-documentary/demo-llm.sh` | **New** — LLM-assisted demo variant (3 modes) |
+| `demos/sme-documentary/README.md` | Updated: Quick Start split, LLM instructions, Next Steps |
+| `FOCUS_LOOP_NEXT.md` | Updated: E1 LLM variant complete, next action = E2 |
+| `DAILY_VALIDATION_BACKLOG.md` | Updated: DV-2026-05-28-005 evidence with Ollama French finding |
+
+### Not changed
+
+- No Rust source, test, config, CLI, Decision Gate, MCP, or tool runtime changes
+- No new crate or dependency added
+- No LLM provider, governance, audit, or memory behavior changed
+- No shell, browser, email, secrets, or execution capabilities added
+- No API endpoints or Mission Control Web expansion
+
