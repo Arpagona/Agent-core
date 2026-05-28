@@ -294,7 +294,7 @@
    292|- Plan generation with context-aware ordering.
    293|- Next action proposal (RequestContext if gaps exist, StopWithReport otherwise).
    294|- Improvement candidate identification (missing context, weak plan, domain ambiguity).
-   295|
+
    296|**CLI surface:**
    297|- `arpagona cognitive run --objective <TEXT> [--domain <DOMAIN>] [--context <TEXT>] [--json]`
    298|- Human-readable text output and structured JSON output.
@@ -2092,3 +2092,49 @@ This session merged PR #158 and fixed two data-accuracy issues in the operator s
 - No integration test was added for the DV section structure (deferred to H1 if desired)
 - No demo scripts, documentation (other than handoff), or `DAILY_VALIDATION_BACKLOG.md` changes (all DV entries closed)
 - No Holographic Memory, Compute Reservoir, Graph Memory, MCP, or Decision Gate logic changes
+
+## 27. Latest Session Update (2026-05-28 — H1: audit list --json for structured JSON readback, PR #162)
+
+This session added `--json` support to `arpagona audit list`, completing the JSON-readback coverage for all audit subcommands.
+
+### What was changed
+
+**`crates/cli/src/main.rs`**:
+
+| Change | Detail |
+|--------|--------|
+| `ListAuditArgs` struct | Added with `json: bool` field and `--json` clap attribute |
+| `AuditSubcommand::List` | Changed from unit variant to `List(ListAuditArgs)` |
+| `list_audit()` | Updated signature to accept args; emits JSON when `--json` is set |
+| Chat dispatch | Passes `ListAuditArgs { json: false }` for backward-compatible interactive use |
+| Parser tests | Added `cli_parses_audit_list_without_flags` and `cli_parses_audit_list_with_json_flag` |
+
+### Verification
+
+| Check | Result |
+|-------|--------|
+| `cargo fmt -- --check` | ✅ Clean |
+| `cargo check` | ✅ Clean (0 warnings) |
+| `cargo test` | ✅ All 660+ tests pass, including 2 new parser tests |
+
+### Safety boundaries preserved
+
+- No new capabilities — only structured output format for existing read-only surface
+- No Decision Gate bypass, permission changes, execution, or autonomous behavior
+- No changes to existing audit data, audit endpoints, or Graph Memory
+- No changes to schema, API, or persistence behavior
+- Readback is evidence only, not authorization
+
+### Files changed
+
+| File | Change |
+|------|--------|
+| `crates/cli/src/main.rs` | +51/−5: struct variant, dispatch, JSON output, 2 parser tests |
+| `FOCUS_LOOP_NEXT.md` | Updated handoff — PR #162 open, all DV entries resolved |
+
+### Deliberately not changed
+
+- No changes to core domain types, Decision Gate, tool-runtime, tool-registry, holographic-memory, mcp-server, api-server
+- No new CLI commands, API endpoints, or persisted state
+- No scheduling, autonomy, MCP expansion, browser automation, email, secrets, or unrestricted shell
+- No readback-as-authorization behavior
