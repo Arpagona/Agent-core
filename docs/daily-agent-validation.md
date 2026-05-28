@@ -127,6 +127,7 @@ grep -R "<<<<<<<\|=======\|>>>>>>>" \
   --exclude-dir=node_modules \
   --exclude=daily-agent-validation.md \
   --exclude=DAILY_VALIDATION_BACKLOG.md \
+  --exclude=PROJECT_STATUS.md \
   .
 ```
 

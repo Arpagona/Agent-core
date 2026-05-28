@@ -16,27 +16,21 @@ Rules:
 
 ## Open candidates
 
-### DV-2026-05-28-001 — Conflict-marker scan still produces false positives outside the protocol/backlog files
-- source: daily validation 2026-05-28 repository sync
-- category: validation tooling / operator signal
-- severity: low
-- status: open
-- evidence: the mandatory scan `grep -R "<<<<<<<\|=======\|>>>>>>>" --exclude-dir=.git --exclude-dir=target --exclude-dir=node_modules --exclude=daily-agent-validation.md --exclude=DAILY_VALIDATION_BACKLOG.md .` returned matches in `PROJECT_STATUS.md` because that document embeds the grep pattern and previous run evidence, not unresolved merge markers.
-- expected behavior: daily validation should flag real unresolved conflict markers while avoiding self-referential documentation examples in status/protocol artifacts.
-- suggested fix/tests: update the protocol scan to use line-anchored marker detection or explicitly exclude generated/status handoff files.
-- do not: weaken detection for real source/config/document conflicts or ignore grep failures broadly.
-
 ### DV-2026-05-28-005 — Local Ollama synthesis remains structured but often generic against operator prompts
 - source: daily validation 2026-05-28 Beta Usage Lab
 - category: beta usability / LLM synthesis quality
 - severity: low
 - status: open
-- evidence: eight local-only `cognitive run --llm --provider ollama --assess --allocate --json` scenarios produced safe structured responses but repetitive generic framing.
+- evidence: local Ollama scenarios produced safe structured responses but repetitive generic framing. The E1 SME demo also observed that `qwen3.5:9b` can produce useful French-language synthesis, so the remaining issue is specificity/reliability rather than safety.
 - expected behavior: local synthesis should retain the safe structured format while grounding each answer in the specific request.
-- suggested fix/tests: add deterministic mock-provider acceptance tests or prompt assembly tests requiring request-specific fields and one concrete bounded next step without claiming authorization.
+- suggested fix/tests: add deterministic mock-provider acceptance tests or prompt assembly tests requiring request-specific fields and one concrete bounded next step without claiming authorization; document Ollama model-quality caveats if needed.
 - do not: call remote model APIs, require model downloads, or allow prose to bypass Decision Gate governance.
 
 ## Closed / superseded candidates
+
+### DV-2026-05-28-001 — Conflict-marker scan still produces false positives outside the protocol/backlog files
+- status: **fixed in PR #143** (2026-05-28 focus loop)
+- evidence: `docs/daily-agent-validation.md` excludes `PROJECT_STATUS.md`, the remaining self-referential false-positive source. Verification reported zero conflict-marker matches (grep exit 1 = clean).
 
 ### DV-2026-05-28-002 — CLI documentation coverage is missing `mcp-governance-audit` and `llm`
 - status: **fixed in PR #139** (2026-05-28 focus loop)
@@ -44,27 +38,16 @@ Rules:
 
 ### DV-2026-05-28-003 — Missing parent-traversal target is reported as non-security `invalid_path`
 - status: **fixed in PR #141** (2026-05-28 focus loop)
-- evidence: `resolve_path()` in `crates/tool-runtime/src/lib.rs` now performs lexical `..` escape detection before calling `canonicalize()`. Missing parent-traversal targets that would escape the workspace now return `Blocked`/`is_security: true`.
-- verification: parent-traversal tests cover missing targets for read_file, list_files, and search_text.
+- evidence: lexical `..` escape detection runs before `canonicalize()` in `crates/tool-runtime/src/lib.rs`; missing parent-traversal targets now return `Blocked`/`is_security: true`.
 
 ### DV-2026-05-28-004 — Recent snapshot integration simplification removed useful governance regression assertions
 - status: **fixed in PR #140** (2026-05-28 focus loop)
 - evidence: targeted governance/readback regression assertions were restored in `crates/cli/tests/snapshot_integration.rs`.
 
-### DV-2026-05-26-001 — Path escape attempts should be reported as security blocks
-- status: **fixed in PR #119** (2026-05-27 focus loop)
-
-### DV-2026-05-26-002 — CLI documentation can drift behind CLI surface
-- status: fixed 2026-05-26 focus loop
-
-### DV-2026-05-27-001 — Open Holographic Memory PR needs regression coverage before merge
-- status: **closed — superseded** (PR #103 was merged)
-
-### DV-2026-05-27-002 — Local LLM synthesis is useful but too generic for beta operator scoring
-- status: **fixed in PR #124** (2026-05-27 focus loop)
-
-### DV-2026-05-27-003 — Daily validation conflict-marker scan produces protocol false positives
-- status: fixed in 2026-05-27 focus loop
-
-### DV-2026-05-27-004 — CLI docs coverage regressed for `executor`
-- status: **fixed in PR #108** (2026-05-27 focus loop)
+### Older closed / superseded items
+- DV-2026-05-26-001 — fixed in PR #119.
+- DV-2026-05-26-002 — fixed 2026-05-26.
+- DV-2026-05-27-001 — closed, superseded by PR #103 merge.
+- DV-2026-05-27-002 — fixed in PR #124.
+- DV-2026-05-27-003 — fixed in 2026-05-27 focus loop.
+- DV-2026-05-27-004 — fixed in PR #108.

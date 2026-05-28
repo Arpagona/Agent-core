@@ -4,19 +4,18 @@ This file is the short-lived handoff for the next scheduled focus-loop run.
 
 It must contain one concrete next action only. The runtime milestone queue and long-term rules live in `AGENT_FOCUS_LOOP.md`.
 
-## Current status (2026-05-28 focus loop — DV corrections)
+## Current status (2026-05-28 focus loop — E1 demo + DV cleanup)
 
-Merged:
-- PR #139 fixed `DV-2026-05-28-002` — CLI docs coverage for `mcp-governance-audit` and `llm`.
-- PR #140 fixed `DV-2026-05-28-004` — governance/readback regression assertions.
+Merged DV corrections:
+- PR #139 fixed `DV-2026-05-28-002`.
+- PR #140 fixed `DV-2026-05-28-004`.
+- PR #141 fixed `DV-2026-05-28-003`.
 
-Active PR:
-- PR #141 fixes `DV-2026-05-28-003` — lexical parent-traversal security classification before filesystem lookup.
+PR #143 adds the E1 SME Documentary Assistant demo and fixes `DV-2026-05-28-001` by excluding `PROJECT_STATUS.md` from the daily conflict-marker scan.
 
-Remaining unresolved 2026-05-28 DV entries after PR #141:
+Remaining unresolved 2026-05-28 DV entry after PR #143:
 1. **DV-2026-05-28-005** — make local Ollama synthesis more specific to the operator request.
-2. **DV-2026-05-28-001** — reduce false positives in the conflict-marker scan.
 
 ## Next action
 
-**After PR #141 is merged: fix one remaining DV entry, preferably `DV-2026-05-28-005` unless `DV-2026-05-28-001` is already bundled in a clean validation PR.** Do not start a new non-DV milestone while these entries remain open unless the blocker/P0 rationale is explicit.
+**Fix or explicitly defer `DV-2026-05-28-005` before starting another non-DV milestone.** If the fix is judged to be model-quality rather than code, document the limitation and acceptance criteria clearly in the backlog and CLI/operator docs.
