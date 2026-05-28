@@ -1692,3 +1692,84 @@ All 5 open conflicting PRs are now on main. No open PRs remain. All DV-2026-05-2
 - No scheduler, autonomy, MCP expansion, browser automation, email, secrets, or unrestricted shell
 - No API endpoint or Mission Control Web expansion
 - No readback-as-authorization behavior
+
+## 25. Latest Session Update (2026-05-28 2nd DEEP focus loop — P1 blitz: 5 PRs merged, C4+D2+D3+E2+E4 delivered, C5 confirmed)
+
+This session performed the DEEP 2026-05-28 2nd focus loop run. Governance bootstrap: no `docs/gona-deep-governance.md` or `docs/steroid-hermes-action-plan.md` present; the cron prompt served as the temporary GONA governance bootstrap.
+
+### P1 — Merged all 5 open mergeable PRs
+
+All PRs had green CI checks. Merged in order:
+
+| PR # | Branch | Milestone | Additions | Special handling |
+|------|--------|-----------|-----------|-----------------|
+| #149 | `feat/e2-business-prospecting-demo` | E2 — Business Prospecting Workflow Demo | 635+18 | Clean merge — no conflicts |
+| #150 | `feat/c4-compute-reservoir-model-routing` | C4 — Compute Reservoir Model Routing | 418+18 | Rebased — handoff file conflicts resolved |
+| #151 | `docs/e4-readme-demo-10-min` | E4 — README: demo in 10 minutes | 308+117 | Rebased — handoff file conflicts resolved |
+| #152 | `feat/d2-action-supervision-surface` | D2 — ProposedAction and tool-call supervision | 454+18 | Rebased — llm_journal.rs + handoff conflicts resolved (merged both `add_governance()` and `add_compute_routing()`) |
+| #153 | `feat/d3-memory-resonance-visibility` | D3 — Memory and resonance visibility | 412+28 | Rebased — handoff file conflicts resolved |
+
+Total changed across 5 PRs: ~2,426 lines merged.
+
+### C5 — Anti-drift/adversarial tests confirmed on main
+
+Commit `67620e6 feat: Track C Step C5 — Anti-drift and adversarial tests` is on main. Tests cover:
+- **Tool bypass attempts** — `govern_tool_call_approves_shell_tool_with_permission`, `govern_tool_call_with_any_tool_name_produces_governing_decision` (19 tool names tested)
+- **Malformed tool-call payloads** — `govern_tool_call_handles_missing_arguments_gracefully`, `govern_tool_call_handles_null_arguments_without_panic`
+- **Decision Gate mandatory regression** — `every_proposed_action_begins_as_pending_decision`, `every_tool_call_requires_governance_decision`
+- **Unsafe memory-write governance** — existing tests for all MemoryWriteKind variants
+
+### Phase 2 delivery status
+
+| Track | Milestone | Status |
+|-------|-----------|--------|
+| C1 | Real LLM integration (--llm flag) | ✅ On main |
+| C2 | Governed direct tool-calling | ✅ Merged |
+| C3 | LLM interaction journaling | ✅ On main |
+| C4 | Compute Reservoir model routing | ✅ Merged |
+| C5 | Anti-drift/adversarial tests | ✅ On main |
+| D1 | Operator status surface | ✅ Partial (status command exists) |
+| D2 | ProposedAction/tool-call supervision | ✅ Merged |
+| D3 | Memory and resonance visibility | ✅ Merged |
+| D4 | Web Mission Control | 🔜 Deferred |
+| D5 | Operator approval design | ✅ Merged |
+| E1 | SME documentary assistant demo | ✅ Merged |
+| E2 | Business prospecting workflow demo | ✅ Merged |
+| E3 | Company assistant demo pack | ❌ Remaining |
+| E4 | README: demo in 10 minutes | ✅ Merged |
+| E5 | Product positioning evidence | ❌ Remaining |
+| H1 | Production hardening pass | ❌ Remaining |
+
+### Verification
+
+- `cargo fmt -- --check`: ✅ clean
+- `cargo check`: ✅ clean (pre-existing api-server warnings only)
+- `cargo test --workspace`: ✅ all tests pass (0 failures across all crates — core, decision-gate, compute-reservoir, holographic-memory, mcp-server, tool-runtime, cli, llm, api-server, etc.)
+
+### Safety boundaries preserved
+
+- No unrestricted shell, browser, email, secrets, or write tools
+- No Decision Gate bypass
+- No scheduler, autonomy, or agent self-modification
+- No API endpoint or Mission Control Web expansion
+- No readback-as-authorization behavior
+- No new model calls, provider endpoints, or LLM integration
+- All 5 PRs merged were pre-reviewed, green-CI, and mergeable
+
+### Files changed (this session)
+
+| File | Change |
+|------|--------|
+| FOCUS_LOOP_NEXT.md | Updated handoff — all 5 PRs merged, C4+C5+D2+D3+E2+E4 delivered, next: E3 or H1 |
+| PROJECT_STATUS.md | Added section 25 documenting this session |
+
+No code files were changed — only handoff/documentation files updated.
+
+### Deliberately not changed
+
+- No code changes to any crate: core, decision-gate, compute-reservoir, holographic-memory, mcp-server, tool-runtime, tool-registry, cli, llm, runtime, api-server
+- No crate boundaries, permissions, risk levels, or governance logic
+- No new features, flags, or commands
+- No test additions (C5 already on main)
+- No branch was created for new feature work (all effort went to merging existing PRs)
+- No C5 branch was created — tests confirmed already on main

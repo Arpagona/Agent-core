@@ -4,26 +4,36 @@ This file is the short-lived handoff for the next scheduled focus-loop run.
 
 It must contain one concrete next action only. The runtime milestone queue and long-term rules live in `AGENT_FOCUS_LOOP.md`.
 
-## Current status (2026-05-28 focus loop — E2 complete, C3 confirmed)
+## Current status (2026-05-28 2nd DEEP focus loop — P1/P0 clean, C4+C5+D2+D3+E2+E4 all delivered)
 
-All milestones completed:
-- Track C C3 (LLM interaction journaling) — confirmed complete:
-  - `LlmJournal` in `crates/core/src/llm_journal.rs` with Synthesis, DirectToolCall, ToolCallIntent types
-  - Ring buffer + JSON-lines file persistence (target/llm-journal.jsonl)
-  - CLI `llm journal --json --limit N` command with provider, model, decision_gate, risk_level
-  - 9 unit tests covering add, capacity, recent, get, serialize, compute_routing
-  - 40+ journal entries accumulated in CI runs
-- Track E E2 (Business/prospecting workflow demo) — complete:
-  - `demos/business-prospecting/` with demo.sh, README.md, 2 sample docs
-  - 5-phase prospecting workflow: analysis → discovery → governance → action proposal → operator readback
-  - All 5 phases verified: `bash demos/business-prospecting/demo.sh`
+**main is green:** ✅ `cargo fmt -- --check` passes, ✅ `cargo check` passes, ✅ `cargo test` passes (0 failures across all crates).
+
+All 5 open mergeable PRs merged in this session:
+| PR | Milestone | Status |
+|----|-----------|--------|
+| #149 | E2 — Business Prospecting Workflow Demo | ✅ Merged |
+| #150 | C4 — Compute Reservoir Model Routing (standalone preview) | ✅ Merged (rebase+conflict resolved) |
+| #151 | E4 — README: demo in 10 minutes | ✅ Merged (rebase+conflict resolved) |
+| #152 | D2 — ProposedAction and tool-call supervision surface | ✅ Merged (rebase+conflict resolved) |
+| #153 | D3 — Memory and resonance visibility | ✅ Merged (rebase+conflict resolved) |
+
+C5 (Anti-drift/adversarial tests) confirmed already on main — tests prove tool bypass detection, malformed payload handling, Decision Gate mandatory regression, and unsafe tool name governance.
+
+Phase 2 delivery summary:
+- Track C: C1 (real LLM via --llm flag) ✅, C2 (governed tool-calling) ✅, C3 (LLM journaling) ✅, C4 (compute routing) ✅, C5 (anti-drift tests) ✅ → **Track C complete**
+- Track D: D1 (operator status) ✅ partial, D2 (action supervision) ✅, D3 (memory visibility) ✅, D5 (approval design) ✅ → D4 (Web) still deferred
+- Track E: E1 (SME demo) ✅, E2 (business prospecting) ✅, E4 (README 10 min) ✅ → E3 (demo pack), E5 (positioning) remaining
+- H1 (hardening pass) — available
 
 ## Next action
 
-**Recommended: C4 (Compute Reservoir model routing) or C5 (Anti-drift/adversarial tests).**
+**Recommended: E3 (Local company assistant demo pack)** — combine E1 (SME documentary demo) and E2 (Business prospecting demo) into a reusable demo pack:
+- One scripted scenario covering the full governed cognitive loop
+- One sample dataset or synthetic document set
+- One expected output report
+- One explanation of governance/audit value
+- One operator-friendly README
 
-C4 builds on the existing Compute Reservoir integration to demonstrate model route selection with explainability. C5 protects C1-C4 model layers against predictable failure modes.
+E3 is well-bounded (packaging/docs), immediately useful for product conversations, and doesn't require new runtime infrastructure.
 
-Choose C4 if the team wants to see model routing proof. Choose C5 if test coverage hardening is the priority.
-
-Alternatively, E3 (Local company assistant demo pack) combines E1+E2 into a reusable demo pack — good for sales/product conversations.
+Alternatively: **H1 (Production hardening pass)** — edge-case tests, error handling, regression tests, audit readability, dependency cleanup. Only if demo packing is not needed.
