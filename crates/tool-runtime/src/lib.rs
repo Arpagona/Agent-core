@@ -1251,11 +1251,16 @@ mod tests {
             .unwrap()
             .len();
 
-        // Exact case match should find 1, lowercase query may find 0 (case-sensitive) or 1 (case-insensitive)
-        // Either is acceptable — just prove stability and non-panicking behavior
+        // Exact case match should find 1; lowercase query must find fewer (proving case sensitivity)
         assert_eq!(
             upper_matches, 1,
             "exact case 'UPPER' should match at least 'UPPER'"
+        );
+        assert!(
+            lower_matches < upper_matches,
+            "lowercase 'upper' query should find fewer matches than exact case 'UPPER' (found {} vs {})",
+            lower_matches,
+            upper_matches
         );
     }
 
