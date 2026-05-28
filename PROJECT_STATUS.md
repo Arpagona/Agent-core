@@ -2611,3 +2611,68 @@ ObjectiveInput
 | P3-4 — Memory-aware context design | 📋 |
 
 | P3-5 — Product-facing scenario | 📋 |
+
+## 30. Latest Session Update (2026-05-30 — P3-3 Orchestrator CLI readback surface)
+
+This session implemented the P3-3 milestone: an `arpagona orchestrator run --objective <TEXT>` CLI command that instantiates the Neutral Orchestrator deterministic loop skeleton and displays the full cycle trace.
+
+### What was changed
+
+| File | Change |
+|------|--------|
+| `crates/cli/Cargo.toml` | Added `arpagona-neutral-orchestrator` dependency |
+| `crates/cli/src/main.rs` | Added `Orchestrator(OrchestratorCommand)` variant, `OrchestratorCommand`/`OrchestratorSubcommand::Run`/`OrchestratorRunArgs` structs, `orchestrator_run()` handler function with human-readable causal trace + `--json` output, CLI dispatch wiring, and 4 tests |
+
+### Handler behavior
+
+The `orchestrator_run` handler:
+- Parses the permission string from CLI args (`ReadDocument`, `WriteMemory`, or serde fallback)
+- Calls `arpagona_neutral_orchestrator::run_deterministic_cycle()` with objective, workspace, agent and permissions
+- Non-JSON mode: prints a styled "Orchestrator Cycle Trace" header with full `causal_trace()` output (objective, context, compute route, proposal, action, decision, audit, gate, non-authorizing status, summary)
+- JSON mode: prints serialized `OrchestratorOutcome` with all linked IDs
+- Always prints a readback-only warning and `non_authorizing` flag
+
+### Tests (4 new)
+
+| Test | What it proves |
+|------|---------------|
+| `cli_parses_orchestrator_run_defaults` | Default permissions, workspace, agent IDs are correct |
+| `cli_parses_orchestrator_run_with_json` | `--json`, `--perm WriteMemory`, custom workspace/agent IDs parse correctly |
+| `cli_parses_orchestrator_run_multiple_permissions` | Multiple `--perm` flags collect into a vec |
+| `orchestrator_outcome_is_non_authorizing` | Runs real cycle, asserts `outcome.non_authorizing == true` |
+
+### Verification
+
+| Check | Result |
+|-------|--------|
+| `cargo fmt -- --check` | ✅ Clean |
+| `cargo check` | ✅ Clean (0 warnings) |
+| `cargo test -p arpagona-cli` | ✅ 115 tests pass (4 new + existing) |
+| `cargo test --workspace` | ✅ 754 tests pass (0 failures across all crates) |
+
+### Safety boundaries preserved
+
+- ✅ CLI readback only — no execution, mutation, or approval
+- ✅ Every `OrchestratorOutcome` enforces `non_authorizing: true`
+- ✅ No new MCP resources, API endpoints, or Web expansion
+- ✅ No Decision Gate bypass — cycle goes through `evaluate_proposed_action`
+- ✅ No Graph Memory, Holographic Memory, Reservoir Echo, or Tool Runtime integration
+- ✅ No scheduler, autonomy, shell, browser, email, secrets, or self-modification
+- ✅ No readback-as-authorization behavior
+
+### Phase 3 queue progress
+
+| Milestone | Status |
+|-----------|--------|
+| P3-0 — Roadmap definition | ✅ (#168) |
+| P3-1 — Domain contract | ✅ (#169) |
+| P3-2 — Deterministic loop skeleton | ✅ (#170) |
+| **P3-3 — Orchestrator CLI readback** | **🔜 PR #171 open, CI pending** |
+| P3-4 — Memory-aware context design | 📋 |
+| P3-5 — Product-facing scenario | 📋 |
+
+### Recommended next step for GONA
+
+1. **Review PR #171** — if CI passes, merge per auto-merge policy.
+2. **Arbitrate P3-4** — Memory-aware context integration design: define how Graph Memory, Holographic Memory, Reservoir Echo, and Compressed Cognitive Attention feed advisory context into orchestrator cycles.
+3. **No DV backlog items remain open** — all DV entries are resolved.
