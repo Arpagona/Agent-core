@@ -316,6 +316,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "arpagona-neutral-orchestrator"
+version = "0.1.0"
+dependencies = [
+ "arpagona-agent-core",
+ "arpagona-decision-gate",
+ "chrono",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "arpagona-runtime"
 version = "0.1.0"
 dependencies = [
