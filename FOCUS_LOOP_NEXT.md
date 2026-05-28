@@ -4,31 +4,37 @@ This file is the short-lived handoff for the next scheduled focus-loop run.
 
 It must contain one concrete next action only. The runtime milestone queue and long-term rules live in `AGENT_FOCUS_LOOP.md`.
 
-## Current status (2026-05-28 3rd DEEP focus loop — E3 Demo Pack Complete)
+## Current status (2026-05-28 4th DEEP focus loop — E5 complete, Track E done)
 
 **main is green:** ✅ `cargo fmt -- --check` passes, ✅ `cargo check` passes, ✅ `cargo test` passes (0 failures across all crates).
 
-**PR #154 merged** (docs handoff update).
+**PR #155 merged** (E3 Demo Pack).
 
-**E3 milestone completed** in this session:
-- `expected-output.md` — expected output report with acceptance criteria
-- `GOVERNANCE_VALUE.md` — governance/audit value document for commercial use
-- Fixed `test_debug.sh` (absolute path → relative path, was broken)
-- Fixed `demo.sh` tool count grep (space after colon in JSON)
-- Polished `README.md` for operator-friendly quick start
+**E5 milestone completed** in this session:
+- `docs/product-positioning-evidence.md` — 5 evidence-backed claims, anti-claims, audience language templates, evidence table
 
-E3 demo: ✅ all 11 tests pass, 5 phases green, tool count shows "3 outils".
+**Track E status: COMPLETE** ✅
 
-Phase 2 delivery summary:
+Phase 2 delivery summary after this session:
 - Track C: C1-C5 all complete ✅
 - Track D: D1 partial, D2+D3+D5 complete, D4 deferred
-- Track E: E1+E2+E3+E4 complete ✅, **E5 remaining**
-- H1 (hardening pass) — available
+- Track E: E1+E2+E3+E4+E5 all complete ✅
+- H1 (production hardening pass) — ❌ Next available
 
 ## Next action
 
-**Recommended: E5 (Product positioning evidence)** — extract 3-5 claims the demo proves, map claims to implementation evidence, avoid overclaiming autonomy or AGI, prepare language usable for ARPAGONA Agent communication.
+**H1 — Production hardening pass** — edge-case tests, error handling, regression tests, audit readability, dependency and feature-flag cleanup. Allowed per AGENT_FOCUS_LOOP.md Section 8 (H1).
 
-E5 is the natural capstone for Track E. All E1-E4 now exist as concrete demo artifacts. E5 turns them into reusable marketing/positioning evidence without requiring new runtime infrastructure.
+What H1 allows:
+- Tests for edge cases
+- Error handling
+- Regression tests
+- Audit readability
+- Documentation of existing behavior
+- Dependency and feature-flag cleanup
 
-**Alternative: H1 (Production hardening pass)** — edge-case tests, error handling, regression tests, audit readability, dependency cleanup. Only if product positioning is not needed right now.
+What H1 does NOT allow:
+- New broad capabilities disguised as hardening
+- Shell/browser/secrets/email/scheduler expansion
+- Decision Gate bypass
+- Autonomous agent self-modification

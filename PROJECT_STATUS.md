@@ -1874,3 +1874,91 @@ No code files were changed — only handoff/documentation files updated.
 - No test additions (C5 already on main)
 - No branch was created for new feature work (all effort went to merging existing PRs)
 - No C5 branch was created — tests confirmed already on main
+
+## 27. Latest Session Update (2026-05-28 4th DEEP focus loop — E5 Product Positioning Evidence, Track E complete)
+
+This session completed the last Track E milestone: E5 — Product positioning evidence.
+
+### What was delivered
+
+**`docs/product-positioning-evidence.md`** — new document synthesising technical progress from Tracks C, D, and E into 5 evidence-backed product positioning claims:
+
+| # | Claim | Evidence Source | Test Count |
+|---|-------|-----------------|-----------|
+| 1 | Complete offline governed cognitive pipeline | E1/E2/E3 demos — 5-phase pipeline | 11 (E3 validation tests) |
+| 2 | Read-only safe perception with bounded tool runtime | `crates/tool-runtime` — path escape blocking, size limits, `.git`/`.env` blocking | 13 (tool-runtime crate) |
+| 3 | Non-authorizing cognitive analysis with mandatory governance | `crates/core/src/cognitive_work.rs`, `crates/decision-gate` | 24 (cognitive work) |
+| 4 | Complete audit traceability | `crates/graph-memory/audit_store.rs`, `demo_snapshot.rs` — snapshot persistence | 24 (graph-memory crate) |
+| 5 | Layered cognitive architecture | 5 cognitive crates — Working Memory, Reservoir Echo, Holographic Memory, Graph Memory, Compute Reservoir | 100+ across all crates |
+
+Each claim includes:
+- What the demos prove (concrete, verifiable)
+- Evidence in the repository (file paths, test counts, CI status)
+- Language usable for different audiences (technical, business, commercial, regulated-industry)
+- Explicit anti-claims (what we do not assert)
+
+Additional content:
+- Summary evidence table with claim → demo → crate → test count mapping
+- Anti-claims section (8 items: not AGI, not production-ready, not autonomous, not multi-agent, not vector-DB, not security-hardened, not cloud-scale, not LLM wrapper)
+- Language templates for 4 audience types
+- One-line positioning alternatives
+
+### PR #155 merged (E3 Demo Pack)
+
+PR #155 (`feat/e3-demo-pack-completion`) was open, mergeable, CI green. Merged into main before starting E5.
+
+### Track E status — COMPLETE
+
+| Step | Status |
+|------|--------|
+| E1 — SME documentary assistant demo | ✅ Complete |
+| E2 — Business/workflow prospecting demo | ✅ Complete |
+| E3 — Local company assistant demo pack | ✅ Complete |
+| E4 — README: demo in 10 minutes | ✅ Complete |
+| E5 — Product positioning evidence | ✅ **Complete (this session)** |
+
+### Phase 2 delivery status after this session
+
+| Track | Milestone | Status |
+|-------|-----------|--------|
+| C1–C5 | Real LLM → anti-drift tests | ✅ Complete |
+| D1–D3, D5 | Operator surfaces + approval design | ✅ Complete |
+| D4 | Web Mission Control | 🔜 Deferred |
+| E1–E5 | Demo scenarios → positioning evidence | ✅ **Complete (this session)** |
+| H1 | Production hardening pass | ❌ Available for next session |
+
+### Verification
+
+- `cargo fmt -- --check`: ✅ clean (documentation-only change)
+- `cargo check`: ✅ clean (no code changes)
+- `cargo test`: no code changes, existing tests unchanged
+- Only documentation files were added/modified
+
+### Safety boundaries preserved
+
+- No code changes to any crate: core, decision-gate, compute-reservoir, holographic-memory, mcp-server, tool-runtime, tool-registry, cli, llm, runtime, api-server
+- No new CLI flags, runtime behavior, model calls, permissions, or governance logic
+- No Decision Gate bypass, scheduler, autonomy, browser automation, email, secrets access, self-modification, or Mission Control Web growth
+- All changes are documentation within `docs/` directory
+- Readback remains evidence only, not authorization
+
+### Files changed (this session)
+
+| File | Change |
+|------|--------|
+| `docs/product-positioning-evidence.md` | **NEW** — 5 evidence-backed claims, anti-claims, audience language templates, evidence table |
+| `PROJECT_STATUS.md` | Added section 27 documenting this session |
+| `FOCUS_LOOP_NEXT.md` | Updated handoff — Track E complete, next: H1 hardening pass |
+
+### Deliberately not changed
+
+- No code changes to any crate
+- No crate boundaries, permissions, risk levels, or governance logic
+- No new features, flags, or commands
+- No demo script changes
+- No test additions
+- No branch was created (handoff-only session; next session will create `feat/h1-hardening-pass`)
+
+### Recommended next step
+
+**H1 — Production hardening pass** — edge-case tests, error handling, regression tests, audit readability, dependency and feature-flag cleanup. Allowed per AGENT_FOCUS_LOOP.md Section 8 (H1). No new broad capabilities, no shell/browser/secrets/email/scheduler expansion.
