@@ -495,9 +495,110 @@
    493|
    494|Recommended next step: wait for CI to complete on #77, then merge into `main`. After merge, create `scripts/demo-full-loop.sh` for a single-repeatable-command governed FailureInsight demo path.
    495|
-   ## 16. Latest Session Update (2026-05-28 — Milestone E2: Business Prospecting Workflow Demo)
+##  17. Latest Session Update (2026-05-28 — Milestone E2: Business Prospecting Workflow Demo)
 
    This session completed the Track E E2 milestone: Business/prospecting workflow demo, building on the E1 SME Documentary Assistant foundation.
+
+### Verification
+
+- `cargo fmt -- --check`: ✅ clean
+- `cargo check`: ✅ clean (pre-existing api-server warnings only)
+- `cargo test --workspace`: ✅ all tests pass (0 failures across all crates)
+- Demo re-run: all 11 tests pass, 5 phases green
+
+### Safety boundaries preserved
+
+- No unrestricted shell, browser, email, secrets, or write tools
+- No Decision Gate bypass
+- No scheduler, autonomy, or agent self-modification
+- No API endpoint or Mission Control Web expansion
+- No readback-as-authorization behavior
+- No new model calls, provider endpoints, or LLM integration
+
+### Files changed (this session)
+
+| File | Change |
+|------|--------|
+| FOCUS_LOOP_NEXT.md | Updated handoff — all 5 PRs merged, C4+C5+D2+D3+E2+E4 delivered, next: E3 or H1 |
+| PROJECT_STATUS.md | Added section 25 documenting this session |
+
+No code files were changed — only handoff/documentation files updated.
+
+### Deliberately not changed
+
+- No code changes to any crate: core, decision-gate, compute-reservoir, holographic-memory, mcp-server, tool-runtime, tool-registry, cli, llm, runtime, api-server
+- No crate boundaries, permissions, risk levels, or governance logic
+- No new features, flags, or commands
+- No test additions (C5 already on main)
+- No branch was created for new feature work (all effort went to merging existing PRs)
+- No C5 branch was created — tests confirmed already on main
+
+## 26. Latest Session Update (2026-05-28 3rd focus loop — E3 Demo Pack Completion)
+
+This session completed the Track E E3 milestone: Local Company Assistant Demo Pack.
+
+### What was delivered
+
+The E3 demo pack (`demos/local-company-assistant/`) existed as a working scripted demo but was missing 3 of 5 required deliverables per the milestone definition:
+
+**Added:**
+- `demos/local-company-assistant/expected-output.md` — expected output report with detailed acceptance criteria, per-phase output structure, and failure modes with fixes
+- `demos/local-company-assistant/GOVERNANCE_VALUE.md` — dedicated governance & audit value document written for commercial conversations, covering positioning, the four-part governance pipeline, claim-to-evidence mapping, and commercial relevance for SME, regulated-industry, and product-demo scenarios
+
+**Fixed:**
+- `demos/local-company-assistant/test_debug.sh` — changed from absolute path to relative path (Tool Runtime blocks absolute paths; was broken)
+- `demos/local-company-assistant/demo.sh` — fixed tool count grep to handle space after colon (`"tool_runtime_tool_count": 3` now correctly parses)
+
+**Polished:**
+- `demos/local-company-assistant/README.md` — restructured for operator-friendly quick start, added troubleshooting table, linked to new documents, clearer phase descriptions
+
+### E3 milestone acceptance
+
+| Required Property | Status | Evidence |
+|-------------------|--------|----------|
+| One scripted scenario | ✅ | `demo.sh` — Boulangerie du Marché, 5 phases, 11 tests |
+| One sample dataset | ✅ | `samples/` — 3 documents (feedback, operations, staff) |
+| One expected output report | ✅ NEW | `expected-output.md` — acceptance criteria, per-phase JSON, failure modes |
+| One explanation of governance/audit value | ✅ NEW | `GOVERNANCE_VALUE.md` — commercial positioning, 4-part pipeline, claim mapping |
+| One operator-friendly README | ✅ UPDATED | `README.md` — quick start first, troubleshooting, reuse guide, cross-links |
+
+### Verification
+
+- `cargo fmt -- --check`: ✅ clean
+- `cargo check`: ✅ clean (pre-existing api-server warnings only)
+- `cargo test`: ✅ all tests pass (0 failures across all crates)
+- `bash demos/local-company-assistant/demo.sh`: ✅ all 11 tests pass, 5 phases green — tool count now correctly shows "3 outils"
+
+### Safety boundaries preserved
+
+- No code changes to any crate: core, decision-gate, compute-reservoir, holographic-memory, mcp-server, tool-runtime, tool-registry, cli, llm, runtime, api-server
+- No new CLI flags, runtime behavior, model calls, permissions, or governance logic
+- No Decision Gate bypass, scheduler, autonomy, browser automation, email, secrets access, self-modification, or Mission Control Web growth
+- All changes are documentation and shell script fixes within the existing `demos/` directory
+- Readback remains evidence only, not authorization
+
+### Files changed (this session)
+
+| File | Change |
+|------|--------|
+| `demos/local-company-assistant/README.md` | Restructured for operator-friendly quick start, added troubleshooting, cross-links |
+| `demos/local-company-assistant/demo.sh` | Fixed tool count grep to handle space after colon in JSON |
+| `demos/local-company-assistant/test_debug.sh` | Changed from absolute to relative path (Tool Runtime security) |
+| `demos/local-company-assistant/expected-output.md` | **NEW** — expected output report with acceptance criteria |
+| `demos/local-company-assistant/GOVERNANCE_VALUE.md` | **NEW** — governance & audit value for commercial use |
+| `PROJECT_STATUS.md` | Added section 26 documenting this session |
+| `FOCUS_LOOP_NEXT.md` | Updated handoff — E3 complete, next: E5 product positioning |
+
+### Track E status after this session
+
+| Step | Status |
+|------|--------|
+| E1 — SME documentary assistant demo | ✅ Complete |
+| E2 — Business/workflow prospecting demo | ✅ Complete |
+| E3 — Local company assistant demo pack | ✅ **Complete (this session)** |
+| E4 — README: demo in 10 minutes | ✅ Complete |
+| E5 — Product positioning evidence | ❌ Remaining |
+| H1 — Production hardening pass | ❌ Remaining |
 
    Created `demos/business-prospecting/` — a complete end-to-end business prospecting workflow demonstration for ARPAGONA Agent Core:
 
