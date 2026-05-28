@@ -1202,10 +1202,17 @@ struct MemoryDemoFailureInsightInspectionReadback {
     warning: &'static str,
 }
 
+#[derive(Debug, Args)]
+struct ListAuditArgs {
+    /// Emit structured JSON output instead of human-oriented text.
+    #[arg(long)]
+    json: bool,
+}
+
 #[derive(Debug, Subcommand)]
 enum AuditSubcommand {
     /// List audit events.
-    List,
+    List(ListAuditArgs),
     /// Show a read-only decision-scoped audit summary.
     /// Includes causal links, decision status, risk level and policies applied.
     DecisionSummary(DecisionSummaryArgs),
@@ -1747,7 +1754,7 @@ async fn run() -> Result<(), Box<dyn Error>> {
             AgentSubcommand::Propose(args) => propose_agent_action(&client, &api_url, args).await?,
         },
         Command::Audit(audit) => match audit.command {
-            AuditSubcommand::List => list_audit(&client, &api_url).await?,
+            AuditSubcommand::List(args) => list_audit(&client, &api_url, args).await?,
             AuditSubcommand::DecisionSummary(args) => {
                 audit_decision_summary(&client, &api_url, args).await?
             }
@@ -1867,7 +1874,7 @@ async fn chat(client: &Client, api_url: &str, args: ChatArgs) -> Result<(), Box<
                 break;
             }
             ChatLine::Status => status(client, api_url, StatusArgs { json: false }).await?,
-            ChatLine::Audit => list_audit(client, api_url).await?,
+            ChatLine::Audit => list_audit(client, api_url, ListAuditArgs { json: false }).await?,
             ChatLine::Tasks => list_tasks(client, api_url).await?,
             ChatLine::Actions => list_actions(client, api_url).await?,
             ChatLine::Evaluate(action_id) => {
@@ -5870,12 +5877,25 @@ async fn list_actions(client: &Client, api_url: &str) -> Result<(), Box<dyn Erro
     Ok(())
 }
 
-async fn list_audit(client: &Client, api_url: &str) -> Result<(), Box<dyn Error>> {
+async fn list_audit(
+    client: &Client,
+    api_url: &str,
+    args: ListAuditArgs,
+) -> Result<(), Box<dyn Error>> {
     let events: Vec<AuditEvent> =
         get_json(client.get(format!("{api_url}/audit")).send().await?).await?;
 
     if events.is_empty() {
-        println!("{}", style_dim("No audit events."));
+        if args.json {
+            println!("[]");
+        } else {
+            println!("{}", style_dim("No audit events."));
+        }
+        return Ok(());
+    }
+
+    if args.json {
+        println!("{}", serde_json::to_string_pretty(&events)?);
         return Ok(());
     }
 
@@ -10288,6 +10308,32 @@ mod tests {
         assert_eq!(readback.risk_level, None);
         assert!(readback.policies_applied.is_empty());
         assert!(!summary.has_execution_event);
+    }
+
+    #[test]
+    fn cli_parses_audit_list_without_flags() {
+        let cli = Cli::parse_from(["arpagona", "audit", "list"]);
+        match cli.command {
+            Command::Audit(AuditCommand {
+                command: AuditSubcommand::List(args),
+            }) => {
+                assert!(!args.json);
+            }
+            _ => panic!("expected audit list"),
+        }
+    }
+
+    #[test]
+    fn cli_parses_audit_list_with_json_flag() {
+        let cli = Cli::parse_from(["arpagona", "audit", "list", "--json"]);
+        match cli.command {
+            Command::Audit(AuditCommand {
+                command: AuditSubcommand::List(args),
+            }) => {
+                assert!(args.json);
+            }
+            _ => panic!("expected audit list --json"),
+        }
     }
 
     #[test]
