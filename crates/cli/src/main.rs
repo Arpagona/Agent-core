@@ -1,4 +1,5 @@
 use arpagona_agent_core::{
+    action::ToolCallIntent,
     holographic::{resonate_for_working_memory, RESONANCE_NON_AUTHORIZING_WARNING},
     llm_journal::LlmJournal,
     ActionType, AgentId, AuditEvent, AuditEventId, AuditTraceSummary, CognitiveCycleResult,
@@ -13,7 +14,9 @@ use arpagona_compute_reservoir::{
     ComputeNodeStatus, ComputePolicy, ComputeResourceKind, DataSensitivity,
     NON_AUTHORIZING_READBACK,
 };
-use arpagona_decision_gate::{audit_event_for_decision, evaluate_proposed_action};
+use arpagona_decision_gate::{
+    audit_event_for_decision, evaluate_proposed_action, govern_tool_call,
+};
 use arpagona_graph_memory::{
     demo_snapshot::{list_snapshots_in_directory, FailureInsightDemoSnapshot, EVIDENCE_ONLY_TOKEN},
     in_memory_graph_memory_store, AsyncGraphMemoryStore, GRAPH_MEMORY_SCHEMA,
@@ -946,6 +949,13 @@ enum ToolSubcommand {
     List(ToolListArgs),
     /// Show detailed information about a specific tool.
     Inspect(ToolInspectArgs),
+    /// Evaluate a tool-call intent through the Decision Gate (Track C Step C2).
+    ///
+    /// Creates a ToolCallIntent from the provided tool name and JSON arguments,
+    /// runs it through govern_tool_call(), journals the governance result to
+    /// the LLM journal, and returns the decision (approved/blocked/requires
+    /// human approval).
+    Govern(ToolGovernArgs),
     /// Run a read-only demo tool execution.
     Demo(ToolDemoCommand),
 }
@@ -961,6 +971,24 @@ struct ToolListArgs {
 struct ToolInspectArgs {
     /// Name of the tool to inspect.
     tool_name: String,
+    /// Emit structured JSON instead of human-oriented text.
+    #[arg(long)]
+    json: bool,
+}
+
+/// Arguments for tool govern — evaluate a tool-call intent through the Decision Gate.
+#[derive(Debug, Args)]
+struct ToolGovernArgs {
+    /// Name of the tool the LLM wants to call (e.g. "read_file", "search_text").
+    tool: String,
+    /// JSON arguments for the tool call.
+    args: String,
+    /// Risk level for this tool call (informational, low, medium, high, critical).
+    #[arg(long, default_value = "informational")]
+    risk_level: String,
+    /// Rationale for the tool call (why is this tool needed?).
+    #[arg(long, default_value = "LLM-invoked governed tool-call evaluation")]
+    rationale: String,
     /// Emit structured JSON instead of human-oriented text.
     #[arg(long)]
     json: bool,
@@ -1650,6 +1678,7 @@ async fn run() -> Result<(), Box<dyn Error>> {
         Command::Tool(tool) => match tool.command {
             ToolSubcommand::List(args) => tool_list(args)?,
             ToolSubcommand::Inspect(args) => tool_inspect(args)?,
+            ToolSubcommand::Govern(args) => tool_govern(args)?,
             ToolSubcommand::Demo(demo) => match demo.command {
                 ToolDemoSubcommand::ReadFile(args) => tool_demo_read_file(args)?,
                 ToolDemoSubcommand::ListFiles(args) => tool_demo_list_files(args)?,
@@ -3463,9 +3492,139 @@ fn memory_holographic_consolidate(args: HolographicConsolidateArgs) -> Result<()
     Ok(())
 }
 
-// ---------------------------------------------------------------------------
-// Tool runtime command implementations — alpha, read-only, local-only
-// ---------------------------------------------------------------------------
+/// Parse a risk level string into a `RiskLevel`.
+fn parse_risk_level(s: &str) -> Result<RiskLevel, String> {
+    match s.to_lowercase().as_str() {
+        "informational" => Ok(RiskLevel::Informational),
+        "low" => Ok(RiskLevel::Low),
+        "medium" => Ok(RiskLevel::Medium),
+        "high" => Ok(RiskLevel::High),
+        "critical" => Ok(RiskLevel::Critical),
+        other => Err(format!(
+            "Unknown risk level '{other}'. Valid values: informational, low, medium, high, critical"
+        )),
+    }
+}
+
+/// Evaluate a tool-call intent through the Decision Gate (Track C Step C2).
+///
+/// Creates a ToolCallIntent from CLI arguments, evaluates it via
+/// `govern_tool_call()`, journals the governance result to the LLM journal,
+/// and returns the decision with audit context.
+fn tool_govern(args: ToolGovernArgs) -> Result<(), Box<dyn Error>> {
+    let risk_level =
+        parse_risk_level(&args.risk_level).map_err(|e| format!("Invalid --risk-level: {e}"))?;
+
+    let arguments: Value =
+        serde_json::from_str(&args.args).map_err(|e| format!("Invalid --args JSON: {e}"))?;
+
+    let intent = ToolCallIntent {
+        tool: args.tool.clone(),
+        arguments: arguments.clone(),
+        rationale: args.rationale.clone(),
+        risk_level: risk_level.clone(),
+    };
+
+    let (decision, proposed_action) = govern_tool_call(&intent, &[Permission::ProposeToolUse]);
+
+    // Journal the governance result
+    let journal_entry_id = {
+        let mut journal = global_llm_journal().lock().unwrap();
+        journal.add_direct_tool_call(
+            &args.tool,
+            "cli",
+            None,
+            format!(
+                "Governed tool-call evaluation: tool={}, risk_level={:?}, rationale={}",
+                args.tool, risk_level, args.rationale
+            ),
+            format!(
+                "Decision Gate result: status={:?}, reason={}",
+                decision.status, decision.reason
+            ),
+            serde_json::json!({
+                "tool": args.tool,
+                "arguments": arguments,
+                "rationale": args.rationale,
+                "risk_level": risk_level,
+            }),
+            serde_json::json!({
+                "decision_id": decision.id,
+                "status": decision.status,
+                "reason": decision.reason,
+                "risk_level": decision.risk_level,
+                "policies_applied": decision.policies_applied,
+            }),
+            Some(risk_level.clone()),
+        )
+    };
+
+    if args.json {
+        let output = serde_json::json!({
+            "status": "governed",
+            "decision": {
+                "id": decision.id,
+                "status": decision.status,
+                "reason": decision.reason,
+                "risk_level": decision.risk_level,
+                "policies_applied": decision.policies_applied,
+                "override_hint": decision.override_hint,
+            },
+            "proposed_action": {
+                "id": proposed_action.id,
+                "action_type": proposed_action.action_type,
+                "target": proposed_action.target,
+                "risk_level": proposed_action.risk_level,
+            },
+            "tool_call_intent": {
+                "tool": args.tool,
+                "arguments": arguments,
+                "rationale": args.rationale,
+                "risk_level": risk_level,
+            },
+            "journal_entry_id": journal_entry_id,
+            "non_authorizing": true,
+            "warning": "This is a governance evaluation only. No tool was executed. Readback is evidence, not authorization.",
+        });
+        println!("{}", serde_json::to_string_pretty(&output)?);
+    } else {
+        let status_icon = match &decision.status {
+            DecisionStatus::Approved => "✅",
+            DecisionStatus::Blocked => "🔴",
+            DecisionStatus::NeedsHumanApproval => "🟡",
+            DecisionStatus::RequiresOverride => "🟠",
+            _ => "❓",
+        };
+        println!("{status_icon} Tool Call Governance — tool: {}", args.tool);
+        println!();
+        println!("  Decision:     {:?}", decision.status);
+        println!("  Reason:       {}", decision.reason);
+        println!("  Risk level:   {:?}", decision.risk_level);
+        println!("  Decision ID:  {}", decision.id);
+        println!("  Proposal ID:  {}", proposed_action.id);
+        println!("  Journal ID:   {}", journal_entry_id);
+        if let Some(ref hint) = decision.override_hint {
+            println!("  Override:     {hint}");
+        }
+        if !decision.policies_applied.is_empty() {
+            println!(
+                "  Policies:     {}",
+                decision
+                    .policies_applied
+                    .iter()
+                    .map(|p| p.as_str())
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            );
+        }
+        println!();
+        println!("⚠️  Governance evaluation only. No tool was executed.");
+        println!("   Readback is evidence, not authorization.");
+        println!("   Use `arpagona llm journal` to inspect journaled interactions.");
+    }
+
+    Ok(())
+}
 
 const DEMO_TOOL_WARNING: &str = "⚠️  Alpha demo tool runtime — local read-only execution only. No authorization, no governance bypass. ⚠️";
 
@@ -11161,5 +11320,101 @@ mod tests {
             }
             _ => panic!("expected cognitive run with all flags including --llm"),
         }
+    }
+
+    #[test]
+    fn tool_govern_parses_with_minimal_args() {
+        let cli = Cli::parse_from([
+            "arpagona",
+            "tool",
+            "govern",
+            "read_file",
+            r#"{"path": "test.md"}"#,
+        ]);
+        match cli.command {
+            Command::Tool(ToolCommand {
+                command: ToolSubcommand::Govern(args),
+            }) => {
+                assert_eq!(args.tool, "read_file");
+                assert!(args.args.contains("test.md"));
+                assert_eq!(args.risk_level, "informational");
+                assert!(!args.json);
+            }
+            _ => panic!("expected tool govern"),
+        }
+    }
+
+    #[test]
+    fn tool_govern_parses_with_all_flags() {
+        let cli = Cli::parse_from([
+            "arpagona",
+            "tool",
+            "govern",
+            "search_text",
+            r#"{"query": "Decision Gate"}"#,
+            "--risk-level",
+            "low",
+            "--rationale",
+            "Search for governance references",
+            "--json",
+        ]);
+        match cli.command {
+            Command::Tool(ToolCommand {
+                command: ToolSubcommand::Govern(args),
+            }) => {
+                assert_eq!(args.tool, "search_text");
+                assert!(args.args.contains("Decision Gate"));
+                assert_eq!(args.risk_level, "low");
+                assert_eq!(args.rationale, "Search for governance references");
+                assert!(args.json);
+            }
+            _ => panic!("expected tool govern with all flags"),
+        }
+    }
+
+    #[test]
+    fn tool_govern_parses_medium_risk() {
+        let cli = Cli::parse_from([
+            "arpagona",
+            "tool",
+            "govern",
+            "write_document",
+            r#"{"path": "doc.md", "content": "data"}"#,
+            "--risk-level",
+            "medium",
+            "--json",
+        ]);
+        match cli.command {
+            Command::Tool(ToolCommand {
+                command: ToolSubcommand::Govern(args),
+            }) => {
+                assert_eq!(args.tool, "write_document");
+                assert_eq!(args.risk_level, "medium");
+                assert!(args.json);
+            }
+            _ => panic!("expected tool govern with medium risk"),
+        }
+    }
+
+    #[test]
+    fn parse_risk_level_valid_values() {
+        assert_eq!(
+            parse_risk_level("informational").unwrap(),
+            RiskLevel::Informational
+        );
+        assert_eq!(parse_risk_level("low").unwrap(), RiskLevel::Low);
+        assert_eq!(parse_risk_level("medium").unwrap(), RiskLevel::Medium);
+        assert_eq!(parse_risk_level("high").unwrap(), RiskLevel::High);
+        assert_eq!(parse_risk_level("critical").unwrap(), RiskLevel::Critical);
+        // Case insensitive
+        assert_eq!(parse_risk_level("HIGH").unwrap(), RiskLevel::High);
+        assert_eq!(parse_risk_level("Low").unwrap(), RiskLevel::Low);
+    }
+
+    #[test]
+    fn parse_risk_level_invalid_returns_error() {
+        assert!(parse_risk_level("extreme").is_err());
+        assert!(parse_risk_level("").is_err());
+        assert!(parse_risk_level("none").is_err());
     }
 }
