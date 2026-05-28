@@ -322,6 +322,8 @@ version = "0.1.0"
 dependencies = [
  "arpagona-agent-core",
  "arpagona-decision-gate",
+ "arpagona-holographic-memory",
+ "arpagona-tool-runtime",
  "chrono",
  "serde",
  "serde_json",
