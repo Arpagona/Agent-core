@@ -495,7 +495,42 @@
    493|
    494|Recommended next step: wait for CI to complete on #77, then merge into `main`. After merge, create `scripts/demo-full-loop.sh` for a single-repeatable-command governed FailureInsight demo path.
    495|
-   496|## 16. Latest Session Update (2026-05-25 — P5 + P6 + P7: WorkingMemory ↔ ComputeReservoir ↔ HolographicMemory bridge complete)
+   ## 16. Latest Session Update (2026-05-28 — Milestone E2: Business Prospecting Workflow Demo)
+
+   This session completed the Track E E2 milestone: Business/prospecting workflow demo, building on the E1 SME Documentary Assistant foundation.
+
+   Created `demos/business-prospecting/` — a complete end-to-end business prospecting workflow demonstration for ARPAGONA Agent Core:
+
+   **New directory: `demos/business-prospecting/`:**
+   - `README.md` — Demo documentation explaining the business scenario, phases, governance boundaries, and how E2 differs from E1
+   - `demo.sh` — End-to-end demo script (bash) with 5 phases:
+     - Phase 1: Cognitive analysis with LLM synthesis (`cognitive run --llm --provider mock --domain business`)
+     - Phase 2: Document discovery via Tool Runtime (`list-files`, `read-file`, `search-text`)
+     - Phase 3: Governed cognitive assessment (`--assess --observe --govern`)
+     - Phase 4: Follow-up action proposal (graceful API-dependent fallback)
+     - Phase 5: Operator readback surfaces (`llm journal --json`, `status --json`)
+   - `samples/prospect-brief.md` — Synthetic business prospect document (French, Maison de la Culture Numérique MCN Lyon, budget 40-60k€)
+   - `samples/background-research.md` — Synthetic market research context document
+
+   **Scenario:** NovaTech Consulting qualifies "Maison de la Culture Numérique (MCN)" — a Lyon-based cultural center seeking an integrated visitor management and workshop reservation system (budget 40-60k€, deadline September 2027).
+
+   **Demo verification:** `bash demos/business-prospecting/demo.sh` — all 5 phases pass:
+   - Phase 1: Business domain classification, LLM synthesis (provider=mock, 460 chars), non-authorizing proposal
+   - Phase 2: Tool runtime commands succeed (2 files discovered, 44 lines/1936 chars read)
+   - Phase 3: Offline governance chain produces 1 decision, 1 audit event, governance warning
+   - Phase 4: Graceful API-unavailable fallback with skip explanation
+   - Phase 5: 3 LLM journal entries, status with tool_runtime_tool_count=3, cli_version=0.1.0
+
+   **Test count:** 644+ workspace tests — all pass (0 new failures, 0 regressions)
+
+   **Not added (per stop-list):**
+   - No new crates, dependencies, feature flags, or build-time changes
+   - No Decision Gate bypass
+   - No scheduler, autonomy, MCP expansion, browser automation, email, secrets, or unrestricted shell
+   - No API endpoint or Mission Control Web expansion
+   - No readback-as-authorization behavior
+   - No real LLM calls or API keys required (uses --provider mock)
+   - No filesystem mutations beyond demo directory creation
    497|
    498|This session completed the P5–P7 milestone sequence for the cognitive loop integration.
    499|

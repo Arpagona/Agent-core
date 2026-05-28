@@ -4,25 +4,26 @@ This file is the short-lived handoff for the next scheduled focus-loop run.
 
 It must contain one concrete next action only. The runtime milestone queue and long-term rules live in `AGENT_FOCUS_LOOP.md`.
 
-## Current status (2026-05-28 focus loop — C2 complete, all PRs merged, all DV resolved)
+## Current status (2026-05-28 focus loop — E2 complete, C3 confirmed)
 
-All 4 remaining conflicting PRs rebased and merged:
-- PR #145 (C2 — governed direct tool-call CLI bridge)
-- PR #146 (C2.2 — approved tool-call execution through Tool Runtime)
-- PR #144 (D5 — operator approval design study)
-- PR #142 (H1 — hygiene backlog alignment + demo script)
-
-Track C Step C2 is now complete: LLM direct tool-calling is governed through Decision Gate + Tool Runtime execution.
-
-All DV-2026-05-28 entries are resolved:
-- DV-001: PR #143 — conflict-marker scan exclusion
-- DV-002: PR #139 — CLI docs coverage
-- DV-003: PR #141 — parent-traversal security
-- DV-004: PR #140 — governance/readback regressions
-- DV-005: PR #147 — LLM synthesis specificity
-
-No open conflicting PRs remain.
+All milestones completed:
+- Track C C3 (LLM interaction journaling) — confirmed complete:
+  - `LlmJournal` in `crates/core/src/llm_journal.rs` with Synthesis, DirectToolCall, ToolCallIntent types
+  - Ring buffer + JSON-lines file persistence (target/llm-journal.jsonl)
+  - CLI `llm journal --json --limit N` command with provider, model, decision_gate, risk_level
+  - 9 unit tests covering add, capacity, recent, get, serialize, compute_routing
+  - 40+ journal entries accumulated in CI runs
+- Track E E2 (Business/prospecting workflow demo) — complete:
+  - `demos/business-prospecting/` with demo.sh, README.md, 2 sample docs
+  - 5-phase prospecting workflow: analysis → discovery → governance → action proposal → operator readback
+  - All 5 phases verified: `bash demos/business-prospecting/demo.sh`
 
 ## Next action
 
-**Resume Phase 2 strategic development: C3 (Prompt/response/decision/risk journaling) or E2 (Business/prospecting workflow demo).** All P0 hygiene is resolved; Track C C2 is delivered; D5 operator approval design is documented. Choose the milestone with the best available prerequisite state.
+**Recommended: C4 (Compute Reservoir model routing) or C5 (Anti-drift/adversarial tests).**
+
+C4 builds on the existing Compute Reservoir integration to demonstrate model route selection with explainability. C5 protects C1-C4 model layers against predictable failure modes.
+
+Choose C4 if the team wants to see model routing proof. Choose C5 if test coverage hardening is the priority.
+
+Alternatively, E3 (Local company assistant demo pack) combines E1+E2 into a reusable demo pack — good for sales/product conversations.
