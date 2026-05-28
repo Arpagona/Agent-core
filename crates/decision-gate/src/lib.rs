@@ -928,4 +928,215 @@ mod tests {
             decision.id.as_str()
         );
     }
+
+    // ── H1: Decision Gate blocking scenario tests ──────────────────────────
+    //
+    // These tests cover governance path edge cases not yet covered by the
+    // existing C5 anti-drift and regression test families.
+
+    #[test]
+    fn high_risk_without_matching_policy_falls_back_to_needs_human_approval() {
+        // High risk action with NO matching policy, all permissions granted.
+        // The code should fall through to the default match on risk_level
+        // where High/Critical → NeedsHumanApproval.
+        let action = proposed_action(ActionType::ReadDocument, RiskLevel::High);
+
+        let decision = evaluate_proposed_action(&action, &[], &[Permission::ReadDocument]);
+
+        assert_eq!(
+            decision.status,
+            DecisionStatus::NeedsHumanApproval,
+            "High risk without matching policy should fall back to NeedsHumanApproval: {}",
+            decision.reason
+        );
+        assert!(decision
+            .reason
+            .contains("High risk actions require human approval"));
+    }
+
+    #[test]
+    fn critical_risk_with_blocking_policy_is_blocked() {
+        // Critical risk with an active policy that does NOT require human
+        // approval. The code path at lines 127-138 should produce Blocked
+        // because High/Critical + active policy (non-requiring human approval)
+        // is treated as explicit denial.
+        let mut action = proposed_action(ActionType::WriteDocument, RiskLevel::Critical);
+        action.required_permissions = vec![Permission::WriteDocument];
+        let policies = vec![policy(
+            "block-critical-write-document",
+            Some(ActionType::WriteDocument),
+            Some(RiskLevel::Critical),
+            false, // does NOT require human approval — acts as explicit deny
+        )];
+
+        let decision = evaluate_proposed_action(&action, &policies, &[Permission::WriteDocument]);
+
+        assert_eq!(
+            decision.status,
+            DecisionStatus::Blocked,
+            "Critical risk with active policy that denies should be Blocked: {}",
+            decision.reason
+        );
+        assert_eq!(
+            decision.policies_applied,
+            vec![PolicyId::new("block-critical-write-document")]
+        );
+        assert!(decision.reason.contains("active policy"));
+    }
+
+    #[test]
+    fn critical_risk_with_requiring_approval_policy_needs_human_approval() {
+        // Critical risk with a policy that requires human approval.
+        // The code path at lines 116-119 should produce NeedsHumanApproval
+        // because the policy explicitly requires it.
+        let mut action = proposed_action(ActionType::WriteDocument, RiskLevel::Critical);
+        action.required_permissions = vec![Permission::WriteDocument];
+        let policies = vec![policy(
+            "approve-critical-write-document",
+            Some(ActionType::WriteDocument),
+            Some(RiskLevel::Critical),
+            true, // requires human approval
+        )];
+
+        let decision = evaluate_proposed_action(&action, &policies, &[Permission::WriteDocument]);
+
+        assert_eq!(
+            decision.status,
+            DecisionStatus::NeedsHumanApproval,
+            "Critical risk with policy requiring human approval should be NeedsHumanApproval: {}",
+            decision.reason
+        );
+        assert!(
+            decision.reason.contains("human approval"),
+            "reason should contain 'human approval': {}",
+            decision.reason
+        );
+        assert_eq!(
+            decision.policies_applied,
+            vec![PolicyId::new("approve-critical-write-document")]
+        );
+    }
+
+    #[test]
+    fn override_policy_for_direct_toolcall_is_not_overridable() {
+        // DirectToolCall actions are classified as destructive/dangerous by the
+        // override engine. A tool-call without ProposeToolUse permission should
+        // produce Blocked, not RequiresOverride.
+        let intent = ToolCallIntent {
+            tool: "read_file".to_owned(),
+            arguments: json!({"path": "test.md"}),
+            rationale: "Missing permission test".to_owned(),
+            risk_level: RiskLevel::Informational,
+        };
+
+        // governance layer evaluates evaluate_proposed_action → classify_override_policy
+        // DirectToolCall is in is_destructive_or_dangerous → NotOverridable → Blocked
+        let (decision, _) = govern_tool_call(&intent, &[]);
+
+        assert_eq!(
+            decision.status,
+            DecisionStatus::Blocked,
+            "DirectToolCall without permission should be Blocked (not RequiresOverride): {}",
+            decision.reason
+        );
+        assert!(
+            !decision.reason.contains("Requires override"),
+            "DirectToolCall missing permission should NOT suggest override: {}",
+            decision.reason
+        );
+    }
+
+    #[test]
+    fn overlapping_policies_highest_restriction_wins() {
+        // Two policies match the action: one blocks (no human approval required
+        // at the risk threshold), one requires human approval.
+        // The NeedsHumanApproval branch at lines 116-119 fires first because
+        // 'any policy requires human approval' is checked before the block logic.
+        let mut action = proposed_action(ActionType::WriteDocument, RiskLevel::High);
+        action.required_permissions = vec![Permission::WriteDocument];
+        let policies = vec![
+            policy(
+                "block-high-write",
+                Some(ActionType::WriteDocument),
+                Some(RiskLevel::High),
+                false, // explicit deny via no human approval
+            ),
+            policy(
+                "require-user-confirm-write",
+                Some(ActionType::WriteDocument),
+                Some(RiskLevel::High),
+                true, // requires human approval
+            ),
+        ];
+
+        let decision = evaluate_proposed_action(&action, &policies, &[Permission::WriteDocument]);
+
+        // Both policies are applied; NeedsHumanApproval fires first (line 116-119)
+        assert_eq!(
+            decision.status,
+            DecisionStatus::NeedsHumanApproval,
+            "When policies overlap, the restriction that requires human approval wins: {}",
+            decision.reason
+        );
+        assert_eq!(decision.policies_applied.len(), 2);
+        assert!(decision.reason.contains("human approval"));
+    }
+
+    #[test]
+    fn risk_threshold_above_action_risk_policy_not_applied() {
+        // A policy with a risk threshold above the action's risk level should
+        // NOT match. e.g., policy for Critical risk, action is Medium → no match
+        // because risk_rank(Medium)=2 < risk_rank(Critical)=4.
+        let action = proposed_action(ActionType::ReadDocument, RiskLevel::Medium);
+        let policies = vec![policy(
+            "critical-only-policy",
+            Some(ActionType::ReadDocument),
+            Some(RiskLevel::Critical),
+            true, // requires human approval for Critical actions
+        )];
+
+        let decision = evaluate_proposed_action(&action, &policies, &[Permission::ReadDocument]);
+
+        // The Critical-only policy should not apply to a Medium risk action.
+        // Without an applicable policy, Medium defaults to NeedsHumanApproval
+        // via the match on risk_level (line 148-149).
+        assert_eq!(
+            decision.status,
+            DecisionStatus::NeedsHumanApproval,
+            "Medium risk without applicable policy should default to NeedsHumanApproval: {}",
+            decision.reason
+        );
+        assert!(
+            decision.policies_applied.is_empty(),
+            "No policies should apply to this Medium risk action: {:?}",
+            decision.policies_applied
+        );
+    }
+
+    #[test]
+    fn informational_action_without_permission_blocked_not_overridable() {
+        // DirectToolCall at Informational risk without ProposeToolUse permission.
+        // Override engine classifies DirectToolCall as NotOverridable (dangerous),
+        // so the result is Blocked, not RequiresOverride.
+        let intent = ToolCallIntent {
+            tool: "list_files".to_owned(),
+            arguments: json!({"path": "."}),
+            rationale: "Permission gap test".to_owned(),
+            risk_level: RiskLevel::Informational,
+        };
+
+        let (decision, _) = govern_tool_call(&intent, &[Permission::WriteMemory]);
+
+        assert_eq!(
+            decision.status,
+            DecisionStatus::Blocked,
+            "Informational DirectToolCall with wrong permission should be Blocked: {}",
+            decision.reason
+        );
+        assert!(decision.reason.contains("ProposeToolUse"));
+        assert!(
+            decision.override_hint.is_none(),
+            "DirectToolCall should have no override hint (not overridable)"
+        );
+    }
 }
