@@ -119,6 +119,45 @@ When uncertain, do not delete. Report.
 
 At the 7am focus-loop run, before selecting a new runtime milestone, inspect `DAILY_VALIDATION_BACKLOG.md`.
 
+### 6.1 Active daily-validation gate for 2026-05-28
+
+Until all open `DV-2026-05-28-*` entries are fixed, superseded with evidence, or intentionally deferred with a strong written rationale, the next DEEP/focus-loop pass must not start from the assumption that green `main` means no work is needed.
+
+Before choosing corrective work, read in this order:
+
+1. `DAILY_VALIDATION_BACKLOG.md`;
+2. the latest available `daily-agent-core-validation` report/output for 2026-05-28;
+3. open PRs related to daily validation, especially PR #139 if still open;
+4. the `Recommended Next Day Actions` section of the latest daily-validation report.
+
+Then select exactly one unresolved daily-validation entry to correct. Preferred priority order:
+
+1. `DV-2026-05-28-002` — document missing CLI commands `mcp-governance-audit` and `llm`, then make `bash scripts/check-cli-docs-coverage.sh` pass;
+2. `DV-2026-05-28-004` — restore targeted governance/readback regression assertions;
+3. `DV-2026-05-28-003` — classify lexical `../` paths as security before filesystem lookup;
+4. `DV-2026-05-28-005` — make local Ollama synthesis more specific to the operator request;
+5. `DV-2026-05-28-001` — reduce false positives in the conflict-marker scan.
+
+Before changing files, explicitly report:
+
+- selected DV entry;
+- why this entry is the highest-priority safe correction now;
+- likely affected files;
+- acceptance criteria;
+- validation commands planned.
+
+Do not open a new non-DV chantier while any `DV-2026-05-28-*` entry remains open unless there is a strong blocker or safety/P0 rationale.
+
+After the correction, create one dedicated technical PR and report:
+
+- modified files summary;
+- commands executed;
+- `cargo fmt -- --check` result;
+- `cargo check` result;
+- `cargo test` result;
+- if `DV-2026-05-28-002` was selected, `bash scripts/check-cli-docs-coverage.sh` result;
+- remaining visible DV backlog entries for the next pass.
+
 If it contains an open validation item that is:
 
 - evidenced by a midnight daily validation run;

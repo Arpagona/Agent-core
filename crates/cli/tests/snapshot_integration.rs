@@ -557,6 +557,55 @@ fn cognitive_propose_pipeline_produces_governed_proposals() {
             .map_or(false, |s| s.contains("PendingDecision")),
         "non_authorizing_warning should mention PendingDecision"
     );
+
+    // -- Assert proposed_action priority metadata --
+    for (i, action) in proposed_array.iter().enumerate() {
+        let payload = action
+            .get("payload")
+            .unwrap_or_else(|| panic!("proposed_actions[{}] should have a payload", i));
+
+        let priority_score = payload
+            .get("priority_score")
+            .and_then(|v| v.as_f64())
+            .unwrap_or(-1.0);
+        assert!(
+            (0.0..=2.0).contains(&priority_score),
+            "proposed_actions[{}] payload.priority_score should be in [0.0, 2.0], got {}",
+            i,
+            priority_score
+        );
+
+        let priority_band = payload
+            .get("priority_band")
+            .and_then(|v| v.as_str())
+            .unwrap_or("missing");
+        assert!(
+            ["high", "medium", "low"].contains(&priority_band),
+            "proposed_actions[{}] payload.priority_band should be high/medium/low, got {}",
+            i,
+            priority_band
+        );
+    }
+
+    // -- Assert proposed_actions are sorted by priority_score descending --
+    for window in proposed_array.windows(2) {
+        let score_a = window[0]
+            .get("payload")
+            .and_then(|p| p.get("priority_score"))
+            .and_then(|v| v.as_f64())
+            .unwrap_or(-1.0);
+        let score_b = window[1]
+            .get("payload")
+            .and_then(|p| p.get("priority_score"))
+            .and_then(|v| v.as_f64())
+            .unwrap_or(-1.0);
+        assert!(
+            score_a >= score_b,
+            "proposed_actions should be sorted by priority_score descending: {:.2} < {:.2}",
+            score_a,
+            score_b
+        );
+    }
 }
 
 #[test]
@@ -662,6 +711,194 @@ fn offline_governance_produces_decisions_and_audit_events() {
 ///
 /// Verifies that the --llm flag calls the mock provider and produces
 /// non-executing, proposal-only synthesis output.
+/// Targeted regression test for governance result structural assertions
+/// that were removed by commit 20f64f8 (C1 LLM integration).
+///
+/// Verifies that the `--assess --observe --govern` offline pipeline produces:
+/// - structured CognitiveObservations with tool_name, kind, status
+/// - non-empty failure_insight_candidates
+/// - governance_results with proposed_action_id, decision.status, audit_event.event_type
+///
+/// This is an offline-only test (no API server required).
+#[test]
+fn cognitive_observe_assess_govern_pipeline_has_structured_governance_results() {
+    let output = std::process::Command::new(ARPAGONA_BIN)
+        .args([
+            "cognitive",
+            "run",
+            "--objective",
+            "Analyse the codebase structure and dependencies",
+            "--assess",
+            "--observe",
+            "--govern",
+            "--json",
+        ])
+        .output()
+        .expect("failed to run cognitive run --assess --observe --govern --json");
+
+    assert!(
+        output.status.success(),
+        "cognitive run --assess --observe --govern --json failed:\nstdout: {}\nstderr: {}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr),
+    );
+
+    let stdout = String::from_utf8(output.stdout).expect("valid utf-8");
+    let parsed: serde_json::Value =
+        serde_json::from_str(&stdout).expect("output should be valid JSON");
+
+    // -- Assert flags --
+    assert_eq!(
+        parsed.get("assessed").and_then(|v| v.as_bool()),
+        Some(true),
+        "assessed flag should be true"
+    );
+    assert_eq!(
+        parsed.get("governed").and_then(|v| v.as_bool()),
+        Some(true),
+        "governed flag should be true"
+    );
+
+    // -- Assert cognitive_observations structure (from ToolRuntime) --
+    let wm = parsed
+        .get("working_memory")
+        .expect("output should have working_memory");
+    let observed = wm
+        .get("observed")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false);
+    assert!(observed, "observed flag should be true from --observe");
+
+    let observations = wm
+        .get("cognitive_observations")
+        .expect("working_memory should have cognitive_observations");
+    let obs_array = observations
+        .as_array()
+        .expect("cognitive_observations should be an array");
+    assert!(
+        !obs_array.is_empty(),
+        "cognitive_observations should not be empty"
+    );
+
+    for (i, obs) in obs_array.iter().enumerate() {
+        let tool_name = obs.get("tool_name").and_then(|v| v.as_str());
+        assert!(
+            tool_name.is_some() && !tool_name.unwrap().is_empty(),
+            "cognitive_observations[{}] should have non-empty tool_name",
+            i
+        );
+        let kind = obs.get("kind").and_then(|v| v.as_str());
+        assert!(
+            kind.is_some() && !kind.unwrap().is_empty(),
+            "cognitive_observations[{}] should have non-empty kind",
+            i
+        );
+        let status = obs.get("status").and_then(|v| v.as_str());
+        assert!(
+            status.is_some() && !status.unwrap().is_empty(),
+            "cognitive_observations[{}] should have non-empty status",
+            i
+        );
+    }
+
+    // -- Assert failure_insight_candidates present --
+    let fic = wm
+        .get("failure_insight_candidates")
+        .expect("working_memory should have failure_insight_candidates");
+    let fic_array = fic
+        .as_array()
+        .expect("failure_insight_candidates should be an array");
+    assert!(
+        !fic_array.is_empty(),
+        "failure_insight_candidates should not be empty"
+    );
+
+    // -- Assert governance_results structure --
+    let governance_results = parsed
+        .get("governance_results")
+        .expect("output should have governance_results");
+    let results_array = governance_results
+        .as_array()
+        .expect("governance_results should be an array");
+    assert!(
+        !results_array.is_empty(),
+        "governance_results should not be empty"
+    );
+
+    let decision_count = parsed
+        .get("decision_count")
+        .and_then(|v| v.as_u64())
+        .expect("output should have positive decision_count");
+    assert!(decision_count > 0, "decision_count should be > 0");
+
+    let audit_event_count = parsed
+        .get("audit_event_count")
+        .and_then(|v| v.as_u64())
+        .expect("output should have positive audit_event_count");
+    assert!(audit_event_count > 0, "audit_event_count should be > 0");
+
+    // Each governance result must have proposed_action_id, decision.status, audit_event.event_type
+    let valid_decision_statuses = [
+        "approved",
+        "blocked",
+        "needs_human_review",
+        "requires_override",
+    ];
+    for (i, result) in results_array.iter().enumerate() {
+        let proposed_action_id = result
+            .get("proposed_action_id")
+            .and_then(|v| v.as_str())
+            .unwrap_or("missing");
+        assert!(
+            !proposed_action_id.is_empty(),
+            "governance_result[{}] should have non-empty proposed_action_id",
+            i
+        );
+
+        let decision = result
+            .get("decision")
+            .unwrap_or_else(|| panic!("governance_result[{}] should have a decision", i));
+        let decision_status = decision
+            .get("status")
+            .and_then(|v| v.as_str())
+            .unwrap_or("missing");
+        assert!(
+            valid_decision_statuses.contains(&decision_status),
+            "governance_result[{}] decision.status should be a valid status, got: {}",
+            i,
+            decision_status
+        );
+
+        let audit_event = result
+            .get("audit_event")
+            .unwrap_or_else(|| panic!("governance_result[{}] should have an audit_event", i));
+        let event_type = audit_event
+            .get("event_type")
+            .and_then(|v| v.as_str())
+            .unwrap_or("missing");
+        assert!(
+            !event_type.is_empty(),
+            "governance_result[{}] audit_event.event_type should be non-empty",
+            i
+        );
+    }
+
+    // -- Assert governance_warning present --
+    let warning = parsed
+        .get("governance_warning")
+        .expect("output should have governance_warning");
+    assert!(
+        warning.as_str().map_or(false, |s| !s.is_empty()),
+        "governance_warning should be a non-empty string"
+    );
+    assert!(
+        warning
+            .as_str()
+            .map_or(false, |s| s.contains("Offline governance readback")),
+        "governance_warning should indicate offline governance readback"
+    );
+}
+
 #[test]
 fn cognitive_llm_mock_provides_proposal_only_synthesis() {
     let output = std::process::Command::new(ARPAGONA_BIN)

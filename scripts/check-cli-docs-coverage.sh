@@ -54,6 +54,8 @@ CMD_PATTERNS["insight"]="### Insight|### insight"
 CMD_PATTERNS["memory"]="### Graph Memory|### memory|Mémoire|Démos Memory"
 CMD_PATTERNS["tool"]="### Tool Runtime|### tool|Tool Runtime"
 CMD_PATTERNS["cognitive"]="### Cognitive|### cognitive|Cognitive Work Loop"
+CMD_PATTERNS["mcp-governance-audit"]="### MCP Governance Audit|MCP Governance Audit|mcp-governance-audit"
+CMD_PATTERNS["llm"]="### LLM|Journal d.interaction LLM|llm journal"
 
 # For commands not in the map above, fall back to a simple grep for "### <cmd>"
 MISSING=()
@@ -67,7 +69,7 @@ for cmd in $COMMANDS; do
     else
         # Fallback: just look for any heading mentioning the command
         if ! grep -qi "^###.*${cmd}" "$DOCS_FILE" 2>/dev/null && \
-           ! grep -qi "^#.*${cmd}[[:space:]\"]" "$DOCS_FILE" 2>/dev/null; then
+           ! grep -qi "^#.*${cmd}[[:space:]\\\"]" "$DOCS_FILE" 2>/dev/null; then
             MISSING+=("$cmd")
         fi
     fi
