@@ -295,6 +295,26 @@ impl ToolRuntime {
         IGNORED_DIRECTORIES.contains(&component)
     }
 
+    /// Detect whether a file appears to be binary by scanning the first 8 KiB
+    /// for null bytes.  Returns `true` when null bytes are found (strong
+    /// indicator of non-text content).
+    ///
+    /// Text files, empty files and files smaller than 4 bytes are treated as
+    /// non-binary (never `true`).
+    fn is_binary_file(path: &Path) -> bool {
+        let Ok(data) = std::fs::read(path) else {
+            return false; // I/O errors are handled by the caller
+        };
+        // A minimum length heuristic avoids false-positives on very short
+        // files that happen to contain a zero byte (e.g. a single null
+        // written by accident).
+        if data.len() < 4 {
+            return false;
+        }
+        let scan_end = data.len().min(8192); // 8 KiB sniff
+        data[..scan_end].contains(&0u8)
+    }
+
     // -----------------------------------------------------------------------
     // Tool: read_file
     // -----------------------------------------------------------------------
@@ -379,6 +399,22 @@ impl ToolRuntime {
                     ),
                 ),
                 "File exceeds maximum allowed size",
+            );
+        }
+
+        // Detect binary files before attempting text read
+        if Self::is_binary_file(&resolved) {
+            return ToolExecutionResult::failed(
+                execution_id,
+                "read_file",
+                ToolExecutionError::new(
+                    "binary_file",
+                    format!(
+                        "Cannot read file as text: {path_str} appears to be a binary file. \
+                         Use `search_text` or `list_files` instead."
+                    ),
+                ),
+                "File appears to be binary and cannot be read as text",
             );
         }
 
@@ -1261,5 +1297,104 @@ mod tests {
                 | ToolExecutionStatus::Failed
         ));
         assert!(result.observation.payload.is_object());
+    }
+
+    // -----------------------------------------------------------------------
+    // Binary file detection tests
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn read_file_binary_file_returns_clear_error() {
+        let dir = test_workspace();
+        // Write a small binary file (null bytes = strong binary indicator)
+        let binary_data: Vec<u8> = vec![
+            0x48, 0x65, 0x6c, 0x6c, 0x6f, 0x00, 0x57, 0x6f, 0x72, 0x6c, 0x64,
+        ];
+        std::fs::write(dir.path().join("binary.bin"), &binary_data)
+            .expect("should write binary file");
+        let runtime = make_runtime(dir.path());
+
+        let result = runtime.execute("read_file", &json!({"path": "binary.bin"}));
+
+        assert_eq!(result.status, ToolExecutionStatus::Failed);
+        let error = result.error.as_ref().unwrap();
+        assert_eq!(error.code, "binary_file");
+        assert!(
+            error.message.contains("binary"),
+            "message should mention binary: {}",
+            error.message
+        );
+        assert!(
+            !error.is_security,
+            "binary file error should not be classified as security"
+        );
+    }
+
+    #[test]
+    fn read_file_binary_file_with_only_null_bytes_is_detected() {
+        let dir = test_workspace();
+        // A file with only null bytes (>4 bytes)
+        let binary_data: Vec<u8> = vec![0u8; 100];
+        std::fs::write(dir.path().join("nulls.bin"), &binary_data)
+            .expect("should write binary file");
+        let runtime = make_runtime(dir.path());
+
+        let result = runtime.execute("read_file", &json!({"path": "nulls.bin"}));
+
+        assert_eq!(result.status, ToolExecutionStatus::Failed);
+        assert_eq!(result.error.as_ref().unwrap().code, "binary_file");
+    }
+
+    #[test]
+    fn read_file_text_file_no_null_bytes_still_succeeds() {
+        let dir = test_workspace();
+        // Pure ASCII text — no null bytes
+        create_test_file(
+            dir.path(),
+            "readme.txt",
+            "Hello, this is a plain text file.",
+        );
+        let runtime = make_runtime(dir.path());
+
+        let result = runtime.execute("read_file", &json!({"path": "readme.txt"}));
+
+        assert_eq!(result.status, ToolExecutionStatus::Success);
+    }
+
+    #[test]
+    fn is_binary_file_detects_null_bytes() {
+        // Test the helper directly: a file with null bytes
+        let dir = test_workspace();
+        let bin_path = dir.path().join("helper_test.bin");
+        std::fs::write(&bin_path, &[0x00, 0x01, 0x02, 0x03, 0x04])
+            .expect("should write small binary file");
+        assert!(
+            ToolRuntime::is_binary_file(&bin_path),
+            "file with null bytes should be detected as binary"
+        );
+
+        // A text file should NOT be detected as binary
+        let txt_path = dir.path().join("helper_test.txt");
+        std::fs::write(&txt_path, "Hello world").expect("should write text file");
+        assert!(
+            !ToolRuntime::is_binary_file(&txt_path),
+            "text file without null bytes should not be detected as binary"
+        );
+
+        // An empty file should NOT be detected as binary
+        let empty_path = dir.path().join("helper_test.empty");
+        std::fs::write(&empty_path, "").expect("should write empty file");
+        assert!(
+            !ToolRuntime::is_binary_file(&empty_path),
+            "empty file should not be detected as binary"
+        );
+
+        // A very short file with a null byte (<4 bytes) should NOT be flagged
+        let short_bin_path = dir.path().join("short.bin");
+        std::fs::write(&short_bin_path, &[0x00]).expect("should write short binary file");
+        assert!(
+            !ToolRuntime::is_binary_file(&short_bin_path),
+            "very short file (<4 bytes) with null byte should not trigger false positive"
+        );
     }
 }
