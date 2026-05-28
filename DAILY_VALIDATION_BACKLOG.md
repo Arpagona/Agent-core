@@ -21,7 +21,7 @@ Rules:
 - category: beta usability / LLM synthesis quality
 - severity: low
 - status: open
-- evidence: `cognitive run --llm --provider ollama` produces structured [STATE]/[KEY GAP/RISK]/[RECOMMENDED NEXT STEP] sections since PR #124 (fixed DV-2026-05-27-002), but the content is generic and does not reference specific fields from the operator's objective/context. The mock provider references concrete fields; the real Ollama provider's output depends on the model's instruction-following ability. The gap is that `--provider ollama` (the default) may produce less-specific output than `--provider mock`.
+- evidence: `cognitive run --llm --provider ollama` produces structured [STATE]/[KEY GAP/RISK]/[RECOMMENDED NEXT STEP] sections since PR #124 (fixed DV-2026-05-27-002), but the content is generic and does not reference specific fields from the operator's objective/context. The mock provider references concrete fields; the real Ollama provider's output depends on the model's instruction-following ability. Notable: when the objective is in French, `--provider ollama` (qwen3.5:9b) produces French-language synthesis, which is more contextually useful than English mock output for the SME scenario.
 - suggested fix: verify that the Ollama model (qwen3.5:9b) can follow the structured prompt. This is a model-quality issue, not a code issue. If unacceptable, document in `docs/cli.md` that `--provider mock` gives deterministic structured output while `--provider ollama` quality depends on local model capability.
 - do not: weaken the safety prompt (no tool calls, no authorization claims) to improve specificity.
 

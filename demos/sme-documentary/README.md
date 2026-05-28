@@ -32,12 +32,28 @@ All without an API server, LLM calls, or external side effects.
 
 ## Quick Start
 
+### Standard demo (no LLM)
+
 ```bash
 # From the repository root:
 bash demos/sme-documentary/demo.sh
 
 # Or from the demo directory:
 cd demos/sme-documentary && bash demo.sh
+```
+
+### LLM-assisted demo
+
+```bash
+# Deterministic mock provider (no model required):
+bash demos/sme-documentary/demo-llm.sh
+bash demos/sme-documentary/demo-llm.sh mock
+
+# Real local model via Ollama (requires qwen3.5:9b):
+bash demos/sme-documentary/demo-llm.sh ollama
+
+# Compare mock vs. Ollama in one run:
+bash demos/sme-documentary/demo-llm.sh both
 ```
 
 ## What the Demo Does
@@ -114,9 +130,10 @@ See `expected-output.md` for a complete example transcript.
 
 ## Next Steps
 
-1. **Real LLM integration:** Run with `--llm --provider ollama` for realistic cognitive synthesis using the local `qwen3.5:9b` model.
+1. ✅ **Real LLM integration:** `demo-llm.sh` now supports `--provider mock` (deterministic) and `--provider ollama` (local qwen3.5:9b) with full integration.
 2. **Product scenario expansion:** Use different SME domains (legal document review, technical audit, market analysis).
-3. **Web Mission Control:** Once CLI supervision surfaces are proven, extend to read-only Web UI.
+3. **E2 — Business/prospecting workflow demo:** Create a second SME demo scenario (client qualification, proposal outline generation).
+4. **Web Mission Control:** Once CLI supervision surfaces are proven, extend to read-only Web UI.
 
 ## Files
 
