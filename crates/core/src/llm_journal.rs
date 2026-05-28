@@ -252,6 +252,40 @@ impl LlmJournal {
         id
     }
 
+    /// Convenience: build and add a governance entry (proposed actions + decisions + audit events).
+    ///
+    /// Returns the generated entry ID.
+    pub fn add_governance(
+        &mut self,
+        objective: &str,
+        provider: &str,
+        model: Option<String>,
+        prompt_summary: String,
+        response_summary: String,
+        proposed_actions: Value,
+        governance_outcomes: Value,
+        risk_level: Option<RiskLevel>,
+    ) -> String {
+        let id = format!("llm-journal-{}", self.next_id);
+        let entry = LlmJournalEntry {
+            id: id.clone(),
+            created_at: Utc::now(),
+            interaction_type: LlmInteractionType::Synthesis,
+            prompt_summary,
+            response_summary,
+            provider: provider.to_owned(),
+            model,
+            objective: Some(objective.to_owned()),
+            proposed_actions: Some(proposed_actions),
+            tool_call_intents: None,
+            decision_gate_outcomes: Some(governance_outcomes),
+            risk_level,
+            compute_routing: None,
+        };
+        self.add_entry(entry);
+        id
+    }
+
     /// Convenience: build and add a direct tool-call entry.
     ///
     /// Returns the generated entry ID.
@@ -387,6 +421,42 @@ mod tests {
     fn get_entry_returns_none_for_unknown_id() {
         let journal = LlmJournal::new(10);
         assert!(journal.get_entry("nonexistent").is_none());
+    }
+
+    #[test]
+    fn add_governance_creates_entry_with_proposed_actions_and_decisions() {
+        let mut journal = LlmJournal::new(10);
+        let proposed =
+            serde_json::json!([{"action_type": "simulate_email", "priority_score": 0.8}]);
+        let outcomes = serde_json::json!([{
+            "proposed_action_id": "pa-1",
+            "decision": {"status": "approved", "risk": "low"},
+            "audit_event": {"event_type": "decision_made", "id": "ae-1"}
+        }]);
+        let id = journal.add_governance(
+            "Test governance",
+            "offline",
+            None,
+            "Governance prompt summary".to_owned(),
+            "Governance response summary".to_owned(),
+            proposed.clone(),
+            outcomes.clone(),
+            Some(RiskLevel::Low),
+        );
+        let entry = journal.get_entry(&id).expect("entry should exist");
+        assert_eq!(entry.interaction_type, LlmInteractionType::Synthesis);
+        assert_eq!(entry.objective.as_deref(), Some("Test governance"));
+        assert!(entry.proposed_actions.is_some());
+        assert!(entry.decision_gate_outcomes.is_some());
+        assert_eq!(entry.risk_level, Some(RiskLevel::Low));
+        let stored_proposed = entry.proposed_actions.as_ref().unwrap();
+        assert_eq!(stored_proposed[0]["action_type"], "simulate_email");
+        let stored_outcomes = entry.decision_gate_outcomes.as_ref().unwrap();
+        assert_eq!(stored_outcomes[0]["decision"]["status"], "approved");
+        assert_eq!(
+            stored_outcomes[0]["audit_event"]["event_type"],
+            "decision_made"
+        );
     }
 
     #[test]
