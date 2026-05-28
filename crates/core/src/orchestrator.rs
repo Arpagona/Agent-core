@@ -559,6 +559,220 @@ impl OrchestratorOutcome {
     }
 }
 
+// ─── CycleTrace — structured causal trace with context assembly metadata ────
+
+/// Per-source summary for context assembly metadata in a cycle trace.
+///
+/// Shows how many items a given source contributed, whether it was available,
+/// and a sample item (if any) for operator inspection.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct ContextSourceSummary {
+    /// The context source name (e.g. "graph_memory", "holographic_memory").
+    pub source: String,
+    /// Number of items contributed by this source.
+    pub item_count: usize,
+    /// Whether this source was available.
+    pub available: bool,
+    /// A preview of the first item key-value pair (if any).
+    pub sample_key: Option<String>,
+    /// A preview of the first item value (truncated to 120 chars).
+    pub sample_value_preview: Option<String>,
+}
+
+impl ContextSourceSummary {
+    /// Create a new context source summary.
+    pub fn new(source: impl Into<String>, item_count: usize, available: bool) -> Self {
+        Self {
+            source: source.into(),
+            item_count,
+            available,
+            sample_key: None,
+            sample_value_preview: None,
+        }
+    }
+
+    /// Attach a sample item preview.
+    pub fn with_sample(mut self, key: String, value: &str) -> Self {
+        self.sample_key = Some(key);
+        let truncated = if value.len() > 120 {
+            format!("{}...", &value[..117])
+        } else {
+            value.to_owned()
+        };
+        self.sample_value_preview = Some(truncated);
+        self
+    }
+}
+
+/// Structured causal trace for an orchestrated work cycle.
+///
+/// A CycleTrace records the full causal chain of one orchestrator cycle:
+/// objective → context assembly metadata → compute route → proposal →
+/// decision → audit → outcome — with per-source context assembly details.
+///
+/// Every field is non-authorizing. The trace is evidence for operator
+/// supervision and future Failure-to-Insight, not authorization to act.
+///
+/// # Safety invariants
+/// - All context metadata is advisory (non-authorizing)
+/// - No execution tokens, approval fields or action authorization
+/// - Pure serializable struct — no I/O, no persistence coupling
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct CycleTrace {
+    /// The orchestrator cycle this trace belongs to.
+    pub cycle_id: OrchestratorCycleId,
+    /// The objective text that drove this cycle.
+    pub objective_text: String,
+    /// The objective domain (if classified).
+    pub objective_domain: Option<String>,
+    /// Per-source context assembly summaries.
+    pub context_source_summaries: Vec<ContextSourceSummary>,
+    /// Total context items across all sources.
+    pub total_context_items: usize,
+    /// Sources that were queried but unavailable.
+    pub unavailable_sources: Vec<String>,
+    /// The compute route label (advisory).
+    pub compute_route_label: Option<String>,
+    /// The compute route justification (advisory).
+    pub compute_route_justification: Option<String>,
+    /// The action type proposed (if any).
+    pub action_type: Option<String>,
+    /// The Decision Gate status (if evaluated).
+    pub decision_status: Option<String>,
+    /// Number of audit events recorded.
+    pub audit_event_count: usize,
+    /// Whether the cycle went through the Decision Gate.
+    pub gate_was_applied: bool,
+    /// The final cycle status.
+    pub cycle_status: String,
+    /// Human-readable summary of the cycle outcome.
+    pub summary: String,
+    /// Invariant: traces are always non-authorizing.
+    pub non_authorizing: bool,
+    /// Timestamp of the trace.
+    pub created_at: DateTime<Utc>,
+}
+
+impl CycleTrace {
+    /// Create a new CycleTrace with non_authorizing set to true.
+    pub fn new(
+        cycle_id: OrchestratorCycleId,
+        objective_text: impl Into<String>,
+        cycle_status: impl Into<String>,
+        summary: impl Into<String>,
+    ) -> Self {
+        Self {
+            cycle_id,
+            objective_text: objective_text.into(),
+            objective_domain: None,
+            context_source_summaries: vec![],
+            total_context_items: 0,
+            unavailable_sources: vec![],
+            compute_route_label: None,
+            compute_route_justification: None,
+            action_type: None,
+            decision_status: None,
+            audit_event_count: 0,
+            gate_was_applied: false,
+            cycle_status: cycle_status.into(),
+            summary: summary.into(),
+            non_authorizing: true,
+            created_at: Utc::now(),
+        }
+    }
+
+    /// Return a human-readable formatted trace string.
+    pub fn format(&self) -> String {
+        let mut lines = vec![];
+        lines.push(format!("Cycle:       {}", self.cycle_id));
+        lines.push(format!("Objective:   {}", self.objective_text));
+        if let Some(ref domain) = self.objective_domain {
+            lines.push(format!("Domain:      {}", domain));
+        }
+        lines.push(format!("Context:"));
+
+        // Per-source breakdown
+        for src in &self.context_source_summaries {
+            let status = if src.available { "✓" } else { "✗" };
+            let sample =
+                if let (Some(ref k), Some(ref v)) = (&src.sample_key, &src.sample_value_preview) {
+                    format!(" (e.g., {}: \"{}\")", k, v)
+                } else {
+                    String::new()
+                };
+            lines.push(format!(
+                "  ├─ {} {} items={}{}",
+                status, src.source, src.item_count, sample
+            ));
+        }
+        lines.push(format!("  └─ Total: {} items", self.total_context_items));
+
+        if !self.unavailable_sources.is_empty() {
+            lines.push(format!(
+                "  Unavailable: {}",
+                self.unavailable_sources.join(", ")
+            ));
+        }
+
+        if let Some(ref label) = self.compute_route_label {
+            lines.push(format!("Compute:     {}", label));
+            if let Some(ref justification) = self.compute_route_justification {
+                lines.push(format!("  Why:       {}", justification));
+            }
+        }
+
+        if let Some(ref action) = self.action_type {
+            lines.push(format!("Action:      {}", action));
+        }
+        if let Some(ref status) = self.decision_status {
+            lines.push(format!("Decision:    {}", status));
+        }
+        lines.push(format!("Audit:       {} events", self.audit_event_count));
+        lines.push(format!("Gate:        {}", self.gate_was_applied));
+        lines.push(format!("Non-auth:    {}", self.non_authorizing));
+        lines.push(format!("Status:      {}", self.cycle_status));
+        lines.push(format!("Summary:     {}", self.summary));
+        lines.join("\n")
+    }
+
+    /// Build context source summaries from a ContextBundle.
+    pub fn from_context_bundle(bundle: &ContextBundle) -> Vec<ContextSourceSummary> {
+        let mut summaries = vec![];
+
+        // GraphMemory
+        {
+            let count = bundle.graph_memory_items.len();
+            let mut summary = ContextSourceSummary::new("graph_memory", count, true);
+            if let Some(first) = bundle.graph_memory_items.first() {
+                summary = summary.with_sample(first.key.clone(), &first.value);
+            }
+            summaries.push(summary);
+        }
+
+        // HolographicMemory
+        {
+            let count = bundle.holographic_resonance_items.len();
+            let mut summary = ContextSourceSummary::new("holographic_memory", count, true);
+            if let Some(first) = bundle.holographic_resonance_items.first() {
+                summary = summary.with_sample(first.key.clone(), &first.value);
+            }
+            summaries.push(summary);
+        }
+
+        // ReservoirEcho
+        {
+            let count = bundle.reservoir_traces.len();
+            let mut summary = ContextSourceSummary::new("reservoir_echo", count, true);
+            if let Some(first) = bundle.reservoir_traces.first() {
+                summary = summary.with_sample(first.key.clone(), &first.value);
+            }
+            summaries.push(summary);
+        }
+
+        summaries
+    }
+}
+
 // ─── Builder for orchestrator cycle chain ──────────────────────────────────
 
 /// Build a complete set of orchestrator domain objects from an objective input.
@@ -977,6 +1191,129 @@ mod tests {
         assert_eq!(outcome.objective_id, obj_id);
         assert_eq!(outcome.context_bundle_id, cb_id);
         assert!(outcome.proposal_request_id.as_str().starts_with("pr-"));
+    }
+
+    // ─── CycleTrace tests ───────────────────────────────────────────────
+
+    #[test]
+    fn cycle_trace_new_is_non_authorizing() {
+        let trace = CycleTrace::new(
+            OrchestratorCycleId::new("oc-1"),
+            "Test objective",
+            "Completed",
+            "Test summary",
+        );
+        assert!(trace.non_authorizing);
+        assert_eq!(trace.objective_text, "Test objective");
+        assert_eq!(trace.cycle_status, "Completed");
+        assert_eq!(trace.summary, "Test summary");
+        assert!(trace.context_source_summaries.is_empty());
+        assert_eq!(trace.total_context_items, 0);
+    }
+
+    #[test]
+    fn cycle_trace_serializes_and_deserializes() {
+        let trace = CycleTrace::new(
+            OrchestratorCycleId::new("oc-42"),
+            "Serialize test",
+            "Completed",
+            "Done",
+        );
+
+        let json = serde_json::to_value(&trace).expect("serialize");
+        assert_eq!(json["objective_text"], "Serialize test");
+        assert_eq!(json["non_authorizing"], true);
+        assert!(json.get("approved").is_none());
+
+        let decoded: CycleTrace = serde_json::from_value(json).expect("deserialize");
+        assert_eq!(decoded.cycle_id, trace.cycle_id);
+        assert!(decoded.non_authorizing);
+    }
+
+    #[test]
+    fn cycle_trace_format_shows_context_sources() {
+        let mut trace = CycleTrace::new(
+            OrchestratorCycleId::new("oc-1"),
+            "Format test",
+            "Completed",
+            "Done",
+        );
+
+        trace.context_source_summaries = vec![
+            ContextSourceSummary::new("graph_memory", 2, true)
+                .with_sample("key1".to_owned(), "value1"),
+            ContextSourceSummary::new("holographic_memory", 0, false),
+        ];
+        trace.total_context_items = 2;
+        trace.compute_route_label = Some("local".to_owned());
+
+        let output = trace.format();
+        assert!(output.contains("oc-1"));
+        assert!(output.contains("Format test"));
+        assert!(output.contains("graph_memory"));
+        assert!(output.contains("holographic_memory"));
+        assert!(output.contains("items=2"));
+        assert!(output.contains("items=0"));
+        assert!(output.contains("Total: 2 items"));
+        assert!(output.contains("Compute:     local"));
+        assert!(output.contains("Non-auth:    true"));
+    }
+
+    #[test]
+    fn context_source_summary_with_sample_truncates_long_values() {
+        let long_value = "a".repeat(200);
+        let summary = ContextSourceSummary::new("test", 1, true)
+            .with_sample("long_key".to_owned(), &long_value);
+
+        assert_eq!(summary.sample_key, Some("long_key".to_owned()));
+        let preview = summary.sample_value_preview.expect("should have preview");
+        assert!(preview.len() <= 123); // 120 + "..."
+        assert!(preview.ends_with("..."));
+    }
+
+    #[test]
+    fn from_context_bundle_maps_all_sources() {
+        let bundle = ContextBundle::new(
+            ContextBundleId::new("cb-1"),
+            OrchestratorCycleId::new("oc-1"),
+            ObjectiveId::new("obj-1"),
+        )
+        .with_graph_memory(vec![ContextItem {
+            key: "fact_1".to_owned(),
+            value: "Value 1".to_owned(),
+            source: "graph_memory".to_owned(),
+        }])
+        .with_holographic_resonance(vec![ContextItem {
+            key: "trace_1".to_owned(),
+            value: "Pattern match".to_owned(),
+            source: "holographic_memory".to_owned(),
+        }])
+        .with_reservoir_traces(vec![]);
+
+        let summaries = CycleTrace::from_context_bundle(&bundle);
+        assert_eq!(summaries.len(), 3);
+
+        let gm = summaries
+            .iter()
+            .find(|s| s.source == "graph_memory")
+            .unwrap();
+        assert_eq!(gm.item_count, 1);
+        assert_eq!(gm.sample_key, Some("fact_1".to_owned()));
+
+        let hm = summaries
+            .iter()
+            .find(|s| s.source == "holographic_memory")
+            .unwrap();
+        assert_eq!(hm.item_count, 1);
+        assert_eq!(hm.sample_value_preview, Some("Pattern match".to_owned()));
+
+        let re = summaries
+            .iter()
+            .find(|s| s.source == "reservoir_echo")
+            .unwrap();
+        assert_eq!(re.item_count, 0);
+        assert!(re.sample_key.is_none());
+        assert!(re.sample_value_preview.is_none());
     }
 }
 
