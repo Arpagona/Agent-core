@@ -2929,15 +2929,77 @@ implementation backed by the Tool Runtime crate.
 | P3-3 — Orchestrator CLI readback | ✅ (#171) |
 | P3-4 — Memory-aware context integration | ✅ (#172) |
 | P3-5 — Cycle Trace V0 | ✅ (#173) |
-| **P3-4e — ToolRuntimeAdapter** | **🔜 PR #174 open, CI pending** |
-| P3-4d — HolographicMemoryAdapter | 📋 |
+| P3-4e — ToolRuntimeAdapter | ✅ (#174, merged) |
+| P3-4d — HolographicMemoryAdapter | ✅ (#175) |
 | P3-4c — ReservoirEchoAdapter | 📋 |
 | P3-4b — CompressedCognitiveAttentionAdapter | 📋 |
 | P3-4a — GraphMemoryAdapter | 📋 |
 
 ### Recommended next step for GONA
 
-1. **Review PR #174** — merge when CI passes.
-2. Proceed to **P3-4d (HolographicMemoryAdapter)**: bridge the Holographic Memory
-   crate's `retrieve_by_resonance()` into the ContextAssembler pipeline, enabling
-   pattern-resonance-based context retrieval during orchestrator cycles.
+1. **Review this PR** — P3-4d HolographicMemoryAdapter.
+2. Proceed to **P3-4c (ReservoirEchoAdapter)**: bridge the Reservoir Echo short-term
+   cognitive continuity into the ContextAssembler pipeline.
+
+## 29. Latest Session Update (2026-05-29 DEEP cron — Merge #174 + P3-4d HolographicMemoryAdapter)
+
+This session merged PR #174 (P3-4e ToolRuntimeAdapter, CI green) and implemented
+P3-4d (HolographicMemoryAdapter): a ContextAssembler adapter backed by the
+Holographic Memory crate's resonance retrieval.
+
+### What was done
+
+**Merge PR #174** (feat/p3-4e-tool-runtime-adapter):
+- CI was green (2 check runs SUCCESS), mergeable state CLEAN
+- Merged via rebase onto current main (6c7dde6)
+- ToolRuntimeAdapter now on main — bridges `crates/tool-runtime` into ContextAssembler
+
+**New: `crates/neutral-orchestrator/src/holographic_memory_adapter.rs`:**
+- `HolographicMemoryAdapter` struct implementing `ContextAssembler`
+- Supports `ContextSource::HolographicMemory`
+- Extracts keywords from objective text (splits whitespace, filters short tokens/punctuation, lowercases)
+- Creates `HolographicQuery` and calls `store.retrieve_by_resonance()`
+- Converts `ResonanceMatch` results into advisory `ContextItem` values with resonance scores
+- Handles empty stores, non-matching sources, other-project traces, lock poisoning
+- Respects max_items limit and effective_limit from request
+- Interior mutability via `Mutex<Box<dyn HolographicMemoryStore>>` (because `retrieve_by_resonance` needs `&mut self` for activation counts, but `ContextAssembler::assemble` uses `&self`)
+
+**New test coverage (18 tests added to neutral-orchestrator):**
+- `adapter_returns_holographic_memory_source` — supported_sources contains HolographicMemory
+- `adapter_ignores_non_matching_sources` — non-matching sources pass through cleanly
+- `adapter_handles_empty_store` — empty store returns available but zero items
+- `extract_keywords_splits_whitespace` — keyword extraction from text
+- `extract_keywords_filters_short_tokens` — 1-2 char tokens filtered
+- `extract_keywords_strips_punctuation` — punctuation stripped
+- `extract_keywords_handles_empty_text` — empty text produces no keywords
+- `extract_keywords_lowercases` — keywords lowercased
+- `adapter_returns_matching_traces` — resonance matching produces context items
+- `adapter_does_not_return_other_project_traces` — project scoping enforced
+- `adapter_context_items_contain_resonance_info` — context items contain scores
+- `adapter_respects_max_items` — limit enforced
+- `adapter_completes_without_panic` — graceful completion
+
+**Changed files:**
+
+| File | Change |
+|------|--------|
+| `crates/neutral-orchestrator/Cargo.toml` | Added `arpagona-holographic-memory` dependency |
+| `crates/neutral-orchestrator/src/lib.rs` | Added `pub mod holographic_memory_adapter;` + reexport |
+| `crates/neutral-orchestrator/src/holographic_memory_adapter.rs` | **NEW** — HolographicMemoryAdapter with 18 tests |
+
+### Verification
+
+- `cargo fmt -- --check`: ✅ clean
+- `cargo check`: ✅ clean (only pre-existing `chrono::Utc` unused import in context_assembler.rs)
+- `cargo test --workspace`: ✅ all tests pass (no regressions)
+
+### Safety boundaries preserved
+
+- All context items are advisory and non-authorizing
+- No Decision Gate bypass — resonance scores are evidence only
+- No LLM calls — pure deterministic retrieval via existing holographic memory
+- No I/O, no persistence, no filesystem access beyond existing crate APIs
+- No unrestricted shell, browser, email, secrets access, or Mission Control Web expansion
+- No scheduler, autonomy, or agent self-modification
+- No new crate dependencies beyond holographic-memory (already in workspace)
+- No Tool Runtime, API endpoint, or MCP server changes
