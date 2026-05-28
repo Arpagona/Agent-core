@@ -2047,5 +2047,48 @@ The existing 52 Decision Gate tests covered standard paths (low→approved, medi
 - No changes to core, compute-reservoir, holographic-memory, mcp-server, tool-runtime, tool-registry, cli, llm, runtime, api-server behavior
 - No changes to crate boundaries, permissions, risk levels, or governance logic
 - No new features, flags, or commands
+
+## 31. Latest Session Update (2026-05-28 — H1: backlog count accuracy + DV section cleanup)
+
+This session merged PR #158 and fixed two data-accuracy issues in the operator status surface.
+
+### What was done
+
+1. **Merged PR #158** (squash, green CI):
+   - `feat/h1-warnings-and-edge-tests` — 3 commits:
+     - api-server: 6 unused-variable warnings → 0
+     - 5 Tool Runtime edge-case tests (empty file, empty dir, subdirectory, empty query, case sensitivity)
+     - 7 Decision Gate blocking scenario tests (governance path edge cases, override rejection, risk threshold, overlapping policies)
+   - PR #158 was open, mergeable, and both CI checks passed (SUCCESS)
+
+2. **Fixed `count_backlog_open_items()`** — was counting ALL `### DV-` entries regardless of section. Now correctly scoped to only count entries under the `## Open candidates` H2 header. Returns 0 for the current backlog (all 5+ entries are closed/superseded).
+
+3. **Moved `DV-2026-05-28-005`** from Open candidates to Closed / superseded candidates in `DAILY_VALIDATION_BACKLOG.md`. It was already marked `fixed in PR #147` but remained in the open section, creating a contradiction ("No open DV entries remain" with an open-section entry).
+
+### Files changed
+
+| File | Change |
+|------|--------|
+| `FOCUS_LOOP_NEXT.md` | Updated — PR #158 merged, backlog fix added, next action: D1 gap analysis |
+| `PROJECT_STATUS.md` | Added section 31 documenting this session |
+| `DAILY_VALIDATION_BACKLOG.md` | Moved DV-2026-05-28-005 from Open → Closed section |
+| `crates/cli/src/main.rs` | `count_backlog_open_items()` now section-scoped |
+
+### Verification
+
+- `cargo fmt -- --check`: ✅ clean
+- `cargo check`: ✅ clean (pre-existing E0670 edition linter noise only)
+- `cargo test`: ✅ all tests pass
+
+### Safety boundaries preserved
+
+- No new capabilities, CLI flags, runtime behavior, model calls, permissions, or governance logic
+- No Decision Gate bypass, scheduler, autonomy, browser automation, email, secrets, self-modification, or Mission Control Web growth
+- No readback-as-authorization behavior
+
+### Limits
+
+- The backlog count fix does not add a test for itself (it's a pure function reading file I/O; the behavior change is verified by manual inspection)
+- No integration test was added for the DV section structure (deferred to H1 if desired)
 - No demo scripts, documentation (other than handoff), or `DAILY_VALIDATION_BACKLOG.md` changes (all DV entries closed)
 - No Holographic Memory, Compute Reservoir, Graph Memory, MCP, or Decision Gate logic changes
