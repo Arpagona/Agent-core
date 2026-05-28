@@ -42,10 +42,12 @@ use chrono::{DateTime, Utc};
 
 pub mod context_assembler;
 pub mod holographic_memory_adapter;
+pub mod reservoir_echo_adapter;
 pub mod tool_runtime_adapter;
 
 pub use context_assembler::{ContextAssembler, SimulatedContextAssembler};
 pub use holographic_memory_adapter::HolographicMemoryAdapter;
+pub use reservoir_echo_adapter::ReservoirEchoAdapter;
 pub use tool_runtime_adapter::ToolRuntimeAdapter;
 
 // ─── OrchestratorCycle ──────────────────────────────────────────────────────
