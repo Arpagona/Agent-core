@@ -2193,3 +2193,58 @@ This session:
 - No change to `ToolExecutionError` types
 - No changes to existing security boundaries
 - No new CLI flags or commands
+
+## 18. Latest Session Update (2026-05-28 cron — H1: Merge PR #161, #163; stale feature cleanup)
+
+This session completed the H1 continuation: merged remaining open PRs and cleaned up stale dependency features.
+
+### PRs merged
+
+| PR | Title | Status |
+|----|-------|--------|
+| #161 | fix: H1 — backlog/handoff accuracy in arpagona status | ✅ Merged via CLI |
+| #163 | H1: Improve Tool Runtime error messages for binary/unreadable files | ✅ Rebased from main, CI green, merged via CLI |
+
+### H1 stale feature cleanup
+
+**Changed:**
+- `Cargo.toml`: removed stale `"net"` feature from workspace `tokio` dependency (none of the workspace crates directly require `tokio::net`; axum/hyper supply `net` via their own tokio dependency chain)
+- `crates/tool-runtime/src/lib.rs`: fixed unused variable warning (`lower_matches` in test `search_text_case_sensitivity_distinguishes_cases`) by adding an assertion proving case-sensitivity — lower_matches < upper_matches
+
+### Verification
+
+| Command | Result |
+|---------|--------|
+| `cargo fmt -- --check` | ✅ Clean (0 changes needed) |
+| `cargo check` | ✅ Clean (0 warnings) |
+| `cargo test --workspace` | ✅ ~668 tests pass, 0 failures |
+| `cargo test --no-run` (warnings) | ✅ 0 warnings (test unused-var fix confirmed) |
+
+### Files changed
+
+| File | Change |
+|------|--------|
+| `Cargo.toml` | Removed `"net"` from workspace tokio features |
+| `crates/tool-runtime/src/lib.rs` | Unused var fix + stronger case-sensitivity assertion in test |
+| `PROJECT_STATUS.md` | This session update |
+| `FOCUS_LOOP_NEXT.md` | Updated handoff |
+| `DAILY_VALIDATION_BACKLOG.md` | No change (all DV entries resolved) |
+
+### Safety boundaries preserved
+
+- No unrestricted shell, browser, email, secrets, or write tools
+- No Decision Gate bypass
+- No scheduler, autonomy, or agent self-modification
+- No API endpoint or Mission Control Web expansion
+- No readback-as-authorization behavior
+- No new model calls, provider endpoints, or LLM integration
+- No new crate dependencies added
+- No unsafe feature expansion
+
+### Deliberately not changed
+
+- No changes to core, decision-gate, tool-registry, holographic-memory, mcp-server, api-server, or cli crates
+- No new CLI flags or commands
+- No changes to governance flow or decision semantics
+- No changes to Tool Runtime security boundaries
+- No test logic semantics changed (only strengthened case-sensitivity assertion)
