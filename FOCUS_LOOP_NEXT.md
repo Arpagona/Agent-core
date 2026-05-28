@@ -12,7 +12,7 @@ It must contain one concrete next action only. The runtime milestone queue and l
 | - PR #165 (docs/handoff-phase2-complete) — ✅ merged after mergeable+green checks
 
 **Open PRs:**
-| - PR #??? (feat/compressed-cognitive-attention) — open, waiting for CI
+| - PR #166 (feat/compressed-cognitive-attention) — open, CI pending
 
 **Phase 2 delivery status:** All C1-C5, D1-D3+D5, E1-E5, H1 milestones confirmed complete ✅.
 
