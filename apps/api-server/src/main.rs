@@ -5,10 +5,9 @@ use arpagona_agent_core::{
     execution_capability, list_execution_capabilities, ActionType, ActorRef, AgentId, AuditEvent,
     AuditEventId, AuditEventType, Decision, DecisionActor, DecisionId, DecisionStatus,
     DryRunResult, DryRunStatus, ExecutionCapability, ExecutionRequest, ExecutionResult,
-    ExecutionStatus, Executor, ExecutorRegistry, ExecutorState, NoopExecutor, Permission,
-    PolicyDecision, PolicyEngine, PolicyEngineResult, PolicyInput, ProposedAction,
-    ProposedActionId, ProposedActionStatus, RiskLevel, Task, TaskId, TaskPriority, TaskStatus,
-    WorkspaceId,
+    ExecutorRegistry, ExecutorState, Permission, PolicyDecision, PolicyEngine, PolicyEngineResult,
+    PolicyInput, ProposedAction, ProposedActionId, ProposedActionStatus, RiskLevel, Task, TaskId,
+    TaskPriority, TaskStatus, WorkspaceId,
 };
 use arpagona_decision_gate::{
     audit_event_for_decision, evaluate_proposed_action, override_engine::Argon2PasswordVerifier,
@@ -1221,7 +1220,7 @@ async fn execute_proposal(
         action.id.as_str(),
         store.audit_events.len() + 1
     ));
-    let mut result = store
+    let result = store
         .executor_registry
         .execute(&execution_request, Some(audit_id.clone()));
 

@@ -14,7 +14,7 @@
 use crate::executor::{
     ExecutionRequest, ExecutionResult, ExecutionStatus, Executor, ExecutorState, NoopExecutor,
 };
-use crate::{ActionType, AuditEventId, ProposedActionId};
+use crate::{ActionType, AuditEventId};
 use std::collections::HashMap;
 
 /// A registered executor slot that pairs an executor with its readiness state.

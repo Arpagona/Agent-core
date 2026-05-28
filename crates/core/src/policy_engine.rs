@@ -137,17 +137,6 @@ impl PolicyEngineResult {
             capability: cap,
         }
     }
-
-    fn needs_dry_run(cap: Option<ExecutionCapability>) -> Self {
-        Self {
-            decision: PolicyDecision::NeedsDryRun,
-            reason: "Action requires dry-run before execution.".to_owned(),
-            matched_rules: vec!["policy_engine:needs_dry_run".to_owned()],
-            dry_run_required: true,
-            human_approval_required: false,
-            capability: cap,
-        }
-    }
 }
 
 /// Deterministic policy engine.
