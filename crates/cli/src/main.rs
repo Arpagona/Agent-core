@@ -117,6 +117,8 @@ enum Command {
     McpGovernanceAudit(McpGovernanceAuditArgs),
     /// Read the LLM interaction journal (C3 — prompt/response/decision/risk traces).
     Llm(LlmCommand),
+    /// Compute Reservoir operations (C4 — compute routing preview and trade-off analysis).
+    Compute(ComputeCommand),
 }
 
 #[derive(Debug, Args)]
@@ -129,6 +131,73 @@ pub struct CognitiveCommand {
 pub enum CognitiveSubcommand {
     /// Run the General Cognitive Work Loop with an objective.
     Run(CognitiveRunArgs),
+}
+
+#[derive(Debug, Args)]
+pub struct ComputeCommand {
+    #[command(subcommand)]
+    pub command: ComputeSubcommand,
+}
+
+#[derive(Debug, Subcommand)]
+pub enum ComputeSubcommand {
+    /// Preview how Compute Reservoir would route a cognitive task.
+    /// Shows the allocation, provider mapping, trade-off analysis and cost/latency/sensitivity rationale.
+    Routing(RoutingArgs),
+}
+
+#[derive(Debug, Args)]
+pub struct RoutingArgs {
+    /// Describe the purpose or objective of the computation.
+    #[arg(long, default_value = "cognitive task")]
+    pub purpose: String,
+
+    /// Data sensitivity level: public, internal, confidential, or secret.
+    /// Higher sensitivity increases local-first preference.
+    #[arg(long, default_value_t = SensitivityArg::Internal)]
+    pub sensitivity: SensitivityArg,
+
+    /// Complexity estimate 0.0-1.0. Higher values require stronger resources.
+    #[arg(long, default_value_t = 0.5)]
+    pub complexity: f64,
+
+    /// Prefer local-only resources. Equivalent to zero cloud budget.
+    #[arg(long, default_value_t = false)]
+    pub local_first: bool,
+
+    /// Output as structured JSON.
+    #[arg(long, short = 'j', default_value_t = false)]
+    pub json: bool,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, clap::ValueEnum)]
+pub enum SensitivityArg {
+    Public,
+    Internal,
+    Confidential,
+    Secret,
+}
+
+impl std::fmt::Display for SensitivityArg {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            SensitivityArg::Public => write!(f, "public"),
+            SensitivityArg::Internal => write!(f, "internal"),
+            SensitivityArg::Confidential => write!(f, "confidential"),
+            SensitivityArg::Secret => write!(f, "secret"),
+        }
+    }
+}
+
+impl SensitivityArg {
+    fn to_data_sensitivity(self) -> DataSensitivity {
+        match self {
+            SensitivityArg::Public => DataSensitivity::Public,
+            SensitivityArg::Internal => DataSensitivity::Internal,
+            SensitivityArg::Confidential => DataSensitivity::Confidential,
+            SensitivityArg::Secret => DataSensitivity::Secret,
+        }
+    }
 }
 
 #[derive(Debug, Args)]
@@ -1697,6 +1766,9 @@ async fn run() -> Result<(), Box<dyn Error>> {
         Command::McpGovernanceAudit(args) => mcp_governance_audit(args)?,
         Command::Llm(llm) => match llm.command {
             LlmSubcommand::Journal(args) => llm_journal_list(args)?,
+        },
+        Command::Compute(compute) => match compute.command {
+            ComputeSubcommand::Routing(args) => compute_routing(args)?,
         },
     }
 
@@ -8326,6 +8398,185 @@ fn run_allocation(
     allocate_for_working_memory(working_memory, &nodes, &policy)
 }
 
+/// Preview compute routing from routing args (standalone `compute routing` command).
+fn compute_routing(args: RoutingArgs) -> Result<(), Box<dyn Error>> {
+    use arpagona_agent_core::cognitive_work::{SensitivityEstimate, WorkingMemory};
+
+    let sensitivity = args.sensitivity.to_data_sensitivity();
+    let sensitivity_estimate = match sensitivity {
+        DataSensitivity::Public => SensitivityEstimate::Public,
+        DataSensitivity::Internal => SensitivityEstimate::Internal,
+        DataSensitivity::Confidential => SensitivityEstimate::Confidential,
+        DataSensitivity::Secret => SensitivityEstimate::Secret,
+    };
+
+    let working_memory = WorkingMemory {
+        objective: None,
+        context_items: vec![],
+        assumptions: vec![],
+        constraints: vec![],
+        missing_context: vec![],
+        sensitivity_estimate,
+        complexity_estimate: args.complexity as f32,
+        local_first: args.local_first,
+        cost_sensitive: args.local_first,
+        proposed_next_action_kind: String::new(),
+        required_observations_count: 0,
+        required_observations: vec![],
+        cognitive_observations: vec![],
+        improvement_candidates: vec![],
+        failure_insight_candidates: vec![],
+        proposed_next_action: None,
+        cycle_status: arpagona_agent_core::cognitive_work::CycleStatus::Initialized,
+        evidence_only_warning:
+            "Routing preview — evidence-only, not authorization, not Decision Gate bypass."
+                .to_owned(),
+    };
+
+    let nodes = demo_inventory();
+    let policy = ComputePolicy::default();
+    let allocation = allocate_for_working_memory(&working_memory, &nodes, &policy);
+
+    // Resolve provider from allocation
+    let unknown_node_s: String;
+    let (provider, provider_note) = match allocation.selected_node_id.as_ref().map(|id| id.as_str())
+    {
+        Some("cloud-strong") => (
+            "openai",
+            "routed via ComputeReservoir: cloud-strong → openai (cloud, high strength)",
+        ),
+        Some("local-smol") => (
+            "ollama",
+            "routed via ComputeReservoir: local-smol → ollama (local, low cost)",
+        ),
+        Some("local-cpu") => (
+            "mock",
+            "routed via ComputeReservoir: local-cpu → mock (deterministic, no LLM)",
+        ),
+        Some(other) => {
+            unknown_node_s = format!("unknown node '{other}'");
+            ("unknown", unknown_node_s.as_str())
+        }
+        None => ("none", "no suitable resource"),
+    };
+
+    // Build trade-off explanation
+    let cost_savings: &str = match &allocation.selected_node_id {
+        Some(id) if id.as_str() != "cloud-strong" => {
+            "Local resource cost: 0¢ (vs ~50¢ cloud equivalent)."
+        }
+        _ => "Cloud resource cost: varies by provider (check env).",
+    };
+
+    let latency_s: String;
+    let latency_note: &str = match allocation.expected_latency_ms {
+        Some(ms) if ms <= 100 => "Real-time suitable.",
+        Some(ms) if ms <= 1000 => "Slightly latent but interactive.",
+        Some(ms) => {
+            latency_s = format!("High latency (~{ms}ms); unsuitable for interactive use.");
+            &latency_s
+        }
+        None => "Latency unknown.",
+    };
+
+    let sensitivity_requires_local =
+        sensitivity == DataSensitivity::Confidential || sensitivity == DataSensitivity::Secret;
+    let privacy_note = if sensitivity_requires_local {
+        "Sensitive data → local-only processing enforced by policy."
+    } else {
+        "Non-sensitive data → cloud routing allowed by policy."
+    };
+
+    let non_authorizing = NON_AUTHORIZING_READBACK;
+
+    if args.json {
+        let output = serde_json::json!({
+            "compute_routing": {
+                "request": {
+                    "purpose": args.purpose,
+                    "sensitivity": sensitivity,
+                    "complexity": args.complexity,
+                    "local_first": args.local_first,
+                },
+                "allocation": {
+                    "status": allocation.status,
+                    "selected_node_id": allocation.selected_node_id.as_ref().map(|id| id.as_str()),
+                    "resource_kind": allocation.resource_kind,
+                    "expected_cost_cents": allocation.expected_cost_cents,
+                    "expected_latency_ms": allocation.expected_latency_ms,
+                    "justification": allocation.justification,
+                    "fallback": allocation.fallback,
+                },
+                "resolved_provider": provider,
+                "provider_rationale": provider_note,
+                "trade_offs": {
+                    "cost": cost_savings,
+                    "latency": latency_note,
+                    "privacy": privacy_note,
+                }
+            },
+            "non_authorizing_warning": non_authorizing,
+        });
+        println!("{}", serde_json::to_string_pretty(&output)?);
+    } else {
+        println!();
+        println!(
+            "{}",
+            style_brand("=== Compute Reservoir Routing Preview (C4) ===")
+        );
+        println!();
+        println!("{}", style_info("Request Summary"));
+        println!("  purpose:    {}", args.purpose);
+        println!("  sensitivity: {:?}", sensitivity);
+        println!("  complexity:  {:.2}", args.complexity);
+        println!("  local_first: {}", args.local_first);
+        println!();
+
+        print_allocation_readback(&allocation);
+        println!();
+
+        println!("{}", style_info("Resolved Provider"));
+        println!("  provider:       {}", provider);
+        println!("  rationale:      {}", provider_note);
+        println!();
+
+        println!("{}", style_info("Trade-off Analysis"));
+        println!("  {}", cost_savings);
+        println!("  {}", latency_note);
+        println!("  {}", privacy_note);
+        println!();
+
+        println!(
+            "{}",
+            style_dim("⚠️  Routing preview is not authorization — no action approved, no Decision Gate bypass.")
+        );
+        println!();
+    }
+
+    // Journal the compute routing interaction for operator readback (C3/C4 integration)
+    let journal_routing = serde_json::json!({
+        "standalone_routing_preview": true,
+        "purpose": args.purpose,
+        "sensitivity": sensitivity,
+        "complexity": args.complexity,
+        "local_first": args.local_first,
+        "selected_node_id": allocation.selected_node_id.as_ref().map(|id| id.as_str()),
+        "resource_kind": allocation.resource_kind,
+        "resolved_provider": provider,
+        "provider_rationale": provider_note,
+        "cost_trade_off": cost_savings,
+        "latency_trade_off": latency_note,
+        "privacy_trade_off": privacy_note,
+    });
+    global_llm_journal().lock().unwrap().add_compute_routing(
+        &args.purpose,
+        provider,
+        journal_routing,
+    );
+
+    Ok(())
+}
+
 /// Print a human-readable allocation result.
 fn print_allocation_readback(allocation: &ComputeAllocation) {
     println!();
@@ -11563,5 +11814,60 @@ mod tests {
             result.is_ok(),
             "tool_govern with blocked file should not panic"
         );
+    }
+
+    #[test]
+    fn cli_parses_compute_routing_command() {
+        let cli = Cli::try_parse_from(vec![
+            "arpagona",
+            "compute",
+            "routing",
+            "--purpose",
+            "Analyze project proposal",
+            "--sensitivity",
+            "confidential",
+            "--complexity",
+            "0.8",
+            "--local-first",
+        ])
+        .expect("compute routing should parse");
+        match cli.command {
+            Command::Compute(ComputeCommand {
+                command: ComputeSubcommand::Routing(args),
+            }) => {
+                assert_eq!(args.purpose, "Analyze project proposal");
+                assert_eq!(args.sensitivity, SensitivityArg::Confidential);
+                assert!((args.complexity - 0.8).abs() < 0.01);
+                assert!(args.local_first);
+                assert!(!args.json);
+            }
+            _ => panic!("expected compute routing"),
+        }
+    }
+
+    #[test]
+    fn cli_parses_compute_routing_json_flag() {
+        let cli = Cli::try_parse_from(vec![
+            "arpagona",
+            "compute",
+            "routing",
+            "--purpose",
+            "Summarize data",
+            "--complexity",
+            "0.3",
+            "--json",
+        ])
+        .expect("compute routing with json should parse");
+        match cli.command {
+            Command::Compute(ComputeCommand {
+                command: ComputeSubcommand::Routing(args),
+            }) => {
+                assert_eq!(args.purpose, "Summarize data");
+                assert!((args.complexity - 0.3).abs() < 0.01);
+                assert!(!args.local_first);
+                assert!(args.json);
+            }
+            _ => panic!("expected compute routing"),
+        }
     }
 }

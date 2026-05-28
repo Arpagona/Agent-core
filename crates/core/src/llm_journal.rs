@@ -211,6 +211,47 @@ impl LlmJournal {
         id
     }
 
+    /// Convenience: build and add a standalone compute routing entry (C4).
+    ///
+    /// Records how Compute Reservoir would route a cognitive task, including
+    /// the selected node, resolved provider, and cost/latency/privacy trade-offs.
+    /// The routing is a routing preview, not a resource lease or action approval.
+    pub fn add_compute_routing(
+        &mut self,
+        purpose: &str,
+        provider: &str,
+        routing_details: Value,
+    ) -> String {
+        let id = format!("llm-journal-{}", self.next_id);
+        let prompt_summary = routing_details
+            .get("purpose")
+            .and_then(|v| v.as_str())
+            .unwrap_or(purpose);
+        let entry = LlmJournalEntry {
+            id: id.clone(),
+            created_at: Utc::now(),
+            interaction_type: LlmInteractionType::Synthesis,
+            prompt_summary: format!("Compute routing preview: purpose={}", prompt_summary),
+            response_summary: format!(
+                "Routed via provider={}, node={:?}",
+                provider,
+                routing_details
+                    .get("selected_node_id")
+                    .and_then(|v| v.as_str()),
+            ),
+            provider: "compute-reservoir".to_owned(),
+            model: None,
+            objective: Some(purpose.to_owned()),
+            proposed_actions: None,
+            tool_call_intents: None,
+            decision_gate_outcomes: None,
+            risk_level: None,
+            compute_routing: Some(routing_details),
+        };
+        self.add_entry(entry);
+        id
+    }
+
     /// Convenience: build and add a direct tool-call entry.
     ///
     /// Returns the generated entry ID.
