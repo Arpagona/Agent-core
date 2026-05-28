@@ -4,18 +4,19 @@ This file is the short-lived handoff for the next scheduled focus-loop run.
 
 It must contain one concrete next action only. The runtime milestone queue and long-term rules live in `AGENT_FOCUS_LOOP.md`.
 
-## Current status (2026-05-28 focus loop — E1 demo + DV cleanup)
+## Current status (2026-05-28 focus loop — E1 demo + all DV resolved)
 
-Merged DV corrections:
-- PR #139 fixed `DV-2026-05-28-002`.
-- PR #140 fixed `DV-2026-05-28-004`.
-- PR #141 fixed `DV-2026-05-28-003`.
+All DV-2026-05-28-* entries are now resolved:
+- DV-2026-05-28-001 fixed in PR #143 (E1 SME demo with conflict-marker scan exclusion)
+- DV-2026-05-28-002 fixed in PR #139 (CLI docs coverage)
+- DV-2026-05-28-003 fixed in PR #141 (parent-traversal security)
+- DV-2026-05-28-004 fixed in PR #140 (governance/readback regressions)
+- DV-2026-05-28-005 fixed in PR #147 (LLM synthesis specificity)
 
-PR #143 adds the E1 SME Documentary Assistant demo and fixes `DV-2026-05-28-001` by excluding `PROJECT_STATUS.md` from the daily conflict-marker scan.
+Active PR: #147 (fix/dv-2026-05-28-005-llm-synthesis-specificity) — needs rebase and merge.
 
-Remaining unresolved 2026-05-28 DV entry after PR #143:
-1. **DV-2026-05-28-005** — make local Ollama synthesis more specific to the operator request.
+Parallel Track C PRs also open: #146 (C2.2), #145 (C2), #144 (D5 docs), #142 (H1 docs).
 
 ## Next action
 
-**Fix or explicitly defer `DV-2026-05-28-005` before starting another non-DV milestone.** If the fix is judged to be model-quality rather than code, document the limitation and acceptance criteria clearly in the backlog and CLI/operator docs.
+**After PR #147 is merged: resume Phase 2 strategic development.** All daily validation items are resolved. The strategic next step per AGENT_FOCUS_LOOP.md is C2 (Governed direct tool-calling by the LLM), or C3 (Prompt/response/decision/risk journaling). Choose the one with the best available prerequisite state.
