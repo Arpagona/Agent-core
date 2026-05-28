@@ -41,8 +41,10 @@ use arpagona_agent_core::risk::RiskLevel;
 use chrono::{DateTime, Utc};
 
 pub mod context_assembler;
+pub mod tool_runtime_adapter;
 
 pub use context_assembler::{ContextAssembler, SimulatedContextAssembler};
+pub use tool_runtime_adapter::ToolRuntimeAdapter;
 
 // ─── OrchestratorCycle ──────────────────────────────────────────────────────
 
