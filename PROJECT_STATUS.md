@@ -1466,3 +1466,59 @@ This session fixed DV-2026-05-28-004: restored targeted governance/readback regr
 - DV-2026-05-28-005 (Ollama synthesis specificity) — deferred to next run
 - PR #139 was not merged (governance rule: DEEP does not merge main) — remains ready for human merge
 - No CLI commands, API surfaces, or executor changes
+
+## 21. Latest Session Update (2026-05-28 — fix DV-2026-05-28-003: lexical parent-traversal security classification)
+
+This session fixed DV-2026-05-28-003: missing parent-traversal targets that would escape the workspace now return `Blocked`/`is_security: true` instead of `Failed`/`is_security: false`.
+
+### What was changed
+
+**`crates/tool-runtime/src/lib.rs`** — `resolve_path()`:
+- Added lexical parent-traversal escape detection **before** `canonicalize()` using purely lexical path normalization (no I/O)
+- When `..` components would escape the workspace, returns `SecurityBlocked` immediately
+- When `..` components stay within the workspace (e.g. `subdir/../file.txt`), proceeds to normal filesystem canonicalization
+
+**Tests (5 changed/added):**
+
+| Test | Change | Coverage |
+|------|--------|----------|
+| `read_file_blocks_path_escaping_workspace` | Updated: expect `Blocked`/`is_security: true` (was `Failed`/`is_security: false`) | `../safe.txt` with nonexistent target outside workspace |
+| `nonexistent_parent_traversal_is_security_blocked` | **New** | `../nonexistent.txt` → Blocked/is_security: true; proves missing parent-traversal targets are classified as security before I/O |
+| `deep_parent_traversal_is_security_blocked` | **New** | `a/deep/../../../../outside.txt` → Blocked; proves deep `..` escape via read_file |
+| `list_files_nonexistent_parent_traversal_is_security_blocked` | **New** | `../nonexistent-dir` → Blocked via list_files |
+| `search_text_nonexistent_parent_traversal_is_security_blocked` | **New** | `../nonexistent-dir` → Blocked via search_text |
+
+**`DAILY_VALIDATION_BACKLOG.md`**: Added previously missing DV-2026-05-28-003 entry (was referenced in `FOCUS_LOOP_NEXT.md` but absent from backlog), marked fixed.
+
+### Verification
+
+| Check | Result |
+|-------|--------|
+| `cargo fmt -- --check` | ✅ Clean |
+| `cargo check` | ✅ Clean (pre-existing warnings only) |
+| `cargo test -p arpagona-tool-runtime` | ✅ 20 tests pass (4 new + 1 updated + 15 existing) |
+| `cargo test --workspace` | ✅ All tests pass across all crates |
+
+### Files changed
+
+| File | Change |
+|------|--------|
+| `crates/tool-runtime/src/lib.rs` | Added lexical escape detection in `resolve_path()`, updated 1 test, added 4 new tests (+109/−5 lines) |
+| `DAILY_VALIDATION_BACKLOG.md` | Added DV-2026-05-28-003 entry (was missing from backlog), marked fixed |
+| `FOCUS_LOOP_NEXT.md` | Updated handoff to reflect PR #141, remaining backlog items |
+
+### Safety boundaries preserved
+
+- No shell, browser, email, secrets or unrestricted write tools
+- No Decision Gate bypass
+- No autonomous scheduling
+- No new capabilities added — only stricter security classification for existing blocked patterns
+- Lexical detection is purely additive; the existing canonicalize-based check still runs as a second layer
+- Paths with `..` that stay within the workspace (e.g. `subdir/../file.txt`) are NOT blocked by the lexical check — they proceed to normal I/O validation
+
+### Deliberately not changed
+
+- No changes to core domain types, Decision Gate, audit, CLI, API server, MCP server
+- No changes to Tool Runtime tool capabilities, bounds, or blocked file patterns
+- No changes to any non-tool-runtime crate
+- PRs #139 and #140 remain open and mergeable, waiting for human merge

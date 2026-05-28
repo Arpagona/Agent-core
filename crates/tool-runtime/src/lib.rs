@@ -231,6 +231,33 @@ impl ToolRuntime {
             self.config.workspace_path.join(input_path)
         };
 
+        // Lexical parent-traversal detection before filesystem canonicalization.
+        //
+        // Paths containing `..` that would escape the workspace are blocked
+        // before any I/O, so that missing parent-traversal targets return
+        // SecurityBlocked (is_security: true) instead of InvalidPath.
+        if resolved
+            .components()
+            .any(|c| matches!(c, std::path::Component::ParentDir))
+        {
+            let mut normalized = PathBuf::new();
+            for component in resolved.components() {
+                match component {
+                    std::path::Component::ParentDir => {
+                        normalized.pop();
+                    }
+                    other => {
+                        normalized.push(other.as_os_str());
+                    }
+                }
+            }
+            if !normalized.starts_with(&self.config.workspace_path) {
+                return Err(ToolRuntimeError::SecurityBlocked(format!(
+                    "Path escapes workspace via parent traversal: {path_str}"
+                )));
+            }
+        }
+
         // Check for workspace escape via ..
         let canonical = resolved.canonicalize().map_err(|e| {
             if e.kind() == std::io::ErrorKind::NotFound {
@@ -858,11 +885,83 @@ mod tests {
 
         let result = runtime.execute("read_file", &json!({"path": "../safe.txt"}));
 
-        assert_eq!(result.status, ToolExecutionStatus::Failed);
-        // ../safe.txt resolves to a path that doesn't exist outside the workspace
-        // It should either be blocked or fail with "not found"
-        let has_blocked = matches!(result.status, ToolExecutionStatus::Failed);
-        assert!(has_blocked);
+        // ../safe.txt would escape the workspace. Even though the target outside
+        // the workspace may not exist, the lexical `..` detection catches it
+        // as a security block (is_security: true).
+        assert_eq!(result.status, ToolExecutionStatus::Blocked);
+        assert!(result.error.as_ref().unwrap().is_security);
+        assert!(result
+            .error
+            .as_ref()
+            .unwrap()
+            .message
+            .contains("escapes workspace"));
+    }
+
+    #[test]
+    fn nonexistent_parent_traversal_is_security_blocked() {
+        let dir = test_workspace();
+        // Do NOT create the target file outside the workspace — this proves
+        // the lexical `..` detection catches it before filesystem lookup.
+        let runtime = make_runtime(dir.path());
+
+        let result = runtime.execute("read_file", &json!({"path": "../nonexistent.txt"}));
+
+        assert_eq!(result.status, ToolExecutionStatus::Blocked);
+        assert!(result.error.as_ref().unwrap().is_security);
+        assert!(result
+            .error
+            .as_ref()
+            .unwrap()
+            .message
+            .contains("escapes workspace"));
+    }
+
+    #[test]
+    fn deep_parent_traversal_is_security_blocked() {
+        let dir = test_workspace();
+        create_test_file(dir.path(), "a/deep/file.txt", "inside");
+        let runtime = make_runtime(dir.path());
+
+        // Multiple parent traversals that would escape the workspace
+        let result = runtime.execute(
+            "read_file",
+            &json!({"path": "a/deep/../../../../outside.txt"}),
+        );
+
+        assert_eq!(result.status, ToolExecutionStatus::Blocked);
+        assert!(result.error.as_ref().unwrap().is_security);
+        assert!(result
+            .error
+            .as_ref()
+            .unwrap()
+            .message
+            .contains("escapes workspace"));
+    }
+
+    #[test]
+    fn list_files_nonexistent_parent_traversal_is_security_blocked() {
+        let dir = test_workspace();
+        let runtime = make_runtime(dir.path());
+
+        let result = runtime.execute("list_files", &json!({"path": "../nonexistent-dir"}));
+
+        assert_eq!(result.status, ToolExecutionStatus::Blocked);
+        assert!(result.error.as_ref().unwrap().is_security);
+    }
+
+    #[test]
+    fn search_text_nonexistent_parent_traversal_is_security_blocked() {
+        let dir = test_workspace();
+        let runtime = make_runtime(dir.path());
+
+        let result = runtime.execute(
+            "search_text",
+            &json!({"query": "test", "path": "../nonexistent-dir"}),
+        );
+
+        assert_eq!(result.status, ToolExecutionStatus::Blocked);
+        assert!(result.error.as_ref().unwrap().is_security);
     }
 
     #[test]
