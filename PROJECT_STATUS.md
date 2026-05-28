@@ -1991,3 +1991,61 @@ After fix: `cargo check -p arpagona-api-server` produces **0 warnings** (was 6).
 - No `DAILY_VALIDATION_BACKLOG.md` changes (all DV entries closed)
 - No Holographic Memory, Compute Reservoir, Graph Memory, MCP, or Decision Gate changes
 - No demo scripts or documentation changes outside status/handoff files
+
+## 30. Latest Session — 2026-05-28 DEEP focus loop (H1: +7 Decision Gate blocking scenario tests)
+
+This session continued the H1 production hardening pass, adding 7 new Decision Gate blocking scenario tests to `crates/decision-gate/src/lib.rs`.
+
+### Added: Decision Gate blocking scenario tests (7 new, governance path edge cases)
+
+The existing 52 Decision Gate tests covered standard paths (low→approved, medium→human, missing permission→blocked/override, C5 anti-drift). These 7 new tests cover governance path edge cases:
+
+| Test | What it proves |
+|------|---------------|
+| `high_risk_without_matching_policy_falls_back_to_needs_human_approval` | High risk, no policies, all granted → NeedsHumanApproval via default fallback |
+| `critical_risk_with_blocking_policy_is_blocked` | Critical risk + active policy (non-requiring human approval) → Blocked |
+| `critical_risk_with_requiring_approval_policy_needs_human_approval` | Critical risk + policy requiring human approval → NeedsHumanApproval via policy match |
+| `override_policy_for_direct_toolcall_is_not_overridable` | DirectToolCall is destructive/dangerous → NotOverridable → Blocked, not RequiresOverride |
+| `overlapping_policies_highest_restriction_wins` | Blocking + requiring-approval policies → NeedsHumanApproval (strictest wins) |
+| `risk_threshold_above_action_risk_policy_not_applied` | Policy at Critical risk threshold, action at Medium → no match (risk_rank check) |
+| `informational_action_without_permission_blocked_not_overridable` | DirectToolCall with wrong permission → Blocked with no override hint |
+
+### Verification
+
+| Check | Result |
+|-------|--------|
+| `cargo fmt -- --check` | ✅ Clean |
+| `cargo check` | ✅ **0 warnings** (api-server warnings fixed on this branch) — main has 6 |
+| `cargo test` | ✅ ~660 tests pass, 0 failures, 0 regressions |
+| Decision Gate test count | 59 (52 existing + 7 new) |
+
+### Branch state
+
+- Branch: `feat/h1-warnings-and-edge-tests`
+- Contains: api-server 0-warnings fix + 5 Tool Runtime edge-case tests + 7 Decision Gate blocking scenario tests
+- On main: 6 api-server warnings remain, no Decision Gate blocking tests
+- PR: pending push
+
+### Safety boundaries preserved
+
+- No new capabilities, CLI flags, runtime behavior, model calls, permissions, or governance logic
+- No Decision Gate bypass, scheduler, autonomy, browser automation, email, secrets, self-modification, or Mission Control Web growth
+- All changes are test-only additions to existing crate (decision-gate src/lib.rs) + already-tested api-server/resolve_path fixes
+- No readback-as-authorization behavior
+
+### Files changed (this session)
+
+| File | Change |
+|------|--------|
+| `crates/decision-gate/src/lib.rs` | Added 7 blocking scenario tests (+211 lines) |
+| `FOCUS_LOOP_NEXT.md` | Updated handoff — H1 Decision Gate tests done, merge pending, next: CLI error messages or stale deps |
+| `PROJECT_STATUS.md` | Added section 30 documenting this session |
+
+### Deliberately not changed
+
+- No changes to any Decision Gate logic, policy engine, or override engine behavior
+- No changes to core, compute-reservoir, holographic-memory, mcp-server, tool-runtime, tool-registry, cli, llm, runtime, api-server behavior
+- No changes to crate boundaries, permissions, risk levels, or governance logic
+- No new features, flags, or commands
+- No demo scripts, documentation (other than handoff), or `DAILY_VALIDATION_BACKLOG.md` changes (all DV entries closed)
+- No Holographic Memory, Compute Reservoir, Graph Memory, MCP, or Decision Gate logic changes
