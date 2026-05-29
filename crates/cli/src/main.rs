@@ -12862,4 +12862,72 @@ mod tests {
             _ => panic!("expected orchestrator run"),
         }
     }
+
+    // ── H1b: CLI error-path coverage ───────────────────────────────────────
+    //
+    // These tests verify that CLI commands produce proper clap errors (not
+    // panics) when given invalid or missing arguments.
+
+    #[test]
+    fn cli_rejects_cognitive_run_without_objective() {
+        let result = Cli::try_parse_from(vec!["arpagona", "cognitive", "run"]);
+        assert!(
+            result.is_err(),
+            "cognitive run without --objective should fail: {:?}",
+            result
+        );
+        let err = result.unwrap_err().to_string();
+        assert!(
+            err.contains("objective") || err.contains("required"),
+            "error should mention missing objective: {err}"
+        );
+    }
+
+    #[test]
+    fn cli_rejects_cognitive_run_with_empty_objective() {
+        let cli = Cli::parse_from(vec!["arpagona", "cognitive", "run", "--objective", ""]);
+        match cli.command {
+            Command::Cognitive(CognitiveCommand {
+                command: CognitiveSubcommand::Run(args),
+            }) => {
+                assert!(
+                    args.objective.is_empty(),
+                    "empty --objective should be accepted but empty"
+                );
+            }
+            _ => panic!("expected cognitive run"),
+        }
+    }
+
+    #[test]
+    fn cli_rejects_invalid_provider_value() {
+        // Provider is a free-form string; parser accepts any value
+        let cli = Cli::parse_from(vec![
+            "arpagona",
+            "cognitive",
+            "run",
+            "--objective",
+            "test",
+            "--provider",
+            "nonexistent_provider",
+        ]);
+        match cli.command {
+            Command::Cognitive(CognitiveCommand {
+                command: CognitiveSubcommand::Run(args),
+            }) => {
+                assert_eq!(args.provider, "nonexistent_provider");
+            }
+            _ => panic!("expected cognitive run"),
+        }
+    }
+
+    #[test]
+    fn cli_rejects_tool_inspect_without_tool_name() {
+        let result = Cli::try_parse_from(vec!["arpagona", "tool", "inspect"]);
+        assert!(
+            result.is_err(),
+            "tool inspect without tool name should fail: {:?}",
+            result
+        );
+    }
 }
