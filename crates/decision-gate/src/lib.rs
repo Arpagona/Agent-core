@@ -875,6 +875,63 @@ mod tests {
         );
     }
 
+    #[test]
+    fn govern_tool_call_handles_empty_tool_name() {
+        let intent = ToolCallIntent {
+            tool: "".to_owned(),
+            arguments: json!({"path": "test.md"}),
+            rationale: "Empty tool name".to_owned(),
+            risk_level: RiskLevel::Informational,
+        };
+        let (decision, _) = govern_tool_call(&intent, &[Permission::ProposeToolUse]);
+        assert!(
+            matches!(
+                decision.status,
+                DecisionStatus::Approved | DecisionStatus::Blocked
+            ),
+            "empty tool name should not panic: {}",
+            decision.reason
+        );
+    }
+
+    #[test]
+    fn govern_tool_call_handles_empty_permissions() {
+        let intent = ToolCallIntent {
+            tool: "read_file".to_owned(),
+            arguments: json!({"path": "test.md"}),
+            rationale: "Testing empty permissions".to_owned(),
+            risk_level: RiskLevel::Informational,
+        };
+        let (decision, _) = govern_tool_call(&intent, &[]);
+        assert!(
+            matches!(
+                decision.status,
+                DecisionStatus::RequiresOverride | DecisionStatus::Blocked
+            ),
+            "empty permissions should not panic; should produce override or block: {}",
+            decision.reason
+        );
+    }
+
+    #[test]
+    fn govern_tool_call_handles_missing_rationale() {
+        let intent = ToolCallIntent {
+            tool: "read_file".to_owned(),
+            arguments: json!({"path": "test.md"}),
+            rationale: "".to_owned(),
+            risk_level: RiskLevel::Informational,
+        };
+        let (decision, _) = govern_tool_call(&intent, &[Permission::ProposeToolUse]);
+        assert!(
+            matches!(
+                decision.status,
+                DecisionStatus::Approved | DecisionStatus::Blocked
+            ),
+            "missing rationale should not panic: {}",
+            decision.reason
+        );
+    }
+
     // ── C5 anti-drift: Decision Gate mandatory regression tests ─────────────
 
     #[test]

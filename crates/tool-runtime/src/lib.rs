@@ -1303,6 +1303,129 @@ mod tests {
     }
 
     // -----------------------------------------------------------------------
+    // Symlink handling tests
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn read_file_follows_symlink_to_allowed_file() {
+        let dir = test_workspace();
+        // Create a real file inside the workspace
+        create_test_file(dir.path(), "real.txt", "This file is accessed via symlink.");
+        // Create a symlink inside the workspace pointing to the real file
+        let link_path = dir.path().join("link.txt");
+        let target = dir.path().join("real.txt");
+        #[cfg(unix)]
+        {
+            std::os::unix::fs::symlink(&target, &link_path).expect("should create symlink");
+        }
+        #[cfg(not(unix))]
+        {
+            std::fs::copy(&target, &link_path).expect("should copy file as fallback");
+        }
+
+        let runtime = make_runtime(dir.path());
+
+        let result = runtime.execute("read_file", &json!({"path": "link.txt"}));
+
+        assert_eq!(result.status, ToolExecutionStatus::Success);
+        let payload = &result.observation.payload;
+        let content_preview = payload["content_preview"].as_str().unwrap_or("");
+        assert!(
+            content_preview.contains("via symlink"),
+            "symlink target content should be readable: {content_preview}"
+        );
+        // Verify that the resolved path points to the symlink target
+        let resolved = payload["resolved_path"].as_str().unwrap_or("");
+        assert!(
+            resolved.contains("real.txt"),
+            "resolved path should point to symlink target real.txt, got: {resolved}"
+        );
+    }
+
+    #[test]
+    fn read_file_blocks_symlink_outside_workspace() {
+        let dir = test_workspace();
+        // Create a file outside the workspace
+        let outside_dir = dir.path().parent().unwrap().join("outside-symlink-target");
+        std::fs::create_dir_all(&outside_dir).expect("should create outside dir");
+        let outside_file = outside_dir.join("secret.txt");
+        std::fs::write(&outside_file, "secret outside data").expect("should write outside file");
+        // Create a symlink inside the workspace pointing outside
+        let link_path = dir.path().join("escape_link.txt");
+        #[cfg(unix)]
+        {
+            std::os::unix::fs::symlink(&outside_file, &link_path).expect("should create symlink");
+        }
+        #[cfg(not(unix))]
+        {
+            // On non-unix, symlinks aren't available; verify the security check still works
+            let runtime = make_runtime(dir.path());
+            let result = runtime.execute(
+                "read_file",
+                &json!({"path": "../outside-symlink-target/secret.txt"}),
+            );
+            assert_eq!(result.status, ToolExecutionStatus::Blocked);
+            assert!(result.error.as_ref().unwrap().is_security);
+            return;
+        }
+
+        let runtime = make_runtime(dir.path());
+
+        let result = runtime.execute("read_file", &json!({"path": "escape_link.txt"}));
+
+        assert_eq!(
+            result.status,
+            ToolExecutionStatus::Blocked,
+            "symlink to outside workspace should be blocked: {}",
+            result
+                .error
+                .as_ref()
+                .map(|e| &e.message)
+                .unwrap_or(&"no error".to_owned())
+        );
+        assert!(
+            result.error.as_ref().unwrap().is_security,
+            "symlink escape should be marked as security"
+        );
+    }
+
+    #[test]
+    fn list_files_follows_symlink_to_directory() {
+        let dir = test_workspace();
+        // Create a directory with content
+        std::fs::create_dir_all(dir.path().join("real_dir")).expect("should create real_dir");
+        create_test_file(dir.path(), "real_dir/inside.txt", "inside content");
+        // Create a symlink to the directory
+        let link_path = dir.path().join("dir_link");
+        let target = dir.path().join("real_dir");
+        #[cfg(unix)]
+        {
+            std::os::unix::fs::symlink(&target, &link_path)
+                .expect("should create directory symlink");
+        }
+        #[cfg(not(unix))]
+        {
+            // Fallback on non-unix: test a real directory listing instead
+            let runtime = make_runtime(dir.path());
+            let result = runtime.execute("list_files", &json!({"path": "real_dir"}));
+            assert_eq!(result.status, ToolExecutionStatus::Success);
+            return;
+        }
+
+        let runtime = make_runtime(dir.path());
+
+        let result = runtime.execute("list_files", &json!({"path": "dir_link"}));
+
+        assert_eq!(result.status, ToolExecutionStatus::Success);
+        let payload = &result.observation.payload;
+        let entries = payload["entries"].as_array().unwrap();
+        assert!(
+            entries.iter().any(|e| e["name"] == "inside.txt"),
+            "should find inside.txt through symlink to directory"
+        );
+    }
+
+    // -----------------------------------------------------------------------
     // Binary file detection tests
     // -----------------------------------------------------------------------
 
