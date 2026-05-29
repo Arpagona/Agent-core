@@ -21,11 +21,7 @@
 
 use arpagona_agent_core::action::{ActionType, ProposedAction, ProposedActionStatus};
 use arpagona_agent_core::cognitive_work::Objective;
-#[cfg(feature = "llm-provider")]
-use arpagona_agent_core::ids::AgentId;
 use arpagona_agent_core::ids::ProposedActionId;
-#[cfg(feature = "llm-provider")]
-use arpagona_agent_core::ids::WorkspaceId;
 use arpagona_agent_core::orchestrator::{
     ComputeRouteResult, ContextBundle, ObjectiveInput, ProposalRequest,
 };
@@ -186,26 +182,13 @@ impl ProposalGenerator for SimulatedProposalGenerator {
 #[cfg(feature = "llm-provider")]
 pub struct LlmProposalGenerator {
     provider: Box<dyn arpagona_llm::LlmProvider>,
-    default_workspace_id: WorkspaceId,
-    default_agent_id: AgentId,
 }
 
 #[cfg(feature = "llm-provider")]
 impl LlmProposalGenerator {
     /// Create a new LlmProposalGenerator with the given LLM provider.
-    ///
-    /// The `default_workspace_id` and `default_agent_id` are used when the
-    /// proposal draft does not override them.
-    pub fn new(
-        provider: Box<dyn arpagona_llm::LlmProvider>,
-        default_workspace_id: WorkspaceId,
-        default_agent_id: AgentId,
-    ) -> Self {
-        Self {
-            provider,
-            default_workspace_id,
-            default_agent_id,
-        }
+    pub fn new(provider: Box<dyn arpagona_llm::LlmProvider>) -> Self {
+        Self { provider }
     }
 
     /// Build a prompt string from the cycle context for the LLM provider.
@@ -531,10 +514,8 @@ mod tests {
             payload: json!({"llm_executed": false, "test": true}),
         };
         let provider = MockProvider::new(mock_draft);
-        let ws_id = WorkspaceId::new("ws-llm-test");
-        let agent_id = AgentId::new("agent-llm-test");
 
-        let generator = LlmProposalGenerator::new(Box::new(provider), ws_id, agent_id);
+        let generator = LlmProposalGenerator::new(Box::new(provider));
 
         let input = make_input("LLM proposal routing test");
         let objective = make_objective(&input);
@@ -578,10 +559,8 @@ mod tests {
             payload: json!({"llm_executed": false}),
         };
         let provider = MockProvider::new(mock_draft);
-        let ws_id = WorkspaceId::new("ws-llm-test");
-        let agent_id = AgentId::new("agent-llm-test");
 
-        let generator = LlmProposalGenerator::new(Box::new(provider), ws_id, agent_id);
+        let generator = LlmProposalGenerator::new(Box::new(provider));
 
         let input = make_input("LLM gate integration test");
         let objective = make_objective(&input);
@@ -611,10 +590,8 @@ mod tests {
         use arpagona_llm::MockProvider;
 
         let provider = MockProvider::safe_default();
-        let ws_id = WorkspaceId::new("ws-llm-test");
-        let agent_id = AgentId::new("agent-llm-test");
 
-        let generator = LlmProposalGenerator::new(Box::new(provider), ws_id, agent_id);
+        let generator = LlmProposalGenerator::new(Box::new(provider));
 
         let input = make_input("");
         let objective = make_objective(&input);
