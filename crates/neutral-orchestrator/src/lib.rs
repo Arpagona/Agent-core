@@ -21,12 +21,12 @@
 //! - Context, compute route and proposal are advisory only
 //! - Decision Gate outcome and audit events carry the actual governance state
 
-use arpagona_agent_core::action::{ActionType, ProposedAction, ProposedActionStatus};
+use arpagona_agent_core::action::ProposedAction;
 use arpagona_agent_core::audit::{ActorRef, AuditEvent};
 use arpagona_agent_core::cognitive_work::CycleStatus;
 use arpagona_agent_core::decision::Decision;
 use arpagona_agent_core::ids::{
-    AgentId, AuditEventId, ComputeRouteId, ContextBundleId, ProposedActionId, WorkspaceId,
+    AgentId, AuditEventId, ComputeRouteId, ContextBundleId, WorkspaceId,
 };
 #[cfg(test)]
 use arpagona_agent_core::ids::{ObjectiveId, OrchestratorCycleId};
@@ -37,7 +37,6 @@ use arpagona_agent_core::orchestrator::{
     OrchestratorOutcome, ProposalRequest,
 };
 use arpagona_agent_core::permission::Permission;
-use arpagona_agent_core::risk::RiskLevel;
 use chrono::{DateTime, Utc};
 
 pub mod compressed_cognitive_attention_adapter;
@@ -45,6 +44,7 @@ pub mod context_assembler;
 pub mod graph_memory_adapter;
 pub mod holographic_memory_adapter;
 pub mod multi_adapter;
+pub mod proposal_generator;
 pub mod reservoir_echo_adapter;
 pub mod tool_runtime_adapter;
 
@@ -53,6 +53,7 @@ pub use context_assembler::{ContextAssembler, SimulatedContextAssembler};
 pub use graph_memory_adapter::GraphMemoryAdapter;
 pub use holographic_memory_adapter::HolographicMemoryAdapter;
 pub use multi_adapter::MultiAdapterContextAssembler;
+pub use proposal_generator::{ProposalError, ProposalGenerator, SimulatedProposalGenerator};
 pub use reservoir_echo_adapter::ReservoirEchoAdapter;
 pub use tool_runtime_adapter::ToolRuntimeAdapter;
 
@@ -178,6 +179,9 @@ pub struct OrchestratorEngine {
     /// Pluggable context assembler for gathering advisory context from memory sources.
     /// Defaults to SimulatedContextAssembler (no-op, deterministic, zero I/O).
     context_assembler: Box<dyn ContextAssembler>,
+    /// Pluggable proposal generator for creating ProposedActions from cycle context.
+    /// Defaults to SimulatedProposalGenerator (deterministic ReadDocument at Low risk).
+    proposal_generator: Box<dyn ProposalGenerator>,
 }
 
 impl Default for OrchestratorEngine {
@@ -191,6 +195,7 @@ impl OrchestratorEngine {
     ///
     /// Default compute route: "local_deterministic" with local-first preference.
     /// Default context assembler: SimulatedContextAssembler (no-op, zero I/O).
+    /// Default proposal generator: SimulatedProposalGenerator (deterministic ReadDocument at Low risk).
     pub fn new() -> Self {
         Self {
             compute_route_label: "local_deterministic".to_owned(),
@@ -198,6 +203,7 @@ impl OrchestratorEngine {
             compute_route_justification: "Local deterministic compute selected by default for V0 deterministic loop skeleton."
                 .to_owned(),
             context_assembler: Box::new(SimulatedContextAssembler::new()),
+            proposal_generator: Box::new(SimulatedProposalGenerator::new()),
         }
     }
 
@@ -230,6 +236,21 @@ impl OrchestratorEngine {
     /// may contain approval, authorization or execution tokens.
     pub fn with_context_assembler(mut self, assembler: Box<dyn ContextAssembler>) -> Self {
         self.context_assembler = assembler;
+        self
+    }
+
+    /// Configure a custom ProposalGenerator for creating ProposedActions.
+    ///
+    /// Use this to plug in real LLM-backed generators or custom deterministic
+    /// logic. Defaults to SimulatedProposalGenerator.
+    ///
+    /// # Safety
+    ///
+    /// The provided generator must produce proposals with
+    /// `status: ProposedActionStatus::PendingDecision`. No proposal may
+    /// contain approval, authorization or execution tokens.
+    pub fn with_proposal_generator(mut self, generator: Box<dyn ProposalGenerator>) -> Self {
+        self.proposal_generator = generator;
         self
     }
 
@@ -268,11 +289,18 @@ impl OrchestratorEngine {
         let proposal_request =
             self.create_proposal_request(&input, &objective, &context_bundle, &compute_route);
 
-        // Step 5: Create a ProposedAction for simulation
-        // The skeleton always proposes a ReadDocument action at the configured
-        // risk level. This is deterministic and in-process — no real agent
-        // proposal is involved.
-        let proposed_action = self.create_simulation_action(&input, &objective, now);
+        // Step 5: Generate a ProposedAction via the pluggable proposal generator
+        // The default SimulatedProposalGenerator produces a ReadDocument action
+        // at Low risk. An LlmProposalGenerator would produce a context-aware
+        // proposal from the LLM provider. All proposals are PendingDecision
+        // and must pass through the Decision Gate.
+        let proposed_action = self.proposal_generator.generate(
+            &input,
+            &objective,
+            &context_bundle,
+            &proposal_request,
+            &compute_route,
+        )?;
 
         // Step 6: Run through Decision Gate
         let (decision, audit_event) =
@@ -451,43 +479,6 @@ impl OrchestratorEngine {
         .with_compute_route(route)
     }
 
-    /// Create a deterministic ProposedAction for simulation.
-    ///
-    /// The skeleton creates a ReadDocument action at Low risk. This is purely
-    /// for testing the Decision Gate wiring — the orchestrator does not
-    /// generate real agent proposals.
-    fn create_simulation_action(
-        &self,
-        input: &ObjectiveInput,
-        objective: &arpagona_agent_core::cognitive_work::Objective,
-        now: DateTime<Utc>,
-    ) -> ProposedAction {
-        let action_id =
-            ProposedActionId::new(format!("pa-{}", now.timestamp_nanos_opt().unwrap_or(0)));
-
-        ProposedAction {
-            id: action_id,
-            workspace_id: input.workspace_id.clone(),
-            task_id: None,
-            proposed_by: input.agent_id.clone(),
-            action_type: ActionType::ReadDocument,
-            target: Some(format!("objective:{}", objective.id)),
-            payload: serde_json::json!({
-                "objective": input.text,
-                "cycle_id": input.cycle_id,
-            }),
-            risk_level: RiskLevel::Low,
-            required_permissions: vec![Permission::ReadDocument],
-            rationale: format!(
-                "Deterministic simulation action for objective: {}",
-                input.text
-            ),
-            context_refs: vec![],
-            status: ProposedActionStatus::PendingDecision,
-            created_at: now,
-        }
-    }
-
     /// Run a ProposedAction through the Decision Gate.
     ///
     /// Returns the Decision Gate decision + audit event pair.
@@ -523,6 +514,8 @@ pub enum OrchestratorError {
     ObjectiveTooLong(usize),
     /// Malformed or invalid input.
     InvalidInput(String),
+    /// Proposal generation failed.
+    ProposalFailed(String),
 }
 
 impl std::fmt::Display for OrchestratorError {
@@ -535,11 +528,20 @@ impl std::fmt::Display for OrchestratorError {
                 write!(f, "Objective text is too long ({len} chars)")
             }
             OrchestratorError::InvalidInput(msg) => write!(f, "Invalid input: {msg}"),
+            OrchestratorError::ProposalFailed(msg) => {
+                write!(f, "Proposal generation failed: {msg}")
+            }
         }
     }
 }
 
 impl std::error::Error for OrchestratorError {}
+
+impl From<ProposalError> for OrchestratorError {
+    fn from(err: ProposalError) -> Self {
+        OrchestratorError::ProposalFailed(err.to_string())
+    }
+}
 
 // ─── Convenience function ───────────────────────────────────────────────────
 

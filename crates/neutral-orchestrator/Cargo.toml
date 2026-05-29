@@ -13,6 +13,10 @@ arpagona-decision-gate = { path = "../decision-gate" }
 arpagona-holographic-memory = { path = "../holographic-memory" }
 arpagona-compressed-cognitive-attention = { path = "../compressed-cognitive-attention" }
 arpagona-tool-runtime = { path = "../tool-runtime" }
+arpagona-llm = { path = "../llm", optional = true }
 chrono.workspace = true
 serde.workspace = true
 serde_json.workspace = true
+
+[features]
+llm-provider = ["arpagona-llm"]

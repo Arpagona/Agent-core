@@ -4,9 +4,9 @@ This file is the short-lived handoff for the next scheduled focus-loop run.
 
 It must contain one concrete next action only. The runtime milestone queue and long-term rules live in `AGENT_FOCUS_LOOP.md`.
 
-## Current status (DEEP cron 2026-05-29 — P3-6 complete)
+## Current status (DEEP cron 2026-05-29 — P3-7 complete)
 
-**main is green:** ✅ All tests pass (0 new failures across full workspace).
+**main is green:** ✅ 821 tests pass (0 failures across full workspace).
 
 **Phase 3 progress:**
 - P3-0 (Roadmap definition): ✅ Completed in #168
@@ -20,11 +20,12 @@ It must contain one concrete next action only. The runtime milestone queue and l
 - P3-4c (ReservoirEchoAdapter): ✅ Merged (#176)
 - P3-4b (CompressedCognitiveAttentionAdapter): ✅ Merged (#177)
 - P3-4a (GraphMemoryAdapter): ✅ Merged (#180)
-- **P3-6 (Integration verification spring): ✅ Completed — `MultiAdapterContextAssembler` wires all 5 adapters into one composite, with integration tests proving multi-source context assembly and orchestrator cycle compatibility.**
+- P3-6 (Integration verification spring): ✅ Merged (#181)
+- **P3-7 (Proposal routing and Decision Gate integration): ✅ Completed — `ProposalGenerator` trait with `SimulatedProposalGenerator` (default) and `LlmProposalGenerator` (feature-gated). 6 new tests proving non-authorizing generation, gate integration, and permission blocking.**
 
 ## Next action
 
-**P3-7: Proposal routing and Decision Gate integration** — Connect the Neutral Orchestrator's `ProposalRequest` to real proposal generation (not just the deterministic ReadDocument simulation). Wire the existing LLM provider abstraction through the orchestrator so that proposals originate from the model (proposal-only mode, no tool execution). An intermediate option: implement a `ProposalGenerator` trait with a deterministic implementation and a mock backed by the existing `run_cognitive_synthesis` path, with Decision Gate evaluation.
+**P3-8: Proposal routing CLI surface** — Add `--llm` or `--proposal-generator` flag to `arpagona orchestrator run` so operators can switch between `SimulatedProposalGenerator` and `LlmProposalGenerator` at the CLI. This integrates the C1 milestone (real LLM proposal-only mode) into the orchestrator context.
 
-**Open:** PR #182 (P3-6 integration verification spring) — open, mergeable.
+**Open:** PR pending (feat/p3-7-proposal-routing-decision-gate) — needs push + PR creation.
 **DV backlog:** 0 open entries.
