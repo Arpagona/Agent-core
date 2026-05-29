@@ -22,8 +22,10 @@
 //! - No LLM call, I/O, persistence, or external effects
 
 use arpagona_agent_core::cognitive_work::Objective;
-use arpagona_agent_core::ids::ComputeRouteId;
-use arpagona_agent_core::orchestrator::{ComputeRouteResult, ContextBundle, ObjectiveInput};
+use arpagona_agent_core::ids::{ComputeRouteId, ContextBundleId};
+#[cfg(test)]
+use arpagona_agent_core::orchestrator::ContextBundle;
+use arpagona_agent_core::orchestrator::{ComputeRouteResult, ObjectiveInput};
 use arpagona_compute_reservoir::{
     allocate_compute, ComputeAllocation, ComputeAllocationStatus, ComputeBudget, ComputeCapability,
     ComputeNode, ComputeNodeId, ComputeNodeStatus, ComputePolicy, ComputeRequest,
@@ -157,12 +159,12 @@ impl ComputeReservoirResolver {
         &self,
         input: &ObjectiveInput,
         objective: &Objective,
-        bundle: &ContextBundle,
+        bundle_id: &ContextBundleId,
         now: DateTime<Utc>,
     ) -> ComputeRouteResult {
         let request = self.build_compute_request(input, objective);
         let allocation = allocate_compute(&request, &self.nodes, &self.policy);
-        self.allocation_to_route(request, allocation, input, objective, bundle, now)
+        self.allocation_to_route(request, allocation, input, objective, bundle_id, now)
     }
 
     /// Build a `ComputeRequest` from the objective input properties.
@@ -219,7 +221,7 @@ impl ComputeReservoirResolver {
         allocation: ComputeAllocation,
         input: &ObjectiveInput,
         objective: &Objective,
-        bundle: &ContextBundle,
+        bundle_id: &ContextBundleId,
         now: DateTime<Utc>,
     ) -> ComputeRouteResult {
         let route_id =
@@ -302,7 +304,7 @@ impl ComputeReservoirResolver {
             route_id,
             input.cycle_id.clone(),
             objective.id.clone(),
-            bundle.id.clone(),
+            bundle_id.clone(),
             label,
             local_preferred,
             justification,
@@ -363,9 +365,7 @@ mod tests {
         let bundle = make_bundle(&objective);
         let now = Utc::now();
 
-        let route = resolver.resolve(&input, &objective, &bundle, now);
-
-        // Route should have a valid structure
+        let route = resolver.resolve(&input, &objective, &bundle.id, now);
         assert!(route.id.as_str().starts_with("cr-"));
         assert_eq!(route.cycle_id, input.cycle_id);
         assert_eq!(route.objective_id.as_str(), objective.id.as_str());
@@ -404,7 +404,7 @@ mod tests {
         let bundle = make_bundle(&objective);
         let now = Utc::now();
 
-        let route = resolver.resolve(&input, &objective, &bundle, now);
+        let route = resolver.resolve(&input, &objective, &bundle.id, now);
 
         // Complex objectives should still route locally (local-first budget)
         assert!(route.local_preferred);
@@ -425,7 +425,7 @@ mod tests {
         let bundle = make_bundle(&objective);
         let now = Utc::now();
 
-        let route = resolver.resolve(&input, &objective, &bundle, now);
+        let route = resolver.resolve(&input, &objective, &bundle.id, now);
 
         let json = serde_json::to_value(&route).expect("should serialize");
         assert!(json.get("approved").is_none());
@@ -473,9 +473,7 @@ mod tests {
         let bundle = make_bundle(&objective);
         let now = Utc::now();
 
-        let route = resolver.resolve(&input, &objective, &bundle, now);
-
-        // Should select the local node (local_first budget)
+        let route = resolver.resolve(&input, &objective, &bundle.id, now);
         assert!(route.local_preferred);
         assert!(route.selected_route_label.contains("local-custom"));
     }
