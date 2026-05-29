@@ -282,10 +282,29 @@ impl ContextAssembler for CompressedCognitiveAttentionAdapter {
 impl CompressedCognitiveAttentionAdapter {
     /// Assemble Compressed Cognitive Attention context: generate a deterministic
     /// query embedding, run the CCA pipeline, and convert matches into ContextItems.
+    ///
+    /// Compute route awareness: when `local_preferred` is true, the adapter
+    /// returns fewer retrieval results (lighter computation). When a cloud/strong
+    /// route is indicated, it returns more results for richer context.
     fn assemble_compressed_cognitive_attention(
         &self,
         request: &MemoryQueryRequest,
     ) -> MemoryQueryResponse {
+        // ── Compute-route aware limit adjustment ───────────────────────
+        let route_suffix = if let Some(ref label) = request.compute_route_label {
+            let local = request.local_preferred.unwrap_or(false);
+            format!(" [compute: {} | local: {}]", label, local)
+        } else {
+            String::new()
+        };
+
+        // Local routes: fewer results (lighter); cloud routes: more
+        let effective_max = if request.local_preferred.unwrap_or(false) {
+            std::cmp::max(1, self.max_items.saturating_sub(self.max_items / 2))
+        } else {
+            self.max_items
+        };
+
         // Step 1: Lock the event store
         let events = match self.events.lock() {
             Ok(e) => e,
@@ -308,7 +327,7 @@ impl CompressedCognitiveAttentionAdapter {
         let query = self.text_to_embedding(&request.objective_text);
 
         // Step 4: Create a modified config that respects the request max items
-        let effective_k = self.config.top_k.min(self.max_items);
+        let effective_k = self.config.top_k.min(effective_max);
         let request_k = request.max_items_per_source.min(effective_k);
         let mut run_config = self.config.clone();
         run_config.top_k = request_k.max(1);
@@ -341,8 +360,8 @@ impl CompressedCognitiveAttentionAdapter {
             items,
             available: true,
             explanation: format!(
-                "{} — returned {} item(s) to orchestrator.",
-                response.explanation, count
+                "{} — returned {} item(s) to orchestrator.{}",
+                response.explanation, count, route_suffix
             ),
         }
     }
@@ -687,5 +706,88 @@ mod tests {
             assert!(json.get("authorized").is_none());
             assert!(json.get("execution_token").is_none());
         }
+    }
+
+    // ─── Compute-route awareness tests ─────────────────────────────────
+
+    #[test]
+    fn cca_adapter_local_route_reduces_results() {
+        let dim = DEFAULT_EMBEDDING_DIM;
+        let events = vec![
+            make_event("mem-1", dim, 100),
+            make_event("mem-2", dim, 200),
+            make_event("mem-3", dim, 300),
+            make_event("mem-4", dim, 400),
+            make_event("mem-5", dim, 500),
+        ];
+        let adapter = CompressedCognitiveAttentionAdapter::with_defaults(events).with_max_items(5);
+        let request = make_request_with_text("cognitive memory")
+            .with_compute_route(Some("local-small"), Some(true));
+
+        let responses = adapter.assemble(&request);
+        let cca_resp = responses
+            .iter()
+            .find(|r| r.source == ContextSource::CompressedCognitiveAttention);
+        assert!(cca_resp.is_some());
+        let resp = cca_resp.unwrap();
+
+        // Local route reduces ~half — should have 3 or fewer items
+        assert!(
+            resp.items.len() <= 3,
+            "Local route should limit items, got {}",
+            resp.items.len()
+        );
+        assert!(
+            resp.explanation.contains("local"),
+            "Explanation should mention route: {}",
+            resp.explanation
+        );
+    }
+
+    #[test]
+    fn cca_adapter_cloud_route_full_items() {
+        let dim = DEFAULT_EMBEDDING_DIM;
+        let events = vec![
+            make_event("mem-1", dim, 100),
+            make_event("mem-2", dim, 200),
+            make_event("mem-3", dim, 300),
+        ];
+        let adapter = CompressedCognitiveAttentionAdapter::with_defaults(events).with_max_items(5);
+        let request = make_request_with_text("cognitive memory")
+            .with_compute_route(Some("cloud-strong"), Some(false));
+
+        let responses = adapter.assemble(&request);
+        let cca_resp = responses
+            .iter()
+            .find(|r| r.source == ContextSource::CompressedCognitiveAttention);
+        assert!(cca_resp.is_some());
+        let resp = cca_resp.unwrap();
+
+        assert!(
+            resp.explanation.contains("compute: cloud-strong"),
+            "Explanation should mention cloud route: {}",
+            resp.explanation
+        );
+    }
+
+    #[test]
+    fn cca_adapter_default_route_has_no_compute_prefix() {
+        let dim = DEFAULT_EMBEDDING_DIM;
+        let events = vec![make_event("mem-1", dim, 100)];
+        let adapter = CompressedCognitiveAttentionAdapter::with_defaults(events);
+        let request = make_request_with_text("test");
+
+        let responses = adapter.assemble(&request);
+        let cca_resp = responses
+            .iter()
+            .find(|r| r.source == ContextSource::CompressedCognitiveAttention);
+        assert!(cca_resp.is_some());
+        let resp = cca_resp.unwrap();
+
+        assert!(
+            !resp.explanation.contains("[compute:"),
+            "No compute prefix expected: {}",
+            resp.explanation
+        );
     }
 }

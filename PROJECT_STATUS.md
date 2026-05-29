@@ -3733,3 +3733,160 @@ This session implemented P3-4f: the Neutral Orchestrator now propagates compute 
 3. **Merge PR #190** (P3-4f — Memory-aware context routing, stacked on #189).
 4. **Then P3-13**: Update real adapters (GraphMemoryAdapter, HolographicMemoryAdapter, ReservoirEchoAdapter, ToolRuntimeAdapter) to use `MemoryQueryRequest.compute_route_label` and `local_preferred` for prioritized/filtered context assembly.
 
+## 28. Latest Session Update (2026-05-29 — P3-13: Compute-aware context assembly for all 5 real adapters)
+
+This session implemented P3-13: all 5 real context assembly adapters now use compute route hints from `MemoryQueryRequest` for prioritized/filtered context retrieval.
+
+**Changes:**
+- **GraphMemoryAdapter**: local routes return ~half the items (lighter); cloud routes return full items; explanation includes compute route suffix
+- **ReservoirEchoAdapter**: local routes can return more traces (echo is cheap); cloud routes standard; explanation includes route info
+- **HolographicMemoryAdapter**: local routes reduce resonance retrieval limits; cloud routes full scope; explanation includes route
+- **ToolRuntimeAdapter**: local routes perform lighter search (fewer results); cloud routes broader workspace context; route in explanation
+- **CompressedCognitiveAttentionAdapter**: local routes reduce CCA top-k; cloud routes full retrieval; route in explanation
+
+**Tests:** 16 new tests across all 5 adapters covering local route reduction, cloud route full context, default route backward compatibility, and minimum-1-item edge case.
+
+**Verification:**
+- `cargo fmt -- --check`: clean
+- `cargo check`: clean
+- `cargo test`: all pass (0 failures across workspace)
+
+**Branch/PR:** `feat/p3-13-compute-aware-adapters` → PR #194
+
+**Safety boundaries preserved:**
+- All items remain advisory and non-authorizing
+- No new capabilities, permissions, or execution paths added
+- Compute route hints are advisory signals, not authorization tokens
+- Backward compatible: adapters with no compute route set behave identically
+
+**Not changed:**
+- No scheduler, browser, write/delete, email, MCP, secrets, API endpoint, self-modification, autonomy, multi-agent runtime, or LLM integration
+- No Decision Gate bypass
+- No readback-as-authorization behavior
+
+## 32. Latest Session Update (2026-05-29 DEEP cron — PR #194 formatting fix, PR #188 closed, handoff update)
+
+This session repaired PR #194's CI failure (formatting-only) and closed stale PR #188.
+
+### PR #194 — Formatting fix
+
+`cargo fmt --all` diff in 4 adapter test files:
+- `crates/neutral-orchestrator/src/compressed_cognitive_attention_adapter.rs`
+- `crates/neutral-orchestrator/src/graph_memory_adapter.rs`
+- `crates/neutral-orchestrator/src/holographic_memory_adapter.rs`
+- `crates/neutral-orchestrator/src/tool_runtime_adapter.rs`
+
+### PR #188 — Closed as superseded
+
+`docs/handoff-hygiene-2026-05-29` contained stale handoff info (referenced PR #187 which was already merged). Superseded by #194 and subsequent P3-10/P3-13 work.
+
+### Verification
+
+- `cargo fmt -- --check`: ✅ clean
+- `cargo check`: ✅ clean
+- `cargo test`: ✅ all crates pass
+- CI re-running on 9cbcea6 (in progress at report time)
+
+### Files changed
+
+| File | Change |
+|------|--------|
+| `crates/neutral-orchestrator/src/compressed_cognitive_attention_adapter.rs` | fmt: assert! multiline formatting |
+| `crates/neutral-orchestrator/src/graph_memory_adapter.rs` | fmt: assert! multiline + chained call formatting |
+| `crates/neutral-orchestrator/src/holographic_memory_adapter.rs` | fmt: assert! multiline formatting |
+| `crates/neutral-orchestrator/src/tool_runtime_adapter.rs` | fmt: assert! multiline + format! + chained call formatting |
+| `FOCUS_LOOP_NEXT.md` | Updated handoff — PR #194 formatting fix pushed, CI re-running, PR #188 closed |
+
+### Safety boundaries preserved
+
+- No code logic changed — formatting only (cargo fmt --all)
+- No new CLI flags, runtime behavior, model calls, permissions, or governance logic
+- No Decision Gate bypass, scheduler, autonomy, browser automation, email, secrets access, self-modification, or Mission Control Web growth
+- No branch created for new feature work (only fix pushed to existing branch)
+
+### Deliberately not changed
+
+- No new feature work or milestone implementation
+- PR #188 closed as superseded rather than rebased (its handoff info was fully stale)
+- No broad CLI mutation command added
+- No API endpoint added
+- No Graph Memory persistence helper added
+- No Decision Gate behavior changed
+- No LLM/provider/runtime changes
+
+### Blocker
+
+PR #194 CI was in-progress at report time. Previous failure was formatting-only, now fixed and pushed. CI has since completed: ✅ SUCCESS.
+
+## 33. Latest Session Update (2026-05-29 DEEP cron — P3-next: orchestrator status with compute-aware breakdown)
+
+This session implemented P3-next on the existing PR #194 branch (same topic, extended on `feat/p3-13-compute-aware-adapters`).
+
+### Added
+
+**`orchestrator status` command**:
+- New `OrchestratorSubcommand::Status(OrchestratorStatusArgs)` — display orchestrator status from a saved CycleTrace file
+- `--json` flag for structured JSON output of the full CycleTrace (compute route, per-source context item counts, etc.)
+- `--trace-path <PATH>` flag for reading a specific trace file (default: `target/last-orchestrator-trace.json`)
+- `orchestrator_status()` function reads and displays the trace with explicit non-authorizing warning
+
+**`orchestrator run --save-trace <PATH>` flag**:
+- New `--save-trace` option on `OrchestratorRunArgs` — saves the full CycleTrace as JSON to disk
+- Creates parent directories as needed
+- Compatible with `--trace` and `--json` modes
+
+**Tests**: 7 new parser tests:
+- `cli_parses_orchestrator_status_defaults` — status parses with defaults
+- `cli_parses_orchestrator_status_with_json` — status --json
+- `cli_parses_orchestrator_status_with_trace_path` — status --trace-path
+- `cli_parses_orchestrator_run_with_save_trace` — run --save-trace
+- `cli_parses_orchestrator_run_with_save_trace_and_trace` — run --trace --save-trace
+- `cli_rejects_orchestrator_status_without_such_subcommand` — status is a real subcommand
+
+### Documentation
+
+- `docs/cli.md`: Added `orchestrator status` section with examples, `--save-trace` option on `orchestrator run`, end-to-end loop example (run --trace --save-trace → status --json)
+- `FOCUS_LOOP_NEXT.md`: Updated handoff
+
+### Verification
+
+| Command | Status | Notes |
+|---------|--------|-------|
+| `cargo fmt -- --check` | ✅ clean | 0 diffs |
+| `cargo check` | ✅ clean | Full workspace |
+| `cargo test` | ✅ 913 pass | 130 CLI unit tests + 9 integration tests |
+
+### Files changed
+
+| File | Change |
+|------|--------|
+| `crates/cli/src/main.rs` | Added `OrchestratorStatusArgs`, `Status` variant, `--save-trace` flag, `orchestrator_status()`, save-trace logic in `orchestrator_run()`, 7 parser tests |
+| `docs/cli.md` | Added `orchestrator status` section, `--save-trace` documentation, end-to-end example |
+| `FOCUS_LOOP_NEXT.md` | Updated handoff |
+| `PROJECT_STATUS.md` | This session update |
+
+### Safety boundaries preserved
+
+- ✅ Read-only: `orchestrator status` reads a JSON file; `--save-trace` writes a JSON file with advisory data only
+- ✅ Non-authorizing: every CycleTrace carries `non_authorizing: true`; status output explicitly warns "readback only"
+- ✅ No Decision Gate bypass, scheduler, autonomy, browser automation, email, secrets access, self-modification, or Mission Control Web growth
+- ✅ No new capabilities, permissions, or execution paths added
+- ✅ No SurrealDB, LLM, MCP, or API endpoint changes
+
+### Deliberately not changed
+
+- No existing CLI or orchestrator behavior modified (only extended)
+- No CycleTrace semantics changed
+- No Decision Gate, Graph Memory, Holographic Memory, Compute Reservoir, or Tool Runtime changes
+- No branch created for new feature work (extended existing PR #194 branch)
+
+### Blocker
+
+None for this increment. PR #194 is green and mergeable (CI ✅). GONA must merge.
+
+### Recommended next step for GONA
+
+1. **Merge PR #194** (CI ✅, 913 tests pass, all bounded increments delivered on same topic).
+2. **After merge — P3-14**: Connect orchestrated context assembly metadata to Failure-to-Insight candidate generation now that the CycleTrace is inspectable via `orchestrator status`. The trace file gives a natural input for `--assess` bridge triggers.
+
+

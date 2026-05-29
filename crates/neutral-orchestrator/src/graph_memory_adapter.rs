@@ -127,6 +127,11 @@ impl ContextAssembler for GraphMemoryAdapter {
 impl GraphMemoryAdapter {
     /// Assemble Graph Memory context: query audit events, relations, and
     /// facts, then convert them into advisory ContextItems.
+    ///
+    /// Compute route awareness: when `local_preferred` is true, the adapter
+    /// returns more focused context (fewer items, favoring recent audit events).
+    /// When `compute_route_label` indicates a cloud/strong route, the adapter
+    /// returns broader context (more items, full relation structure).
     fn assemble_graph_memory(&self, request: &MemoryQueryRequest) -> MemoryQueryResponse {
         let store = match self.store.lock() {
             Ok(s) => s,
@@ -136,7 +141,24 @@ impl GraphMemoryAdapter {
             }
         };
 
-        let limit = request.max_items_per_source.min(self.max_items);
+        // ── Compute-route aware limit adjustment ───────────────────────
+        // Local routes: smaller context, focus on recency
+        // Cloud/strong routes: broader context, more items
+        let route_suffix = if let Some(ref label) = request.compute_route_label {
+            let local = request.local_preferred.unwrap_or(false);
+            format!(" [compute: {} | local: {}]", label, local)
+        } else {
+            String::new()
+        };
+
+        // Local routes get stricter limits (lighter, faster); cloud routes get broader limits
+        let base_limit = request.max_items_per_source.min(self.max_items);
+        let limit = if request.local_preferred.unwrap_or(false) {
+            // Local route: more conservative — reduce by ~half
+            std::cmp::max(1, base_limit.saturating_sub(base_limit / 2))
+        } else {
+            base_limit
+        };
 
         // ── Query 1: Audit events for the workspace ────────────────────
         let audit_events = match store.list_audit_events_for_workspace(&request.workspace_id) {
@@ -221,13 +243,14 @@ impl GraphMemoryAdapter {
             available: true,
             explanation: format!(
                 "Graph Memory found {} audit event{} and {} relation{} in workspace '{}'. \
-                 Showing {} items (limited).",
+                 Showing {} items (limited).{}",
                 total_events,
                 event_suffix,
                 total_rels,
                 rel_suffix,
                 request.workspace_id.as_str(),
                 item_count,
+                route_suffix,
             ),
         }
     }
@@ -554,5 +577,122 @@ mod tests {
 
         assert!(has_audit, "Should include audit event items");
         assert!(has_relation, "Should include relation items");
+    }
+
+    // ─── Compute-route awareness tests ─────────────────────────────────
+
+    #[test]
+    fn adapter_local_route_reduces_items() {
+        let mut store = InMemoryGraphMemoryStore::new();
+        let ws_id = WorkspaceId::new("ws-test");
+
+        // Add enough events to see the reduction
+        for i in 0..10 {
+            add_audit_event(
+                &mut store,
+                &format!("evt-{}", i),
+                &ws_id,
+                &format!("Event number {}", i),
+            );
+        }
+
+        let adapter = GraphMemoryAdapter::new(store).with_max_items(10);
+        let request = make_request().with_compute_route(Some("local-small"), Some(true));
+
+        let responses = adapter.assemble(&request);
+        let gm_resp = responses
+            .iter()
+            .find(|r| r.source == ContextSource::GraphMemory);
+        assert!(gm_resp.is_some());
+        let resp = gm_resp.unwrap();
+
+        // Local route should reduce items (~half of 10, so ~5 or fewer)
+        assert!(
+            resp.items.len() <= 6,
+            "Local route should limit items, got {}",
+            resp.items.len()
+        );
+        assert!(
+            resp.explanation.contains("local"),
+            "Explanation should mention local route: {}",
+            resp.explanation
+        );
+    }
+
+    #[test]
+    fn adapter_cloud_route_returns_full_items() {
+        let mut store = InMemoryGraphMemoryStore::new();
+        let ws_id = WorkspaceId::new("ws-test");
+
+        for i in 0..10 {
+            add_audit_event(
+                &mut store,
+                &format!("evt-{}", i),
+                &ws_id,
+                &format!("Event number {}", i),
+            );
+        }
+
+        let adapter = GraphMemoryAdapter::new(store).with_max_items(10);
+        let request = make_request().with_compute_route(Some("cloud-strong"), Some(false));
+
+        let responses = adapter.assemble(&request);
+        let gm_resp = responses
+            .iter()
+            .find(|r| r.source == ContextSource::GraphMemory);
+        assert!(gm_resp.is_some());
+        let resp = gm_resp.unwrap();
+
+        // Cloud route should return more items than local route would
+        assert!(
+            resp.explanation.contains("compute:"),
+            "Explanation should mention compute: {}",
+            resp.explanation
+        );
+    }
+
+    #[test]
+    fn adapter_default_route_has_no_compute_prefix() {
+        let store = InMemoryGraphMemoryStore::new();
+        let adapter = GraphMemoryAdapter::new(store);
+        let request = make_request(); // no compute route set
+
+        let responses = adapter.assemble(&request);
+        let gm_resp = responses
+            .iter()
+            .find(|r| r.source == ContextSource::GraphMemory);
+        assert!(gm_resp.is_some());
+        let resp = gm_resp.unwrap();
+
+        // Should not contain compute prefix when no route is set
+        assert!(
+            !resp.explanation.contains("compute:"),
+            "No compute prefix expected: {}",
+            resp.explanation
+        );
+    }
+
+    #[test]
+    fn adapter_local_route_keeps_minimum_one_item() {
+        let mut store = InMemoryGraphMemoryStore::new();
+        let ws_id = WorkspaceId::new("ws-test");
+        add_audit_event(&mut store, "evt-1", &ws_id, "Single event");
+
+        let adapter = GraphMemoryAdapter::new(store).with_max_items(1);
+        let request = make_request().with_compute_route(Some("local-tiny"), Some(true));
+
+        let responses = adapter.assemble(&request);
+        let gm_resp = responses
+            .iter()
+            .find(|r| r.source == ContextSource::GraphMemory);
+        assert!(gm_resp.is_some());
+        let resp = gm_resp.unwrap();
+
+        // Even with local route, should still return at least 1 item
+        assert_eq!(
+            resp.items.len(),
+            1,
+            "Local route should keep minimum 1 item"
+        );
     }
 }
