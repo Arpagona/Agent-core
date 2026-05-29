@@ -1289,10 +1289,9 @@ pub fn analyze_compute_efficiency(trace: &CycleTrace) -> Vec<FailureInsight> {
             DetectionSignal::new(
                 DetectionSignalType::RuntimeObservation,
                 format!(
-                    "Cycle {}: route '{}' + status '{}'",
+                    "Cycle {} failed with route '{}'",
                     trace.cycle_id,
                     trace.compute_route_label.as_deref().unwrap_or("?"),
-                    trace.cycle_status
                 ),
             ),
             0.65,
