@@ -377,6 +377,25 @@ Options :
 
 Le Work Loop produit une mémoire de travail (WorkingMemory) complète avec objectif, contexte, hypothèses, contraintes, contexte manquant, estimation de sensibilité/complexité, candidats d'amélioration, plan et prochaine action proposée. Les flags `--assess`, `--allocate`, `--resonate`, `--observe` et `--llm` peuvent être combinés pour une exécution en pipeline unique.
 
+### Neutral Orchestrator — Cycle déterministe
+
+```bash
+cargo run -p arpagona-cli -- orchestrator run --objective "Inspecter l'état du projet"
+cargo run -p arpagona-cli -- orchestrator run --objective "Inspecter l'état du projet" --json
+cargo run -p arpagona-cli -- orchestrator run --objective "Inspecter l'état du projet" --json --trace
+```
+
+Options :
+
+- `--objective <TEXT>` (obligatoire) — Objectif à traiter dans un cycle orchestré.
+- `--json` — Sortie structurée JSON.
+- `--trace` — Ajoute le `CycleTrace` complet avec métadonnées d'assemblage de contexte ; utile avec `--json`.
+- `--perm <PERMISSION>` — Permissions accordées au Decision Gate, répétable. Défaut : `ReadDocument`.
+- `--workspace-id <ID>` — Workspace du cycle. Défaut : `workspace-alpha`.
+- `--agent-id <ID>` — Agent émetteur du cycle. Défaut : `agent-alpha`.
+
+La commande exécute le squelette local du Neutral Orchestrator : objectif → assemblage de contexte consultatif → routage compute → proposition → Decision Gate → issue orchestrée. Le résultat reste explicitement non autorisant : il ne planifie pas de scheduler, n'exécute pas d'outil externe, ne crée pas d'approbation durable et ne remplace pas le Decision Gate.
+
 ### Graph Memory — Statut et démos
 
 ```bash
