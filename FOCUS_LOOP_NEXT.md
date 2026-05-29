@@ -4,35 +4,21 @@ This file is the short-lived handoff for the next scheduled focus-loop run.
 
 It must contain one concrete next action only. The runtime milestone queue and long-term rules live in `AGENT_FOCUS_LOOP.md`.
 
-## Current status (DEEP cron 2026-05-29 — C2 LLM-governed tool-call wiring merged)
+## Current status (DEEP cron 2026-05-29 — P3-4f delivered as PR #190)
 
-**main is green:** ✅ ~878 tests, 0 failures across full workspace.
+**main is green:** ✅ Full workspace tests pass.
 
-**C2 delivered (via PR #187, rebased & merged by DEEP):**
-- Added `request_tool_call_from_llm()` in `crates/llm/src/lib.rs`: standalone async function that calls the LLM provider (mock/openai/ollama) and returns a `ToolCallIntent` for the given objective.
-- Added `--govern-tool` flag to `cognitive run --json`: when set, requests a tool-call intent from the LLM provider, routes through `govern_tool_call()` → Decision Gate, executes approved calls through bounded Tool Runtime, journals the full trace (intent → decision → result → observation) in the LLM journal.
-- 3 new LLM crate tests, 2 new CLI parser tests.
+**PR #187** (`feat/c2-llm-governed-tool-call-wiring`) — **OPEN**, **MERGEABLE**, CI green. Awaits GONA merge.
 
-**Also merged this run:**
-- H2: CLI security boundary verification + .git/ file block fix (PR #192)
-- fix: removed unused LlmProposalGenerator fields, zero warnings (PR #193)
+**PR #189** (`feat/p3-10-compute-aware-delegation`) — **OPEN**, **MERGEABLE**, CI green. Awaits GONA merge.
 
-Target chain proven:
-```text
-LLM ToolCall Intent -> Decision Gate -> Tool Runtime -> Observation -> LLM Journal
-```
+**PR #190** (`feat/p3-4f-memory-aware-context-routing`) — **OPEN**, new. P3-4f delivered (stacked on #189's branch). Propagates compute route routing advice into the context assembly pipeline: `MemoryQueryRequest` now carries `compute_route_label` and `local_preferred` hints; `SimulatedContextAssembler` includes compute route in explanations; `run_cycle()` computes route before context assembly.
 
-Usage:
-```bash
-# Mock provider (deterministic read_file on PROJECT_STATUS.md):
-cargo run -q -- cognitive run --objective "Read project status" --govern-tool --json
-
-# With explicit LLM provider:
-ARPAGONA_LLM_PROVIDER=mock cargo run -q -- cognitive run --objective "Analyse le code" --govern-tool --json
-```
+**DAILY_VALIDATION_BACKLOG.md:** 0 open entries.
 
 ## Next action
 
-**Phase 3 — Neutral Orchestrator V0 integration.** With C2 wire-up merged and all Phase 2 milestones delivered, the focus loop should now re-engage Phase 3: bounded Neutral Orchestrator integration — particularly the `--proposal-generator` integration tests and operator readback surfaces for orchestrator state.
-
-Also: merge open Phase 3 PRs (#189 P3-10 compute-aware delegation, #190 P3-4f memory-aware context routing) after verifying they rebase cleanly and tests pass.
+1. **GONA: merge PR #187** (C2 — LLM-governed tool-call wiring, CI green, based on latest main).
+2. **Then GONA: merge PR #189** (P3-10 — Compute-aware delegation, CI green).
+3. **Then GONA: merge PR #190** (P3-4f — Memory-aware context routing via Compute Reservoir, stacked on #189).
+4. **Then — P3-13: Real adapter context assembly pipeline.** With compute-aware routing now embedded in `MemoryQueryRequest`, the existing real adapters (GraphMemoryAdapter, HolographicMemoryAdapter, ReservoirEchoAdapter, ToolRuntimeAdapter) should be updated to use the compute route hints to prioritize/filter context items. This makes context assembly genuinely compute-aware beyond the simulated prefix.

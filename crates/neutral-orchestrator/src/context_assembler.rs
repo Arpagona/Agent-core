@@ -95,14 +95,22 @@ impl ContextAssembler for SimulatedContextAssembler {
     fn assemble(&self, request: &MemoryQueryRequest) -> Vec<MemoryQueryResponse> {
         let mut responses = Vec::with_capacity(request.requested_sources.len());
 
+        // Build a compute-aware prefix for explanations when route info is available
+        let compute_prefix = if let Some(ref route_label) = request.compute_route_label {
+            let local = request.local_preferred.unwrap_or(false);
+            format!(" [compute: {} | local: {}]", route_label, local)
+        } else {
+            String::new()
+        };
+
         for source in &request.requested_sources {
             let response = MemoryQueryResponse {
                 source: source.clone(),
                 items: vec![],
                 available: true,
                 explanation: format!(
-                    "Simulated: {:?} has no items (no adapter installed).",
-                    source
+                    "Simulated: {:?} has no items (no adapter installed).{}",
+                    source, compute_prefix
                 ),
             };
             responses.push(response);
@@ -220,5 +228,111 @@ mod tests {
         for response in &responses {
             assert_eq!(response.items.len(), 0);
         }
+    }
+
+    // ─── Compute-aware context assembly tests ────────────────────────────
+
+    #[test]
+    fn simulated_assembler_includes_compute_route_in_explanation() {
+        let assembler = SimulatedContextAssembler::new();
+        let request = MemoryQueryRequest::new(
+            OrchestratorCycleId::new("oc-test"),
+            ObjectiveId::new("obj-test"),
+            "Summarize governance docs",
+            WorkspaceId::new("ws-test"),
+        )
+        .with_compute_route(Some("local-small (llm, $0, 800ms)"), Some(true));
+
+        let responses = assembler.assemble(&request);
+
+        // Every response should include the compute route info in the explanation
+        for response in &responses {
+            assert!(
+                response.explanation.contains("[compute: local-small"),
+                "Expected compute route in explanation, got: {}",
+                response.explanation
+            );
+            assert!(
+                response.explanation.contains("local: true"),
+                "Expected local:true in explanation, got: {}",
+                response.explanation
+            );
+        }
+    }
+
+    #[test]
+    fn simulated_assembler_without_compute_route_has_no_prefix() {
+        let assembler = SimulatedContextAssembler::new();
+        let request = MemoryQueryRequest::new(
+            OrchestratorCycleId::new("oc-test"),
+            ObjectiveId::new("obj-test"),
+            "Simple task without compute hint",
+            WorkspaceId::new("ws-test"),
+        );
+
+        let responses = assembler.assemble(&request);
+
+        // Without compute route, explanations should not contain compute prefix
+        for response in &responses {
+            assert!(
+                !response.explanation.contains("[compute:"),
+                "Expected no compute prefix in explanation, got: {}",
+                response.explanation
+            );
+        }
+    }
+
+    #[test]
+    fn simulated_assembler_with_cloud_route_reflects_routing() {
+        let assembler = SimulatedContextAssembler::new();
+        let request = MemoryQueryRequest::new(
+            OrchestratorCycleId::new("oc-test"),
+            ObjectiveId::new("obj-test"),
+            "Complex financial analysis",
+            WorkspaceId::new("ws-test"),
+        )
+        .with_compute_route(Some("cloud-strong (cloudllm, $50, 2000ms)"), Some(false));
+
+        let responses = assembler.assemble(&request);
+
+        for response in &responses {
+            assert!(
+                response.explanation.contains("cloud-strong"),
+                "Expected cloud route in explanation, got: {}",
+                response.explanation
+            );
+            assert!(
+                response.explanation.contains("local: false"),
+                "Expected local:false in explanation, got: {}",
+                response.explanation
+            );
+        }
+    }
+
+    #[test]
+    fn request_with_compute_route_stores_fields() {
+        let request = MemoryQueryRequest::new(
+            OrchestratorCycleId::new("oc-test"),
+            ObjectiveId::new("obj-test"),
+            "Test compute route storage",
+            WorkspaceId::new("ws-test"),
+        )
+        .with_compute_route(Some("local-small"), Some(true));
+
+        assert_eq!(request.compute_route_label, Some("local-small".to_owned()));
+        assert_eq!(request.local_preferred, Some(true));
+    }
+
+    #[test]
+    fn request_without_compute_route_has_none() {
+        let request = MemoryQueryRequest::new(
+            OrchestratorCycleId::new("oc-test"),
+            ObjectiveId::new("obj-test"),
+            "Test default compute route",
+            WorkspaceId::new("ws-test"),
+        );
+
+        assert!(request.compute_route_label.is_none());
+        assert!(request.local_preferred.is_none());
     }
 }

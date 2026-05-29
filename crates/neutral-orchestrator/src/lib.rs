@@ -272,17 +272,24 @@ impl OrchestratorEngine {
 
         let objective = input.to_objective();
 
-        // Step 2: Assemble synthetic advisory ContextBundle
-        let context_bundle = self.assemble_context(&input, &objective, now);
+        // Step 2: Generate a shared bundle ID for cross-linking
+        let bundle_id =
+            ContextBundleId::new(format!("cb-{}", now.timestamp_nanos_opt().unwrap_or(0)));
 
-        // Step 3: Create ComputeRouteResult (deterministic)
-        let compute_route = self.create_compute_route(&input, &objective, &context_bundle, now);
+        // Step 3: Create ComputeRouteResult — now computed BEFORE context
+        // assembly so that the compute route info (label, local_preferred)
+        // can be propagated into the context assembly pipeline.
+        let compute_route = self.create_compute_route(&input, &objective, &bundle_id, now);
 
-        // Step 4: Create ProposalRequest
+        // Step 4: Assemble advisory ContextBundle, now with compute route hints
+        let context_bundle =
+            self.assemble_context(&input, &objective, &compute_route, bundle_id, now);
+
+        // Step 5: Create ProposalRequest
         let proposal_request =
             self.create_proposal_request(&input, &objective, &context_bundle, &compute_route);
 
-        // Step 5: Generate a ProposedAction via the pluggable proposal generator
+        // Step 6: Generate a ProposedAction via the pluggable proposal generator
         // The default SimulatedProposalGenerator produces a ReadDocument action
         // at Low risk. An LlmProposalGenerator would produce a context-aware
         // proposal from the LLM provider. All proposals are PendingDecision
@@ -359,26 +366,34 @@ impl OrchestratorEngine {
     /// items. The `context_hint` from the ObjectiveInput is always preserved
     /// as an additional `graph_memory_item` regardless of assembler results.
     ///
+    /// The compute route result is passed into the MemoryQueryRequest so that
+    /// adapters can prioritize sources relevant to the selected resource type.
+    /// For example, a "local-small" route may favor Reservoir Echo traces,
+    /// while a "cloud-strong" route may favor Graph Memory facts.
+    ///
     /// Every item in the bundle is advisory. The advisory_warning field is
     /// set at construction and must never be removed.
     fn assemble_context(
         &self,
         input: &ObjectiveInput,
         objective: &arpagona_agent_core::cognitive_work::Objective,
-        now: DateTime<Utc>,
+        compute_route: &ComputeRouteResult,
+        bundle_id: ContextBundleId,
+        _now: DateTime<Utc>,
     ) -> ContextBundle {
-        let bundle_id =
-            ContextBundleId::new(format!("cb-{}", now.timestamp_nanos_opt().unwrap_or(0)));
-
         let mut bundle =
             ContextBundle::new(bundle_id, input.cycle_id.clone(), objective.id.clone());
 
-        // Step 1: Create a MemoryQueryRequest and query the assembler
+        // Step 1: Create a MemoryQueryRequest with compute route hints
         let request = arpagona_agent_core::orchestrator::MemoryQueryRequest::new(
             input.cycle_id.clone(),
             objective.id.clone(),
             &input.text,
             input.workspace_id.clone(),
+        )
+        .with_compute_route(
+            Some(compute_route.selected_route_label.clone()),
+            Some(compute_route.local_preferred),
         );
 
         let responses = self.context_assembler.assemble(&request);
@@ -441,11 +456,11 @@ impl OrchestratorEngine {
         &self,
         input: &ObjectiveInput,
         objective: &arpagona_agent_core::cognitive_work::Objective,
-        bundle: &ContextBundle,
+        bundle_id: &ContextBundleId,
         now: DateTime<Utc>,
     ) -> ComputeRouteResult {
         self.compute_reservoir_resolver
-            .resolve(input, objective, bundle, now)
+            .resolve(input, objective, bundle_id, now)
     }
 
     /// Create a ProposalRequest linking the objective, context and compute route.

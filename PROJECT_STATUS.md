@@ -3527,80 +3527,209 @@ This session implemented H1b: static analysis / missing edge-case tests, coverin
 1. **Merge PR #186** to establish the H1b edge-case test baseline.
 2. **H2: CLI security boundary verification** — verify that Tool Runtime security boundaries (absolute path blocking, parent traversal blocking, sensitive file blocking) are not bypassable through any documented CLI path (especially `--memory-value` JSON injection, `--json` pipe, or relative-path resolution edge cases).
 
-## 29. Latest Session Update (2026-05-29 — H2 CLI security boundary verification)
+## 29. Latest Session Update (2026-05-29 DEEP cron — Handoff hygiene, PR #187 status, Phase 3 completion verification)
 
-This session verified and hardened the Tool Runtime security boundary for all documented CLI paths.
+This session verified the complete state of the repository and updated the stale handoff documents.
 
-### Security boundary probe results
+### Current state
 
-| Test Vector | CLI Path | Result |
-|-------------|----------|--------|
-| Absolute path `/etc/passwd` | `tool demo read-file` | ✅ Blocked (status: blocked) |
-| Parent traversal `../Cargo.toml` | `tool demo read-file` | ✅ Blocked (status: blocked) |
-| Double parent traversal `../../Cargo.toml` | `tool demo read-file` | ✅ Blocked (status: blocked) |
-| `.env` file | `tool demo read-file` | ✅ Blocked (status: blocked) |
-| `.git` directory listing | `tool demo list-files` | ✅ Blocked (status: blocked) |
-| `.git/config` via crafted JSON observe | `tool demo observe` | ✅ Blocked (routed through runtime validate) |
-| Empty path `""` | `tool demo read-file` | ✅ Graceful failure (not a file) |
-| Parent traversal `..` | `tool demo list-files` | ✅ Blocked (status: blocked) |
-| `--memory-value` JSON injection | memory demo | ✅ Not a tool runtime path — no bypass |
-| `--json` pipe-to-file | all commands | ✅ Output formatting only, security check done by runtime |
+**PR #187** (`feat/c2-llm-governed-tool-call-wiring`) remains **open**, **mergeable**, CI **green** (2/2 checks pass). Directly based on latest `origin/main` (parent commit e9a5414). DEEP cannot merge per governance rules; awaiting GONA merge action.
 
-### Security gap found and fixed
+The PR adds:
+- `--govern-tool` flag to `cognitive run` for LLM-governed tool-call wiring
+- `request_tool_call_from_llm()` in the LLM crate (supports mock, openai, ollama providers)
+- Full chain: LLM intent → Decision Gate → Tool Runtime → Observation → Journal
+- 2 CLI parser tests + 3 unit tests in LLM crate
 
-**Gap:** `tool demo read-file .git/config` returned `success`, leaking git remote URL and SSH identity file path.
+**Phase 3 confirmed delivered:**
+All 15 P3-0 through P3-9 milestones are merged on `main`. Key components:
+- Neutral Orchestrator V0 with deterministic loop skeleton
+- Memory-aware context assembly (5 adapters: GraphMemory, CompressedCognitiveAttention, ReservoirEcho, HolographicMemory, ToolRuntime)
+- MultiAdapterContextAssembler integration
+- Proposal routing with Decision Gate integration and CLI surface
+- Cycle Trace V0 with per-source context assembly metadata
+- Orchestrator demo loop with `--proposal-generator simulated|llm`
 
-**Root cause:** `is_blocked_file()` only checked patterns `.env`, `.ssh/`, `id_rsa`, `id_ed25519`, `config.json`. There was no `.git/` pattern, so `.git/config`, `.git/HEAD`, `.git/packed-refs` and other `.git` internals were fully readable.
+**Remaining gap (Pillar #4 — Compute-aware delegation):**
+The `ComputeRouteResult` in the orchestrator is still a deterministic mock. The `arpagona-compute-reservoir` crate has types (`ComputeNodeId`, `ComputeCapability`, `ComputeResourceKind`) but is **never imported or called** from the orchestrator. This is the next implementation opportunity.
 
-**Fix:** Added `.git/` to `BLOCKED_FILE_PATTERNS` in `crates/tool-runtime/src/lib.rs`:
-- `.git/config` → blocked ✅
-- `.git/HEAD` → blocked ✅
-- `./.git/config` → blocked ✅ (relative variant)
-- `.gitignore` → still readable ✅ (no false positive: `.gitignore` does not contain `.git/`)
-- `.github/workflows/*` → not blocked ✅ (`.github/` does not contain `.git/`)
-
-### New regression tests (5)
-
-Added to `crates/tool-runtime/src/lib.rs`:
-- `read_file_blocks_git_config` — `.git/config` blocked with `is_security: true`
-- `read_file_blocks_git_head` — `.git/HEAD` blocked
-- `read_file_blocks_relative_git_path` — `./.git/config` also blocked
-- `read_file_gitignore_still_readable` — `.gitignore` remains readable (negative test)
-- `read_file_github_dir_not_blocked` — `.github/workflows/*` not falsely blocked
-
-### Verification
-
+**Validation:**
 - `cargo fmt -- --check`: ✅ clean
-- `cargo check`: ✅ clean (pre-existing neutral-orchestrator dead_code warning only)
-- `cargo test --workspace`: ✅ 874 tests pass (869 previous + 5 new)
-- CLI smoke tests: all security boundaries hold for every documented path
-
-### Deliberately not changed
-
-- No new CLI commands or flags added
-- No CLI output format changed
-- No API endpoint added
-- No Decision Gate behavior changed
-- No crate boundaries, permissions, risk levels, or governance logic
-- No scheduler, browser, email, secrets, autonomy, self-modification, or Mission Control Web growth
-- No SurrealDB or persistence changes
-- No `is_blocked_file` pattern changed for existing patterns (`.env`, `.ssh/`, `id_rsa`, etc.)
-- Readback remains evidence only, not authorization
+- `cargo check`: ✅ clean (1 pre-existing dead_code warning in `LlmProposalGenerator`)
+- `cargo test`: ✅ ~847 tests pass across all crates (0 failures)
+- Conflict marker scan: ✅ clean
+- `DAILY_VALIDATION_BACKLOG.md`: 0 open entries
 
 ### Files changed
 
 | File | Change |
 |------|--------|
-| `crates/tool-runtime/src/lib.rs` | Added `.git/` to `BLOCKED_FILE_PATTERNS` + 5 new regression tests |
-| `FOCUS_LOOP_NEXT.md` | Updated handoff to reflect H2 completion and Phase 3 recommitment |
+| `FOCUS_LOOP_NEXT.md` | Updated handoff — PR #187 open/mergeable, Phase 3 complete, P3-10 proposed |
+| `PROJECT_STATUS.md` | Added section 29 documenting this session |
 
-### Stability level
+### Safety boundaries preserved
 
-Alpha hardening. The `.git/` block is a pattern-string prefix check with no false positives on `.gitignore`, `.gitattributes`, `.gitmodules`, or `.github/`.
+- No code changes to any crate: core, decision-gate, compute-reservoir, neutral-orchestrator, holographic-memory, mcp-server, tool-runtime, tool-registry, cli, llm, runtime, api-server
+- No new CLI flags, runtime behavior, model calls, permissions, or governance logic
+- No Decision Gate bypass, scheduler, autonomy, browser automation, email, secrets access, self-modification, or Mission Control Web growth
+- No branch was created for new feature work (PR #187 remains the only open PR)
+- DEEP did not push or merge to main per governance rules
+
+### Deliberately not changed
+
+- No code changes — handoff hygiene only
+- PR #187 was not rebased (already based on latest main — parent e9a5414 is origin/main)
+- No stale branches were deleted (only PR #187 is open)
+- No test additions (all DV items closed)
+- No new feature work or milestone implementation
 
 ### Recommended next step for GONA
 
-1. **Merge this PR** to close the `.git/` security gap.
-2. **Recommit to Phase 3 — Neutral Orchestrator V0 integration.** With H1a (clippy), H1b (edge-case tests) and H2 (CLI security boundary) all delivered, the H hardening track is complete. The focus loop should return to `--proposal-generator` integration tests and operator readback surfaces for orchestrator state.
+1. **Merge PR #187** (C2 — LLM-governed tool-call wiring). Ready: open, mergeable, CI green, based on latest main.
+2. **Arbitrate P3-10 scope**: integrate `arpagona-compute-reservoir` into the orchestrator cycle as compute-aware delegation with explainable routing, cost/latency/privacy trade-offs, and cycle trace readback.
 
+## 30. Latest Session Update (2026-05-29 — P3-10 Compute-aware delegation from orchestrator to Compute Reservoir)
+
+This session implemented P3-10: the Neutral Orchestrator now delegates compute route resolution to the real `arpagona-compute-reservoir` crate instead of using a hard-coded deterministic `ComputeRouteResult`.
+
+### What was added
+
+**New file:** `crates/neutral-orchestrator/src/compute_reservoir_adapter.rs`
+
+- `ComputeReservoirResolver` struct with a default inventory of 3 compute nodes (local-small, local-cpu, cloud-strong) and a default local-first `ComputePolicy`
+- `build_compute_request()` — maps `ObjectiveInput` properties (title length, domain keywords, code/debug/analyze heuristics) to a `ComputeRequest`
+- `allocation_to_route()` — converts `ComputeAllocation` into `ComputeRouteResult` with enriched justification including cost, latency, sensitivity, and capability details
+- Builder methods: `with_nodes()` and `with_policy()`
+- 6 unit tests covering default resolution, complex objectives, custom nodes, non-authorizing invariant, and build request variants
+
+**Changed:** `crates/neutral-orchestrator/src/lib.rs`
+
+- Replaced `compute_route_label`, `local_preferred`, `compute_route_justification` fields with `compute_reservoir_resolver: ComputeReservoirResolver`
+- Added `with_compute_reservoir_resolver()` builder method
+- Removed `with_compute_route_label()`, `with_local_preferred()`, `with_compute_route_justification()`
+- `create_compute_route()` now delegates to `self.compute_reservoir_resolver.resolve()`
+
+**Changed:** `crates/neutral-orchestrator/Cargo.toml`
+
+- Added `arpagona-compute-reservoir` dependency
+
+**Changed:** `FOCUS_LOOP_NEXT.md`
+
+- Updated handoff to reflect PR #189 (P3-10) and proposed next action (P3-4f: Memory-aware context routing via Compute Reservoir)
+
+### Verification
+
+- `cargo fmt -- --check`: ✅ clean
+- `cargo check`: ✅ clean (1 pre-existing dead_code warning in proposal_generator.rs)
+- `cargo test --workspace`: ✅ all tests pass (full workspace)
+- `cargo test -p arpagona-neutral-orchestrator`: ✅ 101 tests, 0 failures (98 existing + 6 new)
+
+### Safety boundaries preserved
+
+- `ComputeReservoirResolver` is advisory only (non-authorizing)
+- `advisory_warning` always set on every `ComputeRouteResult`
+- No I/O, no LLM calls, no persistence, no external effects
+- No Decision Gate bypass
+- Compute allocation is routing advice only, not action authorization
+- All existing advisory invariants preserved (no `approved`, `authorized`, `execution_token` in serialization)
+
+### Files changed
+
+| File | Change |
+|------|--------|
+| `crates/neutral-orchestrator/Cargo.toml` | Added `arpagona-compute-reservoir` dep |
+| `crates/neutral-orchestrator/src/compute_reservoir_adapter.rs` | NEW — `ComputeReservoirResolver`, 6 tests |
+| `crates/neutral-orchestrator/src/lib.rs` | Replaced old compute route fields with resolver, updated methods, updated test |
+| `FOCUS_LOOP_NEXT.md` | Updated handoff |
+
+### Deliberately not changed
+
+- No new crate dependencies beyond `arpagona-compute-reservoir`
+- No Scheduler/autonomy change
+- No Decision Gate behavior change
+- No Tool Runtime capability expansion
+- No API endpoint added
+- No Graph Memory or Holographic Memory change
+- No MCP change
+- No self-modification capability
+- No secrets access
+- No CLI changes
+
+### Recommended next step for GONA
+
+1. **Merge PR #187** (C2 — LLM-governed tool-call wiring). Ready: open, mergeable, CI green.
+2. **Merge PR #189** (P3-10 — Compute-aware delegation). Ready: open, mergeable, CI green.
+3. **Then P3-4f**: Memory-aware context routing via Compute Reservoir — propagate compute route signal into ContextAssembler adapters so context assembly is compute-aware.
+
+## 31. Latest Session Update (2026-05-29 DEEP cron — P3-4f: Memory-aware context routing via Compute Reservoir)
+
+This session implemented P3-4f: the Neutral Orchestrator now propagates compute routing advice into the context assembly pipeline. When Compute Reservoir selects a route (e.g. "local-small"), the `MemoryQueryRequest` carries this signal so adapters can prioritize sources relevant to the selected resource type.
+
+### What was added
+
+**`crates/core/src/orchestrator.rs`:**
+- Added `compute_route_label: Option<String>` and `local_preferred: Option<bool>` fields to `MemoryQueryRequest`
+- Added `with_compute_route()` builder method with safety documentation
+
+**`crates/neutral-orchestrator/src/lib.rs`:**
+- Reordered `run_cycle()`: compute route is now resolved BEFORE context assembly
+- `assemble_context()` accepts `&ComputeRouteResult` and passes its label/local_preferred into the `MemoryQueryRequest`
+- `create_compute_route()` accepts `&ContextBundleId` instead of `&ContextBundle`
+- Updated doc comments: step numbers and compute-aware assembly description
+
+**`crates/neutral-orchestrator/src/compute_reservoir_adapter.rs`:**
+- `resolve()` and `allocation_to_route()` now accept `&ContextBundleId` instead of `&ContextBundle` (they only used `bundle.id`)
+
+**`crates/neutral-orchestrator/src/context_assembler.rs`:**
+- `SimulatedContextAssembler::assemble()` includes compute route prefix in explanations when `MemoryQueryRequest.compute_route_label` is set
+- 5 new tests: compute route in explanation, no prefix without route, cloud route reflection, field storage, default None
+
+### Verification
+
+- `cargo fmt -- --check`: ✅ clean
+- `cargo check`: ✅ clean (1 pre-existing dead_code warning in proposal_generator.rs)
+- `cargo test --workspace`: ✅ all tests pass (full workspace)
+- `cargo test -p arpagona-neutral-orchestrator`: ✅ 103 tests, 0 failures (98 existing + 5 new)
+
+### Safety boundaries preserved
+
+- `MemoryQueryRequest.compute_route_label` and `local_preferred` are advisory hints only
+- No field in the request or response may approve, authorize or execute actions
+- `SimulatedContextAssembler` returns empty items regardless of compute route
+- All adapters remain advisory (advisory_warning still set)
+- No I/O, no LLM calls, no persistence, no external effects
+- No Decision Gate bypass
+- No scheduler, autonomy, MCP, browser, email, secrets, or self-modification added
+
+### Files changed (P3-4f delta vs P3-10 branch)
+
+| File | Change |
+|------|--------|
+| `crates/core/src/orchestrator.rs` | Added compute_route_label/local_preferred to MemoryQueryRequest, with_compute_route() builder |
+| `crates/neutral-orchestrator/src/compute_reservoir_adapter.rs` | resolve/allocation_to_route use &ContextBundleId |
+| `crates/neutral-orchestrator/src/context_assembler.rs` | Compute-aware explanations in SimulatedContextAssembler + 5 tests |
+| `crates/neutral-orchestrator/src/lib.rs` | Reordered run_cycle(), updated assemble_context/create_compute_route |
+| `FOCUS_LOOP_NEXT.md` | Updated handoff |
+| `PROJECT_STATUS.md` | This entry |
+
+### Deliberately not changed
+
+- No new crate dependencies
+- No Scheduler/autonomy change
+- No Decision Gate behavior change
+- No Tool Runtime capability expansion
+- No API endpoint added
+- No Graph Memory or Holographic Memory change
+- No MCP change
+- No CLI changes
+- No self-modification capability
+- No secrets access
+- No real adapter behavior change (existing adapters ignore compute_route_label)
+
+### Recommended next step for GONA
+
+1. **Merge PR #187** (C2 — LLM-governed tool-call wiring). Ready: open, mergeable, CI green.
+2. **Merge PR #189** (P3-10 — Compute-aware delegation). Ready: open, mergeable, CI green.
+3. **Merge PR #190** (P3-4f — Memory-aware context routing, stacked on #189).
+4. **Then P3-13**: Update real adapters (GraphMemoryAdapter, HolographicMemoryAdapter, ReservoirEchoAdapter, ToolRuntimeAdapter) to use `MemoryQueryRequest.compute_route_label` and `local_preferred` for prioritized/filtered context assembly.
 

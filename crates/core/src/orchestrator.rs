@@ -1340,6 +1340,15 @@ pub struct MemoryQueryRequest {
     pub requested_sources: Vec<ContextSource>,
     /// Maximum items per source (prevents overstuffing).
     pub max_items_per_source: usize,
+    /// Optional compute route label hint for compute-aware context assembly.
+    /// When set, adapters may use this signal to prioritize/filter sources
+    /// relevant to the selected resource type (e.g. local-small prefers
+    /// Reservoir Echo traces, cloud-strong prefers Graph Memory facts).
+    pub compute_route_label: Option<String>,
+    /// Optional local preference hint from the compute route result.
+    /// Adapters may use this to favor local-memory sources (Reservoir Echo,
+    /// local tool results) when true.
+    pub local_preferred: Option<bool>,
     /// Timestamp of the request.
     pub created_at: DateTime<Utc>,
 }
@@ -1366,6 +1375,8 @@ impl MemoryQueryRequest {
                 ContextSource::CompressedCognitiveAttention,
             ],
             max_items_per_source: 10,
+            compute_route_label: None,
+            local_preferred: None,
             created_at: Utc::now(),
         }
     }
@@ -1379,6 +1390,26 @@ impl MemoryQueryRequest {
     /// Override the max items per source.
     pub fn with_max_items(mut self, max: usize) -> Self {
         self.max_items_per_source = max;
+        self
+    }
+
+    /// Attach compute route hints for compute-aware context assembly.
+    ///
+    /// Adapters may use these hints to prioritize sources relevant to the
+    /// selected resource type (e.g. local-small prefers Reservoir Echo traces,
+    /// cloud-strong prefers Graph Memory facts).
+    ///
+    /// # Safety
+    ///
+    /// These hints are advisory only. No adapter may treat them as
+    /// authorization, approval, or execution instructions.
+    pub fn with_compute_route(
+        mut self,
+        route_label: Option<impl Into<String>>,
+        local_preferred: Option<bool>,
+    ) -> Self {
+        self.compute_route_label = route_label.map(|s| s.into());
+        self.local_preferred = local_preferred;
         self
     }
 }
