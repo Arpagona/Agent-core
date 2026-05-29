@@ -3527,3 +3527,64 @@ This session implemented H1b: static analysis / missing edge-case tests, coverin
 1. **Merge PR #186** to establish the H1b edge-case test baseline.
 2. **H2: CLI security boundary verification** — verify that Tool Runtime security boundaries (absolute path blocking, parent traversal blocking, sensitive file blocking) are not bypassable through any documented CLI path (especially `--memory-value` JSON injection, `--json` pipe, or relative-path resolution edge cases).
 
+## 29. Latest Session Update (2026-05-29 DEEP cron — Handoff hygiene, PR #187 status, Phase 3 completion verification)
+
+This session verified the complete state of the repository and updated the stale handoff documents.
+
+### Current state
+
+**PR #187** (`feat/c2-llm-governed-tool-call-wiring`) remains **open**, **mergeable**, CI **green** (2/2 checks pass). Directly based on latest `origin/main` (parent commit e9a5414). DEEP cannot merge per governance rules; awaiting GONA merge action.
+
+The PR adds:
+- `--govern-tool` flag to `cognitive run` for LLM-governed tool-call wiring
+- `request_tool_call_from_llm()` in the LLM crate (supports mock, openai, ollama providers)
+- Full chain: LLM intent → Decision Gate → Tool Runtime → Observation → Journal
+- 2 CLI parser tests + 3 unit tests in LLM crate
+
+**Phase 3 confirmed delivered:**
+All 15 P3-0 through P3-9 milestones are merged on `main`. Key components:
+- Neutral Orchestrator V0 with deterministic loop skeleton
+- Memory-aware context assembly (5 adapters: GraphMemory, CompressedCognitiveAttention, ReservoirEcho, HolographicMemory, ToolRuntime)
+- MultiAdapterContextAssembler integration
+- Proposal routing with Decision Gate integration and CLI surface
+- Cycle Trace V0 with per-source context assembly metadata
+- Orchestrator demo loop with `--proposal-generator simulated|llm`
+
+**Remaining gap (Pillar #4 — Compute-aware delegation):**
+The `ComputeRouteResult` in the orchestrator is still a deterministic mock. The `arpagona-compute-reservoir` crate has types (`ComputeNodeId`, `ComputeCapability`, `ComputeResourceKind`) but is **never imported or called** from the orchestrator. This is the next implementation opportunity.
+
+**Validation:**
+- `cargo fmt -- --check`: ✅ clean
+- `cargo check`: ✅ clean (1 pre-existing dead_code warning in `LlmProposalGenerator`)
+- `cargo test`: ✅ ~847 tests pass across all crates (0 failures)
+- Conflict marker scan: ✅ clean
+- `DAILY_VALIDATION_BACKLOG.md`: 0 open entries
+
+### Files changed
+
+| File | Change |
+|------|--------|
+| `FOCUS_LOOP_NEXT.md` | Updated handoff — PR #187 open/mergeable, Phase 3 complete, P3-10 proposed |
+| `PROJECT_STATUS.md` | Added section 29 documenting this session |
+
+### Safety boundaries preserved
+
+- No code changes to any crate: core, decision-gate, compute-reservoir, neutral-orchestrator, holographic-memory, mcp-server, tool-runtime, tool-registry, cli, llm, runtime, api-server
+- No new CLI flags, runtime behavior, model calls, permissions, or governance logic
+- No Decision Gate bypass, scheduler, autonomy, browser automation, email, secrets access, self-modification, or Mission Control Web growth
+- No branch was created for new feature work (PR #187 remains the only open PR)
+- DEEP did not push or merge to main per governance rules
+
+### Deliberately not changed
+
+- No code changes — handoff hygiene only
+- PR #187 was not rebased (already based on latest main — parent e9a5414 is origin/main)
+- No stale branches were deleted (only PR #187 is open)
+- No test additions (all DV items closed)
+- No new feature work or milestone implementation
+
+### Recommended next step for GONA
+
+1. **Merge PR #187** (C2 — LLM-governed tool-call wiring). Ready: open, mergeable, CI green, based on latest main.
+2. **Arbitrate P3-10 scope**: integrate `arpagona-compute-reservoir` into the orchestrator cycle as compute-aware delegation with explainable routing, cost/latency/privacy trade-offs, and cycle trace readback.
+
