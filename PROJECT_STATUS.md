@@ -3076,4 +3076,77 @@ short-term cognitive continuity (`ReservoirState` from `crates/core/src/cognitiv
 
 1. **Review this PR** — P3-4c ReservoirEchoAdapter.
 2. Proceed to **P3-4b (CompressedCognitiveAttentionAdapter)**: bridge the compressed-cognitive-attention crate's temporally enriched retrieval into the ContextAssembler pipeline.
-- No Tool Runtime, API endpoint, or MCP server changes
+|- No Tool Runtime, API endpoint, or MCP server changes
+
+## 28. Latest Session Update (2026-05-29 — P3-4b CompressedCognitiveAttentionAdapter)
+
+This session implemented the last memory-aware adapter for the Neutral Orchestrator's ContextAssembler pipeline.
+
+### What was added
+
+**New file:** `crates/neutral-orchestrator/src/compressed_cognitive_attention_adapter.rs`
+
+**`CompressedCognitiveAttentionAdapter`** — `ContextAssembler` implementation backed by the `arpagona-compressed-cognitive-attention` crate:
+- Stores a set of pre-computed `MemoryEvent` values with embeddings
+- Converts objective text to a deterministic query embedding via hash-based `text_to_embedding()`
+- Runs the full CCA pipeline: deterministic projection → L2 normalization → local temporal convolution → cosine scoring → top-k retrieval
+- Returns advisory `ContextItem` values with rank, score, and event identity
+- Uses `Mutex` interior mutability for `add_event()` support (consistent with existing adapters)
+- All results are non-authorizing
+
+**Key safety invariants:**
+- ✅ Deterministic retrieval — same input always produces same output
+- ✅ Non-authorizing — no response contains approval, authorization or execution tokens
+- ✅ No I/O, no LLM, no persistence — pure deterministic computation
+- ✅ The text-to-embedding function is explicitly documented as a deterministic stand-in
+
+**Tests:** 16 new tests covering:
+- `adapter_returns_cca_source` — reports correct source
+- `adapter_ignores_non_matching_sources` — delegates unknown sources
+- `adapter_handles_empty_store` — empty store returns empty but available
+- `text_to_embedding_*` (5 tests) — correct dimension, deterministic, differs for different text, handles empty/short text
+- `adapter_returns_matching_events` — finds events with similar embeddings
+- `adapter_context_items_contain_scores` — items contain CCA rank and score
+- `adapter_respects_max_items` — respects configured item limit
+- `adapter_add_event_increases_stored_count` — dynamic event addition works
+- `adapter_add_event_rejects_wrong_dimension` — dimension mismatch is rejected
+- `adapter_retrieval_is_deterministic` — same input → same output
+- `adapter_response_never_contains_approval` — non-authorizing invariant
+
+### Files changed
+
+| File | Change |
+|------|--------|
+| crates/neutral-orchestrator/Cargo.toml | Added `arpagona-compressed-cognitive-attention` dependency |
+| crates/neutral-orchestrator/src/lib.rs | Added module declaration and public re-export |
+| crates/neutral-orchestrator/src/compressed_cognitive_attention_adapter.rs | New file — 650+ lines of adapter + 16 tests |
+| FOCUS_LOOP_NEXT.md | Updated to reflect P3-4b completion, point to P3-4a |
+| PROJECT_STATUS.md | This update |
+
+### Verification
+
+- `cargo fmt -- --check`: ✅ clean
+- `cargo check`: ✅ clean (zero warnings)
+- `cargo test`: ✅ 711 tests pass (all crates), including 16 new CCA adapter tests
+
+### Safety boundaries preserved
+
+- No Decision Gate bypass — adapter returns advisory context items only
+- No scheduler, autonomy, MCP, browser, email, shell, or secrets access
+- No readback-as-authorization — every response is non-authorizing
+- No hidden memory injection, persistence, or external effects
+- No new unsafe capabilities added to the orchestrator
+
+### Deliberately not changed
+
+- No Graph Memory schema, query, or mutation changes
+- No CLI changes, API endpoints, or MCP resources
+- No existing adapter behavior was modified
+- No context_assembler.rs trait changes (backward compatible)
+- No SimulatedContextAssembler modification
+- No Product/Mission Control Web growth
+
+### Next recommended step for GONA
+
+1. **Review PR #177** — P3-4b CompressedCognitiveAttentionAdapter.
+2. Proceed to **P3-4a (GraphMemoryAdapter)**: bridge `crates/graph-memory` into ContextAssembler.

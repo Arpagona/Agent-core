@@ -4,11 +4,11 @@ This file is the short-lived handoff for the next scheduled focus-loop run.
 
 It must contain one concrete next action only. The runtime milestone queue and long-term rules live in `AGENT_FOCUS_LOOP.md`.
 
-## Current status (DEEP cron — P3-4c merged, paused for next run)
+## Current status (DEEP cron — P3-4b merged, PR #177 open)
 
-**main is green:** ✅ PR #176 (P3-4c ReservoirEchoAdapter) was merged.
+**main is green:** ✅ PR #177 (P3-4b CompressedCognitiveAttentionAdapter) pushed.
 
-**Open PRs:** None.
+**Open PRs:** #177 — P3-4b CompressedCognitiveAttentionAdapter.
 
 **Phase 3 progress:**
 - P3-0 (Roadmap definition): ✅ Completed in #168
@@ -20,9 +20,9 @@ It must contain one concrete next action only. The runtime milestone queue and l
 - P3-4e (ToolRuntimeAdapter): ✅ Completed and merged (#174)
 - P3-4d (HolographicMemoryAdapter): ✅ Completed and merged (#175)
 - P3-4c (ReservoirEchoAdapter): ✅ Completed and merged (#176)
-- **P3-4b (CompressedCognitiveAttentionAdapter): 📋 Next**
-- P3-4a (GraphMemoryAdapter): 📋
+- **P3-4b (CompressedCognitiveAttentionAdapter): ✅ Completed in #177**
+- P3-4a (GraphMemoryAdapter): 📋 Next
 
 ## Next action
 
-**Paused by Thibaud — 28 mai 2026.** Prochaine exécution du focus loop demain matin. À reprendre par **P3-4b (CompressedCognitiveAttentionAdapter)** : bridge le crate `compressed-cognitive-attention` (déjà dans le workspace, PR #166 merged) dans `ContextAssembler`, en suivant le pattern établi par ToolRuntimeAdapter, HolographicMemoryAdapter et ReservoirEchoAdapter.
+**P3-4a (GraphMemoryAdapter):** bridge the `crates/graph-memory` SurrealDB adapter (in-memory store) into `ContextAssembler`, following the established pattern from CompressedCognitiveAttentionAdapter (#177), ToolRuntimeAdapter (#174), HolographicMemoryAdapter (#175), and ReservoirEchoAdapter (#176). Next focus loop should wait for PR #177 to be reviewed/merged before starting P3-4a.
