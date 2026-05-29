@@ -3215,3 +3215,63 @@ compatibility. 85 neutral-orchestrator tests pass (up from 81).
 **Next: P3-7: Proposal routing and Decision Gate integration** — connect
 the Neutral Orchestrator's `ProposalRequest` to real proposal generation
 via the existing LLM provider abstraction, keeping Decision Gate mandatory.
+
+## 30. Latest Session Update (2026-05-29 DEEP cron — P3-7: Proposal routing and Decision Gate integration)
+
+Session: DEEP cron 2026-05-29. Merged #181 (P3-6) into main, then implemented P3-7.
+
+### What was added
+
+**`crates/neutral-orchestrator/src/proposal_generator.rs`** — new module with:
+
+- **`ProposalGenerator` trait** — abstract interface for generating `ProposedAction` from orchestrator cycle context (objective, context bundle, compute route, proposal request). All generated proposals have `status: ProposedActionStatus::PendingDecision` and must pass through the Decision Gate.
+
+- **`SimulatedProposalGenerator`** — default deterministic implementation that produces a `ReadDocument` action at `Low` risk. Replaces the previous hard-coded `create_simulation_action` method. Supports configurable `action_type` and `risk_level` via builder methods.
+
+- **`LlmProposalGenerator`** (behind `feature = "llm-provider"`) — wraps `Box<dyn LlmProvider>` and builds a context-aware prompt from the objective + context bundle + compute route, then calls `propose_action` to produce proposals. The generated proposal is always `PendingDecision` and must pass through the Decision Gate.
+
+**`crates/neutral-orchestrator/Cargo.toml`** — added `llm-provider` feature and `arpagona-llm` as optional dependency.
+
+**`crates/neutral-orchestrator/src/lib.rs`** — changes:
+- Added `proposal_generator` field to `OrchestratorEngine` with `with_proposal_generator` builder method
+- Default generator is `SimulatedProposalGenerator` (backward compatible)
+- `run_cycle` now delegates step 5 to `self.proposal_generator.generate(...)` instead of the removed `create_simulation_action`
+- Added `OrchestratorError::ProposalFailed` variant with `From<ProposalError>` conversion
+- Removed dead `create_simulation_action` method and unused imports
+
+### Tests added
+
+- 6 core tests in `proposal_generator` module:
+  - `simulated_generator_produces_read_document` — verifies default action type/risk/status
+  - `simulated_generator_empty_objective_returns_error` — empty text rejection
+  - `simulated_generator_with_configurable_action_type` — builder overrides work
+  - `simulated_generator_never_approves_action` — non-authorizing invariant
+  - `simulated_action_passes_through_decision_gate` — gate integration proof
+  - `simulated_action_blocked_by_missing_permissions` — missing-permission blocking
+
+### Verification
+
+- `cargo fmt -- --check`: clean
+- `cargo check`: clean (0 warnings across changed crates)
+- `cargo test --workspace`: **821 tests pass** (all crates, 0 failures)
+
+### Not added (safety boundaries preserved)
+
+- No shell access, browser automation, email, MCP expansion, secrets handling, scheduler autonomy, or direct execution
+- No Decision Gate bypass — proposals always `PendingDecision`, gate always evaluated
+- No API endpoints, Web Mission Control expansion, or autonomous loop behavior
+- No broad permission changes or self-modification
+- Readback remains evidence only, not authorization
+
+### Deliberately not changed
+
+- No changes to core domain types (`crates/core`)
+- No changes to Decision Gate (`crates/decision-gate`), MCP server, CLI, API, or runtime loop
+- No changes to existing adapters or context assembler
+- No SurrealDB or async persistence changes
+- No Product/Mission Control Web growth
+
+### Next recommended step for GONA
+
+**P3-8: Proposal routing CLI surface** — Add `--llm` or `--proposal-generator` flag to `arpagona orchestrator run` so operators can switch between `SimulatedProposalGenerator` and `LlmProposalGenerator` at the CLI. This also serves as the integration point for the C1 milestone (real LLM proposal-only mode) in the orchestrator context.
+

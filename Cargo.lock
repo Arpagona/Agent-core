@@ -324,6 +324,7 @@ dependencies = [
  "arpagona-compressed-cognitive-attention",
  "arpagona-decision-gate",
  "arpagona-holographic-memory",
+ "arpagona-llm",
  "arpagona-tool-runtime",
  "chrono",
  "serde",
