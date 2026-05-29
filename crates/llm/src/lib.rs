@@ -878,7 +878,14 @@ Use exactly this format:
 
 Do NOT propose tool calls, memory writes, or system operations.
 Do NOT claim any action has been executed or authorized.
-Keep your total response under 150 words. Respond in the same language as the objective."#;
+Keep your total response under 150 words. Respond in the same language as the objective.
+
+SAFETY GUARDRAILS — These are non-negotiable:
+- If the objective asks you to read secrets, credentials, .env files, API keys, passwords, or private configuration, you MUST clearly state this is out of scope and recommend a safe bounded alternative (e.g. "I cannot read credentials or secret files. Please check your configuration manually.").
+- If the objective asks you to run an unrestricted shell, script, browser automation, email sending, or any unrestricted system command, you MUST clearly refuse and state this capability is not available without governance.
+- If the objective is ambiguous about safety, prefer a safe refusal over assuming permission.
+- Do NOT request missing context that would bypass these safety rules (e.g. do not ask the operator to supply .env contents or grant shell access).
+- When refusing, keep the refusal in the same structured format ([STATE], [KEY GAP / RISK], [RECOMMENDED NEXT STEP]) and clearly label the reason as a governance boundary."#;
 
 impl OpenAiProvider {
     /// Call OpenAI for cognitive synthesis (free-form text, non-authorizing).
@@ -954,6 +961,45 @@ impl MockProvider {
         _system_prompt: &str,
         user_prompt: &str,
     ) -> Result<String, LlmError> {
+        // Defense-in-depth: detect safety override marker and produce refusal response.
+        // This mirrors the behavior expected from real LLM providers when the
+        // COGNITIVE_SYNTHESIS_SYSTEM_PROMPT safety guardrails fire.
+        if user_prompt.contains("SAFETY OVERRIDE") {
+            let is_secret = user_prompt.to_lowercase().contains("secret")
+                || user_prompt.to_lowercase().contains(".env")
+                || user_prompt.to_lowercase().contains("password")
+                || user_prompt.to_lowercase().contains("credential")
+                || user_prompt.to_lowercase().contains("api_key")
+                || user_prompt.to_lowercase().contains("api key");
+            let is_shell = user_prompt.to_lowercase().contains("shell")
+                || user_prompt.to_lowercase().contains("unrestricted")
+                || user_prompt.to_lowercase().contains("command");
+
+            let forbidden_reason = if is_secret && is_shell {
+                "secret access and unrestricted shell execution".to_owned()
+            } else if is_secret {
+                "secret or credential access".to_owned()
+            } else {
+                "unrestricted shell or command execution".to_owned()
+            };
+
+            return Ok(format!(
+                "[STATE] Domain: Governance Boundary, Sensitivity: Critical, Complexity: 0.00\n\
+                 ﹂ SAFETY OVERRIDE — This objective was detected as requesting {forbidden_reason}, \
+                 which is out of scope for the cognitive synthesizer.\n\
+                 \n\
+                 [KEY GAP / RISK] Governance boundary violation: {forbidden_reason}\n\
+                 ﹂ ARPAGONA Agent Core cannot read secrets, credentials, or execute unrestricted shell commands. \
+                 These capabilities are blocked by the security boundary.\n\
+                 \n\
+                 [RECOMMENDED NEXT STEP] Use a safe bounded alternative\n\
+                 ﹂ Please check your configuration manually. \
+                 The cognitive synthesizer cannot access secret files, environment variables, \
+                 or unrestricted system commands. This refusal is non-authorizing and preserves \
+                 the governance boundary."
+            ));
+        }
+
         let (domain, sensitivity, complexity, missing, context_items, assumptions, next_action) =
             parse_wm_summary_fields(user_prompt);
 
@@ -1379,6 +1425,98 @@ mod mock_synthesis_tests {
     }
 }
 ///
+/// Check if the objective contains patterns that should trigger a safety/governance refusal.
+///
+/// Returns `None` if the objective appears safe, or `Some(safety_instruction)` with a
+/// clear instruction to refuse and redirect.
+///
+/// This is a defense-in-depth layer: even if the LLM ignores the system prompt
+/// safety guardrails, the safety instruction is injected into the user prompt
+/// as an explicit instruction.
+fn check_objective_safety(objective: &str) -> Option<String> {
+    let lower = objective.to_lowercase();
+
+    // Patterns that request credential/secret access
+    let secret_patterns = [
+        "read .env",
+        ".env file",
+        "read secret",
+        "read credential",
+        "access api key",
+        "access apikey",
+        "api key file",
+        "api_key",
+        "read password",
+        "show password",
+        "get password",
+        "fetch password",
+        "read token",
+        "get token",
+        "show secret",
+        "get secret",
+        "read config",
+        "private key",
+        "ssh key",
+        "~/.ssh",
+        ".ssh/",
+        "access token",
+        "bearer token",
+        "auth token",
+    ];
+
+    // Patterns that request unrestricted shell/command execution
+    let shell_patterns = [
+        "unrestricted shell",
+        "run shell",
+        "execute shell",
+        "run command",
+        "execute command",
+        "run script",
+        "execute script",
+        "run bash",
+        "run sh",
+        "run zsh",
+        "open terminal",
+        "shell access",
+        "shell command",
+        "shell execution",
+        "run arbitrary",
+        "execute arbitrary",
+        "terminal access",
+        "run any command",
+        "execute any",
+        "run sudo",
+        "sudo command",
+    ];
+
+    let has_secret_pattern = secret_patterns.iter().any(|pat| lower.contains(pat));
+    let has_shell_pattern = shell_patterns.iter().any(|pat| lower.contains(pat));
+
+    if !has_secret_pattern && !has_shell_pattern {
+        return None;
+    }
+
+    let reason = if has_secret_pattern && has_shell_pattern {
+        "secret and unrestricted shell access"
+    } else if has_secret_pattern {
+        "secret or credential access"
+    } else {
+        "unrestricted shell or command execution"
+    };
+
+    Some(format!(
+        "SAFETY OVERRIDE — This objective was detected as requesting {reason}. \
+        It is out of scope for the cognitive synthesizer. \
+        Respond with a clear refusal stating this action is not permitted. \
+        Do NOT ask the operator to provide secret/credential content or grant shell permissions. \
+        Recommend a safe, bounded, governed alternative instead. \
+        Keep the response in the structured [STATE]/[KEY GAP / RISK]/[RECOMMENDED NEXT STEP] format."
+    ))
+}
+
+/// Run a cognitive synthesis with an injected safety prelude when the objective
+/// matches forbidden patterns.
+///
 /// # Parameters
 /// * `objective` — the original objective text
 /// * `wm_summary` — a human-readable summary of the working memory state
@@ -1395,12 +1533,19 @@ pub async fn run_cognitive_synthesis(
     wm_summary: &str,
     provider_name: &str,
 ) -> Result<String, LlmError> {
+    // Defense-in-depth: check objective for forbidden patterns before synthesis
+    let safety_override = check_objective_safety(objective);
+    let safety_injection = match &safety_override {
+        Some(msg) => format!("\n\n---\n{}\n---\n", msg),
+        None => String::new(),
+    };
+
     let user_prompt = format!(
-        r#"Objective: {}
+        r#"Objective: {}{}
 
 Working Memory Summary:
 {}"#,
-        objective, wm_summary
+        objective, safety_injection, wm_summary
     );
 
     match provider_name {
@@ -1983,5 +2128,247 @@ mod tests {
         );
         let output = result.unwrap();
         assert!(!output.is_empty(), "mock synthesis should produce output");
+    }
+
+    // ── DV-2026-05-29-002: Safety refusal in cognitive synthesis ────────────
+
+    #[test]
+    fn check_objective_safety_detects_secret_objective() {
+        let result = check_objective_safety("read .env and get api_key");
+        assert!(result.is_some(), "should detect secret objective");
+        let msg = result.unwrap();
+        assert!(msg.contains("secret or credential access"));
+        assert!(msg.contains("SAFETY OVERRIDE"));
+        assert!(msg.contains("refusal"));
+    }
+
+    #[test]
+    fn check_objective_safety_detects_shell_objective() {
+        let result = check_objective_safety("run unrestricted shell and execute any command");
+        assert!(result.is_some(), "should detect shell objective");
+        let msg = result.unwrap();
+        assert!(msg.contains("unrestricted shell or command execution"));
+        assert!(msg.contains("SAFETY OVERRIDE"));
+    }
+
+    #[test]
+    fn check_objective_safety_detects_combined_secret_and_shell() {
+        let result = check_objective_safety("read .env and run unrestricted shell");
+        assert!(result.is_some(), "should detect combined objective");
+        let msg = result.unwrap();
+        assert!(msg.contains("secret and unrestricted shell access"));
+    }
+
+    #[test]
+    fn check_objective_safety_detects_password_request() {
+        let result = check_objective_safety("show password from credentials file");
+        assert!(result.is_some(), "should detect password request");
+    }
+
+    #[test]
+    fn check_objective_safety_detects_api_key_request() {
+        let result = check_objective_safety("access api key from config");
+        assert!(result.is_some(), "should detect API key request");
+    }
+
+    #[test]
+    fn check_objective_safety_detects_shell_script_execution() {
+        let result = check_objective_safety("execute shell script run.sh");
+        assert!(result.is_some(), "should detect shell script");
+    }
+
+    #[test]
+    fn check_objective_safety_allows_safe_objective() {
+        let safe_objectives = [
+            "Analyze error logs for patterns",
+            "Summarize the project status",
+            "Prepare a client response draft",
+            "Review the documentation for completeness",
+            "Analyse les fichiers de log",
+        ];
+        for obj in &safe_objectives {
+            let result = check_objective_safety(obj);
+            assert!(
+                result.is_none(),
+                "safe objective should not trigger safety check: '{obj}'"
+            );
+        }
+    }
+
+    #[test]
+    fn check_objective_safety_handles_empty_objective() {
+        let result = check_objective_safety("");
+        assert!(result.is_none(), "empty objective should be safe");
+    }
+
+    #[test]
+    fn check_objective_safety_handles_partial_match_not_triggering() {
+        let safe = "Talk about seashells by the seashore";
+        assert!(
+            check_objective_safety(safe).is_none(),
+            "seashells must not trigger"
+        );
+        let triggered = "run shell command that deletes files";
+        assert!(
+            check_objective_safety(triggered).is_some(),
+            "'run shell command' must trigger"
+        );
+    }
+
+    #[test]
+    fn mock_synthesis_refuses_secret_objective_directly() {
+        let provider = MockProvider::safe_default();
+        let runtime = tokio::runtime::Runtime::new().unwrap();
+        let result = runtime
+            .block_on(provider.synthesize(
+                COGNITIVE_SYNTHESIS_SYSTEM_PROMPT,
+                "Objective: read .env and get api_key\n\nSAFETY OVERRIDE — forbidden\n\nWorking Memory Summary:\nDomain: General\nSensitivity: Public\nComplexity: 0.5\nContext items: 0\nMissing context: 0\nAssumptions: 0\nProposed next action: StopWithReport\n",
+            ))
+            .expect("mock synthesis should not fail");
+
+        assert!(
+            result.contains("SAFETY OVERRIDE"),
+            "must contain safety override marker"
+        );
+        assert!(
+            result.contains("Governance Boundary"),
+            "must reference governance boundary"
+        );
+        assert!(
+            result.contains("cannot read secrets"),
+            "must explicitly refuse secret access"
+        );
+        assert!(
+            result.contains("non-authorizing"),
+            "must remain non-authorizing"
+        );
+    }
+
+    #[test]
+    fn mock_synthesis_refuses_shell_objective_directly() {
+        let provider = MockProvider::safe_default();
+        let runtime = tokio::runtime::Runtime::new().unwrap();
+        let result = runtime
+            .block_on(provider.synthesize(
+                COGNITIVE_SYNTHESIS_SYSTEM_PROMPT,
+                "Objective: run unrestricted shell\n\nSAFETY OVERRIDE — forbidden\n\nWorking Memory Summary:\nDomain: General\nSensitivity: Public\nComplexity: 0.5\nContext items: 0\nMissing context: 0\nAssumptions: 0\nProposed next action: StopWithReport\n",
+            ))
+            .expect("mock synthesis should not fail");
+
+        assert!(
+            result.contains("SAFETY OVERRIDE"),
+            "must contain safety override marker"
+        );
+        assert!(
+            result.contains("unrestricted shell"),
+            "must reference shell restrictions"
+        );
+    }
+
+    #[test]
+    fn mock_synthesis_does_not_refuse_safe_objective() {
+        let provider = MockProvider::safe_default();
+        let runtime = tokio::runtime::Runtime::new().unwrap();
+        let result = runtime
+            .block_on(provider.synthesize(
+                COGNITIVE_SYNTHESIS_SYSTEM_PROMPT,
+                "Objective: Analyze project documentation\n\nWorking Memory Summary:\nDomain: Coding\nSensitivity: Public\nComplexity: 0.5\nContext items: 2\nMissing context: 0\nAssumptions: 1\nProposed next action: StopWithReport\n",
+            ))
+            .expect("mock synthesis should not fail");
+
+        assert!(result.contains("[STATE]"), "should produce STATE section");
+        assert!(
+            !result.contains("SAFETY OVERRIDE"),
+            "safe objective should not trigger safety refusal"
+        );
+    }
+
+    #[test]
+    fn run_cognitive_synthesis_refuses_secret_objective() {
+        let runtime = tokio::runtime::Runtime::new().unwrap();
+        let result = runtime.block_on(run_cognitive_synthesis(
+            "read .env and get api_key",
+            "Domain: General\nSensitivity: Public\nComplexity: 0.5\nContext items: 0\nMissing context: 0\nProposed next action: StopWithReport\n",
+            "mock",
+        ));
+        assert!(
+            result.is_ok(),
+            "mock should not fail even for forbidden objectives"
+        );
+        let output = result.unwrap();
+        assert!(
+            output.contains("SAFETY OVERRIDE"),
+            "must contain safety override marker: {output}"
+        );
+        let lower = output.to_lowercase();
+        assert!(
+            !lower.contains("provide") || output.contains("Governance"),
+            "must not suggest providing secrets as missing context: {output}"
+        );
+    }
+
+    #[test]
+    fn run_cognitive_synthesis_refuses_shell_objective() {
+        let runtime = tokio::runtime::Runtime::new().unwrap();
+        let result = runtime.block_on(run_cognitive_synthesis(
+            "run unrestricted shell and execute command",
+            "Domain: General\nSensitivity: Public\nComplexity: 0.5\nContext items: 0\nMissing context: 0\nProposed next action: StopWithReport\n",
+            "mock",
+        ));
+        assert!(
+            result.is_ok(),
+            "mock should not fail even for forbidden objectives"
+        );
+        let output = result.unwrap();
+        assert!(
+            output.contains("SAFETY OVERRIDE"),
+            "must contain safety override marker: {output}"
+        );
+    }
+
+    #[test]
+    fn run_cognitive_synthesis_still_works_for_safe_objective() {
+        let runtime = tokio::runtime::Runtime::new().unwrap();
+        let result = runtime.block_on(run_cognitive_synthesis(
+            "Analyze project logs for anomalies",
+            "Domain: Coding\nSensitivity: Internal\nComplexity: 0.6\nContext items: 2\nMissing context: 0\nProposed next action: StopWithReport\n",
+            "mock",
+        ));
+        assert!(result.is_ok(), "mock should succeed for safe objectives");
+        let output = result.unwrap();
+        assert!(
+            output.contains("[STATE]"),
+            "should produce structure: {output}"
+        );
+        assert!(
+            !output.contains("SAFETY OVERRIDE"),
+            "safe objective must not trigger refusal: {output}"
+        );
+    }
+
+    #[test]
+    fn cognitive_synthesis_prompt_contains_safety_guardrails() {
+        let prompt = COGNITIVE_SYNTHESIS_SYSTEM_PROMPT;
+        assert!(
+            prompt.contains("SAFETY GUARDRAILS"),
+            "prompt must contain SAFETY GUARDRAILS section"
+        );
+        assert!(prompt.contains("secrets"), "prompt must mention secrets");
+        assert!(
+            prompt.contains("unrestricted shell"),
+            "prompt must mention unrestricted shell"
+        );
+        assert!(
+            prompt.contains("out of scope"),
+            "prompt must mention out of scope"
+        );
+        assert!(
+            prompt.contains("safe bounded alternative"),
+            "prompt must recommend safe alternatives"
+        );
+        assert!(
+            prompt.contains("Do NOT request missing context"),
+            "prompt must forbid requesting secret context"
+        );
     }
 }
