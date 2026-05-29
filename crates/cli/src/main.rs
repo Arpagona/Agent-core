@@ -249,6 +249,13 @@ pub struct TraceToInsightArgs {
     /// Path to a saved CycleTrace JSON file (default: target/last-orchestrator-trace.json).
     #[arg(long)]
     pub trace_path: Option<String>,
+
+    /// Path to write a FailureInsightDemoSnapshot file, enabling cross-invocation
+    /// inspection via `memory demo snapshot-read` and `memory demo snapshot-list`.
+    /// The snapshot wraps the extracted FailureInsight candidates in the governed
+    /// demo snapshot format for operator readback and proof of persistence.
+    #[arg(long)]
+    pub snapshot_path: Option<String>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, clap::ValueEnum)]
@@ -9726,6 +9733,67 @@ fn orchestrator_trace_to_insight(args: TraceToInsightArgs) -> Result<(), Box<dyn
         }
     }
 
+    // ── Write snapshot when --snapshot-path is provided ─────────────────
+    if let Some(ref snapshot_path) = args.snapshot_path {
+        let json_value = serde_json::to_value(&candidates)?;
+        let mut chain = Vec::new();
+        chain.push(format!(
+            "orchestrator run (objective: {})",
+            trace.objective_text
+        ));
+        chain.push(format!(
+            "trace-to-insight extracted {} candidate(s) from cycle {}",
+            candidates.len(),
+            trace.cycle_id.as_str()
+        ));
+        if !candidates.is_empty() {
+            let classes: Vec<&str> = candidates
+                .iter()
+                .map(|c| match c.failure_class {
+                    arpagona_agent_core::failure_insight::FailureClass::MissingContext => {
+                        "MissingContext"
+                    }
+                    arpagona_agent_core::failure_insight::FailureClass::PolicyGap => "PolicyGap",
+                    arpagona_agent_core::failure_insight::FailureClass::WrongComputeChoice => {
+                        "WrongComputeChoice"
+                    }
+                    arpagona_agent_core::failure_insight::FailureClass::InsufficientObservability => {
+                        "InsufficientObservability"
+                    }
+                    arpagona_agent_core::failure_insight::FailureClass::BlockedWithoutExplanation => {
+                        "BlockedWithoutExplanation"
+                    }
+                    _ => "Other",
+                })
+                .collect();
+            chain.push(format!(
+                "detected patterns: {}",
+                serde_json::to_string(&classes).unwrap_or_default()
+            ));
+        }
+        let snapshot = FailureInsightDemoSnapshot::new(json_value, chain);
+        if let Some(parent) = std::path::Path::new(snapshot_path).parent() {
+            if !parent.as_os_str().is_empty() {
+                std::fs::create_dir_all(parent).ok();
+            }
+        }
+        snapshot
+            .write_to_file(std::path::Path::new(snapshot_path))
+            .map_err(|e| {
+                format!("failed to write trace-to-insight snapshot to {snapshot_path}: {e}")
+            })?;
+        if !args.json {
+            println!(
+                "{}",
+                style_dim(&format!(
+                    "   Trace-to-insight snapshot written to: {} ({} candidate(s))",
+                    snapshot_path,
+                    candidates.len()
+                ))
+            );
+        }
+    }
+
     Ok(())
 }
 
@@ -13390,5 +13458,59 @@ mod tests {
             matches!(cli.command, Command::Orchestrator(_)),
             "orchestrator status must dispatch to Orchestrator command"
         );
+    }
+
+    #[test]
+    fn cli_parses_orchestrator_trace_to_insight_with_snapshot_path() {
+        let cli = Cli::try_parse_from(vec![
+            "arpagona",
+            "orchestrator",
+            "trace-to-insight",
+            "--snapshot-path",
+            "target/trace-insight-snapshot.json",
+        ])
+        .expect("orchestrator trace-to-insight --snapshot-path should parse");
+        match cli.command {
+            Command::Orchestrator(OrchestratorCommand {
+                command: OrchestratorSubcommand::TraceToInsight(args),
+            }) => {
+                assert_eq!(
+                    args.snapshot_path,
+                    Some("target/trace-insight-snapshot.json".to_owned()),
+                    "--snapshot-path should be captured"
+                );
+                assert!(
+                    !args.json,
+                    "--json should default to false when not specified"
+                );
+            }
+            _ => panic!("expected orchestrator trace-to-insight"),
+        }
+    }
+
+    #[test]
+    fn cli_parses_orchestrator_trace_to_insight_with_snapshot_path_and_json() {
+        let cli = Cli::try_parse_from(vec![
+            "arpagona",
+            "orchestrator",
+            "trace-to-insight",
+            "--snapshot-path",
+            "target/my-snapshot.json",
+            "--json",
+        ])
+        .expect("orchestrator trace-to-insight --snapshot-path --json should parse");
+        match cli.command {
+            Command::Orchestrator(OrchestratorCommand {
+                command: OrchestratorSubcommand::TraceToInsight(args),
+            }) => {
+                assert_eq!(
+                    args.snapshot_path,
+                    Some("target/my-snapshot.json".to_owned()),
+                    "--snapshot-path should be captured"
+                );
+                assert!(args.json, "--json should be true");
+            }
+            _ => panic!("expected orchestrator trace-to-insight with --json"),
+        }
     }
 }
