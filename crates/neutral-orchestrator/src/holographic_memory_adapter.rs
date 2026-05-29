@@ -154,7 +154,26 @@ impl ContextAssembler for HolographicMemoryAdapter {
 impl HolographicMemoryAdapter {
     /// Assemble Holographic Memory context: create a query from the objective
     /// text, run resonance retrieval, and convert matches into ContextItems.
+    ///
+    /// Compute route awareness: when `local_preferred` is true, the adapter
+    /// returns fewer resonance matches (lighter retrieval). When a cloud/strong
+    /// route is indicated, more matches are returned for richer pattern resonance.
     fn assemble_holographic_memory(&self, request: &MemoryQueryRequest) -> MemoryQueryResponse {
+        // ── Compute-route aware limit adjustment ───────────────────────
+        let route_suffix = if let Some(ref label) = request.compute_route_label {
+            let local = request.local_preferred.unwrap_or(false);
+            format!(" [compute: {} | local: {}]", label, local)
+        } else {
+            String::new()
+        };
+
+        // Local routes: fewer traces (lighter retrieval); cloud routes: more traces
+        let effective_max = if request.local_preferred.unwrap_or(false) {
+            std::cmp::max(1, self.max_items.saturating_sub(self.max_items / 2))
+        } else {
+            self.max_items
+        };
+
         // Step 1: Extract keywords from objective text
         let keywords = Self::extract_keywords(&request.objective_text);
 
@@ -181,7 +200,7 @@ impl HolographicMemoryAdapter {
             }
         };
 
-        let result = store.retrieve_by_resonance(&self.project_id, query, self.max_items);
+        let result = store.retrieve_by_resonance(&self.project_id, query, effective_max);
 
         // Step 4: Convert resonance matches into advisory ContextItems
         let items: Vec<ContextItem> = result
@@ -219,8 +238,8 @@ impl HolographicMemoryAdapter {
             items,
             available: true,
             explanation: format!(
-                "Holographic Memory resonance found {} trace(s) in project '{}'. {}",
-                count, self.project_id, result.reconstruction_summary,
+                "Holographic Memory resonance found {} trace(s) in project '{}'. {}{}",
+                count, self.project_id, result.reconstruction_summary, route_suffix,
             ),
         }
     }
@@ -525,5 +544,92 @@ mod tests {
         let resp = hm_resp.unwrap();
 
         assert!(!resp.explanation.is_empty());
+    }
+
+    // ─── Compute-route awareness tests ─────────────────────────────────
+
+    #[test]
+    fn holographic_adapter_local_route_reduces_traces() {
+        let mut store = InMemoryHolographicMemoryStore::new();
+        for i in 0..5 {
+            add_trace(
+                &mut store,
+                &format!("trace-{}", i),
+                "test-project",
+                &format!("Cognitive trace number {}", i),
+                vec!["cognitive".to_owned(), "memory".to_owned()],
+            );
+        }
+
+        let adapter = HolographicMemoryAdapter::new(store, "test-project").with_max_items(5);
+        // Local route: should return fewer items (reduced)
+        let request = make_request_with_text("cognitive memory")
+            .with_compute_route(Some("local-small"), Some(true));
+
+        let responses = adapter.assemble(&request);
+        let hm_resp = responses
+            .iter()
+            .find(|r| r.source == ContextSource::HolographicMemory);
+        assert!(hm_resp.is_some());
+        let resp = hm_resp.unwrap();
+
+        // Local route reduces ~half — should have 3 or fewer items
+        assert!(resp.items.len() <= 3, "Local route should limit items, got {}", resp.items.len());
+        assert!(
+            resp.explanation.contains("local"),
+            "Explanation should mention route: {}",
+            resp.explanation
+        );
+    }
+
+    #[test]
+    fn holographic_adapter_cloud_route_full_items() {
+        let mut store = InMemoryHolographicMemoryStore::new();
+        for i in 0..3 {
+            add_trace(
+                &mut store,
+                &format!("trace-{}", i),
+                "test-project",
+                &format!("Cognitive trace number {}", i),
+                vec!["cognitive".to_owned(), "memory".to_owned()],
+            );
+        }
+
+        let adapter = HolographicMemoryAdapter::new(store, "test-project").with_max_items(5);
+        let request = make_request_with_text("cognitive memory")
+            .with_compute_route(Some("cloud-strong"), Some(false));
+
+        let responses = adapter.assemble(&request);
+        let hm_resp = responses
+            .iter()
+            .find(|r| r.source == ContextSource::HolographicMemory);
+        assert!(hm_resp.is_some());
+        let resp = hm_resp.unwrap();
+
+        assert!(
+            resp.explanation.contains("compute: cloud-strong"),
+            "Explanation should mention cloud route: {}",
+            resp.explanation
+        );
+    }
+
+    #[test]
+    fn holographic_adapter_default_route_has_no_compute_prefix() {
+        let store = InMemoryHolographicMemoryStore::new();
+        let adapter = HolographicMemoryAdapter::new(store, "test-project");
+        let request = make_request_with_text("test");
+
+        let responses = adapter.assemble(&request);
+        let hm_resp = responses
+            .iter()
+            .find(|r| r.source == ContextSource::HolographicMemory);
+        assert!(hm_resp.is_some());
+        let resp = hm_resp.unwrap();
+
+        assert!(
+            !resp.explanation.contains("[compute:"),
+            "No compute prefix expected: {}",
+            resp.explanation
+        );
     }
 }

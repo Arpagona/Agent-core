@@ -4,21 +4,18 @@ This file is the short-lived handoff for the next scheduled focus-loop run.
 
 It must contain one concrete next action only. The runtime milestone queue and long-term rules live in `AGENT_FOCUS_LOOP.md`.
 
-## Current status (DEEP cron 2026-05-29 — P3-4f delivered as PR #190)
+## Current status (DEEP cron 2026-05-29 — P3-13 delivered as PR #191)
 
 **main is green:** ✅ Full workspace tests pass.
 
-**PR #187** (`feat/c2-llm-governed-tool-call-wiring`) — **OPEN**, **MERGEABLE**, CI green. Awaits GONA merge.
+**PR #188** (`docs/handoff-hygiene-2026-05-29`) — **OPEN**, **CONFLICTING**. Docs-only cleanup. Needs rebase.
 
-**PR #189** (`feat/p3-10-compute-aware-delegation`) — **OPEN**, **MERGEABLE**, CI green. Awaits GONA merge.
-
-**PR #190** (`feat/p3-4f-memory-aware-context-routing`) — **OPEN**, new. P3-4f delivered (stacked on #189's branch). Propagates compute route routing advice into the context assembly pipeline: `MemoryQueryRequest` now carries `compute_route_label` and `local_preferred` hints; `SimulatedContextAssembler` includes compute route in explanations; `run_cycle()` computes route before context assembly.
+**PR #191** (`feat/p3-13-compute-aware-adapters`) — **NEW**, just created. P3-13 delivered: all 5 real context assembly adapters (GraphMemoryAdapter, ReservoirEchoAdapter, HolographicMemoryAdapter, ToolRuntimeAdapter, CompressedCognitiveAttentionAdapter) now use compute route hints from `MemoryQueryRequest` to adjust their item limits and include the compute route in explanations.
 
 **DAILY_VALIDATION_BACKLOG.md:** 0 open entries.
 
 ## Next action
 
-1. **GONA: merge PR #187** (C2 — LLM-governed tool-call wiring, CI green, based on latest main).
-2. **Then GONA: merge PR #189** (P3-10 — Compute-aware delegation, CI green).
-3. **Then GONA: merge PR #190** (P3-4f — Memory-aware context routing via Compute Reservoir, stacked on #189).
-4. **Then — P3-13: Real adapter context assembly pipeline.** With compute-aware routing now embedded in `MemoryQueryRequest`, the existing real adapters (GraphMemoryAdapter, HolographicMemoryAdapter, ReservoirEchoAdapter, ToolRuntimeAdapter) should be updated to use the compute route hints to prioritize/filter context items. This makes context assembly genuinely compute-aware beyond the simulated prefix.
+1. **GONA: merge PR #191** (P3-13 — Compute-aware context assembly for all real adapters, 16 new tests, workspace green).
+2. **Then GONA or close PR #188** (docs handoff — may need rebase or superseding by #191's handoff update).
+3. **Then — P3-next: Cycle Trace V0 with rich compute-aware context assembly breakdown.** The CycleTrace now shows per-source context item counts and compute route info in all adapter outputs. Expose the compute-aware breakdown in `orchestrator status --json` so operators can see which route was selected and how it affected context assembly per source.

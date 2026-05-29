@@ -162,10 +162,26 @@ impl ContextAssembler for ToolRuntimeAdapter {
 impl ToolRuntimeAdapter {
     /// Assemble Tool Runtime context: search workspace for objective text
     /// and list workspace structure.
+    ///
+    /// Compute route awareness: when `local_preferred` is true, the adapter
+    /// performs a lighter search (fewer results). When a cloud/strong route
+    /// is indicated, it returns more workspace context.
     fn assemble_tool_runtime(&self, request: &MemoryQueryRequest) -> MemoryQueryResponse {
-        // Effective limit: the minimum of the adapter's limit and the request's limit
-        let effective_limit =
-            std::cmp::min(self.max_items_per_source, request.max_items_per_source);
+        // ── Compute-route aware explanation suffix ─────────────────────
+        let route_suffix = if let Some(ref label) = request.compute_route_label {
+            let local = request.local_preferred.unwrap_or(false);
+            format!(" [compute: {} | local: {}]", label, local)
+        } else {
+            String::new()
+        };
+
+        // Local routes: smaller search results (lighter); cloud routes: broader
+        let base_limit = std::cmp::min(self.max_items_per_source, request.max_items_per_source);
+        let effective_limit = if request.local_preferred.unwrap_or(false) {
+            std::cmp::max(1, base_limit.saturating_sub(base_limit / 2))
+        } else {
+            base_limit
+        };
 
         let mut items: Vec<ContextItem> = Vec::new();
         let mut search_available = false;
@@ -244,11 +260,11 @@ impl ToolRuntimeAdapter {
 
         let available = search_available || list_available;
         let explanation = if available {
-            format!("{} {}", search_explanation, list_explanation)
+            format!("{} {}{}", search_explanation, list_explanation, route_suffix)
         } else {
             format!(
-                "Tool Runtime unavailable — search: {} listing: {}",
-                search_explanation, list_explanation
+                "Tool Runtime unavailable — search: {} listing: {}{}",
+                search_explanation, list_explanation, route_suffix
             )
         };
 
@@ -393,6 +409,74 @@ mod tests {
         assert!(
             !resp.explanation.is_empty(),
             "Explanation should not be empty"
+        );
+    }
+
+    // ─── Compute-route awareness tests ─────────────────────────────────
+
+    #[test]
+    fn tool_runtime_adapter_local_route_reduces_items() {
+        let adapter = ToolRuntimeAdapter::new(
+            std::env::current_dir().unwrap_or_else(|_| Path::new(".").to_path_buf()),
+        )
+        .with_max_items(10);
+        let request = make_request_with_text("struct")
+            .with_compute_route(Some("local-small"), Some(true));
+
+        let responses = adapter.assemble(&request);
+        let tool_resp = responses
+            .iter()
+            .find(|r| r.source == ContextSource::ToolRuntime);
+        assert!(tool_resp.is_some());
+        let resp = tool_resp.unwrap();
+
+        assert!(
+            resp.explanation.contains("local"),
+            "Explanation should mention local route: {}",
+            resp.explanation
+        );
+    }
+
+    #[test]
+    fn tool_runtime_adapter_cloud_route_full_context() {
+        let adapter = ToolRuntimeAdapter::new(
+            std::env::current_dir().unwrap_or_else(|_| Path::new(".").to_path_buf()),
+        );
+        let request = make_request_with_text("fn")
+            .with_compute_route(Some("cloud-strong"), Some(false));
+
+        let responses = adapter.assemble(&request);
+        let tool_resp = responses
+            .iter()
+            .find(|r| r.source == ContextSource::ToolRuntime);
+        assert!(tool_resp.is_some());
+        let resp = tool_resp.unwrap();
+
+        assert!(
+            resp.explanation.contains("compute: cloud-strong"),
+            "Explanation should mention cloud route: {}",
+            resp.explanation
+        );
+    }
+
+    #[test]
+    fn tool_runtime_adapter_default_route_has_no_compute_prefix() {
+        let adapter = ToolRuntimeAdapter::new(
+            std::env::current_dir().unwrap_or_else(|_| Path::new(".").to_path_buf()),
+        );
+        let request = make_request_with_text("test");
+
+        let responses = adapter.assemble(&request);
+        let tool_resp = responses
+            .iter()
+            .find(|r| r.source == ContextSource::ToolRuntime);
+        assert!(tool_resp.is_some());
+        let resp = tool_resp.unwrap();
+
+        assert!(
+            !resp.explanation.contains("[compute:"),
+            "No compute prefix expected: {}",
+            resp.explanation
         );
     }
 }

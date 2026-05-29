@@ -153,10 +153,31 @@ impl ContextAssembler for ReservoirEchoAdapter {
 impl ReservoirEchoAdapter {
     /// Assemble Reservoir Echo context: extract keywords, query strongest
     /// traces with tag overlap, and convert matches into ContextItems.
+    ///
+    /// Compute route awareness: when `local_preferred` is true, the adapter
+    /// returns more traces (local echo is cheap and useful for continuity).
+    /// When a cloud/strong route is indicated, traces are still returned
+    /// but with standard limits.
     fn assemble_reservoir_echo(&self, request: &MemoryQueryRequest) -> MemoryQueryResponse {
+        // ── Compute-route aware explanation suffix ─────────────────────
+        let route_suffix = if let Some(ref label) = request.compute_route_label {
+            let local = request.local_preferred.unwrap_or(false);
+            format!(" [compute: {} | local: {}]", label, local)
+        } else {
+            String::new()
+        };
+
+        // Local routes: more traces (echo is cheap); cloud routes: standard limits
+        let base_limit = request.max_items_per_source.min(self.max_items);
+        let limit = if request.local_preferred.unwrap_or(false) {
+            // Local route: return more echo traces for better continuity
+            std::cmp::min(self.max_items, base_limit.saturating_mul(2))
+        } else {
+            base_limit
+        };
+
         // Step 1: Extract keywords from objective text
         let keywords = Self::extract_keywords(&request.objective_text);
-        let limit = request.max_items_per_source.min(self.max_items);
 
         // Step 2: Lock reservoir and get strongest traces
         let reservoir = match self.reservoir.lock() {
@@ -219,7 +240,7 @@ impl ReservoirEchoAdapter {
             items,
             available: true,
             explanation: format!(
-                "Reservoir Echo returned {} trace(s) (top {} by activation). {}",
+                "Reservoir Echo returned {} trace(s) (top {} by activation). {}{}",
                 count,
                 total,
                 if keywords.is_empty() {
@@ -227,6 +248,7 @@ impl ReservoirEchoAdapter {
                 } else {
                     "Traces filtered by keyword tag overlap."
                 },
+                route_suffix,
             ),
         }
     }
@@ -571,6 +593,89 @@ mod tests {
             resp.items[0].value.contains("activation=0."),
             "Decayed trace should show reduced activation: {}",
             resp.items[0].value
+        );
+    }
+
+    // ─── Compute-route awareness tests ─────────────────────────────────
+
+    #[test]
+    fn reservoir_adapter_local_route_increases_items() {
+        let mut reservoir = ReservoirState::new(100, 0.3);
+        for i in 0..5 {
+            add_trace(
+                &mut reservoir,
+                &format!("Trace number {}", i),
+                vec!["cognitive".to_owned(), "memory".to_owned()],
+            );
+        }
+
+        let adapter = ReservoirEchoAdapter::new(reservoir).with_max_items(5);
+        // Local route: should return traces with compute hint in explanation
+        let request = make_request_with_text("cognitive memory")
+            .with_compute_route(Some("local-small"), Some(true));
+
+        let responses = adapter.assemble(&request);
+        let re_resp = responses
+            .iter()
+            .find(|r| r.source == ContextSource::ReservoirEcho);
+        assert!(re_resp.is_some());
+        let resp = re_resp.unwrap();
+
+        // Should return matching traces and include route info in explanation
+        assert!(!resp.items.is_empty(), "Local route should return items");
+        assert!(
+            resp.explanation.contains("local"),
+            "Explanation should mention route: {}",
+            resp.explanation
+        );
+    }
+
+    #[test]
+    fn reservoir_adapter_cloud_route_standard_limits() {
+        let mut reservoir = ReservoirState::new(100, 0.3);
+        for i in 0..3 {
+            add_trace(
+                &mut reservoir,
+                &format!("Trace number {}", i),
+                vec!["cognitive".to_owned(), "memory".to_owned()],
+            );
+        }
+
+        let adapter = ReservoirEchoAdapter::new(reservoir).with_max_items(3);
+        let request = make_request_with_text("cognitive memory")
+            .with_compute_route(Some("cloud-strong"), Some(false));
+
+        let responses = adapter.assemble(&request);
+        let re_resp = responses
+            .iter()
+            .find(|r| r.source == ContextSource::ReservoirEcho);
+        assert!(re_resp.is_some());
+        let resp = re_resp.unwrap();
+
+        assert!(
+            resp.explanation.contains("compute: cloud-strong"),
+            "Explanation should mention cloud route: {}",
+            resp.explanation
+        );
+    }
+
+    #[test]
+    fn reservoir_adapter_default_route_has_no_compute_prefix() {
+        let reservoir = ReservoirState::new(10, 0.3);
+        let adapter = ReservoirEchoAdapter::new(reservoir);
+        let request = make_request_with_text("test");
+
+        let responses = adapter.assemble(&request);
+        let re_resp = responses
+            .iter()
+            .find(|r| r.source == ContextSource::ReservoirEcho);
+        assert!(re_resp.is_some());
+        let resp = re_resp.unwrap();
+
+        assert!(
+            !resp.explanation.contains("[compute:"),
+            "No compute prefix expected: {}",
+            resp.explanation
         );
     }
 }
