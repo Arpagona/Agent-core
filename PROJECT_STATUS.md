@@ -2232,7 +2232,6 @@ This session added `--json` support to `arpagona audit list`, completing the JSO
 | Check | Result |
 |-------|--------|
 | `cargo fmt -- --check` | ✅ Clean |
-<<<<<<< HEAD
 | `cargo check` | ✅ Clean (0 warnings) |
 | `cargo test` | ✅ All 660+ tests pass, including 2 new parser tests |
 
@@ -3150,3 +3149,59 @@ This session implemented the last memory-aware adapter for the Neutral Orchestra
 
 1. **Review PR #177** — P3-4b CompressedCognitiveAttentionAdapter.
 2. Proceed to **P3-4a (GraphMemoryAdapter)**: bridge `crates/graph-memory` into ContextAssembler.
+
+## 29. Latest Session Update (2026-05-29 DEEP focus loop — P3-4 series completion + hygiene)
+
+This session completed the P3-4 memory adapter series by merging 4 PRs onto main:
+
+### PRs merged
+
+| PR | Branch | Description | Merge Order |
+|----|--------|-------------|-------------|
+| #177 | `feat/p3-4b-compressed-cognitive-attention-adapter` | P3-4b: CompressedCognitiveAttentionAdapter | 1st |
+| #178 | `fix/daily-validation-2026-05-29-orchestrator-cli-docs` | docs: orchestrator CLI daily validation coverage | 2nd |
+| #179 | `fix/dv-2026-05-29-safety-refusal-synthesis` | DV-2026-05-29-002: safety refusal for forbidden secret/shell objectives in LLM synthesis | 3rd (rebased) |
+| #180 | `feat/p3-4a-graph-memory-adapter` | P3-4a: GraphMemoryAdapter — ContextAssembler backed by synchronous GraphMemoryStore | 4th (rebased) |
+
+### Hygiene fixes
+
+- Fixed orphan `<<<<<<< HEAD` conflict marker at PROJECT_STATUS.md:2235 (leftover from a previous half-resolved conflict)
+- Rebased #179 and #180 onto updated `main` to resolve FOCUS_LOOP_NEXT.md conflicts
+- Updated FOCUS_LOOP_NEXT.md to reflect completed P3-4 series
+
+### All memory adapters now on main
+
+The Neutral Orchestrator's `ContextAssembler` supports 5 source adapters:
+1. `ToolRuntimeAdapter` (#174) — file system perception
+2. `HolographicMemoryAdapter` (#175) — pattern resonance retrieval
+3. `ReservoirEchoAdapter` (#176) — short-term cognitive continuity
+4. `CompressedCognitiveAttentionAdapter` (#177) — temporally enriched deterministic retrieval
+5. `GraphMemoryAdapter` (#180) — structured graph memory and audit events
+
+### Verification
+
+| Check | Result |
+|-------|--------|
+| `cargo fmt -- --check` | ✅ Clean |
+| `cargo check` | ✅ Clean (0 warnings) |
+| `cargo test` | ✅ 206 tests passed (all crates) |
+| Conflict marker scan | ✅ Zero matches (exit 1 = clean) |
+
+### Safety boundaries preserved
+
+- No direct execution, shell access, browser automation, email, MCP expansion, secrets handling, or scheduler autonomy
+- No Decision Gate bypass — all adapters remain advisory context sources
+- No API endpoints, Web Mission Control expansion, or autonomous loop behavior
+- No broad permissions changes or self-modification
+- Readback remains evidence only, not authorization
+
+### Deliberately not changed
+
+- No changes to core domain types, Decision Gate, MCP server, CLI, API, or runtime loop
+- No new crate dependencies added
+- No SurrealDB or async persistence changes
+- No Product/Mission Control Web growth
+
+### Next recommended step for GONA
+
+**P3-6: Integration verification spring** — run `arpagona orchestrator cycle run` end-to-end with all 5 context sources, verify multi-source coherence, and write an integration acceptance test exercising the full context assembly pipeline. Then proceed toward Neutral Orchestrator V0 completeness with proposal routing, Decision Gate integration, and audit linkage.

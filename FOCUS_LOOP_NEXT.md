@@ -4,13 +4,13 @@ This file is the short-lived handoff for the next scheduled focus-loop run.
 
 It must contain one concrete next action only. The runtime milestone queue and long-term rules live in `AGENT_FOCUS_LOOP.md`.
 
-## Current status (DEEP cron — 2026-05-29 focus loop)
+## Current status (DEEP cron 2026-05-29 — P3-4 series complete)
 
-**main is green:** ✅ #177 (P3-4b) and #178 (orchestrator CLI docs) merged.
-
-**Open PRs:** 
-- #180 (P3-4a GraphMemoryAdapter) — rebased, awaiting CI
-- #179 (fix: DV-2026-05-29-002 safety refusal in LLM synthesis) — being merged
+**main is green:** ✅ All 4 PRs merged:
+- #177 (P3-4b CompressedCognitiveAttentionAdapter)
+- #178 (docs: orchestrator CLI coverage)
+- #179 (DV-2026-05-29-002 safety refusal in LLM synthesis)
+- #180 (P3-4a GraphMemoryAdapter)
 
 **Phase 3 progress:**
 - P3-0 (Roadmap definition): ✅ Completed in #168
@@ -19,14 +19,17 @@ It must contain one concrete next action only. The runtime milestone queue and l
 - P3-3 (Orchestrator CLI/MCP readback): ✅ Completed in #171
 - P3-4 (Memory-aware context integration): ✅ Completed in #172
 - P3-5 (Cycle Trace V0): ✅ Completed in #173
-- P3-4e (ToolRuntimeAdapter): ✅ Completed and merged (#174)
-- P3-4d (HolographicMemoryAdapter): ✅ Completed and merged (#175)
-- P3-4c (ReservoirEchoAdapter): ✅ Completed and merged (#176)
-- **P3-4b (CompressedCognitiveAttentionAdapter): ✅ Merged in #177**
-- **P3-4a (GraphMemoryAdapter): ✅ PR #180 open, awaiting CI**
+- P3-4e (ToolRuntimeAdapter): ✅ Merged (#174)
+- P3-4d (HolographicMemoryAdapter): ✅ Merged (#175)
+- P3-4c (ReservoirEchoAdapter): ✅ Merged (#176)
+- P3-4b (CompressedCognitiveAttentionAdapter): ✅ Merged (#177)
+- **P3-4a (GraphMemoryAdapter): ✅ Merged (#180)**
 
-**DV backlog:** DV-2026-05-29-002 (safety refusal in LLM synthesis) fixed in PR #179.
+All P3-4 memory adapters now on main. The Neutral Orchestrator's `ContextAssembler` supports 5 context sources: ToolRuntimeAdapter, HolographicMemoryAdapter, ReservoirEchoAdapter, CompressedCognitiveAttentionAdapter, GraphMemoryAdapter.
 
 ## Next action
 
-**Merge PR #179 (DV-2026-05-29-002 safety refusal) and PR #180 (P3-4a GraphMemoryAdapter) once CI passes.** After both are merged, the P3-4 series is complete. The next Phase 3 milestone is the P3-6 integration spring: verify all adapters work together in the context assembly pipeline, then proceed to Neutral Orchestrator V0 integration with all memory sources.
+**P3-6: Integration verification spring** — run the existing `arpagona orchestrator cycle run` CLI command end-to-end with all 5 context sources live, verify the context assembly pipeline produces coherent multi-source observations, and write an integration acceptance test that exercises all adapters together. After verification, proceed toward Neutral Orchestrator V0 completeness (proposal routing, Decision Gate integration, audit linkage).
+
+**Open:** 0 open PRs — all merged to main.
+**DV backlog:** 0 open entries.
