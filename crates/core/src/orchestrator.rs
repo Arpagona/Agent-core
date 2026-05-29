@@ -689,7 +689,7 @@ impl CycleTrace {
         if let Some(ref domain) = self.objective_domain {
             lines.push(format!("Domain:      {}", domain));
         }
-        lines.push(format!("Context:"));
+        lines.push("Context:".to_string());
 
         // Per-source breakdown
         for src in &self.context_source_summaries {
@@ -882,7 +882,7 @@ mod tests {
 
     #[test]
     fn context_bundle_serializes_and_is_advisory() {
-        let now = Utc::now();
+        let _now = Utc::now();
         let bundle = ContextBundle::new(
             ContextBundleId::new("cb-1"),
             OrchestratorCycleId::new("oc-1"),

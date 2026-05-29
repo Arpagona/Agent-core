@@ -548,13 +548,13 @@ fn cognitive_propose_pipeline_produces_governed_proposals() {
         .get("non_authorizing_warning")
         .expect("output should have non_authorizing_warning");
     assert!(
-        warning.as_str().map_or(false, |s| !s.is_empty()),
+        warning.as_str().is_some_and(|s| !s.is_empty()),
         "non_authorizing_warning should be non-empty"
     );
     assert!(
         warning
             .as_str()
-            .map_or(false, |s| s.contains("PendingDecision")),
+            .is_some_and(|s| s.contains("PendingDecision")),
         "non_authorizing_warning should mention PendingDecision"
     );
 
@@ -696,13 +696,13 @@ fn offline_governance_produces_decisions_and_audit_events() {
         .get("governance_warning")
         .expect("output should have governance_warning");
     assert!(
-        warning.as_str().map_or(false, |s| !s.is_empty()),
+        warning.as_str().is_some_and(|s| !s.is_empty()),
         "governance_warning should be a non-empty string"
     );
     assert!(
         warning
             .as_str()
-            .map_or(false, |s| s.contains("Offline governance readback")),
+            .is_some_and(|s| s.contains("Offline governance readback")),
         "governance_warning should indicate offline governance readback"
     );
 }
@@ -888,13 +888,13 @@ fn cognitive_observe_assess_govern_pipeline_has_structured_governance_results() 
         .get("governance_warning")
         .expect("output should have governance_warning");
     assert!(
-        warning.as_str().map_or(false, |s| !s.is_empty()),
+        warning.as_str().is_some_and(|s| !s.is_empty()),
         "governance_warning should be a non-empty string"
     );
     assert!(
         warning
             .as_str()
-            .map_or(false, |s| s.contains("Offline governance readback")),
+            .is_some_and(|s| s.contains("Offline governance readback")),
         "governance_warning should indicate offline governance readback"
     );
 }
@@ -931,7 +931,7 @@ fn cognitive_llm_mock_provides_proposal_only_synthesis() {
         .get("llm_synthesis")
         .expect("output should have llm_synthesis");
     assert!(
-        synthesis.as_str().map_or(false, |s| !s.is_empty()),
+        synthesis.as_str().is_some_and(|s| !s.is_empty()),
         "llm_synthesis should be a non-empty string"
     );
 
@@ -946,7 +946,7 @@ fn cognitive_llm_mock_provides_proposal_only_synthesis() {
         .get("llm_routing")
         .expect("output should have llm_routing");
     assert!(
-        routing.as_str().map_or(false, |s| !s.is_empty()),
+        routing.as_str().is_some_and(|s| !s.is_empty()),
         "llm_routing should be a non-empty string"
     );
 

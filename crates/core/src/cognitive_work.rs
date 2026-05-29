@@ -417,7 +417,7 @@ pub fn run_cognitive_work_cycle(
     let proposed_next_action_kind_str = format!("{:?}", proposed_next_action.kind).to_lowercase();
 
     // 4. Generate plan
-    let plan = generate_plan(&domain, &objective_input, &missing_context);
+    let plan = generate_plan(&domain, objective_input, &missing_context);
 
     // 5. Observations already generated in step 3
 
@@ -425,7 +425,7 @@ pub fn run_cognitive_work_cycle(
 
     // 7. Collect improvement candidates
     let improvement_candidates =
-        generate_improvement_candidates(&objective_input, &missing_context, &domain);
+        generate_improvement_candidates(objective_input, &missing_context, &domain);
 
     // 8. Build enriched WorkingMemory with all cycle state (P4 + P5 fields)
     let working_memory = WorkingMemory {
@@ -878,7 +878,7 @@ fn detect_missing_context(
                 });
             }
         }
-        ObjectiveDomain::Coding => {
+        ObjectiveDomain::Coding
             if !contains_any(
                 &lower,
                 &[
@@ -890,28 +890,28 @@ fn detect_missing_context(
                     "javascript",
                     "go",
                 ],
-            ) {
-                missing.push(MissingContext {
-                    id: "missing-language".to_owned(),
-                    description: "Target programming language not specified.".to_owned(),
-                    why_needed: "Implementation details depend on language choice.".to_owned(),
-                });
-            }
+            ) =>
+        {
+            missing.push(MissingContext {
+                id: "missing-language".to_owned(),
+                description: "Target programming language not specified.".to_owned(),
+                why_needed: "Implementation details depend on language choice.".to_owned(),
+            });
         }
-        ObjectiveDomain::Research => {
+        ObjectiveDomain::Research
             if !contains_any(
                 &lower,
                 &[
                     "méthode", "method", "approach", "approche", "source", "source",
                 ],
-            ) {
-                missing.push(MissingContext {
-                    id: "missing-methodology".to_owned(),
-                    description: "Research methodology not specified.".to_owned(),
-                    why_needed: "Methodology determines how to gather and evaluate evidence."
-                        .to_owned(),
-                });
-            }
+            ) =>
+        {
+            missing.push(MissingContext {
+                id: "missing-methodology".to_owned(),
+                description: "Research methodology not specified.".to_owned(),
+                why_needed: "Methodology determines how to gather and evaluate evidence."
+                    .to_owned(),
+            });
         }
         _ => {}
     }
@@ -1102,18 +1102,15 @@ fn generate_improvement_candidates(
     }
 
     // Domain-specific improvement candidates
-    match domain {
-        ObjectiveDomain::Unknown => {
-            candidates.push(ImprovementCandidate {
-                id: "improve-domain-classification".to_owned(),
-                kind: ImprovementCandidateKind::ProcessImprovement,
-                description: "Domain could not be classified heuristically.".to_owned(),
-                rationale:
-                    "An LLM-based classifier or explicit user input would improve domain detection."
-                        .to_owned(),
-            });
-        }
-        _ => {}
+    if domain == &ObjectiveDomain::Unknown {
+        candidates.push(ImprovementCandidate {
+            id: "improve-domain-classification".to_owned(),
+            kind: ImprovementCandidateKind::ProcessImprovement,
+            description: "Domain could not be classified heuristically.".to_owned(),
+            rationale:
+                "An LLM-based classifier or explicit user input would improve domain detection."
+                    .to_owned(),
+        });
     }
 
     candidates

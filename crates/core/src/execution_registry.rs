@@ -159,9 +159,7 @@ pub fn execution_capability(action_type: &ActionType) -> ExecutionCapability {
                 max_allowed_risk: RiskLevel::Medium,
                 reversibility: "Reversible via invalidation or supersession.".to_owned(),
                 human_approval_required: human,
-                notes: Some(format!(
-                    "Governed memory-write action type. Dry-run only simulates the write proposal."
-                )),
+                notes: Some("Governed memory-write action type. Dry-run only simulates the write proposal.".to_string()),
                 safety_warning: Some(
                     "Memory writes mutate agent knowledge. Invalidation and failure insight \
                      writes should be reviewed carefully."

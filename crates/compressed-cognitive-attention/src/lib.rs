@@ -286,7 +286,7 @@ pub fn convolve(events: &[Vec<f64>], window_size: usize) -> Vec<Vec<f64>> {
         .iter()
         .enumerate()
         .map(|(i, _)| {
-            let start = if i >= half { i - half } else { 0 };
+            let start = i.saturating_sub(half);
             let end = (i + half + 1).min(len);
             let count = end - start;
 
@@ -557,7 +557,7 @@ mod tests {
         let m = generate_projection_matrix(100, 10, 42);
         for &val in &m.data {
             assert!(
-                val >= -1.0 && val <= 1.0,
+                (-1.0..=1.0).contains(&val),
                 "Value {} out of range [-1,1]",
                 val
             );

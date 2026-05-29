@@ -129,7 +129,6 @@ impl ContextAssembler for SimulatedContextAssembler {
 mod tests {
     use super::*;
     use arpagona_agent_core::ids::{ObjectiveId, OrchestratorCycleId, WorkspaceId};
-    use chrono::Utc;
 
     fn make_request() -> MemoryQueryRequest {
         MemoryQueryRequest::new(

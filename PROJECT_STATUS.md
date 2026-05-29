@@ -3317,3 +3317,146 @@ This session completed P3-9: documented the `--proposal-generator` flag in `docs
 ### Recommended next step for GONA
 
 **C2: Governed direct tool-calling by the LLM.** The P3 series (Neutral Orchestrator) is complete through P3-9. C2 is the natural next bounded increment: allow LLM tool-call intents through the existing governance envelope (Decision Gate → Tool Runtime/MCP → Observation → Audit → Reflection).
+
+## 32. Latest Session Update (2026-05-29 DEEP cron — H1a: Clippy hygiene pass)
+
+This session performed the first H1 production hardening pass: fix ~40+ clippy warnings across the full workspace.
+
+### Changes made
+
+| File | Change |
+|------|--------|
+| crates/core/src/orchestrator.rs | fix unused variable `now` → `_now`, fix useless `format!` |
+| crates/core/src/cognitive_work.rs | fix collapsible_match (2), needless_borrow (2), single_match |
+| crates/core/src/execution_registry.rs | fix useless `format!` |
+| crates/core/src/executor.rs | use `#[derive(Default)]` + `#[default]` |
+| crates/core/src/executor_registry.rs | manual_find → iterator `.find()` |
+| crates/cli/src/main.rs | fix unnecessary_sort_by (2), unnecessary_unwrap, format_in_format_args, map_clone (3), needless_borrow |
+| crates/cli/tests/snapshot_integration.rs | fix unnecessary_map_or → is_some_and (8) |
+| crates/llm/src/lib.rs | collapsible_str_replace for accent normalization (3) |
+| crates/tool-runtime/src/lib.rs | collapsible_if, needless_borrows_for_generic_args (3) |
+| crates/decision-gate/src/override_engine.rs | remove needless `..Default::default()` (4) |
+| crates/conversation-memory/src/lib.rs | unnecessary_sort_by → sort_by_key |
+| crates/conversation-memory/src/holographic_bridge.rs | fix doc_overindented_list_items |
+| crates/mcp-server/src/server.rs | redundant_closure → function pointer |
+| crates/neutral-orchestrator/src/context_assembler.rs | remove unused `chrono::Utc` import |
+| crates/neutral-orchestrator/src/proposal_generator.rs | remove unused imports (2), dead_code fields left as pre-existing |
+| crates/compressed-cognitive-attention/src/lib.rs | implicit_saturating_sub, manual_range_contains |
+| apps/api-server/src/main.rs | needless_borrows_for_generic_args (7) |
+
+### Verification
+
+- `cargo fmt -- --check`: ✅ clean
+- `cargo check`: ✅ clean (1 pre-existing dead_code warning in neutral-orchestrator)
+- `cargo test --workspace`: **859 tests pass, 0 failures** (+224 vs previous 635 due to more accurate counting)
+
+### Remaining warnings after this pass
+
+- `too_many_arguments` (2 in llm_journal.rs, 1 in tool-registry, 1 in holographic-memory tests) — requires API restructuring, intentionally deferred
+- `needless_range_loop` (3 in compressed-cognitive-attention) — nalgebra matrices need careful iterator review
+- `large_enum_variant` (2 in cli) — `Box<T>` wrapping needed, has behavioral implications
+- `result_large_err` (8 in mcp-server) — `Box`-ing `JsonRpcError` needed
+- `while_let_loop` (1 in mcp-server) — minor, low priority
+- `dead_code` on `default_workspace_id`/`default_agent_id` (neutral-orchestrator) — pre-existing, stored for future use
+
+### Safety boundaries preserved
+
+- ✅ No shell access, browser automation, email, MCP expansion, secrets handling, scheduler autonomy, or direct execution
+- ✅ No Decision Gate changes (only test-only `needless_update` fixes)
+- ✅ No new capabilities added — purely mechanical/syntactic fixes
+- ✅ No behavioral changes — every fix is a refactor with identical runtime semantics
+- ✅ All 17 files changed are code-quality only
+
+### Deliberately not changed
+
+- No new tests added (H1a is clippy hygiene; test additions deferred to H1b)
+- `too_many_arguments` warnings left as API refactoring is a separate effort
+- `needless_range_loop` in nalgebra code left for careful matrix-iterator review
+- No `.rustfmt.toml` or `.clippy.toml` configuration changes
+- No dependency or edition updates
+- No PROJECT_OBJECTIVES.md, AGENT_CONTEXT.md, or AGENT_FOCUS_LOOP.md changes
+
+### Recommended next step for GONA
+
+**H1b: Edge-case test coverage.** Add targeted regressions for uncovered paths: Tool Runtime (binary/symlink/resource-only files), Decision Gate (empty/null tool-call payloads), CLI (error-path/JSON output for failed commands).
+
+## 31. Latest Session Update (2026-05-29 DEEP cron — C2 verification + PR #184 merge)
+
+### PR #184 merge
+
+- Squash-merged `feat/p3-9-orchestrator-demo-loop` (#184) into `main` with green CI.
+- Main is now at `6a2a627`.
+- Branch deleted after merge.
+
+### C2 verification
+
+Verified that **C2 (Governed direct tool-calling by the LLM)** is fully implemented on `main`:
+
+**`crates/decision-gate/src/lib.rs`:**
+- `govern_tool_call(intent, permissions)` — wraps `ToolCallIntent` as `ProposedAction` with `ActionType::DirectToolCall`, runs through `evaluate_proposed_action()`, returns `(Decision, ProposedAction)`
+- 8 dedicated tests: allowed reads, blocked without permission, blocked writes, shell tool names, malformed arguments, null arguments, any-name governing decision, path invariants
+
+**`crates/cli/src/main.rs`:**
+- `arpagona tool govern <tool> <args> [--risk-level] [--rationale] [--json]` — full C2 chain
+- Creates `ToolCallIntent` → `govern_tool_call()` → if Approved → `ToolRuntime.execute()` → `global_llm_journal().add_direct_tool_call()` → structured JSON/human output
+- Both human-readable and `--json` output: decision status, reason, risk level, proposal ID, journal ID, execution result
+- 8 CLI tests: approved read_file (with execution result), unknown tool, blocked governance (medium risk), blocked file security, JSON output structure, parser tests
+
+**`global_llm_journal()`:**
+- Thread-safe `Mutex<LlmJournal>` static
+- `add_direct_tool_call(tool, provider, model, prompt_summary, response_summary, tool_call_intents, decision_gate_outcomes, risk_level)`
+- Journal persists to JSON-lines file for cross-invocation readback
+
+### C5 anti-drift test families also verified on main
+
+| Family | Location | Tests |
+|--------|----------|-------|
+| Hallucination containment | `crates/llm` | 3 tests: extra fields, garbage input, execution-type rejection |
+| Tool bypass attempts | `crates/decision-gate` | 3 tests: shell approval, any-name governance, without-permission |
+| Prompt injection attempts | `crates/llm` | 2 tests: deterministic routing, action-keyword proposals |
+| Malformed tool-call payloads | `crates/decision-gate` | 2 tests: missing args, null args |
+| Overconfident model claims | `crates/llm` | 2 tests: mock never claims execution, mock synthesis non-authorizing |
+| Unsafe memory-write attempts | `crates/decision-gate` | 1 test: missing write permission |
+| Model/provider failure fallback | `crates/llm` | 2 tests: unknown provider error, mock always succeeds |
+| Decision Gate mandatory regression | `crates/decision-gate` | 3 tests: PendingDecision invariant, tool-call PendingDecision, every call requires decision |
+
+### Track completion status
+
+| Milestone | Status |
+|-----------|--------|
+| C1 — Real LLM proposal-only | ✅ Verified earlier |
+| C2 — Governed direct tool-calling | ✅ Verified this session |
+| C3 — LLM interaction journaling | ✅ Present on main |
+| C4 — Compute Reservoir routing | ✅ Present on main |
+| C5 — Anti-drift/adversarial tests | ✅ Present on main |
+| D1 — Operator status surface | ✅ Present on main |
+| D2 — ProposedAction/tool-call supervision | ✅ Present on main |
+| D3 — Memory/resonance visibility | ✅ Present on main |
+| E1-E4 — Demos | ✅ Present on main |
+| D4 — Mission Control Web | Deferred per PROJECT_STATUS.md |
+
+### Verification
+
+- `cargo fmt -- --check`: clean
+- `cargo check`: clean (1 pre-existing warning about unused fields in LlmProposalGenerator)
+- `cargo test --workspace`: **635 tests pass**, 0 failures, 15 ignored (doc-test stubs)
+
+### Files changed this session
+
+| File | Change |
+|------|--------|
+| `FOCUS_LOOP_NEXT.md` | Updated: C2 verified complete, PR #184 merged, suggested next: H1 hardening pass |
+| `PROJECT_STATUS.md` | Updated: Added session update recording C2 verification + PR #184 merge |
+
+### Safety boundaries preserved
+
+- ✅ No shell access, browser automation, email, MCP expansion, secrets handling, scheduler autonomy, or direct execution
+- ✅ No Decision Gate bypass — verified every tool-call path requires governance
+- ✅ No API endpoints, Web Mission Control expansion, or autonomous loop behavior
+- ✅ No broad permission changes or self-modification
+- ✅ Readback remains evidence only, not authorization
+- ✅ No new capabilities added — verification-only session
+
+### Recommended next step for GONA
+
+**H1: Production hardening pass.** With C1-C5 and D1-D3 substantially delivered on main, the next bounded increment is H1: stabilize existing alpha behavior — edge-case tests, error handling, audit readability, dependency cleanup, static analysis. D4 (Mission Control Web) remains explicitly deferred until CLI patterns are proven useful first.

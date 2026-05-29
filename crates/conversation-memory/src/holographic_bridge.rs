@@ -150,7 +150,7 @@ fn role_to_source_kind(role: &str) -> SourceKind {
 /// - `process_turn()` — encode a single turn as a holographic trace and store it
 /// - `process_conversation()` — process a full `Conversation` in one call
 /// - `find_similar_for_turns()` — build a resonance query from given turns and
-///    search the store for related patterns
+///   search the store for related patterns
 ///
 /// The underlying `InMemoryHolographicMemoryStore` supports JSON persistence
 /// via `save_to_file()` / `load_from_file()`.

@@ -1922,7 +1922,7 @@ mod tests {
         let client = reqwest::Client::new();
         // Set noop-executor to Ready
         let resp = client
-            .post(&format!("{}/executors/noop-executor/state", base))
+            .post(format!("{}/executors/noop-executor/state", base))
             .header("Content-Type", "application/json")
             .body(r#"{"state": "ready"}"#)
             .send()
@@ -1938,7 +1938,7 @@ mod tests {
         let base = start_test_server().await;
         let client = reqwest::Client::new();
         let resp = client
-            .post(&format!("{}/executors/unknown-executor/state", base))
+            .post(format!("{}/executors/unknown-executor/state", base))
             .header("Content-Type", "application/json")
             .body(r#"{"state": "ready"}"#)
             .send()
@@ -1997,7 +1997,7 @@ mod tests {
         let client = reqwest::Client::new();
         // Non-existent proposal → handler 404, proving route matched
         let resp = client
-            .post(&format!("{}/proposed-actions/test-id/review", base))
+            .post(format!("{}/proposed-actions/test-id/review", base))
             .header("Content-Type", "application/json")
             .body(r#"{"action": "approve", "reason": "test", "actor": "test"}"#)
             .send()
@@ -2023,7 +2023,7 @@ mod tests {
         let client = reqwest::Client::new();
         // No body → may get 422 from serde, proving route matched (not router 404)
         let resp = client
-            .post(&format!("{}/proposed-actions/test-id/sandbox", base))
+            .post(format!("{}/proposed-actions/test-id/sandbox", base))
             .send()
             .await
             .expect("POST /proposed-actions/test-id/sandbox");
@@ -2040,7 +2040,7 @@ mod tests {
         let base = start_test_server().await;
         let client = reqwest::Client::new();
         let resp = client
-            .post(&format!("{}/proposed-actions/test-id/dry-run", base))
+            .post(format!("{}/proposed-actions/test-id/dry-run", base))
             .send()
             .await
             .expect("POST /proposed-actions/test-id/dry-run");
@@ -2057,7 +2057,7 @@ mod tests {
         let base = start_test_server().await;
         let client = reqwest::Client::new();
         let resp = client
-            .post(&format!("{}/proposed-actions/test-id/policy-check", base))
+            .post(format!("{}/proposed-actions/test-id/policy-check", base))
             .send()
             .await
             .expect("POST /proposed-actions/test-id/policy-check");
@@ -2074,7 +2074,7 @@ mod tests {
         let base = start_test_server().await;
         let client = reqwest::Client::new();
         let resp = client
-            .post(&format!("{}/proposed-actions/test-id/execute", base))
+            .post(format!("{}/proposed-actions/test-id/execute", base))
             .send()
             .await
             .expect("POST /proposed-actions/test-id/execute");
