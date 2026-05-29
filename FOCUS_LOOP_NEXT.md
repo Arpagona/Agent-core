@@ -4,20 +4,28 @@ This file is the short-lived handoff for the next scheduled focus-loop run.
 
 It must contain one concrete next action only. The runtime milestone queue and long-term rules live in `AGENT_FOCUS_LOOP.md`.
 
-## Current status (DEEP cron 2026-md-29 — H1b edge-case tests)
+## Current status (DEEP cron 2026-05-29 — H2 CLI security boundary verification)
 
-**main is green:** ✅ ~868 tests, 0 failures across full workspace.
+**main is green:** ✅ ~874 tests, 0 failures across full workspace.
 
-**PR #186** (`feat/h1b-edge-case-tests`) — open, awaiting CI.
-
-**H1b progress:**
-- Tool Runtime: 3 new symlink handling tests (internal symlink follows, outside symlink is security-blocked, directory symlink lists correctly)
-- Decision Gate: 3 new edge-case tests (empty tool name, empty permissions, empty rationale — none panic)
-- CLI: 4 new error-path parser tests (missing objective, empty objective, unknown provider, missing positional arg)
-- **10 new tests total**, 0 regressions
+**H2 progress — CLI security boundary verification:**
+- Probed all documented CLI tool demo commands against the Tool Runtime security boundary:
+  - `tool demo read-file`: absolute paths ✅ blocked, parent traversal ✅ blocked, `.env` ✅ blocked
+  - `tool demo list-files`: `.git` ✅ blocked, `..` ✅ blocked, absolute paths ✅ blocked
+  - `tool demo search-text`: `.git` ✅ blocked, parent traversal ✅ blocked
+  - `tool demo observe`: crafted JSON `{"path":"../Cargo.toml"}` — still routed through runtime validate ✅ blocked
+- **Discovered security gap:** `.git/config` was fully readable via `read-file`, leaking SSH identity path and remote URL
+- **Fix:** Added `.git/` to `BLOCKED_FILE_PATTERNS` in `crates/tool-runtime/src/lib.rs`
+- **5 new regression tests:**
+  - `read_file_blocks_git_config` — `.git/config` blocked with `is_security: true`
+  - `read_file_blocks_git_head` — `.git/HEAD` blocked
+  - `read_file_blocks_relative_git_path` — `./.git/config` also blocked
+  - `read_file_gitignore_still_readable` — `.gitignore` remains readable (negative test)
+  - `read_file_github_dir_not_blocked` — `.github/workflows/*` not falsely blocked
+- All 5 tests pass (874 total, +5 from previous run)
 
 **DV backlog:** 0 open entries.
 
 ## Next action
 
-**H2: Missing security boundary at the CLI surface.** The Tool Runtime blocks absolute paths, parent traversal, `.env`, `.ssh` and system directories. But the CLI `tool demo read-file` command passes the path through — verify that the runtime's security boundaries are not bypassable through any documented CLI path (especially `--memory-value` JSON injection, `--json` pipe-to-file, or relative-path tricks that resolve differently than the runtime expects).
+**Phase 3 — Neutral Orchestrator V0 integration.** With H1a (clippy), H1b (edge-case tests), H2 (CLI security boundary) all delivered, the H hardening track is complete. The focus loop should now re-engage Phase 3: bounded Neutral Orchestrator integration — particularly the `--proposal-generator` integration tests and operator readback surfaces for orchestrator state.
