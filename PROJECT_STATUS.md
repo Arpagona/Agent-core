@@ -3948,3 +3948,59 @@ This session created the P3-14 milestone: connecting orchestrated context assemb
 
 1. Review and merge PR #201.
 2. Next: connect CycleTrace metadata to Compute Reservoir cost/quality feedback, or add dedicated CLI surface (`orchestrator insights <trace-path>`).
+
+## 34. Latest Session Update (2026-05-29 DEEP cron — orchestrator status UX + auto-save trace)
+
+This session improved the operator inspectability of the Neutral Orchestrator cycle by fixing the cross-invocation trace readback workflow.
+
+### Changes
+
+| File | Change |
+|------|--------|
+| `crates/cli/src/main.rs` | Auto-save CycleTrace to `target/last-orchestrator-trace.json` after every `orchestrator run`; graceful `orchestrator status` error handling when no trace file exists (helpful hint instead of raw error) |
+| `docs/cli.md` | Added full `orchestrator` section with `run`/`status` subcommands, all options, auto-save behavior, and cross-invocation readback documentation |
+| `scripts/demo-full-loop.sh` | Added Step 6: cross-invocation orchestrator status readback via `orchestrator status` and `orchestrator status --json` |
+| `FOCUS_LOOP_NEXT.md` | Updated handoff with stacked PR status and this session's work |
+
+### The specific UX gap closed
+
+Before this session:
+1. `orchestrator run --objective ...` — trace was displayed on stdout but NOT persisted
+2. `orchestrator status` — errored with "No such file or directory"
+3. Cross-invocation readback required explicit `--save-trace target/last-orchestrator-trace.json`
+
+After this session:
+1. `orchestrator run --objective ...` — trace auto-saved to `target/last-orchestrator-trace.json`
+2. `orchestrator status` — reads auto-saved trace; shows helpful hint if none exists
+3. `orchestrator status --json` — structured JSON output of the full CycleTrace
+4. `--save-trace <PATH>` still works for explicit custom paths
+
+### Key invariants preserved
+
+- ✅ read-only — filesystem write only to `target/` (build artifact directory, gitignored)
+- ✅ no Decision Gate behavior changed — governance path unchanged
+- ✅ no scheduler, autonomy, execution, or authorization behavior added
+- ✅ no hidden execution, shell access, secrets, or browser automation
+- ✅ no new capabilities — the trace was already being serialized, just not persisted
+
+### Verification
+
+- `cargo fmt -- --check`: ✅ clean
+- `cargo check`: ✅ clean
+- `cargo test`: ✅ all 920+ tests pass (0 regressions)
+
+### Stability level
+
+Stable alpha CLI supervision surface. The change is additive: auto-save writes a JSON file to `target/`, graceful status is backward-compatible error handling.
+
+### PR state
+
+- **PR #204** (`feat/orchestrator-status-auto-trace`) — new, CI pending.
+- Stacked Phase 3 PRs #200, #202, #197, #198, #199 remain open awaiting GONA merge.
+
+### Recommended next step for GONA
+
+1. Merge PR #203 (docs: handoff hygiene — safe docs-only).
+2. Review and merge this PR #204 (orchestrator UX improvement).
+3. Merge the stacked PRs in order: #200 (governance bootstrap) → #202 (cost/quality metadata, base fields for #197) → #197 (CLI insights) → #198 (compute efficiency) → #199 (context assembly).
+4. After stack merge: advance to wiring real data sources into the existing MultiAdapterContextAssembler for production-quality context assembly (P3-4 integration verification was merged, but the remaining step is production wiring).

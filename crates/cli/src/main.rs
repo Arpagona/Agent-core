@@ -9572,19 +9572,25 @@ fn orchestrator_run(args: OrchestratorRunArgs) -> Result<(), Box<dyn Error>> {
         );
     }
 
-    // ── Save trace to file when --save-trace is provided ──────────────
+    // ── Save trace to file ────────────────────────────────────────────
+    // Always save to the default path for cross-invocation `orchestrator status` readback.
+    // When --save-trace is provided, also save to the specified path.
+    let trace = cycle.to_cycle_trace();
+    let json = serde_json::to_string_pretty(&trace)?;
+
+    // Auto-save to default path (target/last-orchestrator-trace.json)
+    if let Some(parent) = std::path::Path::new(DEFAULT_ORCHESTRATOR_TRACE_PATH).parent() {
+        std::fs::create_dir_all(parent).ok();
+    }
+    std::fs::write(DEFAULT_ORCHESTRATOR_TRACE_PATH, &json)?;
+
+    // Also save to explicit path when --save-trace is provided
     if let Some(ref save_path) = args.save_trace {
-        let trace = cycle.to_cycle_trace();
-        let json = serde_json::to_string_pretty(&trace)?;
-        if let Some(parent) = std::path::Path::new(save_path).parent() {
-            std::fs::create_dir_all(parent).ok();
-        }
-        std::fs::write(save_path, &json)?;
-        if !args.json {
-            println!(
-                "{}",
-                style_dim(&format!("   Trace saved to: {}", save_path))
-            );
+        if save_path != DEFAULT_ORCHESTRATOR_TRACE_PATH {
+            if let Some(parent) = std::path::Path::new(save_path).parent() {
+                std::fs::create_dir_all(parent).ok();
+            }
+            std::fs::write(save_path, &json)?;
         }
     }
 
@@ -9601,8 +9607,33 @@ fn orchestrator_status(args: OrchestratorStatusArgs) -> Result<(), Box<dyn Error
         .trace_path
         .unwrap_or_else(|| DEFAULT_ORCHESTRATOR_TRACE_PATH.to_owned());
 
-    let content = std::fs::read_to_string(&path)
-        .map_err(|e| format!("Failed to read orchestrator trace file '{}': {e}", path))?;
+    let content = match std::fs::read_to_string(&path) {
+        Ok(c) => c,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+            // Graceful hint when no trace file exists yet
+            println!(
+                "{}",
+                style_info("Orchestrator Status — no saved trace found")
+            );
+            println!("{}", "-".repeat(60));
+            println!("  No orchestrator trace file found at '{}'.", path);
+            println!();
+            println!("  Run an orchestrator cycle first to generate a trace:");
+            println!("    arpagona orchestrator run --objective \"Your objective here\"");
+            println!();
+            println!("  The trace is automatically saved after every `orchestrator run`");
+            println!("  for cross-invocation readback via `orchestrator status`.");
+            println!();
+            println!(
+                "{}",
+                style_dim("  Readback only — trace fields are evidence, not authorization.")
+            );
+            return Ok(());
+        }
+        Err(e) => {
+            return Err(format!("Failed to read orchestrator trace file '{}': {e}", path).into());
+        }
+    };
 
     let trace: arpagona_agent_core::orchestrator::CycleTrace = serde_json::from_str(&content)
         .map_err(|e| format!("Failed to parse orchestrator trace file '{}': {e}", path))?;

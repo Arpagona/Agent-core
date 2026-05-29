@@ -257,4 +257,26 @@ cat <<'SUMMARY'
 
 SUMMARY
 
-printf '\\n'
+# ── Step 6: Cross-invocation orchestrator status readback ─────────────
+
+section "6. Orchestrator status — cross-invocation trace readback"
+
+printf '\n'
+printf '  Lecture du dernier CycleTrace auto-sauvegardé par les étapes 4-5.\n\n'
+"${CLI[@]}" orchestrator status 2>/dev/null | head -20
+printf '\n'
+"${CLI[@]}" orchestrator status --json 2>/dev/null \
+  | python3 -c "
+import json, sys
+data = json.load(sys.stdin)
+print(f'  Cycle ID:      {data.get(\"cycle_id\", \"?\")}')
+print(f'  Context items: {len(data.get(\"per_source_items\", []))} sources')
+print(f'  Compute route: {data.get(\"compute_route\", \"?\")}')
+print(f'  Decision:      {data.get(\"decision_status\", \"?\")}')
+print(f'  Non-auth:      {data.get(\"non_authorizing\", \"?\")}')
+print(f'  Failures:      {len(data.get(\"failure_insight_candidates\", []))} candidates')
+"
+printf '\n'
+pass "Cross-invocation trace readback — orchestrator status affiche le CycleTrace du dernier run"
+
+printf '\n'

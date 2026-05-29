@@ -581,6 +581,49 @@ Affiche les traces récentes d'interaction LLM : résumé du prompt, résumé de
 
 Cette commande est une surface de supervision alpha read-only. Elle n'exécute aucun appel LLM, n'approuve aucune action et ne modifie aucun état.
 
+### Orchestrator — Cycle orchestré (Phase 3)
+
+```bash
+cargo run -p arpagona-cli -- orchestrator run --objective "Analyser les tendances du marché"
+cargo run -p arpagona-cli -- orchestrator run --objective "Analyse projet" --json --trace
+cargo run -p arpagona-cli -- orchestrator run --objective "Code review" --proposal-generator llm
+cargo run -p arpagona-cli -- orchestrator status
+cargo run -p arpagona-cli -- orchestrator status --json
+```
+
+Sous-commandes `orchestrator` :
+
+- `run` — Exécute un cycle orchestré complet : contexte → allocation compute → proposition → Decision Gate → audit.
+- `status` — Affiche le dernier CycleTrace sauvegardé (lecture cross-invocation).
+
+Options `run` :
+
+- `--objective <TEXT>` — L'objectif à traiter par le cycle (obligatoire).
+- `--json` (ou `-j`) — Sortie structurée JSON.
+- `--trace` — Affiche le CycleTrace complet avec les métadonnées d'assembly contexte (nombre d'items par source, échantillons, sources indisponibles).
+- `--save-trace <PATH>` — Chemin de sauvegarde explicite (par défaut : auto-sauvegardé dans `target/last-orchestrator-trace.json`).
+- `--proposal-generator <simulated|llm>` — Backend de génération de proposition (défaut : `simulated`).
+- `--perm <PERMISSION>` — Permissions accordées pour l'évaluation Decision Gate (répétable, défaut : `ReadDocument`).
+- `--workspace-id <ID>` — Identifiant du workspace (défaut : `workspace-alpha`).
+- `--agent-id <ID>` — Identifiant de l'agent (défaut : `agent-alpha`).
+
+Options `status` :
+
+- `--json` — Sortie structurée JSON du CycleTrace complet.
+- `--trace-path <PATH>` — Chemin vers un fichier CycleTrace JSON sauvegardé (défaut : `target/last-orchestrator-trace.json`).
+
+Le trace est automatiquement sauvegardé après chaque `orchestrator run` dans `target/last-orchestrator-trace.json`, permettant une lecture cross-invocation via `orchestrator status` sans option supplémentaire.
+
+Chaîne du cycle :
+
+```text
+ObjectiveInput → ContextBundle → ComputeRouteResult → ProposalRequest → ProposedAction → Decision Gate → AuditEvent → OrchestratorOutcome
+```
+
+Tous les champs sont consultatifs (advisory) et non autorisants. La sortie du Decision Gate et les événements d'audit portent l'état réel de gouvernance.
+
+Si aucun trace n'a encore été sauvegardé, `orchestrator status` affiche un message d'aide au lieu d'une erreur.
+
 ## Installation
 
 ```bash
