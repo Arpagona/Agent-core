@@ -40,6 +40,31 @@ The Neutral Orchestrator must not add:
 
 ## Phase 3 milestone queue
 
+### Current progress snapshot — 2026-05-29
+
+Phase 3 has moved well past the original P3-0/P3-5 planning envelope. The original milestones below remain useful as historical contract boundaries, but the active queue is now the CycleTrace / Failure-to-Insight / compute-efficiency consolidation stack.
+
+Delivered or merged on `main` unless a regression is found:
+
+- P3-0 — roadmap and contract definition.
+- P3-1 — Neutral Orchestrator V0 domain contract.
+- P3-2 — deterministic in-process loop skeleton.
+- P3-3 — read-only CLI/MCP readback foundations.
+- P3-4 — memory-aware context integration design plus real alpha adapters.
+- P3-4a/f — Graph Memory, Compressed Cognitive Attention, Reservoir Echo, Holographic Memory, Tool Runtime and compute-aware memory routing.
+- P3-6/P3-7/P3-8/P3-9 — MultiAdapter integration, proposal routing, Decision Gate integration, CLI proposal-generator surface and orchestrator demo loop.
+- P3-10/P3-13/P3-14 — Compute Reservoir delegation, compute-aware context assembly for real adapters, and CycleTrace -> FailureInsightCandidate bridge.
+
+Open stack at this snapshot:
+
+- PR #200 — governance/bootstrap docs, green and mergeable.
+- PR #202 — P3-15 structured cost/quality metadata in CycleTrace, green and mergeable.
+- PR #197 — P3-15 CycleTrace -> Failure-to-Insight CLI `--insights`, green and mergeable.
+- PR #198 — P3-16 compute efficiency feedback via `analyze_compute_efficiency()`, green and mergeable.
+- PR #199 — P3-17 efficiency feedback context assembly, mergeable but CI red; fix before merge.
+
+Operational rule: do not start P3-18 or Phase 4 until the #197/#198/#199 stack is resolved or explicitly abandoned with evidence. The next highest-value work is to make compute/cost/quality/effectiveness visible in operator readback without making it an authorization signal.
+
 ### P3-0 — Roadmap and contract definition
 
 Goal: document the Phase 3 queue and the Neutral Orchestrator V0 boundary.
@@ -127,10 +152,16 @@ Required properties:
 - clear business value;
 - clear audit/governance explanation.
 
-## Deferred until after P3-1/P3-2
+## Still deferred unless explicitly scoped and governed
 
-- Runtime integration of `compressed-cognitive-attention`.
 - Mission Control Web expansion.
 - Scheduler/autonomy work.
 - Human approval semantics beyond design/readback.
 - Any new external-effect capability.
+- Runtime integration that treats context, compute routing, CycleTrace, memory recall or Failure-to-Insight as authorization.
+
+Already partially delivered in alpha and no longer merely deferred:
+
+- Context assembly adapters for Graph Memory, Holographic Memory, Reservoir Echo, Compressed Cognitive Attention and Tool Runtime.
+- Compute Reservoir advisory routing inside orchestrator flows.
+- CLI readback/demo surfaces for orchestrator cycles.

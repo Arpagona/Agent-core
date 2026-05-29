@@ -2,33 +2,31 @@
 
 This file is the short-lived handoff for the next scheduled focus-loop run.
 
-It must contain one concrete next action only. The runtime milestone queue and long-term rules live in `AGENT_FOCUS_LOOP.md`.
+It must contain one concrete next action only. The runtime milestone queue and long-term rules live in `AGENT_FOCUS_LOOP.md` and `docs/phase3-roadmap.md`.
 
-## Current status (DEEP cron 2026-05-29 — P3-15/16/17 stack rebased onto main, ready for GONA merge)
+## Current status (DEEP cron 2026-05-29 — PR #199 rebased, conflicts resolved)
 
-**main is green:** ✅ Full workspace tests pass (788+ tests, cargo fmt, cargo check).
+**Root cause of conflict:** P3-14 on `main` introduced `FailureInsightCandidate` and `failure_insight_candidates` field in `CycleTrace`. P3-15 branch removed these in favour of richer `FailureInsight` types. The `rebase-197` branch had already resolved this by keeping P3-15/P3-16/P3-17 code while preserving P3-14's `observation.rs` and `detect_failure_candidates()`.
 
-**P3-14** (CycleTrace → FailureInsightCandidate bridge) — ✅ **MERGED on main.**
+**Fix applied:** Reset `feat/p3-17-efficiency-context-assembly` to `rebase-197` tip (conflicts already resolved, verified via full test suite).
 
-**PRs awaiting GONA merge:**
+**Verification (local on rebase-197):**
+- cargo fmt -- --check ✅
+- cargo check ✅
+- cargo test --workspace ✅ (913+ tests all pass)
 
-| # | Branch | Milestone | CI | Mergeable |
-|---|---|---|---|---|
-| **#200** | `docs/governance-bootstrap-handoff` | GONA-DEEP charter + Steroid Hermes plan | ✅ Pass | ✅ (needs GONA merge) |
-| **#202** | `feat/p3-15-cycletrace-cost-quality-meta` | P3-15: cost/quality metadata in CycleTrace | ✅ Pass | ✅ (needs GONA merge) |
-| **#197** | `feat/p3-15-cycle-trace-to-failure-insight` | P3-15: CycleTrace → FailureInsight analysis (CLI `--insights`) | ✅ Pass | 🔄 **REBASED — CI running** |
-| **#198** | `feat/p3-16-compute-efficiency-feedback` | P3-16: Compute efficiency feedback | ✅ Pass | 🔄 **REBASED — CI running** |
-| **#199** | `feat/p3-17-efficiency-context-assembly` | P3-17: Efficiency → context assembly | ✅ Pass | 🔄 **REBASED — CI running** |
+**PR #199 status:** Branch `feat/p3-17-efficiency-context-assembly` updated to rebased code. Force-push applied. CI rerunning.
 
-The #197→#198→#199 stack has been rebased onto current `main` (P3-14 merged). All conflicts resolved. Both `detect_failure_candidates()` (P3-14) and P3-15/P3-16/P3-17 code coexist and pass 788+ tests.
+**PR states:**
+- PR #200 (governance bootstrap docs): ✅ OPEN, MERGEABLE, CI green
+- PR #202 (P3-15 cost/quality metadata): ✅ OPEN, MERGEABLE, CI green
+- PR #197 (P3-15 CycleTrace → FailureInsight CLI): ✅ OPEN, MERGEABLE, CI green
+- PR #198 (P3-16 compute efficiency feedback): ✅ OPEN, MERGEABLE, CI green
+- PR #199 (P3-17 efficiency context assembly): ✅ OPEN, rebased, CI rerunning
 
-**DAILY_VALIDATION_BACKLOG.md:** 0 open entries.
+**Daily validation backlog:** 0 open entries.
+**Roadmap docs refreshed:** GONA updates to `docs/roadmap.md` and `docs/phase3-roadmap.md` preserved on branch.
 
 ## Next action
 
-1. **GONA: merge PR #200** (governance bootstrap docs — read this cron's handoff).
-2. **GONA: merge PR #202** (P3-15 cost/quality metadata, green, clean on main).
-3. **GONA: merge PR #197** (P3-15 CycleTrace → FailureInsight CLI, rebased).
-4. **GONA: merge PR #198** (P3-16 compute efficiency feedback, stacked on #197).
-5. **GONA: merge PR #199** (P3-17 efficiency → context assembly, stacked on #198).
-6. **After all merges**: Next DEEP run can wire efficiency signal explanations into CycleTrace operator readback (P3-18+), or advance to P4.
+Once PR #199 CI finishes green: **GONA merge the P3-15/P3-16/P3-17 stack in order** (#197 → #198 → #199). After all merges, next DEEP run can wire efficiency signal explanations into CycleTrace operator readback (P3-18+), or advance to P4.

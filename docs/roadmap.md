@@ -2,7 +2,23 @@
 
 La roadmap reflète à la fois l'avancement réel et l'ordre architectural cible. Certaines briques ont été prototypées hors ordre pour explorer rapidement le système. Elles doivent rester alpha/expérimentales tant que les couches de gouvernance ne sont pas stabilisées, mais cela ne doit pas bloquer les incréments read-only utiles.
 
-Référence canonique : lire `PROJECT_OBJECTIVES.md` pour la vision, `PROJECT_STATUS.md` pour l'état opérationnel courant, `docs/operating-doctrine.md` pour la doctrine de travail, `docs/development-acceleration.md` pour la direction actuelle d'accélération et `docs/failure-to-insight.md` pour la transformation des échecs en apprentissages durables non autorisants.
+Référence canonique : lire `PROJECT_OBJECTIVES.md` pour la vision, `PROJECT_STATUS.md` pour l'état opérationnel courant, `AGENT_FOCUS_LOOP.md` pour la queue active, `FOCUS_LOOP_NEXT.md` pour le prochain geste opérationnel, `docs/operating-doctrine.md` pour la doctrine de travail, `docs/development-acceleration.md` pour la direction actuelle d'accélération et `docs/failure-to-insight.md` pour la transformation des échecs en apprentissages durables non autorisants.
+
+## Snapshot opérationnel — 2026-05-29
+
+La roadmap active est maintenant **Phase 3 — Neutral Orchestrator / governed cognitive runtime**.
+
+État vérifié :
+
+- Phase 1 et Phase 2 sont considérées livrées sauf régression.
+- Le backlog de validation quotidienne est vide : aucun candidat ouvert dans `DAILY_VALIDATION_BACKLOG.md`.
+- Le `main` récent est vert d'après les PRs mergées et les handoffs, mais la branche locale courante peut être une branche de rebase/stack en cours ; vérifier `git status` avant tout merge.
+- Neutral Orchestrator n'est plus simplement “deferred” : une couche alpha existe et coordonne contexte, route compute, génération de proposition, Decision Gate, audit/readback et CycleTrace, sans autorisation implicite.
+- Les adapters de contexte mémoire sont livrés en alpha : Graph Memory, Holographic Memory, Reservoir Echo, Compressed Cognitive Attention et Tool Runtime alimentent le contexte comme signaux advisory.
+- Le chemin LLM a avancé au-delà du proposal-only strict : les intents de tool-call directs sont acceptables uniquement dans l'enveloppe gouvernée `LLM ToolCall Intent -> Decision Gate -> Tool Runtime/MCP -> Observation -> Audit -> Reflection`.
+- Travail ouvert au moment de ce snapshot : PRs #197/#198 vertes, #199 mergeable mais CI rouge, #200/#202 vertes et mergeables. Le prochain travail sûr est de résoudre/merger cette pile avant d'ouvrir un nouveau chantier.
+
+La priorité immédiate n'est donc plus de définir Phase 3, mais de **consolider la pile P3-15/P3-16/P3-17**, corriger le rouge CI de #199, puis seulement décider entre P3-18+ et l'entrée en Phase 4.
 
 ## Recentrage architectural et accélération contrôlée
 
@@ -10,7 +26,7 @@ Priorité immédiate : accélération contrôlée vers une alpha fonctionnelle.
 
 Le projet doit avancer vers une ergonomie Hermes-like tout en conservant l'architecture ARPAGONA : Rust-first, local-first, graph-native, compute-aware, auditable et gouvernée.
 
-Le frein principal reste le même : aucune exécution réelle d'outil, autonomie scheduler, navigateur, MCP, shell, envoi email ou accès secrets par LLM ne doit être ajouté avant stabilisation du chemin gouverné.
+Le frein principal reste le même : aucune capacité dangereuse non gouvernée — shell libre, navigateur, écriture/fichier non bornée, envoi email, autonomie scheduler ou accès secrets par LLM — ne doit être ajoutée. MCP lui-même est désormais une surface alpha gouvernée ; ce qui reste interdit, ce sont les capacités MCP dangereuses ou l'usage de MCP comme contournement du Decision Gate.
 
 Mais les surfaces read-only de supervision sont désormais prioritaires. En particulier, la CLI est le premier Mission Control local.
 
@@ -24,7 +40,7 @@ Ordre de développement actuel :
 6. stabiliser Audit autant que nécessaire pour le readback ;
 7. intégrer Failure-to-Insight par doctrine documentaire, puis vocabulaire borné et conventions d'audit ;
 8. développer la CLI de supervision read-only ;
-9. reprendre ensuite Runtime / API / Orchestrator par petits incréments gouvernés ;
+9. poursuivre Runtime / API / Orchestrator par petits incréments gouvernés ;
 10. différer Mission Control Web tant que la CLI locale n'a pas prouvé les bons patterns.
 
 Consignes de recadrage :
@@ -163,19 +179,19 @@ Direction actuelle : rendre l'audit inspectable via CLI avant d'élargir l'API o
 
 ## Brique 6bis — Failure-to-Insight
 
-État : doctrine documentaire canonique dans `docs/failure-to-insight.md`; aucune implémentation runtime dans l'alpha actuelle.
+État : doctrine documentaire canonique, vocabulaire domaine minimal et premiers chemins alpha de readback/persistence gouvernée. Les PRs Phase 3 récentes ont ajouté ou proposé des ponts CycleTrace -> FailureInsightCandidate et de l'analyse d'efficacité compute, toujours non autorisants.
 
 Objectif : transformer les échecs, blocages, mauvaises propositions, mauvais routages, contextes manquants, policy gaps et corrections humaines en apprentissages durables. Ces apprentissages peuvent améliorer documentation, tests, conventions d'audit, mémoire, politiques, routage Compute Reservoir et futures décisions, mais ils ne valent jamais autorisation, approbation, exécution ni gouvernance autonome.
 
-Ordre recommandé :
+Ordre recommandé actualisé :
 
-1. doctrine documentaire ;
-2. vocabulaire domaine `FailureInsight` ;
-3. conventions Audit ;
-4. readback CLI ;
-5. tests de régression ;
-6. intégration Graph Memory ;
-7. influence future sur Compute Reservoir et Decision Gate.
+1. doctrine documentaire — livré ;
+2. vocabulaire domaine `FailureInsight` — livré en alpha ;
+3. conventions Audit et readback non autorisant — livré progressivement ;
+4. readback CLI et CycleTrace operator-facing — en cours Phase 3 ;
+5. tests de régression — en cours et à maintenir ;
+6. intégration Graph Memory / persistence approuvée — alpha ;
+7. influence future sur Compute Reservoir et Decision Gate — seulement comme signal/contexte, jamais comme autorisation.
 
 Contraintes alpha : ne pas implémenter d'auto-amélioration autonome, de self-modification, de réécriture automatique de policy, de mutation mémoire non revue, de scheduler ou d'exécution réelle. Failure-to-Insight est une couche d'apprentissage et d'observabilité, pas une couche d'exécution ni une autorisation implicite.
 
@@ -188,13 +204,19 @@ Objectif : faire de la CLI le premier Mission Control local.
 Commandes existantes ou en cours :
 
 - `arpagona audit decision-summary <decision-id>` ;
-- `arpagona audit decision-summary <decision-id> --json`.
+- `arpagona audit decision-summary <decision-id> --json` ;
+- `arpagona status --json` ;
+- `arpagona memory demo failure-insight --json` ;
+- `arpagona tool list|inspect|demo ... --json` ;
+- `arpagona cognitive run --llm --provider ...` ;
+- `arpagona orchestrator run --proposal-generator simulated|llm ...` avec readback non autorisant.
 
-Prochaines commandes souhaitées :
+Prochaines commandes souhaitées / à consolider :
 
 - `arpagona audit task-summary <task-id>` ;
 - `arpagona audit workspace-summary <workspace-id>` ;
-- commandes de status/readback permettant de comprendre tâches, actions proposées, décisions, risques, politiques et événements d'audit.
+- commandes de status/readback permettant de comprendre tâches, actions proposées, décisions, risques, politiques, événements d'audit, CycleTrace et FailureInsightCandidates ;
+- explication operator-facing de coût/qualité/efficacité compute quand la pile P3-15/P3-17 sera mergée.
 
 Contraintes :
 
@@ -207,13 +229,15 @@ Contraintes :
 
 ## Brique 8 — Neutral Orchestrator
 
-État : pas encore implémenté comme brique stable.
+État : brique alpha active dans `crates/neutral-orchestrator`, pas encore stable produit.
 
 Objectif : coordonner objectifs, tâches, rappel mémoire, allocation Compute Reservoir, propositions d'action, Decision Gate et Audit.
 
 Contrainte : l'orchestrateur ne doit jamais devenir un agent autonome non gouverné.
 
-Direction actuelle : différer l'orchestrateur stable jusqu'à ce que la CLI permette d'inspecter clairement les décisions et traces produites par les couches existantes.
+Implémentation actuelle : contrats de cycle, contexte advisory, adapters mémoire/contexte, route compute, génération de proposition simulée ou LLM, passage par Decision Gate, audit/readback, demo CLI et CycleTrace. Les travaux récents P3-13/P3-14 sont mergés ; P3-15/P3-16/P3-17 sont en pile PR et doivent être terminés avant d'élargir la surface.
+
+Direction actuelle : stabiliser l'inspectabilité opérateur du CycleTrace, des signaux Failure-to-Insight et de l'efficacité compute. Ne pas transformer l'orchestrateur en scheduler, approbateur, exécuteur ou couche d'autonomie cachée.
 
 ## Brique 9 — API Server Axum
 
@@ -248,16 +272,18 @@ Contrainte : toute boucle autonome devra passer par Graph Memory, Compute Reserv
 
 ## Brique 12 — LLM Provider abstraction stabilisée
 
-État : V0 expérimentale dans `crates/llm` et endpoint `POST /agent/propose`.
+État : V0 expérimentale dans `crates/llm`, endpoint `POST /agent/propose`, synthèse cognitive locale/Ollama et chemins de tool-call gouvernés via runtime/orchestrator.
 
 - `LlmProvider` abstrait.
 - `MockProvider` pour tests et démos sans réseau.
 - `OpenAiProvider` utilisant l'API Responses via `OPENAI_API_KEY`.
+- `OllamaProvider` pour usage local quand disponible, sans pull automatique dans les protocoles de validation.
 - `ProposedActionDraft` transformé en `ProposedAction` avec `PendingDecision`.
-- Aucune exécution, aucun tool OpenAI, aucun appel automatique au Decision Gate.
+- Aucune exécution par provider, aucun tool OpenAI direct, aucun contournement du Decision Gate.
+- Refus/gouvernance explicite pour objectifs secrets `.env`, credentials, shell libre et commandes système non bornées.
 - Documentation dédiée : `docs/llm-provider.md`.
 
-Contrainte : le provider LLM propose, mais ne gouverne pas et n'exécute pas.
+Contrainte : le provider LLM propose ou synthétise, mais ne gouverne pas et n'exécute pas. Les tool-call intents directs ne sont valides que s'ils passent par Decision Gate puis Tool Runtime/MCP borné, avec observation et audit.
 
 ## Brique 13 — End-to-end demo
 
@@ -369,7 +395,8 @@ Documentation dédiée : `docs/terminal-interface.md` et `docs/causal-trace.md`.
 > Holographic Memory reactivates paths to truth. It does not replace truth.
 
 **Contraintes V0 :**
-- Pas de LLM, pas de base vectorielle, pas de persistance, pas d'exécution.
+- Pas de LLM obligatoire, pas de base vectorielle externe, pas d'exécution.
+- Persistance SQLite locale existe en alpha et doit rester isolée/gouvernée.
 - Pas d'autorisation — le contexte reconstruit est une preuve, pas une approbation.
 - Ne remplace pas Graph Memory (source de vérité) ni le Decision Gate.
 - Code déterministe et testable.
