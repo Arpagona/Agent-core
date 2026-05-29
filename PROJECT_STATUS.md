@@ -499,6 +499,35 @@
 
 This session verified the C1 milestone (Real LLM integration in proposal-only mode) and confirmed Phase 2 is fully delivered. C1 was already implemented and tested (integration test `cognitive_llm_mock_provides_proposal_only_synthesis` passes) but the handoff file still pointed to it as "next action."
 
+## 28. Latest Session Update (2026-05-29 — P3-18 docs completion + demo verification)
+
+This session verified the P3-18 milestone (MultiAdapterContextAssembler CLI wiring) is complete and added missing documentation for the `--seed-*` CLI flags.
+
+Changed:
+- Added `--seed-audit-event`, `--seed-holo-trace`, `--seed-reservoir-pulse`, `--seed-cca-event` documentation to `docs/cli.md` under the "Neutral Orchestrator — Cycle déterministe" section
+- Added full seeded orchestrator example with explanation and governance notes
+- Ran demo script `scripts/demo-seeded-orchestrator.sh`: 9/9 steps green
+- `bash scripts/check-cli-docs-coverage.sh` passes
+
+Not changed (per stop-list):
+- No code changes — documentation only
+- No new CLI commands, flags, or capabilities added
+- No scheduler, browser, write, email, MCP, secrets, API endpoint, self-modification, autonomy, multi-agent runtime, or LLM integration
+- No Decision Gate bypass
+- No SurrealDB persistence changes
+- No readback-as-authorization behavior
+
+Verification:
+- `cargo fmt -- --check`: clean
+- `cargo check`: clean
+- `cargo test --workspace`: all 731+ tests pass (0 failures, 0 new failures)
+- Conflict marker scan: clean
+
+Blockers:
+- DEEP cannot merge PRs per governance rule. All 8 PRs (#200, #202, #197, #198, #199, #203, #204, #205) are mergeable with green CI, awaiting GONA merge.
+- No DAILY_VALIDATION_BACKLOG.md entries remain open.
+- No P3-19 milestone defined yet. Next logical step after stack merge: either orchestrator cycle timeout/retry, `--insights` integration into the running cycle, or operator-facing trace replay.
+
 ### Verification performed
 
 - Confirmed existing C1 artifacts:

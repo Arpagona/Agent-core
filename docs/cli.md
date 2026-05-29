@@ -395,6 +395,10 @@ Options :
 - `--agent-id <ID>` — Agent émetteur du cycle. Défaut : `agent-alpha`.
 - `--proposal-generator <BACKEND>` — Backend de génération de proposition : `simulated` (déterministe, par défaut) ou `llm` (via fournisseur LLM en mode proposition uniquement). Défaut : `simulated`.
 - `--multi-adapter` — Utilise le `MultiAdapterContextAssembler` avec les 5 adaptateurs mémoire réels (ToolRuntime, GraphMemory, HolographicMemory, ReservoirEcho, CompressedCognitiveAttention) au lieu du `SimulatedContextAssembler` par défaut. Les stores mémoire restent vides par défaut (aucune donnée persistante), ce qui prouve l'intégration sans nécessiter de base de données.
+- `--seed-audit-event <TEXT>` — Amorce un événement d'audit `GraphMemory` avec ce texte (nécessite `--multi-adapter`). Utile pour tester l'assemblage de contexte avec des données simulées.
+- `--seed-holo-trace <TEXT>` — Amorce une trace `HolographicMemory` avec ce texte (nécessite `--multi-adapter`). Simule le rappel par résonance holographique.
+- `--seed-reservoir-pulse <TEXT>` — Amorce une impulsion `ReservoirEcho` avec ce texte (nécessite `--multi-adapter`). Simule la continuité cognitive volatile.
+- `--seed-cca-event <TEXT>` — Amorce un événement `CompressedCognitiveAttention` avec ce texte (nécessite `--multi-adapter`). Simule le rappel temporel enrichi.
 
 La commande exécute le squelette local du Neutral Orchestrator : objectif → assemblage de contexte consultatif → routage compute → proposition → Decision Gate → issue orchestrée. Le résultat reste explicitement non autorisant : il ne planifie pas de scheduler, n'exécute pas d'outil externe, ne crée pas d'approbation durable et ne remplace pas le Decision Gate.
 
@@ -428,6 +432,23 @@ cargo run -p arpagona-cli -- orchestrator run \
 # 2. Consulter la trace sauvegardée (même dans une invocation séparée)
 cargo run -p arpagona-cli -- orchestrator status --json
 ```
+
+Exemple complet avec amorces mémoire (`--seed-*`) :
+
+```bash
+cargo run -p arpagona-cli -- orchestrator run \
+  --objective "Analyse des retours clients pour conformité RGPD" \
+  --multi-adapter \
+  --seed-audit-event "Client requested GDPR compliance review" \
+  --seed-holo-trace "GDPR training completed for all engineering staff" \
+  --seed-reservoir-pulse "Priority: update data retention policy" \
+  --seed-cca-event "Previous audit: customer consent records need review" \
+  --trace --json
+```
+
+Cet exemple montre l'assemblage de contexte depuis les 5 adaptateurs mémoire, avec des données amorcées pour chaque source. La sortie JSON inclut le breakdown compute-aware (route calculée, items par source de contexte) et le résultat orchestré.
+
+Les flags `--seed-*` sont conçus pour les démos et les tests : ils permettent de vérifier que chaque adaptateur mémoire est correctement intégré, sans nécessiter de base de données persistante, d'appel LLM ou d'effet externe.
 
 La trace et son readback restent explicitement non autorisants (`non_authorizing: true`).
 
