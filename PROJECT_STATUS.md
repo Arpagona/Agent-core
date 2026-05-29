@@ -3764,3 +3764,64 @@ This session implemented P3-13: all 5 real context assembly adapters now use com
 - No Decision Gate bypass
 - No readback-as-authorization behavior
 
+## 32. Latest Session Update (2026-05-29 DEEP cron — PR #194 formatting fix, PR #188 closed, handoff update)
+
+This session repaired PR #194's CI failure (formatting-only) and closed stale PR #188.
+
+### PR #194 — Formatting fix
+
+`cargo fmt --all` diff in 4 adapter test files:
+- `crates/neutral-orchestrator/src/compressed_cognitive_attention_adapter.rs`
+- `crates/neutral-orchestrator/src/graph_memory_adapter.rs`
+- `crates/neutral-orchestrator/src/holographic_memory_adapter.rs`
+- `crates/neutral-orchestrator/src/tool_runtime_adapter.rs`
+
+### PR #188 — Closed as superseded
+
+`docs/handoff-hygiene-2026-05-29` contained stale handoff info (referenced PR #187 which was already merged). Superseded by #194 and subsequent P3-10/P3-13 work.
+
+### Verification
+
+- `cargo fmt -- --check`: ✅ clean
+- `cargo check`: ✅ clean
+- `cargo test`: ✅ all crates pass
+- CI re-running on 9cbcea6 (in progress at report time)
+
+### Files changed
+
+| File | Change |
+|------|--------|
+| `crates/neutral-orchestrator/src/compressed_cognitive_attention_adapter.rs` | fmt: assert! multiline formatting |
+| `crates/neutral-orchestrator/src/graph_memory_adapter.rs` | fmt: assert! multiline + chained call formatting |
+| `crates/neutral-orchestrator/src/holographic_memory_adapter.rs` | fmt: assert! multiline formatting |
+| `crates/neutral-orchestrator/src/tool_runtime_adapter.rs` | fmt: assert! multiline + format! + chained call formatting |
+| `FOCUS_LOOP_NEXT.md` | Updated handoff — PR #194 formatting fix pushed, CI re-running, PR #188 closed |
+
+### Safety boundaries preserved
+
+- No code logic changed — formatting only (cargo fmt --all)
+- No new CLI flags, runtime behavior, model calls, permissions, or governance logic
+- No Decision Gate bypass, scheduler, autonomy, browser automation, email, secrets access, self-modification, or Mission Control Web growth
+- No branch created for new feature work (only fix pushed to existing branch)
+
+### Deliberately not changed
+
+- No new feature work or milestone implementation
+- PR #188 closed as superseded rather than rebased (its handoff info was fully stale)
+- No broad CLI mutation command added
+- No API endpoint added
+- No Graph Memory persistence helper added
+- No Decision Gate behavior changed
+- No LLM/provider/runtime changes
+
+### Blocker
+
+PR #194 CI was in-progress at report time. Previous failure was formatting-only, now fixed and pushed. Awaiting CI re-run completion before GONA can merge.
+
+### Recommended next step for GONA
+
+1. **Verify PR #194 CI** — the new commit 9cbcea6 should pass CI (formatting was the only issue).
+2. **Merge PR #194** when CI is green.
+3. **Then advance Phase 3**: Cycle Trace V0 rich compute-aware breakdown in `orchestrator status --json` (per-source context item counts and compute route info).
+
+
