@@ -4000,4 +4000,56 @@ Alpha CLI extension. Pure wiring change — no new I/O, no new dependencies, no 
 ### Recommended next step for GONA
 
 1. Merge the stacked PRs in order: #200 → #202 → #197 → #198 → #199 → #203 → #204 → then #205.
-2. After merge: wire real seeded data into the `MultiAdapterContextAssembler` adapters so `orchestrator run --multi-adapter` returns actual advisory context items. Add CLI flags to seed Holographic Memory traces or Graph Memory facts before the cycle.
+2. After merge: add a demo script (`scripts/demo-seeded-orchestrator.sh`) proving the full `--seed-* --multi-adapter --trace --json` chain works end-to-end, and/or integrate the CycleTrace CLI output to report which adapters returned non-empty items.
+
+## 28. Latest Session Update (2026-05-29 — P3-18 seed-data CLI flags for MultiAdapterContextAssembler)
+
+This session extended PR #205 (`feat/p3-18-multi-adapter-cli-wiring`) with CLI flags that seed demo data into all 5 memory adapters before each orchestrator cycle.
+
+### What was added
+
+**CLI flags on `orchestrator run`:**
+| Flag | Type | Description |
+|------|------|-------------|
+| `--seed-audit-event <TEXT>` | Repeatable | Seeds a GraphMemory audit event with this text |
+| `--seed-holo-trace <TEXT>` | Repeatable | Seeds a HolographicMemory trace with this text |
+| `--seed-reservoir-pulse <TEXT>` | Repeatable | Seeds a ReservoirEcho pulse with this text |
+| `--seed-cca-event <TEXT>` | Repeatable | Seeds a CompressedCognitiveAttention memory event |
+
+**New functions:**
+- `has_seed_flags()` — returns true if any seed flag was provided; auto-enables the `MultiAdapterContextAssembler` even without `--multi-adapter`
+- `build_multi_adapter_with_seeds()` — constructs all 5 adapters, pre-seeding each store based on the CLI flags
+
+**Seeding logic per adapter:**
+- GraphMemory: creates `AuditEvent` records with `DecisionCreated` type and the seed text as JSON payload
+- HolographicMemory: creates `HolographicTrace` entries with `ManualNote` source kind, "seed" and "demo" keywords
+- ReservoirEcho: absorbs `CognitivePulse::stimulus` pulses with the seed text and "seed"/"demo" tags
+- CompressedCognitiveAttention: generates deterministic 16-dim embeddings (LCG hash) from seed text, creates `MemoryEvent` entries
+- ToolRuntime: uses real workspace root (unchanged — reads actual workspace files)
+
+**New dependency:** `arpagona-compressed-cognitive-attention` added to `crates/cli/Cargo.toml` for `MemoryEvent` and `Config` types.
+
+### New parser tests (6 total)
+
+| Test | What it verifies |
+|------|-----------------|
+| `cli_parses_orchestrator_run_with_seed_audit_event` | `--seed-audit-event` parses correctly |
+| `cli_parses_orchestrator_run_with_all_seed_flags` | All 4 seed flags together |
+| `cli_parses_orchestrator_run_with_seed_flags_implied_multi_adapter` | Seed flag without explicit `--multi-adapter` works |
+| `cli_parses_orchestrator_run_with_multiple_audit_seeds` | Repeated `--seed-audit-event` accumulates |
+
+### Verification
+- `cargo fmt -- --check`: clean
+- `cargo check`: clean
+- `cargo test`: 952 tests pass (all crates) including 6 new CLI parser tests
+
+### Safety boundaries preserved
+- No execution, authorization, or approval added
+- All seeded data is advisory — adapters return `ContextItem` with `available: true` and `is_advisory` semantics
+- No Decision Gate bypass — `build_multi_adapter_with_seeds` just wires adapters, the orchestrator engine still routes through the same Decision Gate
+- No shell, browser, email, secrets, scheduler, or MCP expansion
+- No readback treated as authorization
+- No Graph Memory persistence — uses `InMemoryGraphMemoryStore` and `InMemoryHolographicMemoryStore`
+- No hidden memory injection — seeded data is ephemeral (in-memory only, lost after process exit)
+- No API endpoint changes
+- No SurrealDB, SQLite, or filesystem persistence modifications
