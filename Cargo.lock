@@ -321,6 +321,7 @@ name = "arpagona-neutral-orchestrator"
 version = "0.1.0"
 dependencies = [
  "arpagona-agent-core",
+ "arpagona-compressed-cognitive-attention",
  "arpagona-decision-gate",
  "arpagona-holographic-memory",
  "arpagona-tool-runtime",

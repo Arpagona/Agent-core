@@ -40,11 +40,13 @@ use arpagona_agent_core::permission::Permission;
 use arpagona_agent_core::risk::RiskLevel;
 use chrono::{DateTime, Utc};
 
+pub mod compressed_cognitive_attention_adapter;
 pub mod context_assembler;
 pub mod holographic_memory_adapter;
 pub mod reservoir_echo_adapter;
 pub mod tool_runtime_adapter;
 
+pub use compressed_cognitive_attention_adapter::CompressedCognitiveAttentionAdapter;
 pub use context_assembler::{ContextAssembler, SimulatedContextAssembler};
 pub use holographic_memory_adapter::HolographicMemoryAdapter;
 pub use reservoir_echo_adapter::ReservoirEchoAdapter;
