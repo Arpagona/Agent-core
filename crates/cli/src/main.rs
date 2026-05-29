@@ -223,6 +223,10 @@ pub struct OrchestratorRunArgs {
     /// Proposal generator backend: simulated (deterministic, default) or llm (mock provider for now).
     #[arg(long, default_value_t = ProposalGeneratorArg::Simulated)]
     pub proposal_generator: ProposalGeneratorArg,
+
+    /// Use MultiAdapterContextAssembler with all 5 memory adapters instead of SimulatedContextAssembler.
+    #[arg(long, default_value_t = false)]
+    pub multi_adapter: bool,
 }
 
 const DEFAULT_ORCHESTRATOR_TRACE_PATH: &str = "target/last-orchestrator-trace.json";
@@ -9511,12 +9515,26 @@ fn orchestrator_run(args: OrchestratorRunArgs) -> Result<(), Box<dyn Error>> {
     let agent_id = AgentId::new(args.agent_id);
 
     let engine = match args.proposal_generator {
-        ProposalGeneratorArg::Simulated => OrchestratorEngine::new(),
+        ProposalGeneratorArg::Simulated => {
+            let base = OrchestratorEngine::new();
+            if args.multi_adapter {
+                let multi = arpagona_neutral_orchestrator::MultiAdapterContextAssembler::new();
+                base.with_context_assembler(Box::new(multi))
+            } else {
+                base
+            }
+        }
         ProposalGeneratorArg::Llm => {
             let mock_provider = Box::new(arpagona_llm::MockProvider::safe_default());
             let llm_generator =
                 arpagona_neutral_orchestrator::LlmProposalGenerator::new(mock_provider);
-            OrchestratorEngine::new().with_proposal_generator(Box::new(llm_generator))
+            let base = OrchestratorEngine::new().with_proposal_generator(Box::new(llm_generator));
+            if args.multi_adapter {
+                let multi = arpagona_neutral_orchestrator::MultiAdapterContextAssembler::new();
+                base.with_context_assembler(Box::new(multi))
+            } else {
+                base
+            }
         }
     };
 
@@ -13280,6 +13298,55 @@ mod tests {
                 assert_eq!(args.objective, "Full demo: save trace for status");
             }
             _ => panic!("expected orchestrator run"),
+        }
+    }
+
+    #[test]
+    fn cli_parses_orchestrator_run_with_multi_adapter() {
+        let cli = Cli::try_parse_from(vec![
+            "arpagona",
+            "orchestrator",
+            "run",
+            "--objective",
+            "Multi-adapter context test",
+            "--multi-adapter",
+        ])
+        .expect("orchestrator run --multi-adapter should parse");
+        match cli.command {
+            Command::Orchestrator(OrchestratorCommand {
+                command: OrchestratorSubcommand::Run(args),
+            }) => {
+                assert!(args.multi_adapter, "--multi-adapter should be true");
+                assert!(!args.trace, "--trace should default to false");
+                assert_eq!(args.objective, "Multi-adapter context test");
+            }
+            _ => panic!("expected orchestrator run with --multi-adapter"),
+        }
+    }
+
+    #[test]
+    fn cli_parses_orchestrator_run_with_multi_adapter_and_trace() {
+        let cli = Cli::try_parse_from(vec![
+            "arpagona",
+            "orchestrator",
+            "run",
+            "--objective",
+            "Trace with multi-adapter",
+            "--multi-adapter",
+            "--trace",
+            "--json",
+        ])
+        .expect("orchestrator run --multi-adapter --trace --json should parse");
+        match cli.command {
+            Command::Orchestrator(OrchestratorCommand {
+                command: OrchestratorSubcommand::Run(args),
+            }) => {
+                assert!(args.multi_adapter, "--multi-adapter should be true");
+                assert!(args.trace, "--trace should be true");
+                assert!(args.json, "--json should be true");
+                assert_eq!(args.objective, "Trace with multi-adapter");
+            }
+            _ => panic!("expected orchestrator run with --multi-adapter --trace --json"),
         }
     }
 

@@ -3947,4 +3947,57 @@ This session created the P3-14 milestone: connecting orchestrated context assemb
 ### Recommended next step for GONA
 
 1. Review and merge PR #201.
-2. Next: connect CycleTrace metadata to Compute Reservoir cost/quality feedback, or add dedicated CLI surface (`orchestrator insights <trace-path>`).
+| Next: connect CycleTrace metadata to Compute Reservoir cost/quality feedback, or add dedicated CLI surface (`orchestrator insights <trace-path>`).
+
+## 29. Latest Session Update (2026-05-29 DEEP cron — P3-18 multi-adapter CLI wiring)
+
+This session wired the existing `MultiAdapterContextAssembler` into the CLI's `orchestrator run` command, bridging the gap between the pre-built multi-adapter pipeline and the actual operator-facing CLI.
+
+### What was added
+
+**`crates/cli/src/main.rs`:**
+- Added `--multi-adapter` flag to `OrchestratorRunArgs`
+- When set, constructs `MultiAdapterContextAssembler::new()` (with all 5 real memory adapters: ToolRuntime, GraphMemory, HolographicMemory, ReservoirEcho, CompressedCognitiveAttention) and passes it to `OrchestratorEngine` via `with_context_assembler()`
+- Works with both `simulated` and `llm` proposal generators
+- Compatible with `--trace`, `--json`, `--save-trace`, and all existing flags
+- 2 new CLI parser tests: `cli_parses_orchestrator_run_with_multi_adapter` and `cli_parses_orchestrator_run_with_multi_adapter_and_trace`
+
+**`docs/cli.md`:**
+- Documented `--multi-adapter` flag under the `orchestrator run` section
+- Explained that stores are empty by default (no persistent data required for proof of integration)
+
+### Verification performed
+
+- `cargo fmt -- --check`: ✅ clean
+- `cargo check`: ✅ clean
+- `cargo test --workspace`: ✅ 922 tests pass (920 existing + 2 new)
+- CLI smoke test: `orchestrator run --objective "..." --multi-adapter --trace` produces proper per-adapter context source summaries (graph_memory, holographic_memory, reservoir_echo) instead of "Simulated: ..." placeholders
+
+### Stability level
+
+Alpha CLI extension. Pure wiring change — no new I/O, no new dependencies, no new runtime behavior. The `MultiAdapterContextAssembler` and all 5 memory adapters were already implemented on `main`; this change makes them accessible from the operator CLI.
+
+### What was NOT added
+
+- No new adapters or memory stores
+- No seeded demo data (stores remain empty by default — the adapter integration is proven, not the data flow)
+- No GUI, web, scheduler, browser, email, shell, secrets, MCP, or autonomy expansion
+- No Decision Gate bypass
+- No hidden state, no auto-approval, no self-modification
+
+### Files changed
+
+| File | Change |
+|------|--------|
+| crates/cli/src/main.rs | Added `--multi-adapter` flag to `OrchestratorRunArgs`, conditional `with_context_assembler()` in `orchestrator_run()`, 2 CLI parser tests |
+| docs/cli.md | Documented `--multi-adapter` flag under `orchestrator run` |
+
+### Branch/PR
+
+- Branch: `feat/p3-18-multi-adapter-cli-wiring`
+- PR #205 — open, verification pending
+
+### Recommended next step for GONA
+
+1. Merge the stacked PRs in order: #200 → #202 → #197 → #198 → #199 → #203 → #204 → then #205.
+2. After merge: wire real seeded data into the `MultiAdapterContextAssembler` adapters so `orchestrator run --multi-adapter` returns actual advisory context items. Add CLI flags to seed Holographic Memory traces or Graph Memory facts before the cycle.
