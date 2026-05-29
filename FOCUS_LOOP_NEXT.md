@@ -4,13 +4,9 @@ This file is the short-lived handoff for the next scheduled focus-loop run.
 
 It must contain one concrete next action only. The runtime milestone queue and long-term rules live in `AGENT_FOCUS_LOOP.md`.
 
-## Current status (DEEP cron 2026-05-29 — P3-4 series complete)
+## Current status (DEEP cron 2026-05-29 — P3-6 complete)
 
-**main is green:** ✅ All 4 PRs merged:
-- #177 (P3-4b CompressedCognitiveAttentionAdapter)
-- #178 (docs: orchestrator CLI coverage)
-- #179 (DV-2026-05-29-002 safety refusal in LLM synthesis)
-- #180 (P3-4a GraphMemoryAdapter)
+**main is green:** ✅ All tests pass (0 new failures across full workspace).
 
 **Phase 3 progress:**
 - P3-0 (Roadmap definition): ✅ Completed in #168
@@ -23,13 +19,12 @@ It must contain one concrete next action only. The runtime milestone queue and l
 - P3-4d (HolographicMemoryAdapter): ✅ Merged (#175)
 - P3-4c (ReservoirEchoAdapter): ✅ Merged (#176)
 - P3-4b (CompressedCognitiveAttentionAdapter): ✅ Merged (#177)
-- **P3-4a (GraphMemoryAdapter): ✅ Merged (#180)**
-
-All P3-4 memory adapters now on main. The Neutral Orchestrator's `ContextAssembler` supports 5 context sources: ToolRuntimeAdapter, HolographicMemoryAdapter, ReservoirEchoAdapter, CompressedCognitiveAttentionAdapter, GraphMemoryAdapter.
+- P3-4a (GraphMemoryAdapter): ✅ Merged (#180)
+- **P3-6 (Integration verification spring): ✅ Completed — `MultiAdapterContextAssembler` wires all 5 adapters into one composite, with integration tests proving multi-source context assembly and orchestrator cycle compatibility.**
 
 ## Next action
 
-**P3-6: Integration verification spring** — run the existing `arpagona orchestrator cycle run` CLI command end-to-end with all 5 context sources live, verify the context assembly pipeline produces coherent multi-source observations, and write an integration acceptance test that exercises all adapters together. After verification, proceed toward Neutral Orchestrator V0 completeness (proposal routing, Decision Gate integration, audit linkage).
+**P3-7: Proposal routing and Decision Gate integration** — Connect the Neutral Orchestrator's `ProposalRequest` to real proposal generation (not just the deterministic ReadDocument simulation). Wire the existing LLM provider abstraction through the orchestrator so that proposals originate from the model (proposal-only mode, no tool execution). An intermediate option: implement a `ProposalGenerator` trait with a deterministic implementation and a mock backed by the existing `run_cognitive_synthesis` path, with Decision Gate evaluation.
 
-**Open:** 0 open PRs — all merged to main.
+**Open:** PR #182 (P3-6 integration verification spring) — open, mergeable.
 **DV backlog:** 0 open entries.
