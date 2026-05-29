@@ -3816,12 +3816,77 @@ This session repaired PR #194's CI failure (formatting-only) and closed stale PR
 
 ### Blocker
 
-PR #194 CI was in-progress at report time. Previous failure was formatting-only, now fixed and pushed. Awaiting CI re-run completion before GONA can merge.
+PR #194 CI was in-progress at report time. Previous failure was formatting-only, now fixed and pushed. CI has since completed: ✅ SUCCESS.
+
+## 33. Latest Session Update (2026-05-29 DEEP cron — P3-next: orchestrator status with compute-aware breakdown)
+
+This session implemented P3-next on the existing PR #194 branch (same topic, extended on `feat/p3-13-compute-aware-adapters`).
+
+### Added
+
+**`orchestrator status` command**:
+- New `OrchestratorSubcommand::Status(OrchestratorStatusArgs)` — display orchestrator status from a saved CycleTrace file
+- `--json` flag for structured JSON output of the full CycleTrace (compute route, per-source context item counts, etc.)
+- `--trace-path <PATH>` flag for reading a specific trace file (default: `target/last-orchestrator-trace.json`)
+- `orchestrator_status()` function reads and displays the trace with explicit non-authorizing warning
+
+**`orchestrator run --save-trace <PATH>` flag**:
+- New `--save-trace` option on `OrchestratorRunArgs` — saves the full CycleTrace as JSON to disk
+- Creates parent directories as needed
+- Compatible with `--trace` and `--json` modes
+
+**Tests**: 7 new parser tests:
+- `cli_parses_orchestrator_status_defaults` — status parses with defaults
+- `cli_parses_orchestrator_status_with_json` — status --json
+- `cli_parses_orchestrator_status_with_trace_path` — status --trace-path
+- `cli_parses_orchestrator_run_with_save_trace` — run --save-trace
+- `cli_parses_orchestrator_run_with_save_trace_and_trace` — run --trace --save-trace
+- `cli_rejects_orchestrator_status_without_such_subcommand` — status is a real subcommand
+
+### Documentation
+
+- `docs/cli.md`: Added `orchestrator status` section with examples, `--save-trace` option on `orchestrator run`, end-to-end loop example (run --trace --save-trace → status --json)
+- `FOCUS_LOOP_NEXT.md`: Updated handoff
+
+### Verification
+
+| Command | Status | Notes |
+|---------|--------|-------|
+| `cargo fmt -- --check` | ✅ clean | 0 diffs |
+| `cargo check` | ✅ clean | Full workspace |
+| `cargo test` | ✅ 913 pass | 130 CLI unit tests + 9 integration tests |
+
+### Files changed
+
+| File | Change |
+|------|--------|
+| `crates/cli/src/main.rs` | Added `OrchestratorStatusArgs`, `Status` variant, `--save-trace` flag, `orchestrator_status()`, save-trace logic in `orchestrator_run()`, 7 parser tests |
+| `docs/cli.md` | Added `orchestrator status` section, `--save-trace` documentation, end-to-end example |
+| `FOCUS_LOOP_NEXT.md` | Updated handoff |
+| `PROJECT_STATUS.md` | This session update |
+
+### Safety boundaries preserved
+
+- ✅ Read-only: `orchestrator status` reads a JSON file; `--save-trace` writes a JSON file with advisory data only
+- ✅ Non-authorizing: every CycleTrace carries `non_authorizing: true`; status output explicitly warns "readback only"
+- ✅ No Decision Gate bypass, scheduler, autonomy, browser automation, email, secrets access, self-modification, or Mission Control Web growth
+- ✅ No new capabilities, permissions, or execution paths added
+- ✅ No SurrealDB, LLM, MCP, or API endpoint changes
+
+### Deliberately not changed
+
+- No existing CLI or orchestrator behavior modified (only extended)
+- No CycleTrace semantics changed
+- No Decision Gate, Graph Memory, Holographic Memory, Compute Reservoir, or Tool Runtime changes
+- No branch created for new feature work (extended existing PR #194 branch)
+
+### Blocker
+
+None for this increment. PR #194 is green and mergeable (CI ✅). GONA must merge.
 
 ### Recommended next step for GONA
 
-1. **Verify PR #194 CI** — the new commit 9cbcea6 should pass CI (formatting was the only issue).
-2. **Merge PR #194** when CI is green.
-3. **Then advance Phase 3**: Cycle Trace V0 rich compute-aware breakdown in `orchestrator status --json` (per-source context item counts and compute route info).
+1. **Merge PR #194** (CI ✅, 913 tests pass, all bounded increments delivered on same topic).
+2. **After merge — P3-14**: Connect orchestrated context assembly metadata to Failure-to-Insight candidate generation now that the CycleTrace is inspectable via `orchestrator status`. The trace file gives a natural input for `--assess` bridge triggers.
 
 

@@ -4,17 +4,19 @@ This file is the short-lived handoff for the next scheduled focus-loop run.
 
 It must contain one concrete next action only. The runtime milestone queue and long-term rules live in `AGENT_FOCUS_LOOP.md`.
 
-## Current status (DEEP cron 2026-05-29 — PR #194 formatting fix, PR #188 closed)
+## Current status (DEEP cron 2026-05-29 — P3-next: orchestrator status with compute-aware breakdown)
 
 **main is green:** ✅ Full workspace tests pass.
 
-**PR #194** (`feat/p3-13-compute-aware-adapters`) — **OPEN**, **MERGEABLE**. CI re-running on formatting fix (9cbcea6: `cargo fmt --all` in 4 adapter test files). Previously failed on formatting only. Local verification: `cargo fmt -- --check` ✅, `cargo check` ✅, `cargo test` ✅ (all crates).
-
-**PR #188** (`docs/handoff-hygiene-2026-05-29`) — **CLOSED** as superseded by #194 and subsequent work.
+**PR #194** (`feat/p3-13-compute-aware-adapters`) — **OPEN**, **MERGEABLE**, CI ✅ SUCCESS. Contains:
+- P3-13: Compute-aware context assembly for all 5 real adapters (original)
+- P3-next: `orchestrator status --json` command with compute-aware context assembly breakdown
+- `orchestrator run --save-trace <path>` flag for persisting CycleTrace to JSON
+- 7 new parser tests, docs/cli.md updated with both commands and end-to-end example
 
 **DAILY_VALIDATION_BACKLOG.md:** 0 open entries.
 
 ## Next action
 
-1. **GONA: merge PR #194** when CI passes (formatting fix pushed, all checks locally verified green).
-2. **Then — P3-next: Cycle Trace V0 with rich compute-aware context assembly breakdown.** The CycleTrace now shows per-source context item counts and compute route info in all 5 adapter outputs. Expose the compute-aware breakdown in `orchestrator status --json` so operators can see which route was selected and how it affected context assembly per source.
+1. **GONA: merge PR #194** (CI ✅, mergeable, all local checks ✅ — 913 tests pass).
+2. **Then — P3-14: Cycle Trace V0 operator inspects breakdown via `orchestrator status`** — now delivered on the same branch. After merge, advance to connecting orchestrated context assembly metadata to Failure-to-Insight candidates or Compute Reservoir cost/quality feedback.

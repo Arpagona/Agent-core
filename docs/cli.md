@@ -397,6 +397,39 @@ Options :
 
 La commande exécute le squelette local du Neutral Orchestrator : objectif → assemblage de contexte consultatif → routage compute → proposition → Decision Gate → issue orchestrée. Le résultat reste explicitement non autorisant : il ne planifie pas de scheduler, n'exécute pas d'outil externe, ne crée pas d'approbation durable et ne remplace pas le Decision Gate.
 
+Options supplémentaires pour `orchestrator run` :
+
+- `--save-trace <PATH>` — Sauvegarde le `CycleTrace` complet au format JSON dans un fichier. Utilisez cette option pour capturer le breakdown compute-aware (route calculée, items par source de contexte) pour consultation ultérieure via `orchestrator status`.
+
+#### Orchestrator Status — Lecture du breakdown compute-aware
+
+```bash
+cargo run -p arpagona-cli -- orchestrator status
+cargo run -p arpagona-cli -- orchestrator status --json
+cargo run -p arpagona-cli -- orchestrator status --trace-path target/last-orchestrator-trace.json
+```
+
+Options :
+
+- `--json` — Sortie structurée JSON du CycleTrace complet.
+- `--trace-path <PATH>` — Chemin vers un fichier `CycleTrace` JSON sauvegardé. Défaut : `target/last-orchestrator-trace.json`.
+
+La commande lit un `CycleTrace` précédemment sauvegardé (via `orchestrator run --save-trace`) et affiche le breakdown complet du contexte : nombre d'items par source, route compute sélectionnée et sa justification, statut décisionnel et résumé du cycle.
+
+Exemple de boucle complète :
+
+```bash
+# 1. Exécuter le cycle et sauvegarder la trace
+cargo run -p arpagona-cli -- orchestrator run \
+  --objective "Analyser le projet" \
+  --trace --save-trace target/last-orchestrator-trace.json
+
+# 2. Consulter la trace sauvegardée (même dans une invocation séparée)
+cargo run -p arpagona-cli -- orchestrator status --json
+```
+
+La trace et son readback restent explicitement non autorisants (`non_authorizing: true`).
+
 ### Graph Memory — Statut et démos
 
 ```bash

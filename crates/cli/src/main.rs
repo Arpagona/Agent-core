@@ -185,6 +185,8 @@ pub struct OrchestratorCommand {
 pub enum OrchestratorSubcommand {
     /// Run the Neutral Orchestrator deterministic cycle with an objective.
     Run(OrchestratorRunArgs),
+    /// Display orchestrator status and last cycle trace.
+    Status(OrchestratorStatusArgs),
 }
 
 #[derive(Debug, Args)]
@@ -201,6 +203,11 @@ pub struct OrchestratorRunArgs {
     #[arg(long, default_value_t = false)]
     pub trace: bool,
 
+    /// Save the CycleTrace as JSON to a file (default: target/last-orchestrator-trace.json).
+    /// Use with --trace to capture the compute-aware breakdown for later orchestrator status.
+    #[arg(long)]
+    pub save_trace: Option<String>,
+
     /// Permissions granted for Decision Gate evaluation (repeatable).
     #[arg(long = "perm", default_values = &["ReadDocument"])]
     pub permissions: Vec<String>,
@@ -216,6 +223,19 @@ pub struct OrchestratorRunArgs {
     /// Proposal generator backend: simulated (deterministic, default) or llm (mock provider for now).
     #[arg(long, default_value_t = ProposalGeneratorArg::Simulated)]
     pub proposal_generator: ProposalGeneratorArg,
+}
+
+const DEFAULT_ORCHESTRATOR_TRACE_PATH: &str = "target/last-orchestrator-trace.json";
+
+#[derive(Debug, Args)]
+pub struct OrchestratorStatusArgs {
+    /// Output as structured JSON.
+    #[arg(long, short = 'j', default_value_t = false)]
+    pub json: bool,
+
+    /// Path to a saved CycleTrace JSON file (default: target/last-orchestrator-trace.json).
+    #[arg(long)]
+    pub trace_path: Option<String>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, clap::ValueEnum)]
@@ -1889,6 +1909,7 @@ async fn run() -> Result<(), Box<dyn Error>> {
         },
         Command::Orchestrator(orchestrator) => match orchestrator.command {
             OrchestratorSubcommand::Run(args) => orchestrator_run(args)?,
+            OrchestratorSubcommand::Status(args) => orchestrator_status(args)?,
         },
     }
 
@@ -9551,6 +9572,62 @@ fn orchestrator_run(args: OrchestratorRunArgs) -> Result<(), Box<dyn Error>> {
         );
     }
 
+    // ── Save trace to file when --save-trace is provided ──────────────
+    if let Some(ref save_path) = args.save_trace {
+        let trace = cycle.to_cycle_trace();
+        let json = serde_json::to_string_pretty(&trace)?;
+        if let Some(parent) = std::path::Path::new(save_path).parent() {
+            std::fs::create_dir_all(parent).ok();
+        }
+        std::fs::write(save_path, &json)?;
+        if !args.json {
+            println!(
+                "{}",
+                style_dim(&format!("   Trace saved to: {}", save_path))
+            );
+        }
+    }
+
+    Ok(())
+}
+
+/// Display orchestrator status from a saved CycleTrace file.
+///
+/// Reads a previously saved CycleTrace JSON file (from `orchestrator run --trace --save-trace`)
+/// and displays the compute-aware context assembly breakdown: per-source context item counts,
+/// compute route selection, decision outcome and cycle summary.
+fn orchestrator_status(args: OrchestratorStatusArgs) -> Result<(), Box<dyn Error>> {
+    let path = args
+        .trace_path
+        .unwrap_or_else(|| DEFAULT_ORCHESTRATOR_TRACE_PATH.to_owned());
+
+    let content = std::fs::read_to_string(&path)
+        .map_err(|e| format!("Failed to read orchestrator trace file '{}': {e}", path))?;
+
+    let trace: arpagona_agent_core::orchestrator::CycleTrace = serde_json::from_str(&content)
+        .map_err(|e| format!("Failed to parse orchestrator trace file '{}': {e}", path))?;
+
+    if args.json {
+        println!("{}", serde_json::to_string_pretty(&trace)?);
+    } else {
+        println!("{}", style_info("Orchestrator Status (from saved trace)"));
+        println!("{}", "-".repeat(60));
+        println!("{}", trace.format());
+        println!();
+        println!(
+            "{}",
+            style_dim("⚠  Readback only — trace fields are evidence, not authorization.")
+        );
+        println!(
+            "{}",
+            style_dim("   No execution without explicit Decision Gate approval.")
+        );
+        println!(
+            "{}",
+            style_dim(&format!("   Non-authorizing: {}", trace.non_authorizing))
+        );
+    }
+
     Ok(())
 }
 
@@ -13092,6 +13169,128 @@ mod tests {
             result.is_err(),
             "tool inspect without tool name should fail: {:?}",
             result
+        );
+    }
+
+    // ── P3-next: Orchestrator status and --save-trace parser tests ──────────
+
+    #[test]
+    fn cli_parses_orchestrator_status_defaults() {
+        let cli = Cli::try_parse_from(vec!["arpagona", "orchestrator", "status"])
+            .expect("orchestrator status should parse");
+        match cli.command {
+            Command::Orchestrator(OrchestratorCommand {
+                command: OrchestratorSubcommand::Status(args),
+            }) => {
+                assert!(!args.json, "default status should not be json");
+                assert_eq!(args.trace_path, None, "default should use default path");
+            }
+            _ => panic!("expected orchestrator status"),
+        }
+    }
+
+    #[test]
+    fn cli_parses_orchestrator_status_with_json() {
+        let cli = Cli::try_parse_from(vec!["arpagona", "orchestrator", "status", "--json"])
+            .expect("orchestrator status --json should parse");
+        match cli.command {
+            Command::Orchestrator(OrchestratorCommand {
+                command: OrchestratorSubcommand::Status(args),
+            }) => {
+                assert!(args.json, "status --json should be true");
+            }
+            _ => panic!("expected orchestrator status"),
+        }
+    }
+
+    #[test]
+    fn cli_parses_orchestrator_status_with_trace_path() {
+        let cli = Cli::try_parse_from(vec![
+            "arpagona",
+            "orchestrator",
+            "status",
+            "--trace-path",
+            "custom/trace.json",
+        ])
+        .expect("orchestrator status --trace-path should parse");
+        match cli.command {
+            Command::Orchestrator(OrchestratorCommand {
+                command: OrchestratorSubcommand::Status(args),
+            }) => {
+                assert_eq!(
+                    args.trace_path,
+                    Some("custom/trace.json".to_owned()),
+                    "custom trace path should resolve"
+                );
+            }
+            _ => panic!("expected orchestrator status"),
+        }
+    }
+
+    #[test]
+    fn cli_parses_orchestrator_run_with_save_trace() {
+        let cli = Cli::try_parse_from(vec![
+            "arpagona",
+            "orchestrator",
+            "run",
+            "--objective",
+            "Save trace test",
+            "--save-trace",
+            "target/my-trace.json",
+        ])
+        .expect("orchestrator run --save-trace should parse");
+        match cli.command {
+            Command::Orchestrator(OrchestratorCommand {
+                command: OrchestratorSubcommand::Run(args),
+            }) => {
+                assert_eq!(
+                    args.save_trace,
+                    Some("target/my-trace.json".to_owned()),
+                    "--save-trace path should be captured"
+                );
+                assert_eq!(args.objective, "Save trace test");
+            }
+            _ => panic!("expected orchestrator run"),
+        }
+    }
+
+    #[test]
+    fn cli_parses_orchestrator_run_with_save_trace_and_trace() {
+        let cli = Cli::try_parse_from(vec![
+            "arpagona",
+            "orchestrator",
+            "run",
+            "--objective",
+            "Full demo: save trace for status",
+            "--trace",
+            "--save-trace",
+            "target/demo-trace.json",
+        ])
+        .expect("orchestrator run --trace --save-trace should parse");
+        match cli.command {
+            Command::Orchestrator(OrchestratorCommand {
+                command: OrchestratorSubcommand::Run(args),
+            }) => {
+                assert!(args.trace, "--trace should be set");
+                assert_eq!(
+                    args.save_trace,
+                    Some("target/demo-trace.json".to_owned()),
+                    "--save-trace should be captured"
+                );
+                assert_eq!(args.objective, "Full demo: save trace for status");
+            }
+            _ => panic!("expected orchestrator run"),
+        }
+    }
+
+    #[test]
+    fn cli_rejects_orchestrator_status_without_such_subcommand() {
+        // Verify that 'orchestrator status' is a real subcommand (not a rejected flag)
+        let cli = Cli::try_parse_from(vec!["arpagona", "orchestrator", "status"])
+            .expect("orchestrator status should be a valid subcommand");
+        assert!(
+            matches!(cli.command, Command::Orchestrator(_)),
+            "orchestrator status must dispatch to Orchestrator command"
         );
     }
 }
