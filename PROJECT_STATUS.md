@@ -3890,3 +3890,61 @@ None for this increment. PR #194 is green and mergeable (CI ✅). GONA must merg
 2. **After merge — P3-14**: Connect orchestrated context assembly metadata to Failure-to-Insight candidate generation now that the CycleTrace is inspectable via `orchestrator status`. The trace file gives a natural input for `--assess` bridge triggers.
 
 
+
+## 29. Latest Session Update (2026-05-29 DEEP cron — P3-14 CycleTrace-to-FailureInsight bridge)
+
+This session created the P3-14 milestone: connecting orchestrated context assembly metadata to the Failure-to-Insight pipeline.
+
+### What was added
+
+**`crates/core/src/observation.rs`:**
+- `FailureInsightCandidateKind::ContextAssemblyWeak` — new variant for orchestrator-cycle-specific candidates
+
+**`crates/core/src/orchestrator.rs`:** — CycleTrace extended:
+- `failure_insight_candidates: Vec<FailureInsightCandidate>` field with `#[serde(default)]` for backward compat
+- `with_failure_insight_candidates()` builder method
+- `detect_failure_candidates()` — scans trace for:
+  - Zero total context items → ContextAssemblyWeak
+  - All context sources unavailable → ContextAssemblyWeak
+  - Partial source unavailability → ContextAssemblyWeak (per source)
+  - Blocked/NeedsReview decision → ContextAssemblyWeak
+- `format()` now displays failure candidates in human-readable output when present
+- 7 new unit tests covering all detection paths + serialization round-trip
+
+**`crates/neutral-orchestrator/src/lib.rs`:**
+- `OrchestratorCycle.to_cycle_trace()` now calls `detect_failure_candidates()` and populates the field
+
+**CLI — already wired (no changes needed):**
+- `orchestrator status` uses `trace.format()` → shows candidates in text mode
+- `orchestrator status --json` → serializes candidates in JSON output
+
+### Verification
+
+- `cargo fmt -- --check`: ✅ clean
+- `cargo check`: ✅ clean
+- `cargo test`: ✅ all 900+ tests pass (7 new, 0 regressions)
+
+### Files changed
+
+| File | Change |
+|------|--------|
+| `crates/core/src/observation.rs` | +3 lines: ContextAssemblyWeak variant |
+| `crates/core/src/orchestrator.rs` | +270 lines: CycleTrace candidates field, detect method, format update, 7 tests |
+| `crates/neutral-orchestrator/src/lib.rs` | +4 lines: wire detect_failure_candidates into to_cycle_trace |
+
+### Safety boundaries preserved
+
+- All candidates are advisory and non-authorizing
+- detect_failure_candidates() is pure read-only — no I/O, no mutations, no authorization
+- \[#serde(default)\] ensures backward compat with old serialized traces
+- No new capabilities, permissions, execution paths, or Decision Gate bypass
+
+### PR state
+
+- **PR #201** (`feat/p3-14-cycletrace-failure-insight-bridge`) — open, CI pending
+- P3-14 milestone delivered: CycleTrace → FailureInsightCandidate bridge
+
+### Recommended next step for GONA
+
+1. Review and merge PR #201.
+2. Next: connect CycleTrace metadata to Compute Reservoir cost/quality feedback, or add dedicated CLI surface (`orchestrator insights <trace-path>`).
