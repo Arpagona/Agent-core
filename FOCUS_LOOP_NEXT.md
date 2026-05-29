@@ -4,20 +4,28 @@ This file is the short-lived handoff for the next scheduled focus-loop run.
 
 It must contain one concrete next action only. The runtime milestone queue and long-term rules live in `AGENT_FOCUS_LOOP.md`.
 
-## Current status (DEEP cron 2026-md-29 — H1b edge-case tests)
+## Current status (DEEP cron 2026-05-29 — P3 hygiene fix delivered as PR #191)
 
-**main is green:** ✅ ~868 tests, 0 failures across full workspace.
+**main is green:** ✅ Full workspace tests pass (0 warnings).
 
-**PR #186** (`feat/h1b-edge-case-tests`) — open, awaiting CI.
+**PR #187** (`feat/c2-llm-governed-tool-call-wiring`) — **OPEN**, **MERGEABLE**, CI green. Awaits GONA merge.
 
-**H1b progress:**
-- Tool Runtime: 3 new symlink handling tests (internal symlink follows, outside symlink is security-blocked, directory symlink lists correctly)
-- Decision Gate: 3 new edge-case tests (empty tool name, empty permissions, empty rationale — none panic)
-- CLI: 4 new error-path parser tests (missing objective, empty objective, unknown provider, missing positional arg)
-- **10 new tests total**, 0 regressions
+**PR #188** (`docs: update handoff`) — **OPEN**, **MERGEABLE**, CI green. Awaits GONA merge.
 
-**DV backlog:** 0 open entries.
+**PR #189** (`feat/p3-10-compute-aware-delegation`) — **OPEN**, **MERGEABLE**, CI green. Awaits GONA merge.
 
-## Next action
+**PR #190** (`feat/p3-4f-memory-aware-context-routing`) — **OPEN**, **MERGEABLE**, CI in progress. Awaits GONA merge.
 
-**H2: Missing security boundary at the CLI surface.** The Tool Runtime blocks absolute paths, parent traversal, `.env`, `.ssh` and system directories. But the CLI `tool demo read-file` command passes the path through — verify that the runtime's security boundaries are not bypassable through any documented CLI path (especially `--memory-value` JSON injection, `--json` pipe-to-file, or relative-path tricks that resolve differently than the runtime expects).
+**PR #191** (`fix: remove unused fields from LlmProposalGenerator`) — **NEW**, CI pending. DEEP hygiene fix: removes pre-existing `dead_code` warning by dropping unused `default_workspace_id`/`default_agent_id` fields.
+
+**DAILY_VALIDATION_BACKLOG.md:** 0 open entries.
+
+## Next action (GONA)
+
+1. **GONA: merge PR #187** (C2 — LLM-governed tool-call wiring, CI green, based on latest main).
+2. **Then GONA: merge PR #189** (P3-10 — Compute-aware delegation, CI green).
+3. **Then GONA: merge PR #190** (P3-4f — Memory-aware context routing via Compute Reservoir, stacked on #189).
+4. **Then GONA: merge PR #191** (hygiene: remove unused fields, CI should be green).
+5. **Then — P3-13: Real adapter context assembly pipeline.** With compute-aware routing now embedded in `MemoryQueryRequest`, the existing real adapters (GraphMemoryAdapter, HolographicMemoryAdapter, ReservoirEchoAdapter, ToolRuntimeAdapter) should be updated to use the compute route hints to prioritize/filter context items. This makes context assembly genuinely compute-aware beyond the simulated prefix.
+
+**Note:** DEEP governance boundary prevents merging. All merge actions require GONA or Thibaud.
