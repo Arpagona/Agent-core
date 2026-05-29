@@ -3273,3 +3273,47 @@ Session: DEEP cron 2026-05-29. Merged #181 (P3-6) into main, then implemented P3
 
 
 ## 29. Latest Session Update (2026-05-29 — P3-8: Proposal routing CLI surface)\n|\n|This session implemented P3-8: added `--proposal-generator` flag to `arpagona orchestrator run`\n|so operators can switch between `SimulatedProposalGenerator` and `LlmProposalGenerator` at the CLI.\n|\n|### Changes\n|\n|- **crates/llm/src/lib.rs**: Made `LlmProvider` trait dyn-compatible (`Pin<Box<dyn Future>>` instead of `impl Future`) — required for `Box<dyn LlmProvider>` in `LlmProposalGenerator`.\n|- **crates/neutral-orchestrator/Cargo.toml**: Added `tokio` dependency.\n|- **crates/neutral-orchestrator/src/lib.rs**: Added `#[cfg(feature = \"llm-provider\")] pub use proposal_generator::LlmProposalGenerator`.\n|- **crates/neutral-orchestrator/src/proposal_generator.rs**: Fixed cfg-gated imports for `WorkspaceId`, `AgentId`; added tokio Runtime::new() in LLM tests to satisfy block_in_place requirement.\n|- **crates/cli/Cargo.toml**: Enabled `llm-provider` feature on `arpagona-neutral-orchestrator`.\n|- **crates/cli/src/main.rs**: Added `ProposalGeneratorArg` enum (`Simulated`, `Llm`) with `Display` impl; `--proposal-generator` arg on `OrchestratorRunArgs`; updated `orchestrator_run` to construct engine with appropriate generator; 3 parser tests.\n|- **FOCUS_LOOP_NEXT.md**: Updated handoff to P3-9 / next Phase 3 step.\n|\n|### Smoke tests\n|\n|- `--proposal-generator simulated` (default): ReadDocument → Approved → completed ✓\n|- `--proposal-generator llm`: SimulateEmail (MockProvider) → Blocked (permission mismatch) → needs_review ✓\n|\n|### Verification\n|\n|- `cargo fmt -- --check`: clean\n|- `cargo check --workspace`: clean (1 pre-existing warning about unused fields in LlmProposalGenerator)\n|- `cargo test --workspace`: all passing\n|\n|### Safety boundaries preserved\n|\n|- Both generators produce `PendingDecision` proposals only\n|- Every `OrchestratorOutcome` is `non_authorizing: true`\n|- Decision Gate remains mandatory between proposal and any effect\n|- No tool execution, no scheduler, no autonomy, no Mission Control Web growth\n|- No shell/browser/secrets/email/self-modification added\n|- `LlmProposalGenerator` is behind `llm-provider` feature gate (on by default for CLI)\n|\n|### Not changed (deliberately)\n|\n|- `crates/llm/src/lib.rs`: Only method return types changed to `Pin<Box<dyn Future>>`; all 3 implementors updated; no behavior change.\n|- `run_deterministic_cycle` convenience function preserved (still used by one test).\n|- `docs/cli.md` orchestrator section not updated — deferred to P3-9 docs pass.\n|- `docs/gona-deep-governance.md` and `docs/steroid-hermes-action-plan.md` still not present — bootstrap fallback active.\n|\n|### Next recommended step for GONA\n|\n|**P3-9: Orchestrator docs + demo script** — Add `--proposal-generator` to `docs/cli.md`, create `scripts/demo-orchestrator-loop.sh` showing both generators, or move to **C2: Governed direct tool-calling by the LLM**.\n
+
+## 30. Latest Session Update (2026-05-29 DEEP cron — P3-9: Orchestrator demo loop + docs)
+
+This session completed P3-9: documented the `--proposal-generator` flag in `docs/cli.md` and extended `scripts/demo-full-loop.sh` with Neutral Orchestrator demo steps for both simulated and LLM-backed proposal generators.
+
+### Changes
+
+| File | Change |
+|------|--------|
+| `docs/cli.md` | +1 line: `--proposal-generator <BACKEND>` flag documentation in Neutral Orchestrator section. Describes `simulated` (deterministic, default) and `llm` (mock LLM-backed) backends. |
+| `scripts/demo-full-loop.sh` | +63 lines: Added Steps 4-5 (Neutral Orchestrator with simulated and llm proposal generators), updated summary from 3 to 5 cycles with orchestrator backend descriptions. |
+| `FOCUS_LOOP_NEXT.md` | Updated handoff: P3-9 complete → next is **C2: Governed direct tool-calling by the LLM**. |
+
+### Merge sequence
+
+- PR #183 (P3-8) merged into main.
+- PR #184 (this session) open: `feat/p3-9-orchestrator-demo-loop`.
+
+### Verification
+
+- `cargo fmt -- --check`: clean
+- `cargo check`: clean (1 pre-existing warning in neutral-orchestrator)
+- `cargo test --workspace`: all pass (628+ tests)
+- `bash scripts/check-cli-docs-coverage.sh`: ✅ All CLI commands covered
+
+### Safety boundaries preserved
+
+- ✅ No shell access, browser automation, email, MCP expansion, secrets handling, scheduler autonomy, or direct execution
+- ✅ No Decision Gate bypass — orchestrator output is non_authorizing: true
+- ✅ No API endpoints, Web Mission Control expansion, or autonomous loop behavior
+- ✅ No broad permission changes or self-modification
+- ✅ Readback remains evidence only, not authorization
+
+### Deliberately not changed
+
+- No changes to core domain types, Decision Gate, MCP server, API, or runtime loop
+- No changes to existing adapters, context assembler, or proposal generators
+- No SurrealDB or async persistence changes
+- No Product/Mission Control Web growth
+- No changes to `docs/gona-deep-governance.md` or `docs/steroid-hermes-action-plan.md` (still not present; bootstrap fallback active)
+
+### Recommended next step for GONA
+
+**C2: Governed direct tool-calling by the LLM.** The P3 series (Neutral Orchestrator) is complete through P3-9. C2 is the natural next bounded increment: allow LLM tool-call intents through the existing governance envelope (Decision Gate → Tool Runtime/MCP → Observation → Audit → Reflection).
