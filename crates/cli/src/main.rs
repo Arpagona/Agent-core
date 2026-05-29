@@ -1,7 +1,10 @@
 use arpagona_agent_core::{
     action::ToolCallIntent,
+    audit::{ActorRef, AuditEventType},
+    cognitive::{CognitivePulse, ReservoirState},
     holographic::{resonate_for_working_memory, RESONANCE_NON_AUTHORIZING_WARNING},
     llm_journal::LlmJournal,
+    memory::{GraphMemoryStore, InMemoryGraphMemoryStore},
     orchestrator::ObjectiveInput,
     ActionType, AgentId, AuditEvent, AuditEventId, AuditTraceSummary, CognitiveCycleResult,
     CorrectionTarget, Decision, DecisionId, DecisionStatus, DetectionSignal, DetectionSignalType,
@@ -30,7 +33,10 @@ use arpagona_holographic_memory::{
 };
 use arpagona_llm::request_tool_call_from_llm;
 use arpagona_llm::run_cognitive_synthesis;
-use arpagona_neutral_orchestrator::OrchestratorEngine;
+use arpagona_neutral_orchestrator::{
+    CompressedCognitiveAttentionAdapter, GraphMemoryAdapter, HolographicMemoryAdapter,
+    MultiAdapterContextAssembler, OrchestratorEngine, ReservoirEchoAdapter, ToolRuntimeAdapter,
+};
 use arpagona_tool_runtime::{ToolRuntime, ToolRuntimeConfig};
 use chrono::Utc;
 use clap::{Args, Parser, Subcommand, ValueEnum};
@@ -227,6 +233,22 @@ pub struct OrchestratorRunArgs {
     /// Use MultiAdapterContextAssembler with all 5 memory adapters instead of SimulatedContextAssembler.
     #[arg(long, default_value_t = false)]
     pub multi_adapter: bool,
+
+    /// Seed a GraphMemory audit event with this text (requires --multi-adapter).
+    #[arg(long)]
+    pub seed_audit_event: Vec<String>,
+
+    /// Seed a HolographicMemory trace with this text (requires --multi-adapter).
+    #[arg(long)]
+    pub seed_holo_trace: Vec<String>,
+
+    /// Seed a ReservoirEcho pulse with this text (requires --multi-adapter).
+    #[arg(long)]
+    pub seed_reservoir_pulse: Vec<String>,
+
+    /// Seed a CompressedCognitiveAttention memory event with this text (requires --multi-adapter).
+    #[arg(long)]
+    pub seed_cca_event: Vec<String>,
 }
 
 const DEFAULT_ORCHESTRATOR_TRACE_PATH: &str = "target/last-orchestrator-trace.json";
@@ -9499,6 +9521,113 @@ fn cognitive_print_readback(result: &CognitiveCycleResult, assess: bool) {
     println!();
 }
 
+/// Check if any seed-data CLI flag was provided.
+fn has_seed_flags(args: &OrchestratorRunArgs) -> bool {
+    !args.seed_audit_event.is_empty()
+        || !args.seed_holo_trace.is_empty()
+        || !args.seed_reservoir_pulse.is_empty()
+        || !args.seed_cca_event.is_empty()
+}
+
+/// Build a MultiAdapterContextAssembler with optional seeded demo data.
+///
+/// When seed CLI flags are provided (`--seed-audit-event`, `--seed-holo-trace`,
+/// `--seed-reservoir-pulse`, `--seed-cca-event`), the corresponding adapters
+/// are pre-populated with demo data so the orchestrator cycle returns actual
+/// advisory context items from all 5 memory sources.
+fn build_multi_adapter_with_seeds(args: &OrchestratorRunArgs) -> MultiAdapterContextAssembler {
+    let workspace_root: std::path::PathBuf = std::env::current_dir().unwrap_or_else(|_| ".".into());
+    let tool_runtime = ToolRuntimeAdapter::new(workspace_root).with_max_items(3);
+
+    // ── GraphMemoryAdapter: optionally seed audit events ───────────────
+    let mut gm_store = InMemoryGraphMemoryStore::new();
+    let ws_id = WorkspaceId::new(&args.workspace_id);
+    for (i, text) in args.seed_audit_event.iter().enumerate() {
+        let _ = gm_store.record_audit_event(AuditEvent {
+            id: AuditEventId::new(&format!("seed-gm-{i}")),
+            event_type: AuditEventType::DecisionCreated,
+            actor: ActorRef::System,
+            workspace_id: Some(ws_id.clone()),
+            task_id: None,
+            proposed_action_id: None,
+            decision_id: None,
+            payload: serde_json::json!({"seed_text": text}),
+            created_at: Utc::now(),
+        });
+    }
+    let graph_memory = GraphMemoryAdapter::new(gm_store).with_max_items(5);
+
+    // ── HolographicMemoryAdapter: optionally seed traces ───────────────
+    let mut holo_store = arpagona_holographic_memory::InMemoryHolographicMemoryStore::new();
+    for (i, text) in args.seed_holo_trace.iter().enumerate() {
+        let trace = HolographicTrace::new(
+            format!("seed-holo-{i}"),
+            "default".to_owned(),
+            SourceKind::ManualNote,
+            "cli-seed".to_owned(),
+            vec![],
+            text.clone(),
+            vec!["seed".to_owned(), "demo".to_owned()],
+            vec![],
+            vec![],
+            vec![],
+            vec![],
+            0.5,
+            0.8,
+            0.0,
+            0.0,
+            Utc::now().to_rfc3339(),
+        );
+        let _ = holo_store.add_trace(trace);
+    }
+    let holographic_memory = HolographicMemoryAdapter::new(holo_store, "default").with_max_items(5);
+
+    // ── ReservoirEchoAdapter: optionally seed pulses ───────────────────
+    let mut reservoir = ReservoirState::new(10, 0.3);
+    for text in &args.seed_reservoir_pulse {
+        reservoir.absorb(CognitivePulse::stimulus(
+            text.clone(),
+            vec!["seed".to_owned(), "demo".to_owned()],
+            Utc::now(),
+        ));
+    }
+    let reservoir_echo = ReservoirEchoAdapter::new(reservoir).with_max_items(5);
+
+    // ── CompressedCognitiveAttentionAdapter: optionally seed events ────
+    let cca_events: Vec<_> = args
+        .seed_cca_event
+        .iter()
+        .enumerate()
+        .map(|(i, text)| {
+            // Deterministic 16-dim embedding from text using LCG hash
+            let mut hash: u64 = 5381;
+            for b in text.bytes() {
+                hash = hash.wrapping_mul(33).wrapping_add(b as u64);
+            }
+            let embedding: Vec<f64> = (0..16)
+                .map(|j| ((hash.wrapping_mul(j as u64 + 1) % 9973) as f64) / 9973.0)
+                .collect();
+            arpagona_compressed_cognitive_attention::MemoryEvent::new(
+                format!("seed-cca-{i}"),
+                embedding,
+            )
+        })
+        .collect();
+    let cca = if cca_events.is_empty() {
+        CompressedCognitiveAttentionAdapter::with_defaults(vec![])
+    } else {
+        let config = arpagona_compressed_cognitive_attention::Config::new(16, 4);
+        CompressedCognitiveAttentionAdapter::new(cca_events, config).with_max_items(5)
+    };
+
+    MultiAdapterContextAssembler::new()
+        .with_tool_runtime(tool_runtime)
+        .with_graph_memory(graph_memory)
+        .with_holographic_memory(holographic_memory)
+        .with_reservoir_echo(reservoir_echo)
+        .with_compressed_cognitive_attention(cca)
+}
+
 /// Run the Neutral Orchestrator deterministic cycle and display the result.
 fn orchestrator_run(args: OrchestratorRunArgs) -> Result<(), Box<dyn Error>> {
     let perm: Permission = match args.permissions.first().map(|s| s.as_str()) {
@@ -9511,14 +9640,14 @@ fn orchestrator_run(args: OrchestratorRunArgs) -> Result<(), Box<dyn Error>> {
         None => Permission::ReadDocument,
     };
 
-    let workspace_id = WorkspaceId::new(args.workspace_id);
-    let agent_id = AgentId::new(args.agent_id);
+    let workspace_id = WorkspaceId::new(args.workspace_id.clone());
+    let agent_id = AgentId::new(args.agent_id.clone());
 
     let engine = match args.proposal_generator {
         ProposalGeneratorArg::Simulated => {
             let base = OrchestratorEngine::new();
-            if args.multi_adapter {
-                let multi = arpagona_neutral_orchestrator::MultiAdapterContextAssembler::new();
+            if args.multi_adapter || has_seed_flags(&args) {
+                let multi = build_multi_adapter_with_seeds(&args);
                 base.with_context_assembler(Box::new(multi))
             } else {
                 base
@@ -9529,8 +9658,8 @@ fn orchestrator_run(args: OrchestratorRunArgs) -> Result<(), Box<dyn Error>> {
             let llm_generator =
                 arpagona_neutral_orchestrator::LlmProposalGenerator::new(mock_provider);
             let base = OrchestratorEngine::new().with_proposal_generator(Box::new(llm_generator));
-            if args.multi_adapter {
-                let multi = arpagona_neutral_orchestrator::MultiAdapterContextAssembler::new();
+            if args.multi_adapter || has_seed_flags(&args) {
+                let multi = build_multi_adapter_with_seeds(&args);
                 base.with_context_assembler(Box::new(multi))
             } else {
                 base
@@ -13347,6 +13476,126 @@ mod tests {
                 assert_eq!(args.objective, "Trace with multi-adapter");
             }
             _ => panic!("expected orchestrator run with --multi-adapter --trace --json"),
+        }
+    }
+
+    #[test]
+    fn cli_parses_orchestrator_run_with_seed_audit_event() {
+        let cli = Cli::try_parse_from(vec![
+            "arpagona",
+            "orchestrator",
+            "run",
+            "--objective",
+            "Seed audit event test",
+            "--multi-adapter",
+            "--seed-audit-event",
+            "Router firmware review started",
+        ])
+        .expect("orchestrator run --seed-audit-event should parse");
+        match cli.command {
+            Command::Orchestrator(OrchestratorCommand {
+                command: OrchestratorSubcommand::Run(args),
+            }) => {
+                assert!(args.multi_adapter, "--multi-adapter implied");
+                assert_eq!(
+                    args.seed_audit_event,
+                    vec!["Router firmware review started"]
+                );
+                assert_eq!(args.objective, "Seed audit event test");
+            }
+            _ => panic!("expected orchestrator run with --seed-audit-event"),
+        }
+    }
+
+    #[test]
+    fn cli_parses_orchestrator_run_with_all_seed_flags() {
+        let cli = Cli::try_parse_from(vec![
+            "arpagona",
+            "orchestrator",
+            "run",
+            "--objective",
+            "Full seed demo",
+            "--multi-adapter",
+            "--seed-audit-event",
+            "Review started",
+            "--seed-holo-trace",
+            "Similar past review found",
+            "--seed-reservoir-pulse",
+            "Recent pulse about routing",
+            "--seed-cca-event",
+            "Past decision on firmware",
+        ])
+        .expect("orchestrator run with all seed flags should parse");
+        match cli.command {
+            Command::Orchestrator(OrchestratorCommand {
+                command: OrchestratorSubcommand::Run(args),
+            }) => {
+                assert!(args.multi_adapter);
+                assert_eq!(args.seed_audit_event, vec!["Review started"]);
+                assert_eq!(args.seed_holo_trace, vec!["Similar past review found"]);
+                assert_eq!(
+                    args.seed_reservoir_pulse,
+                    vec!["Recent pulse about routing"]
+                );
+                assert_eq!(args.seed_cca_event, vec!["Past decision on firmware"]);
+                assert_eq!(args.objective, "Full seed demo");
+            }
+            _ => panic!("expected orchestrator run with all seed flags"),
+        }
+    }
+
+    #[test]
+    fn cli_parses_orchestrator_run_with_seed_flags_implied_multi_adapter() {
+        // Using seed flags without --multi-adapter should work (has_seed_flags auto-enables multi-adapter)
+        let cli = Cli::try_parse_from(vec![
+            "arpagona",
+            "orchestrator",
+            "run",
+            "--objective",
+            "Seed without explicit multi-adapter",
+            "--seed-audit-event",
+            "Started",
+        ])
+        .expect("orchestrator run with --seed-audit-event (no --multi-adapter) should parse");
+        match cli.command {
+            Command::Orchestrator(OrchestratorCommand {
+                command: OrchestratorSubcommand::Run(args),
+            }) => {
+                assert_eq!(args.seed_audit_event, vec!["Started"]);
+                assert!(!args.multi_adapter, "--multi-adapter not explicitly set");
+                assert_eq!(args.objective, "Seed without explicit multi-adapter");
+            }
+            _ => panic!("expected orchestrator run with seed flag"),
+        }
+    }
+
+    #[test]
+    fn cli_parses_orchestrator_run_with_multiple_audit_seeds() {
+        let cli = Cli::try_parse_from(vec![
+            "arpagona",
+            "orchestrator",
+            "run",
+            "--objective",
+            "Multiple audit events",
+            "--multi-adapter",
+            "--seed-audit-event",
+            "Event one",
+            "--seed-audit-event",
+            "Event two",
+            "--seed-audit-event",
+            "Event three",
+        ])
+        .expect("orchestrator run with multiple --seed-audit-event should parse");
+        match cli.command {
+            Command::Orchestrator(OrchestratorCommand {
+                command: OrchestratorSubcommand::Run(args),
+            }) => {
+                assert_eq!(
+                    args.seed_audit_event,
+                    vec!["Event one", "Event two", "Event three"]
+                );
+            }
+            _ => panic!("expected orchestrator run with multiple audit seeds"),
         }
     }
 

@@ -204,6 +204,7 @@ name = "arpagona-cli"
 version = "0.1.0"
 dependencies = [
  "arpagona-agent-core",
+ "arpagona-compressed-cognitive-attention",
  "arpagona-compute-reservoir",
  "arpagona-conversation-memory",
  "arpagona-decision-gate",
