@@ -3948,3 +3948,60 @@ This session created the P3-14 milestone: connecting orchestrated context assemb
 
 1. Review and merge PR #201.
 2. Next: connect CycleTrace metadata to Compute Reservoir cost/quality feedback, or add dedicated CLI surface (`orchestrator insights <trace-path>`).
+
+## 35. Latest Session Update (2026-05-29 DEEP cron — handoff hygiene after PR #201 merge)
+
+This session updated handoff files and the demo script to reflect the current state after PR #201 was merged.
+
+### Context
+
+PR #201 (`feat/p3-14-cycletrace-failure-insight-bridge`) has been merged on `main`. Five stacked PRs are open and waiting for GONA merge:
+
+| PR | Branch | Title | Mergeable | CI |
+|----|--------|-------|-----------|----|
+| #200 | `docs/governance-bootstrap-handoff` | docs: GONA-DEEP governance + Steroid Hermes plan | ✅ | ✅ |
+| #197 | `feat/p3-15-cycle-trace-to-failure-insight` | P3-15: CLI `--insights` flag | ✅ | ✅ |
+| #202 | `feat/p3-15-cycletrace-cost-quality-meta` | P3-15: cost/quality metadata in CycleTrace | ✅ | ✅ |
+| #198 | `feat/p3-16-compute-efficiency-feedback` | P3-16: compute efficiency feedback | ✅ | ✅ |
+| #199 | `feat/p3-17-efficiency-context-assembly` | P3-17: efficiency feedback context assembly | ✅ | ✅ |
+
+⚠️ Conflict discovered: PR #197 and #202 both modify `crates/core/src/orchestrator.rs` and handoff files. Merging #197 first causes conflicts for #202. Recommended merge order: #202 → #197 → #198 → #199.
+
+### Files changed
+
+| File | Change |
+|------|--------|
+| `FOCUS_LOOP_NEXT.md` | Updated to reflect PR #201 merged status, stacked PR table, conflict warning, merge order recommendation |
+| `scripts/demo-full-loop.sh` | Added Steps 6–7: CycleTrace `--trace --save-trace`, cost/quality metadata display, cross-invocation `orchestrator status --trace-path` readback; updated summary |
+| `PROJECT_STATUS.md` | This session update |
+
+### Verification
+
+- `cargo fmt -- --check`: ✅ clean
+- `cargo check`: ✅ clean
+- `cargo test`: ✅ ~920 tests pass (all crates)
+
+### Safety boundaries preserved
+
+- No code changes to any Rust crate — documentation/hygiene only
+- No new capabilities, permissions, execution paths, or Decision Gate bypass
+- No Decision Gate, Tool Runtime, LLM, MCP, or API modifications
+- No scheduler, browser automation, email, secrets, or Mission Control Web expansion
+
+### Deliberately not changed
+
+- No new feature work — all Phase 3 code increments are in stacked PRs awaiting GONA merge
+- No conflict resolution on stacked PRs — GONA must decide merge order and resolve handoff conflicts
+- No merge to main — DEEP governance rule strictly observed
+- No changes to any crate code, CLI commands, or runtime behavior
+
+### Recommended next step for GONA
+
+Merge the stacked PRs in recommended order:
+1. **PR #200** (docs: governance bootstrap) — no code conflicts
+2. **PR #202** (P3-15 cost/quality metadata) — base CycleTrace fields
+3. **PR #197** (P3-15 insights flag) — needs rebase after #202
+4. **PR #198** (P3-16 compute efficiency)
+5. **PR #199** (P3-17 context assembly)
+
+After merge: integrate Holographic Memory resonance traces into the orchestrator's context assembly so the cycle receives advisory pattern-matching hints from past episodes and decisions.

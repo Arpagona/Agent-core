@@ -6,6 +6,7 @@
 #
 #   Objective → WorkingMemory → Plan → Observations → Assessment
 #   → FailureInsightCandidates → DecisionGate → Decision → Audit
+#   → CycleTrace (cost/quality metadata) → readback
 #
 # No API server required. No external side effects. Read-only governance.
 #
@@ -175,14 +176,14 @@ printf '\n'
   --json 2>/dev/null \
   | validate_and_format
 
-printf '\\n'
+printf '\n'
 
 # ── Step 4: Orchestrator run — simulated proposal generator ─────────
 
 section "4. Neutral Orchestrator — deterministic (simulated)"
 
-printf '\\n'
-printf '  Simulated proposal generator (default): deterministic ReadDocument at Low risk.\\n\\n'
+printf '\n'
+printf '  Simulated proposal generator (default): deterministic ReadDocument at Low risk.\n\n'
 "${CLI[@]}" orchestrator run \
   --objective "Analyser les tendances du marché de l'IA en France pour 2026" \
   --proposal-generator simulated \
@@ -199,14 +200,14 @@ print(f'  Decision ID:   {data.get(\"decision_id\", \"?\")}')
 print(f'  Audit events:  {len(data.get(\"audit_event_ids\", []))}')
 print(f'  Summary:       {data.get(\"summary\", \"\")}')
 "
-printf '\\n'
+printf '\n'
 
 # ── Step 5: Orchestrator run — LLM proposal generator ──────────────
 
 section "5. Neutral Orchestrator — LLM-backed (mock provider)"
 
-printf '\\n'
-printf '  LLM proposal generator: wraps MockProvider for real proposal-only cycle integration.\\n\\n'
+printf '\n'
+printf '  LLM proposal generator: wraps MockProvider for real proposal-only cycle integration.\n\n'
 "${CLI[@]}" orchestrator run \
   --objective "Analyser les tendances du marché de l'IA en France pour 2026" \
   --proposal-generator llm \
@@ -223,7 +224,54 @@ print(f'  Decision ID:   {data.get(\"decision_id\", \"?\")}')
 print(f'  Audit events:  {len(data.get(\"audit_event_ids\", []))}')
 print(f'  Summary:       {data.get(\"summary\", \"\")}')
 "
-printf '\\n'
+printf '\n'
+
+# ── Step 6: Orchestrator run with CycleTrace — cost/quality metadata ─
+
+section "6. Orchestrator CycleTrace — trace with cost/quality metadata"
+
+printf '\n'
+printf '  CycleTrace gives operator full visibility into context assembly,\n'
+printf '  compute routing and failure insight candidates.\n\n'
+"${CLI[@]}" orchestrator run \
+  --objective "Analyser les tendances du marché de l'IA en France pour 2026" \
+  --proposal-generator simulated \
+  --workspace-id workspace-alpha \
+  --agent-id agent-alpha \
+  --perm ReadDocument \
+  --trace \
+  --save-trace target/demo-cycletrace.json \
+  --json 2>/dev/null | python3 -c "
+import json, sys
+data = json.load(sys.stdin)
+trace = data.get('cycle_trace', data)
+print(f'  Objective:      {trace.get(\"objective_summary\", \"?\")}')
+print(f'  Context items:  {trace.get(\"total_context_items\", 0)}')
+print(f'  Sources used:   {trace.get(\"context_sources_used\", 0)}')
+print(f'  Gate applied:   {trace.get(\"gate_was_applied\", \"?\")}')
+print(f'  Failure cand.:  {len(trace.get(\"failure_insight_candidates\", []))}')
+print(f'  Trace path:     target/demo-cycletrace.json')
+"
+printf '\n'
+
+# ── Step 7: Orchestrator status from saved CycleTrace ───────────────
+
+section "7. Orchestrator readback — status from saved trace"
+
+printf '\n'
+printf '  Demonstrates cross-invocation readback: re-read a saved CycleTrace.\n\n'
+"${CLI[@]}" orchestrator status --trace-path target/demo-cycletrace.json --json 2>/dev/null | python3 -c "
+import json, sys
+data = json.load(sys.stdin)
+trace = data.get('cycle_trace', data)
+print(f'  Trace loaded:   {trace.get(\"objective_summary\", \"?\")}')
+print(f'  Context items:  {trace.get(\"total_context_items\", 0)}')
+print(f'  Sources used:   {trace.get(\"context_sources_used\", 0)}')
+print(f'  Failure cand.:  {len(trace.get(\"failure_insight_candidates\", []))}')
+for cand in trace.get('failure_insight_candidates', []):
+    print(f'    - {cand.get(\"kind\", \"?\")}: {cand.get(\"summary\", \"\")[:120]}')
+"
+printf '\n'
 
 # ── Summary ─────────────────────────────────────────────────────────
 
@@ -231,15 +279,18 @@ header "Résumé — Demo terminée"
 
 cat <<'SUMMARY'
 
-  ✔ Cinq cycles cognitifs complets ont été exécutés :
+  ✔ Sept étapes cognitives complètes ont été exécutées :
     - Cycles 1-3 : Cognitive Work Loop avec gouvernance (business, coding, research)
     - Cycle 4   : Neutral Orchestrator avec générateur de proposition simulé
     - Cycle 5   : Neutral Orchestrator avec générateur de proposition LLM (mock)
+    - Cycle 6   : CycleTrace avec métadonnées de contexte et de routage
+    - Cycle 7   : Readback cross-invocation à partir du fichier trace sauvegardé
     - Tous les cycles ont produit :
       • Objective + WorkingMemory + Plan
       • Assessment (FailureInsightCandidates)
       • Observation bridge (tool runtime)
       • Governance (DecisionGate → Decision → Audit)
+      • CycleTrace avec métadonnées de contexte
     - Toutes les sorties sont evidence-only, non-authorizing.
     - Aucun appel LLM réel, aucune persistence, aucun effet externe.
 
@@ -247,14 +298,19 @@ cat <<'SUMMARY'
     ProposedAction → DecisionGate → Decision → AuditEvent
     → gouvernance_results JSON avec décisions et événements d'audit.
 
+  Le CycleTrace donne à l'opérateur la visibilité complète sur :
+    - le contexte assemblé (sources, items, unavailable)
+    - le routage compute (coût, latence, type de ressource)
+    - les candidats Failure-to-Insight détectés
+
   Le Neutral Orchestrator supporte deux backends de proposition :
     - `simulated` (défaut) : proposition déterministe ReadDocument/Low
     - `llm` : proposition via fournisseur LLM en mode proposition uniquement
 
   Prochaine étape recommandée :
-    Étendre le cycle orchestré pour inclure le Compute Reservoir,
-    le Tool Runtime et le Failure-to-Insight pipeline complet.
+    Intégrer le Holographic Memory (résonance) dans le CycleTrace
+    pour enrichir le contexte assembleur avec des traces épisodiques passées.
 
 SUMMARY
 
-printf '\\n'
+printf '\n'
