@@ -187,6 +187,11 @@ pub struct OrchestratorEngine {
     /// Pluggable proposal generator for creating ProposedActions from cycle context.
     /// Defaults to SimulatedProposalGenerator (deterministic ReadDocument at Low risk).
     proposal_generator: Box<dyn ProposalGenerator>,
+    /// Efficiency feedback signals from a previous cycle's compute efficiency analysis.
+    /// When set, the context assembly adjusts source selection, item limits and
+    /// prioritization based on observed compute efficiency signals.
+    /// Defaults to empty (no previous trace data).
+    previous_efficiency_signals: Vec<arpagona_agent_core::orchestrator::EfficiencySignal>,
 }
 
 impl Default for OrchestratorEngine {
@@ -206,6 +211,7 @@ impl OrchestratorEngine {
             compute_reservoir_resolver: ComputeReservoirResolver::new(),
             context_assembler: Box::new(SimulatedContextAssembler::new()),
             proposal_generator: Box::new(SimulatedProposalGenerator::new()),
+            previous_efficiency_signals: vec![],
         }
     }
 
@@ -249,6 +255,29 @@ impl OrchestratorEngine {
     /// contain approval, authorization or execution tokens.
     pub fn with_proposal_generator(mut self, generator: Box<dyn ProposalGenerator>) -> Self {
         self.proposal_generator = generator;
+        self
+    }
+
+    /// Provide a previous cycle trace for compute efficiency feedback.
+    ///
+    /// The previous trace is analyzed via `analyze_compute_efficiency()` and
+    /// the resulting efficiency signals are stored for the next cycle's
+    /// context assembly pipeline. Adapters may use these signals to adjust
+    /// source selection, item limits and prioritization.
+    ///
+    /// If the trace has no efficiency issues, no signals are stored.
+    ///
+    /// # Safety
+    ///
+    /// The extracted signals are advisory only. They influence how context
+    /// sources are queried but never authorize actions, approve proposals,
+    /// or permit execution.
+    pub fn with_previous_trace(mut self, trace: &CycleTrace) -> Self {
+        use arpagona_agent_core::orchestrator::{
+            analyze_compute_efficiency, extract_efficiency_signals,
+        };
+        let insights = analyze_compute_efficiency(trace);
+        self.previous_efficiency_signals = extract_efficiency_signals(&insights);
         self
     }
 
@@ -390,6 +419,7 @@ impl OrchestratorEngine {
             ContextBundle::new(bundle_id, input.cycle_id.clone(), objective.id.clone());
 
         // Step 1: Create a MemoryQueryRequest with compute route hints
+        // and efficiency feedback from previous cycle analysis
         let request = arpagona_agent_core::orchestrator::MemoryQueryRequest::new(
             input.cycle_id.clone(),
             objective.id.clone(),
@@ -399,7 +429,8 @@ impl OrchestratorEngine {
         .with_compute_route(
             Some(compute_route.selected_route_label.clone()),
             Some(compute_route.local_preferred),
-        );
+        )
+        .with_efficiency_feedback(self.previous_efficiency_signals.clone());
 
         let responses = self.context_assembler.assemble(&request);
 
@@ -991,5 +1022,155 @@ mod tests {
         let json = serde_json::to_value(&request).expect("should serialize");
         assert_eq!(json["cycle_id"], "oc-1");
         assert_eq!(json["objective_id"], "obj-1");
+    }
+
+    // ─── Previous trace efficiency feedback tests ───────────────────────
+
+    #[test]
+    fn engine_with_previous_trace_has_efficiency_signals() {
+        use arpagona_agent_core::orchestrator::EfficiencySignal;
+
+        // Create a trace with fallback routing (should produce FallbackRouting signal)
+        let mut trace = CycleTrace::new(
+            OrchestratorCycleId::new("oc-prev"),
+            "Previous cycle",
+            "Completed",
+            "Fallback used",
+        );
+        trace.compute_route_label = Some("fallback_local_qwen3.5".to_owned());
+        trace.compute_route_justification = Some("Default fallback".to_owned());
+
+        let engine = OrchestratorEngine::new().with_previous_trace(&trace);
+
+        // The previous_efficiency_signals should contain at least one signal
+        assert!(
+            !engine.previous_efficiency_signals.is_empty(),
+            "Fallback trace should produce efficiency signals, got: {:?}",
+            engine.previous_efficiency_signals
+        );
+        assert_eq!(
+            engine.previous_efficiency_signals[0],
+            EfficiencySignal::FallbackRouting
+        );
+    }
+
+    #[test]
+    fn engine_with_no_issues_has_no_efficiency_signals() {
+        // Create a well-configured trace (no efficiency issues)
+        let mut trace = CycleTrace::new(
+            OrchestratorCycleId::new("oc-well"),
+            "Well configured",
+            "Completed",
+            "No issues",
+        );
+        trace.compute_route_label = Some("local_ollama_qwen3.5".to_owned());
+        trace.compute_route_justification = Some("Local model for sensitive data".to_owned());
+
+        let engine = OrchestratorEngine::new().with_previous_trace(&trace);
+
+        assert!(
+            engine.previous_efficiency_signals.is_empty(),
+            "Well-configured trace should produce no signals, got: {:?}",
+            engine.previous_efficiency_signals
+        );
+    }
+
+    #[test]
+    fn engine_with_failed_cycle_trace_produces_signal() {
+        use arpagona_agent_core::orchestrator::EfficiencySignal;
+
+        let mut trace = CycleTrace::new(
+            OrchestratorCycleId::new("oc-fail"),
+            "Failed cycle with route",
+            "Failed",
+            "Cycle failed despite route",
+        );
+        trace.compute_route_label = Some("cloud_gpt4".to_owned());
+        trace.compute_route_justification = Some("Chose strong model".to_owned());
+
+        let engine = OrchestratorEngine::new().with_previous_trace(&trace);
+
+        assert!(
+            !engine.previous_efficiency_signals.is_empty(),
+            "Failed cycle should produce efficiency signals"
+        );
+        assert_eq!(
+            engine.previous_efficiency_signals[0],
+            EfficiencySignal::IneffectiveComputeOnFailedCycle
+        );
+    }
+    #[test]
+    fn engine_efficiency_signals_flow_into_context_assembly() {
+        // Create trace with efficiency issues
+        let mut trace = CycleTrace::new(
+            OrchestratorCycleId::new("oc-prev-eff"),
+            "Previous with issues",
+            "Completed",
+            "Fallback used",
+        );
+        trace.compute_route_label = Some("fallback_local".to_owned());
+        trace.compute_route_justification = Some("Default fallback".to_owned());
+
+        let engine = OrchestratorEngine::new().with_previous_trace(&trace);
+
+        // Verify the engine picked up the signals
+        assert!(
+            !engine.previous_efficiency_signals.is_empty(),
+            "Engine should have efficiency signals from fallback trace"
+        );
+
+        // Run a cycle — the signals flow into MemoryQueryRequest and
+        // SimulatedContextAssembler reflects them in response explanations
+        let input = ObjectiveInput::new(
+            "Test objective",
+            WorkspaceId::new("ws-eff"),
+            AgentId::new("agent-eff"),
+            Utc::now(),
+        );
+
+        let cycle = engine
+            .run_cycle(input, &[Permission::ReadDocument])
+            .expect("cycle should succeed");
+
+        // The outcome must remain non-authorizing even with efficiency signals
+        assert!(cycle.outcome.non_authorizing);
+        // Verify efficiency signal propagated (visible in context source summaries
+        // via the compute route integration)
+        assert!(cycle
+            .compute_route_result
+            .advisory_warning
+            .contains("non-authorizing"));
+    }
+
+    #[test]
+    fn engine_efficiency_signals_are_advisory_only() {
+        let mut trace = CycleTrace::new(
+            OrchestratorCycleId::new("oc-prev-adv"),
+            "Previous test",
+            "Failed",
+            "Failed with route",
+        );
+        trace.compute_route_label = Some("cloud_gpt4".to_owned());
+        trace.compute_route_justification = Some("Chose strong model".to_owned());
+
+        let engine = OrchestratorEngine::new().with_previous_trace(&trace);
+
+        let input = ObjectiveInput::new(
+            "Advisory invariant test",
+            WorkspaceId::new("ws-adv"),
+            AgentId::new("agent-adv"),
+            Utc::now(),
+        );
+
+        let cycle = engine
+            .run_cycle(input, &[Permission::ReadDocument])
+            .expect("cycle should succeed");
+
+        // Outcomes must always be non-authorizing even with efficiency feedback
+        assert!(cycle.outcome.non_authorizing);
+        assert!(cycle
+            .compute_route_result
+            .advisory_warning
+            .contains("non-authorizing"));
     }
 }

@@ -103,14 +103,26 @@ impl ContextAssembler for SimulatedContextAssembler {
             String::new()
         };
 
+        // Build an efficiency feedback prefix when previous-cycle signals exist
+        let eff_prefix = if !request.efficiency_feedback.is_empty() {
+            let labels: Vec<&str> = request
+                .efficiency_feedback
+                .iter()
+                .map(|s| s.context_label())
+                .collect();
+            format!(" [efficiency: {}]", labels.join(", "))
+        } else {
+            String::new()
+        };
+
         for source in &request.requested_sources {
             let response = MemoryQueryResponse {
                 source: source.clone(),
                 items: vec![],
                 available: true,
                 explanation: format!(
-                    "Simulated: {:?} has no items (no adapter installed).{}",
-                    source, compute_prefix
+                    "Simulated: {:?} has no items (no adapter installed).{}{}",
+                    source, compute_prefix, eff_prefix
                 ),
             };
             responses.push(response);
@@ -334,5 +346,120 @@ mod tests {
 
         assert!(request.compute_route_label.is_none());
         assert!(request.local_preferred.is_none());
+    }
+
+    // ─── Efficiency feedback tests ─────────────────────────────────────
+
+    #[test]
+    fn simulated_assembler_includes_efficiency_feedback_in_explanation() {
+        let assembler = SimulatedContextAssembler::new();
+        let request = MemoryQueryRequest::new(
+            OrchestratorCycleId::new("oc-eff-test"),
+            ObjectiveId::new("obj-eff"),
+            "Task with efficiency feedback",
+            WorkspaceId::new("ws-eff"),
+        )
+        .with_efficiency_feedback(vec![
+            arpagona_agent_core::orchestrator::EfficiencySignal::FallbackRouting,
+        ]);
+
+        let responses = assembler.assemble(&request);
+
+        for response in &responses {
+            assert!(
+                response.explanation.contains("[efficiency: eff:fallback]"),
+                "Expected efficiency prefix in explanation, got: {}",
+                response.explanation
+            );
+        }
+    }
+
+    #[test]
+    fn simulated_assembler_with_multiple_efficiency_signals() {
+        let assembler = SimulatedContextAssembler::new();
+        use arpagona_agent_core::orchestrator::EfficiencySignal;
+        let request = MemoryQueryRequest::new(
+            OrchestratorCycleId::new("oc-multi-eff"),
+            ObjectiveId::new("obj-multi-eff"),
+            "Multiple signals",
+            WorkspaceId::new("ws-multi-eff"),
+        )
+        .with_efficiency_feedback(vec![
+            EfficiencySignal::FallbackRouting,
+            EfficiencySignal::MissingComputeRoute,
+        ]);
+
+        let responses = assembler.assemble(&request);
+
+        for response in &responses {
+            assert!(
+                response.explanation.contains("eff:fallback"),
+                "Missing eff:fallback in: {}",
+                response.explanation
+            );
+            assert!(
+                response.explanation.contains("eff:no-route"),
+                "Missing eff:no-route in: {}",
+                response.explanation
+            );
+        }
+    }
+
+    #[test]
+    fn simulated_assembler_without_efficiency_has_no_prefix() {
+        let assembler = SimulatedContextAssembler::new();
+        let request = MemoryQueryRequest::new(
+            OrchestratorCycleId::new("oc-no-eff"),
+            ObjectiveId::new("obj-no-eff"),
+            "No efficiency feedback",
+            WorkspaceId::new("ws-no-eff"),
+        );
+
+        let responses = assembler.assemble(&request);
+
+        for response in &responses {
+            assert!(
+                !response.explanation.contains("[efficiency:"),
+                "Expected no efficiency prefix, got: {}",
+                response.explanation
+            );
+        }
+    }
+
+    #[test]
+    fn simulated_assembler_with_compute_and_efficiency_shows_both() {
+        let assembler = SimulatedContextAssembler::new();
+        use arpagona_agent_core::orchestrator::EfficiencySignal;
+        let request = MemoryQueryRequest::new(
+            OrchestratorCycleId::new("oc-combined"),
+            ObjectiveId::new("obj-combined"),
+            "Combined signals",
+            WorkspaceId::new("ws-combined"),
+        )
+        .with_compute_route(Some("local-small"), Some(true))
+        .with_efficiency_feedback(vec![
+            EfficiencySignal::FallbackRouting,
+            EfficiencySignal::IneffectiveComputeOnFailedCycle,
+        ]);
+
+        let responses = assembler.assemble(&request);
+
+        for response in &responses {
+            assert!(
+                response.explanation.contains("[compute: local-small"),
+                "Expected compute prefix, got: {}",
+                response.explanation
+            );
+            assert!(
+                response.explanation.contains("[efficiency:"),
+                "Expected efficiency prefix, got: {}",
+                response.explanation
+            );
+            assert!(
+                response.explanation.contains("eff:failed-cycle"),
+                "Missing eff:failed-cycle in: {}",
+                response.explanation
+            );
+        }
     }
 }

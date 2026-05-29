@@ -4009,6 +4009,72 @@ This session created the P3-14 milestone: connecting orchestrated context assemb
 - P3-14 milestone delivered: CycleTrace → FailureInsightCandidate bridge
 
 ### Recommended next step for GONA
+1. **Merge PR #197** (P3-15) — CI green, mergeable
+2. **Review and merge this P3-16 PR** (branch: `feat/p3-16-compute-efficiency-feedback`)
+3. After merge: Connect Compute Reservoir efficiency feedback to the orchestrator's resource-aware context assembly — make context assembly pipeline adjust source selection based on observed compute efficiency signals
+
+## 30. Latest Session Update (2026-05-29 DEEP cron — P3-17: Efficiency feedback context assembly)
+
+This session implemented P3-17: wire Compute Reservoir efficiency feedback from `analyze_compute_efficiency()` into the orchestrator's resource-aware context assembly pipeline.
+
+### What was added
+
+**`crates/core/src/orchestrator.rs`:**
+- `EfficiencySignal` enum (4 variants: `FallbackRouting`, `MissingComputeRoute`, `UnjustifiedComputeRoute`, `IneffectiveComputeOnFailedCycle`) — `Serialize`/`Deserialize`, `Hash`, `Eq`, `snake_case` serde rename
+- `EfficiencySignal::description()` — human-readable text
+- `EfficiencySignal::context_label()` — short labels for explanations (eff:fallback, eff:no-route, eff:unjustified-route, eff:failed-cycle)
+- `extract_efficiency_signals()` — converts `Vec<FailureInsight>` from `analyze_compute_efficiency()` into deduplicated `Vec<EfficiencySignal>` by inspecting detection signal description text
+- `efficiency_feedback: Vec<EfficiencySignal>` field on `MemoryQueryRequest` with `with_efficiency_feedback()` builder
+
+**`crates/neutral-orchestrator/src/context_assembler.rs`:**
+- `SimulatedContextAssembler::assemble()` now checks `request.efficiency_feedback` and includes an `[efficiency: eff:label1, eff:label2]` prefix in response explanations
+
+**`crates/neutral-orchestrator/src/lib.rs`:**
+- `previous_efficiency_signals` field on `OrchestratorEngine` (defaults empty)
+- `with_previous_trace(trace: &CycleTrace)` builder — runs `analyze_compute_efficiency()` + `extract_efficiency_signals()`, stores signals
+- `assemble_context()` now passes `.with_efficiency_feedback(self.previous_efficiency_signals.clone())` into `MemoryQueryRequest`
+
+### Tests added
+
+| Crate | New tests |
+|---|---|
+| `arpagona-agent-core` | 28 new tests |
+| `arpagona-neutral-orchestrator` | 9 new tests (context_assembler + engine) |
+
+New tests cover: EfficiencySignal serialization/deserialization, description/context_label sanity, uniqueness of labels, `extract_efficiency_signals` for all 4 signal types, deduplication, multiple types, non-compute ignore, MemoryQueryRequest roundtrip with efficiency feedback, default no-feedback, non-authorizing invariant, engine with_previous_trace for all 3 trace types (fallback, no-issues, failed-cycle), engine efficiency flow into context assembly, advisory-only invariant.
+
+### Verification
+
+- `cargo fmt -- --check`: clean
+- `cargo check`: clean
+- `cargo test`: **All 900+ tests pass** (0 failures across all crates)
+
+### Safety boundaries preserved
+
+- `EfficiencySignal` is advisory only — never authorizes actions, never approves proposals, never permits execution
+- `extract_efficiency_signals` is pure/deterministic — no I/O, no LLM, no persistence
+- `with_previous_trace()` only reads CycleTrace data, never mutates it
+- Efficiency signals flow through existing advisory-only context assembly path
+- No Decision Gate bypass, no scheduler, no autonomy, no shell/browser/MCP/write/email expansion
+- All outcomes remain non-authorizing
+
+### Files changed
+
+| File | Change |
+|---|---|
+| `crates/core/src/orchestrator.rs` | Added `EfficiencySignal` enum, `extract_efficiency_signals()` function, `efficiency_feedback` field on `MemoryQueryRequest` + builder, 28 tests |
+| `crates/neutral-orchestrator/src/context_assembler.rs` | Efficiency feedback prefix in `SimulatedContextAssembler::assemble()`, 4 new tests |
+| `crates/neutral-orchestrator/src/lib.rs` | `previous_efficiency_signals` field, `with_previous_trace()` builder, efficiency wiring in `assemble_context()`, 5 new engine tests |
+| `FOCUS_LOOP_NEXT.md` | Updated handoff to P3-17 delivery status |
+| `PROJECT_STATUS.md` | This update |
+
+### Recommended next step for GONA
+
+1. **Merge PR #197** (P3-15) — CI green, mergeable
+2. **Merge PR #198** (P3-16) — CI green, mergeable
+3. **Merge PR #199** (P3-17, this branch) — CI pending
+4. After merge: wire efficiency signal explanations into CycleTrace output for operator-visible readback, or advance to P4 (Cycle Trace V0 with operator readback reflection)
+
 
 1. Review and merge PR #201.
 2. Next: connect CycleTrace metadata to Compute Reservoir cost/quality feedback, or add dedicated CLI surface (`orchestrator insights <trace-path>`).

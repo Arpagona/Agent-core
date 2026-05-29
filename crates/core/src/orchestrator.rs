@@ -1303,6 +1303,122 @@ pub fn analyze_compute_efficiency(trace: &CycleTrace) -> Vec<FailureInsight> {
     insights
 }
 
+// ─── EfficiencySignal ───────────────────────────────────────────────────────
+
+/// Signals from compute efficiency analysis that can influence subsequent
+/// context assembly decisions.
+///
+/// Produced by `analyze_compute_efficiency()` from a previous `CycleTrace`
+/// and consumed by the context assembly pipeline to adjust source selection,
+/// item limits, and prioritization in subsequent cycles.
+///
+/// # Safety
+///
+/// These signals are advisory only. They never authorize actions, approve
+/// proposals, or permit execution. They only influence how context sources
+/// are queried in the next cycle.
+#[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum EfficiencySignal {
+    /// Previous cycle used fallback or no-suitable-resource routing.
+    /// Context assembly should prefer lightweight, local sources and
+    /// avoid triggering expensive compute for memory retrieval.
+    FallbackRouting,
+    /// Previous cycle completed without a recorded compute route label.
+    /// Context assembly should include explicit routing info in its
+    /// explanations to aid operator audit.
+    MissingComputeRoute,
+    /// Previous cycle had a compute route label but no justification.
+    /// Context assembly should document routing decisions more clearly
+    /// for operator readability.
+    UnjustifiedComputeRoute,
+    /// Previous cycle had ineffective compute (cycle failed or errored
+    /// despite having a route assigned).
+    /// Context assembly should increase source diversity to provide
+    /// richer evidence for the next proposal.
+    IneffectiveComputeOnFailedCycle,
+}
+
+impl EfficiencySignal {
+    /// Return a human-readable description of this signal.
+    pub fn description(&self) -> &'static str {
+        match self {
+            Self::FallbackRouting => {
+                "Previous cycle used fallback routing — preferring local, lightweight sources"
+            }
+            Self::MissingComputeRoute => {
+                "Previous cycle had no compute route record — including explicit routing hints"
+            }
+            Self::UnjustifiedComputeRoute => {
+                "Previous cycle had opaque compute routing — prioritizing clear documentation"
+            }
+            Self::IneffectiveComputeOnFailedCycle => {
+                "Previous cycle failed despite compute route — increasing context source diversity"
+            }
+        }
+    }
+
+    /// Return a short label for inclusion in context assembly explanations.
+    pub fn context_label(&self) -> &'static str {
+        match self {
+            Self::FallbackRouting => "eff:fallback",
+            Self::MissingComputeRoute => "eff:no-route",
+            Self::UnjustifiedComputeRoute => "eff:unjustified-route",
+            Self::IneffectiveComputeOnFailedCycle => "eff:failed-cycle",
+        }
+    }
+}
+
+/// Extract compute-relevant EfficiencySignals from a set of FailureInsights
+/// produced by `analyze_compute_efficiency()`.
+///
+/// This function inspects each FailureInsight's detection signal text and
+/// class to determine which efficiency signal category applies. Only
+/// compute-related FailureInsights (class `WrongComputeChoice` or
+/// `InsufficientObservability` about routing) are converted.
+///
+/// # Safety
+///
+/// The returned signals are advisory and non-authorizing. They describe
+/// observed compute efficiency patterns, not authorizations to act.
+pub fn extract_efficiency_signals(insights: &[FailureInsight]) -> Vec<EfficiencySignal> {
+    let mut signals: Vec<EfficiencySignal> = Vec::new();
+    let mut seen = std::collections::HashSet::new();
+
+    for insight in insights {
+        let signal_text = &insight.detection_signal.description;
+
+        let signal = if signal_text.contains("fallback")
+            || signal_text.contains("suboptimal-route")
+            || signal_text.contains("no_suitable")
+        {
+            EfficiencySignal::FallbackRouting
+        } else if signal_text.contains("no-suitable-resource")
+            || signal_text.contains("no compatible")
+        {
+            EfficiencySignal::FallbackRouting
+        } else if signal_text.contains("missing-route") {
+            EfficiencySignal::MissingComputeRoute
+        } else if signal_text.contains("unjustified-route") {
+            EfficiencySignal::UnjustifiedComputeRoute
+        } else if (signal_text.contains("failed") || signal_text.contains("ineffective"))
+            && signal_text.contains("route")
+        {
+            EfficiencySignal::IneffectiveComputeOnFailedCycle
+        } else {
+            continue;
+        };
+
+        // Deduplicate — only one signal of each type
+        let label = signal.context_label().to_owned();
+        if seen.insert(label) {
+            signals.push(signal);
+        }
+    }
+
+    signals
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -2266,6 +2382,344 @@ mod tests {
             "Well-configured cycle should have no compute efficiency insights"
         );
     }
+
+    // ─── EfficiencySignal tests ──────────────────────────────────────────
+
+    #[test]
+    fn efficiency_signal_serializes_roundtrip() {
+        let signals = vec![
+            EfficiencySignal::FallbackRouting,
+            EfficiencySignal::MissingComputeRoute,
+            EfficiencySignal::UnjustifiedComputeRoute,
+            EfficiencySignal::IneffectiveComputeOnFailedCycle,
+        ];
+        let encoded = serde_json::to_value(&signals).expect("should serialize");
+        assert_eq!(encoded.as_array().unwrap().len(), 4);
+        assert_eq!(encoded[0], json!("fallback_routing"));
+        assert_eq!(encoded[1], json!("missing_compute_route"));
+        assert_eq!(encoded[2], json!("unjustified_compute_route"));
+        assert_eq!(encoded[3], json!("ineffective_compute_on_failed_cycle"));
+
+        let decoded: Vec<EfficiencySignal> =
+            serde_json::from_value(encoded).expect("should deserialize");
+        assert_eq!(decoded.len(), 4);
+        assert_eq!(decoded[0], EfficiencySignal::FallbackRouting);
+    }
+
+    #[test]
+    fn efficiency_signal_descriptions_are_non_empty() {
+        let signals = vec![
+            EfficiencySignal::FallbackRouting,
+            EfficiencySignal::MissingComputeRoute,
+            EfficiencySignal::UnjustifiedComputeRoute,
+            EfficiencySignal::IneffectiveComputeOnFailedCycle,
+        ];
+        for signal in &signals {
+            assert!(!signal.description().is_empty());
+            assert!(!signal.context_label().is_empty());
+        }
+    }
+
+    #[test]
+    fn efficiency_signal_context_labels_are_unique() {
+        let labels: std::collections::HashSet<&'static str> = vec![
+            EfficiencySignal::FallbackRouting.context_label(),
+            EfficiencySignal::MissingComputeRoute.context_label(),
+            EfficiencySignal::UnjustifiedComputeRoute.context_label(),
+            EfficiencySignal::IneffectiveComputeOnFailedCycle.context_label(),
+        ]
+        .into_iter()
+        .collect();
+        assert_eq!(labels.len(), 4, "All context_labels must be unique");
+    }
+
+    #[test]
+    fn extract_efficiency_signals_from_fallback_insight() {
+        let insights = vec![FailureInsight::new(
+            FailureInsightId::new("fi-fallback-test"),
+            FailureClass::WrongComputeChoice,
+            InsightSeverity::Low,
+            CorrectionTarget::Code,
+            "Suboptimal route",
+            "fallback route detected",
+            "Fallback increases cost",
+            "Fix inventory",
+            "Compute Reservoir",
+            DetectionSignal::new(
+                DetectionSignalType::RuntimeObservation,
+                "suboptimal-route fallback at cycle oc-1",
+            ),
+            0.75,
+            Utc::now(),
+        )];
+        let signals = extract_efficiency_signals(&insights);
+        assert_eq!(signals.len(), 1);
+        assert_eq!(signals[0], EfficiencySignal::FallbackRouting);
+    }
+
+    #[test]
+    fn extract_efficiency_signals_from_missing_route() {
+        let insights = vec![FailureInsight::new(
+            FailureInsightId::new("fi-missing-route-test"),
+            FailureClass::InsufficientObservability,
+            InsightSeverity::Low,
+            CorrectionTarget::Code,
+            "Missing compute route",
+            "No route recorded",
+            "Cannot analyze",
+            "Record routes",
+            "Orchestrator / Compute Reservoir",
+            DetectionSignal::new(
+                DetectionSignalType::RuntimeObservation,
+                "missing-route at cycle oc-1",
+            ),
+            0.7,
+            Utc::now(),
+        )];
+        let signals = extract_efficiency_signals(&insights);
+        assert_eq!(signals.len(), 1);
+        assert_eq!(signals[0], EfficiencySignal::MissingComputeRoute);
+    }
+
+    #[test]
+    fn extract_efficiency_signals_from_unjustified_route() {
+        let insights = vec![FailureInsight::new(
+            FailureInsightId::new("fi-unjustified-test"),
+            FailureClass::WrongComputeChoice,
+            InsightSeverity::Low,
+            CorrectionTarget::Code,
+            "Unjustified route",
+            "No justification provided",
+            "Opaque routing",
+            "Add justification",
+            "Orchestrator / Compute Reservoir",
+            DetectionSignal::new(
+                DetectionSignalType::RuntimeObservation,
+                "unjustified-route at cycle oc-1",
+            ),
+            0.7,
+            Utc::now(),
+        )];
+        let signals = extract_efficiency_signals(&insights);
+        assert_eq!(signals.len(), 1);
+        assert_eq!(signals[0], EfficiencySignal::UnjustifiedComputeRoute);
+    }
+
+    #[test]
+    fn extract_efficiency_signals_from_failed_cycle() {
+        let insights = vec![FailureInsight::new(
+            FailureInsightId::new("fi-failed-test"),
+            FailureClass::WrongComputeChoice,
+            InsightSeverity::Medium,
+            CorrectionTarget::Code,
+            "Ineffective compute",
+            "Cycle failed despite route",
+            "Bad resource selection",
+            "Choose stronger model",
+            "Orchestrator",
+            DetectionSignal::new(
+                DetectionSignalType::RuntimeObservation,
+                "failed-cycle route cloud_gpt4 was ineffective",
+            ),
+            0.8,
+            Utc::now(),
+        )];
+        let signals = extract_efficiency_signals(&insights);
+        assert_eq!(signals.len(), 1);
+        assert_eq!(
+            signals[0],
+            EfficiencySignal::IneffectiveComputeOnFailedCycle
+        );
+    }
+
+    #[test]
+    fn extract_efficiency_signals_deduplicates_same_type() {
+        let insights = vec![
+            FailureInsight::new(
+                FailureInsightId::new("fi-fallback-1"),
+                FailureClass::WrongComputeChoice,
+                InsightSeverity::Low,
+                CorrectionTarget::Code,
+                "Fallback 1",
+                "fallback route",
+                "cost increase",
+                "fix",
+                "Compute Reservoir",
+                DetectionSignal::new(
+                    DetectionSignalType::RuntimeObservation,
+                    "suboptimal-route fallback at oc-1",
+                ),
+                0.75,
+                Utc::now(),
+            ),
+            FailureInsight::new(
+                FailureInsightId::new("fi-fallback-2"),
+                FailureClass::WrongComputeChoice,
+                InsightSeverity::Low,
+                CorrectionTarget::Code,
+                "Fallback 2",
+                "another fallback",
+                "cost increase",
+                "fix",
+                "Compute Reservoir",
+                DetectionSignal::new(
+                    DetectionSignalType::RuntimeObservation,
+                    "no_suitable_resource fallback at oc-2",
+                ),
+                0.75,
+                Utc::now(),
+            ),
+        ];
+        let signals = extract_efficiency_signals(&insights);
+        assert_eq!(signals.len(), 1, "Should deduplicate same signal type");
+        assert_eq!(signals[0], EfficiencySignal::FallbackRouting);
+    }
+
+    #[test]
+    fn extract_efficiency_signals_includes_multiple_types() {
+        let fallback = FailureInsight::new(
+            FailureInsightId::new("fi-fb"),
+            FailureClass::WrongComputeChoice,
+            InsightSeverity::Low,
+            CorrectionTarget::Code,
+            "Fallback",
+            "fallback route",
+            "cost",
+            "fix",
+            "Compute Reservoir",
+            DetectionSignal::new(
+                DetectionSignalType::RuntimeObservation,
+                "suboptimal-route fallback",
+            ),
+            0.75,
+            Utc::now(),
+        );
+        let missing = FailureInsight::new(
+            FailureInsightId::new("fi-mr"),
+            FailureClass::InsufficientObservability,
+            InsightSeverity::Low,
+            CorrectionTarget::Code,
+            "Missing route",
+            "no route recorded",
+            "can't analyze",
+            "record route",
+            "Orchestrator / Compute Reservoir",
+            DetectionSignal::new(
+                DetectionSignalType::RuntimeObservation,
+                "missing-route at cycle oc-1",
+            ),
+            0.7,
+            Utc::now(),
+        );
+        let unjustified = FailureInsight::new(
+            FailureInsightId::new("fi-uj"),
+            FailureClass::WrongComputeChoice,
+            InsightSeverity::Low,
+            CorrectionTarget::Code,
+            "Unjustified",
+            "no justification",
+            "opaque routing",
+            "add justification",
+            "Orchestrator / Compute Reservoir",
+            DetectionSignal::new(
+                DetectionSignalType::RuntimeObservation,
+                "unjustified-route at cycle oc-1",
+            ),
+            0.7,
+            Utc::now(),
+        );
+        let signals = extract_efficiency_signals(&[fallback, missing, unjustified]);
+        assert_eq!(signals.len(), 3);
+        let types: std::collections::HashSet<_> = signals.iter().collect();
+        assert!(types.contains(&EfficiencySignal::FallbackRouting));
+        assert!(types.contains(&EfficiencySignal::MissingComputeRoute));
+        assert!(types.contains(&EfficiencySignal::UnjustifiedComputeRoute));
+    }
+
+    #[test]
+    fn extract_efficiency_signals_ignores_non_compute_insights() {
+        let insights = vec![FailureInsight::new(
+            FailureInsightId::new("fi-doc"),
+            FailureClass::DocumentationGap,
+            InsightSeverity::Low,
+            CorrectionTarget::Docs,
+            "Missing docs",
+            "not documented",
+            "confusion",
+            "add docs",
+            "Documentation",
+            DetectionSignal::new(
+                DetectionSignalType::HumanCorrection,
+                "docs are missing for cognitive_work module",
+            ),
+            0.6,
+            Utc::now(),
+        )];
+        let signals = extract_efficiency_signals(&insights);
+        assert!(signals.is_empty(), "Non-compute insights should be ignored");
+    }
+
+    #[test]
+    fn memory_query_request_with_efficiency_feedback_roundtrip() {
+        let signals = vec![
+            EfficiencySignal::FallbackRouting,
+            EfficiencySignal::MissingComputeRoute,
+        ];
+        let request = MemoryQueryRequest::new(
+            OrchestratorCycleId::new("oc-eff-test"),
+            ObjectiveId::new("obj-eff"),
+            "Test objective",
+            WorkspaceId::new("ws-eff"),
+        )
+        .with_efficiency_feedback(signals.clone());
+
+        assert_eq!(request.efficiency_feedback.len(), 2);
+        assert_eq!(
+            request.efficiency_feedback[0],
+            EfficiencySignal::FallbackRouting
+        );
+
+        let encoded = serde_json::to_value(&request).expect("should serialize");
+        assert_eq!(encoded["efficiency_feedback"].as_array().unwrap().len(), 2);
+
+        let decoded: MemoryQueryRequest =
+            serde_json::from_value(encoded).expect("should deserialize");
+        assert_eq!(decoded.efficiency_feedback.len(), 2);
+        assert_eq!(
+            decoded.efficiency_feedback[0],
+            EfficiencySignal::FallbackRouting
+        );
+    }
+
+    #[test]
+    fn memory_query_request_default_has_no_efficiency_feedback() {
+        let request = MemoryQueryRequest::new(
+            OrchestratorCycleId::new("oc-no-eff"),
+            ObjectiveId::new("obj-no-eff"),
+            "Test",
+            WorkspaceId::new("ws-no-eff"),
+        );
+        assert!(
+            request.efficiency_feedback.is_empty(),
+            "Default request should have no efficiency feedback"
+        );
+    }
+
+    #[test]
+    fn efficiency_signal_all_variants_are_non_authorizing() {
+        let signals = vec![
+            EfficiencySignal::FallbackRouting,
+            EfficiencySignal::MissingComputeRoute,
+            EfficiencySignal::UnjustifiedComputeRoute,
+            EfficiencySignal::IneffectiveComputeOnFailedCycle,
+        ];
+        for signal in &signals {
+            let json = serde_json::to_value(signal).expect("serialize");
+            assert!(json.get("approved").is_none());
+            assert!(json.get("authorized").is_none());
+            assert!(json.get("executed").is_none());
+        }
+    }
 }
 
 // ─── MemoryQueryRequest ──────────────────────────────────────────────────
@@ -2300,6 +2754,8 @@ pub struct MemoryQueryRequest {
     /// Adapters may use this to favor local-memory sources (Reservoir Echo,
     /// local tool results) when true.
     pub local_preferred: Option<bool>,
+    /// Efficiency feedback from a previous cycle's compute efficiency analysis.
+    pub efficiency_feedback: Vec<EfficiencySignal>,
     /// Timestamp of the request.
     pub created_at: DateTime<Utc>,
 }
@@ -2328,6 +2784,7 @@ impl MemoryQueryRequest {
             max_items_per_source: 10,
             compute_route_label: None,
             local_preferred: None,
+            efficiency_feedback: vec![],
             created_at: Utc::now(),
         }
     }
@@ -2361,6 +2818,25 @@ impl MemoryQueryRequest {
     ) -> Self {
         self.compute_route_label = route_label.map(|s| s.into());
         self.local_preferred = local_preferred;
+        self
+    }
+
+    /// Attach efficiency feedback signals for compute-aware context assembly.
+    ///
+    /// Efficiency signals are produced by `analyze_compute_efficiency()` from
+    /// a previous cycle's `CycleTrace`. Adapters may use these signals to
+    /// adjust source selection, item limits and prioritization.
+    ///
+    /// For example, `FallbackRouting` suggests preferring lightweight local
+    /// sources, while `IneffectiveComputeOnFailedCycle` suggests increasing
+    /// source diversity for richer context.
+    ///
+    /// # Safety
+    ///
+    /// These signals are advisory only. No adapter may treat them as
+    /// authorization, approval, or execution instructions.
+    pub fn with_efficiency_feedback(mut self, signals: Vec<EfficiencySignal>) -> Self {
+        self.efficiency_feedback = signals;
         self
     }
 }
