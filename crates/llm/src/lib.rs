@@ -13,8 +13,8 @@ use std::future::Future;
 use std::pin::Pin;
 
 use arpagona_agent_core::{
-    ActionType, AgentId, Permission, ProposedAction, ProposedActionId, ProposedActionStatus,
-    RiskLevel, TaskId, WorkspaceId,
+    action::ToolCallIntent, ActionType, AgentId, Permission, ProposedAction, ProposedActionId,
+    ProposedActionStatus, RiskLevel, TaskId, WorkspaceId,
 };
 use chrono::Utc;
 use reqwest::Client;
@@ -1568,6 +1568,101 @@ Working Memory Summary:
     }
 }
 
+/// Request a tool-call intent from an LLM provider for a given objective.
+///
+/// This function asks the specified LLM provider to produce a tool-call intent
+/// appropriate for the given objective. The returned `ToolCallIntent` can then
+/// be routed through the Decision Gate and Tool Runtime (Track C Step C2).
+///
+/// # Provider support
+///
+/// | Provider | Behavior |
+/// |----------|----------|
+/// | `mock` | Returns a deterministic `read_file` intent on `PROJECT_STATUS.md` |
+/// | `openai` | Calls the OpenAI Responses API with a tool-call prompt |
+/// | `ollama` | Calls the local Ollama model with a tool-call prompt |
+///
+/// # Safety
+///
+/// - The returned intent is a proposal, not an execution authority.
+/// - The caller must route it through the Decision Gate before execution.
+/// - No tool execution, no persistence, no authorization occurs here.
+pub async fn request_tool_call_from_llm(
+    objective: &str,
+    provider_name: &str,
+) -> Result<ToolCallIntent, LlmError> {
+    match provider_name {
+        "mock" => {
+            // Deterministic mock: return a canned read_file intent
+            Ok(ToolCallIntent {
+                tool: "read_file".to_owned(),
+                arguments: json!({"path": "PROJECT_STATUS.md"}),
+                rationale: format!(
+                    "Mock provider: tool call for objective '{}' — read PROJECT_STATUS.md to understand project state",
+                    objective
+                ),
+                risk_level: RiskLevel::Low,
+            })
+        }
+        "openai" => {
+            let provider = OpenAiProvider::from_env()?;
+            let prompt = format!(
+                "Given the objective: {objective}\n\n\
+                 Decide which file to read and call the read_file tool with the appropriate path. \
+                 Return a JSON object with 'tool' (the tool name), 'arguments' (a JSON object with 'path' key), \
+                 and 'rationale' (why this tool call helps the objective). \
+                 Use read_file, list_files, or search_text as the tool name."
+            );
+            let draft = provider
+                .propose_action(LlmActionRequest { prompt })
+                .await
+                .map_err(|e| LlmError::Provider(e.to_string()))?;
+
+            // Convert the draft to a ToolCallIntent based on action type
+            let tool_name = match draft.action_type {
+                ActionType::ReadDocument => "read_file",
+                ActionType::SystemCheck => "list_files",
+                _ => "search_text",
+            };
+            Ok(ToolCallIntent {
+                tool: tool_name.to_owned(),
+                arguments: json!({"path": "."}),
+                rationale: draft.rationale,
+                risk_level: draft.risk_level,
+            })
+        }
+        "ollama" => {
+            let provider = OllamaProvider::from_env();
+            let prompt = format!(
+                "Given the objective: {objective}\n\n\
+                 Decide which file to read and call the read_file tool with the appropriate path. \
+                 Return a JSON object with 'tool' (the tool name), 'arguments' (a JSON object with 'path' key), \
+                 and 'rationale' (why this tool call helps the objective). \
+                 Use read_file, list_files, or search_text as the tool name."
+            );
+            let draft = provider
+                .propose_action(LlmActionRequest { prompt })
+                .await
+                .map_err(|e| LlmError::Provider(e.to_string()))?;
+
+            let tool_name = match draft.action_type {
+                ActionType::ReadDocument => "read_file",
+                ActionType::SystemCheck => "list_files",
+                _ => "search_text",
+            };
+            Ok(ToolCallIntent {
+                tool: tool_name.to_owned(),
+                arguments: json!({"path": "."}),
+                rationale: draft.rationale,
+                risk_level: draft.risk_level,
+            })
+        }
+        other => Err(LlmError::Provider(format!("Unknown provider: {other}"))),
+    }
+}
+
+// ─── Tests ─────────────────────────────────────────────────────────────────
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -2367,5 +2462,47 @@ mod tests {
             prompt.contains("Do NOT request missing context"),
             "prompt must forbid requesting secret context"
         );
+    }
+
+    // ─── request_tool_call_from_llm tests ──────────────────────────────────
+
+    #[tokio::test]
+    async fn mock_provider_returns_read_file_intent() {
+        let intent = request_tool_call_from_llm("Review project documents", "mock")
+            .await
+            .expect("mock provider should return intent");
+
+        assert_eq!(intent.tool, "read_file");
+        assert_eq!(intent.risk_level, RiskLevel::Low);
+        assert!(intent.rationale.contains("Review project documents"));
+        // Check that the arguments are valid JSON with a 'path' field
+        assert!(intent.arguments.get("path").is_some());
+    }
+
+    #[tokio::test]
+    async fn request_tool_call_unknown_provider_returns_error() {
+        let result = request_tool_call_from_llm("Test objective", "nonexistent_provider").await;
+        assert!(result.is_err());
+        match result {
+            Err(LlmError::Provider(msg)) => {
+                assert!(msg.contains("Unknown provider"));
+            }
+            _ => panic!("expected LlmError::Provider"),
+        }
+    }
+
+    #[tokio::test]
+    async fn request_tool_call_mock_intent_is_non_executing() {
+        let intent = request_tool_call_from_llm("Read project status", "mock")
+            .await
+            .expect("mock provider should return intent");
+
+        // The intent is a proposal, not an execution authority
+        assert_eq!(intent.risk_level, RiskLevel::Low);
+        assert!(intent.rationale.contains("Read project status"));
+        // Verify no execution tokens in the intent
+        let json = serde_json::to_value(&intent).expect("should serialize");
+        assert!(json.get("execution_token").is_none());
+        assert!(json.get("authorized").is_none());
     }
 }

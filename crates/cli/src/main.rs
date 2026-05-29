@@ -28,6 +28,7 @@ use arpagona_holographic_memory::{
     HolographicMemoryError, HolographicMemoryStore, HolographicQuery, HolographicTrace,
     InMemoryHolographicMemoryStore, SourceKind,
 };
+use arpagona_llm::request_tool_call_from_llm;
 use arpagona_llm::run_cognitive_synthesis;
 use arpagona_neutral_orchestrator::OrchestratorEngine;
 use arpagona_tool_runtime::{ToolRuntime, ToolRuntimeConfig};
@@ -414,6 +415,12 @@ pub struct CognitiveRunArgs {
     /// API server. Requires --assess (needs FailureInsightCandidates to govern).
     #[arg(long)]
     pub govern: bool,
+    /// Run governed tool-calling (Track C Step C2): request a tool-call intent from
+    /// the LLM provider, route it through Decision Gate, execute approved calls through
+    /// the bounded Tool Runtime, and journal the full trace (intent -> decision ->
+    /// result -> observation). Requires --llm (needs an LLM provider for the intent).
+    #[arg(long)]
+    pub govern_tool: bool,
     /// LLM provider to use for --llm (mock = no real API call, openai = OpenAI Responses API, ollama = local Ollama).
     #[arg(long, default_value = "ollama")]
     pub provider: String,
@@ -8841,6 +8848,117 @@ async fn cognitive_run(
                     }
                 }
             }
+
+            // When --govern-tool, request a tool-call intent from the LLM provider,
+            // route it through the Decision Gate, execute approved calls through
+            // the bounded Tool Runtime, and journal the full trace (C2).
+            if args.govern_tool {
+                let resolved_provider =
+                    env::var("ARPAGONA_LLM_PROVIDER").unwrap_or_else(|_| "mock".to_owned());
+
+                match request_tool_call_from_llm(&args.objective, &resolved_provider).await {
+                    Ok(intent) => {
+                        // Route through Decision Gate
+                        let (decision, _proposed_action) =
+                            govern_tool_call(&intent, &[Permission::ProposeToolUse]);
+
+                        // Execute approved calls through bounded Tool Runtime
+                        let execution_result = if decision.status == DecisionStatus::Approved {
+                            let config = ToolRuntimeConfig::new(".");
+                            let runtime = ToolRuntime::new(config);
+                            Some(runtime.execute(&intent.tool, &intent.arguments))
+                        } else {
+                            None
+                        };
+
+                        // Journal the full trace (intent -> decision -> result -> observation)
+                        let response_summary = if let Some(ref result) = execution_result {
+                            format!(
+                                "Decision Gate: {:?} — Tool runtime: {} ({:?})",
+                                decision.status, result.output_summary, result.status
+                            )
+                        } else {
+                            format!(
+                                "Decision Gate result: status={:?}, reason={}",
+                                decision.status, decision.reason
+                            )
+                        };
+
+                        let journal_entry_id = global_llm_journal()
+                            .lock()
+                            .unwrap()
+                            .add_direct_tool_call(
+                                &intent.tool,
+                                &resolved_provider,
+                                None,
+                                format!(
+                                    "Governed tool-call from LLM: tool={}, objective={}, rationale={}",
+                                    intent.tool, args.objective, intent.rationale
+                                ),
+                                response_summary,
+                                serde_json::json!({
+                                    "tool": intent.tool,
+                                    "arguments": intent.arguments,
+                                    "rationale": intent.rationale,
+                                    "risk_level": intent.risk_level,
+                                    "objective": args.objective,
+                                }),
+                                serde_json::json!({
+                                    "decision_id": decision.id,
+                                    "status": decision.status,
+                                    "reason": decision.reason,
+                                    "risk_level": decision.risk_level,
+                                    "policies_applied": decision.policies_applied,
+                                    "execution_result": execution_result.as_ref().map(|r| serde_json::json!({
+                                        "status": r.status,
+                                        "output_summary": r.output_summary,
+                                        "failure_insight_candidate": r.failure_insight_candidate,
+                                    })),
+                                }),
+                                Some(intent.risk_level),
+                            );
+
+                        // Inject governance results into output
+                        obj.insert(
+                            "governed_tool_call".to_owned(),
+                            serde_json::json!({
+                                "tool": intent.tool,
+                                "arguments": intent.arguments,
+                                "rationale": intent.rationale,
+                                "decision": {
+                                    "id": decision.id,
+                                    "status": decision.status,
+                                    "reason": decision.reason,
+                                    "risk_level": decision.risk_level,
+                                    "policies_applied": decision.policies_applied,
+                                },
+                                "execution_result": execution_result.as_ref().map(|r| serde_json::json!({
+                                    "status": r.status,
+                                    "output_summary": r.output_summary,
+                                    "observation": {
+                                        "summary": r.observation.summary,
+                                        "is_actionable": r.observation.actionable,
+                                        "failure_insight_candidate": r.failure_insight_candidate,
+                                        "payload": r.observation.payload,
+                                    },
+                                })),
+                                "journal_entry_id": journal_entry_id,
+                                "llm_provider": resolved_provider,
+                            }),
+                        );
+                        obj.insert(
+                            "governed_tool_called".to_owned(),
+                            serde_json::Value::Bool(true),
+                        );
+                    }
+                    Err(e) => {
+                        obj.insert(
+                            "governed_tool_call_error".to_owned(),
+                            serde_json::Value::String(format!("Governed tool-call failed: {e}")),
+                        );
+                    }
+                }
+            }
         }
         println!("{}", serde_json::to_string_pretty(&output)?);
     } else {
@@ -12445,6 +12563,55 @@ mod tests {
                 assert_eq!(args.domain.as_deref(), Some("business"));
             }
             _ => panic!("expected cognitive run with all flags including --llm"),
+        }
+    }
+
+    #[test]
+    fn cli_parses_cognitive_run_with_govern_tool_flag() {
+        let cli = Cli::parse_from([
+            "arpagona",
+            "cognitive",
+            "run",
+            "--objective",
+            "Read project status",
+            "--govern-tool",
+            "--json",
+        ]);
+        match cli.command {
+            Command::Cognitive(CognitiveCommand {
+                command: CognitiveSubcommand::Run(args),
+            }) => {
+                assert!(args.govern_tool);
+                assert!(args.json);
+                assert!(!args.llm);
+                assert!(!args.govern);
+            }
+            _ => panic!("expected cognitive run with --govern-tool --json"),
+        }
+    }
+
+    #[test]
+    fn cli_parses_cognitive_run_with_llm_and_govern_tool() {
+        let cli = Cli::parse_from([
+            "arpagona",
+            "cognitive",
+            "run",
+            "--objective",
+            "Analyse le code source",
+            "--llm",
+            "--govern-tool",
+            "--provider",
+            "mock",
+        ]);
+        match cli.command {
+            Command::Cognitive(CognitiveCommand {
+                command: CognitiveSubcommand::Run(args),
+            }) => {
+                assert!(args.llm);
+                assert!(args.govern_tool);
+                assert_eq!(args.provider, "mock");
+            }
+            _ => panic!("expected cognitive run with --llm --govern-tool --provider mock"),
         }
     }
 
