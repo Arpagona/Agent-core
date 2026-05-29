@@ -732,7 +732,11 @@ mod tests {
         let resp = cca_resp.unwrap();
 
         // Local route reduces ~half — should have 3 or fewer items
-        assert!(resp.items.len() <= 3, "Local route should limit items, got {}", resp.items.len());
+        assert!(
+            resp.items.len() <= 3,
+            "Local route should limit items, got {}",
+            resp.items.len()
+        );
         assert!(
             resp.explanation.contains("local"),
             "Explanation should mention route: {}",

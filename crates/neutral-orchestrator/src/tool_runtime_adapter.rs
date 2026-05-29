@@ -260,7 +260,10 @@ impl ToolRuntimeAdapter {
 
         let available = search_available || list_available;
         let explanation = if available {
-            format!("{} {}{}", search_explanation, list_explanation, route_suffix)
+            format!(
+                "{} {}{}",
+                search_explanation, list_explanation, route_suffix
+            )
         } else {
             format!(
                 "Tool Runtime unavailable — search: {} listing: {}{}",
@@ -420,8 +423,8 @@ mod tests {
             std::env::current_dir().unwrap_or_else(|_| Path::new(".").to_path_buf()),
         )
         .with_max_items(10);
-        let request = make_request_with_text("struct")
-            .with_compute_route(Some("local-small"), Some(true));
+        let request =
+            make_request_with_text("struct").with_compute_route(Some("local-small"), Some(true));
 
         let responses = adapter.assemble(&request);
         let tool_resp = responses
@@ -442,8 +445,8 @@ mod tests {
         let adapter = ToolRuntimeAdapter::new(
             std::env::current_dir().unwrap_or_else(|_| Path::new(".").to_path_buf()),
         );
-        let request = make_request_with_text("fn")
-            .with_compute_route(Some("cloud-strong"), Some(false));
+        let request =
+            make_request_with_text("fn").with_compute_route(Some("cloud-strong"), Some(false));
 
         let responses = adapter.assemble(&request);
         let tool_resp = responses

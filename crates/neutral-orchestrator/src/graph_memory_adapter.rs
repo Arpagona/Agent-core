@@ -597,8 +597,7 @@ mod tests {
         }
 
         let adapter = GraphMemoryAdapter::new(store).with_max_items(10);
-        let request = make_request()
-            .with_compute_route(Some("local-small"), Some(true));
+        let request = make_request().with_compute_route(Some("local-small"), Some(true));
 
         let responses = adapter.assemble(&request);
         let gm_resp = responses
@@ -608,7 +607,11 @@ mod tests {
         let resp = gm_resp.unwrap();
 
         // Local route should reduce items (~half of 10, so ~5 or fewer)
-        assert!(resp.items.len() <= 6, "Local route should limit items, got {}", resp.items.len());
+        assert!(
+            resp.items.len() <= 6,
+            "Local route should limit items, got {}",
+            resp.items.len()
+        );
         assert!(
             resp.explanation.contains("local"),
             "Explanation should mention local route: {}",
@@ -631,8 +634,7 @@ mod tests {
         }
 
         let adapter = GraphMemoryAdapter::new(store).with_max_items(10);
-        let request = make_request()
-            .with_compute_route(Some("cloud-strong"), Some(false));
+        let request = make_request().with_compute_route(Some("cloud-strong"), Some(false));
 
         let responses = adapter.assemble(&request);
         let gm_resp = responses
@@ -677,8 +679,7 @@ mod tests {
         add_audit_event(&mut store, "evt-1", &ws_id, "Single event");
 
         let adapter = GraphMemoryAdapter::new(store).with_max_items(1);
-        let request = make_request()
-            .with_compute_route(Some("local-tiny"), Some(true));
+        let request = make_request().with_compute_route(Some("local-tiny"), Some(true));
 
         let responses = adapter.assemble(&request);
         let gm_resp = responses
@@ -688,6 +689,10 @@ mod tests {
         let resp = gm_resp.unwrap();
 
         // Even with local route, should still return at least 1 item
-        assert_eq!(resp.items.len(), 1, "Local route should keep minimum 1 item");
+        assert_eq!(
+            resp.items.len(),
+            1,
+            "Local route should keep minimum 1 item"
+        );
     }
 }
