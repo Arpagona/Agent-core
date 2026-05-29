@@ -187,6 +187,8 @@ pub enum OrchestratorSubcommand {
     Run(OrchestratorRunArgs),
     /// Display orchestrator status and last cycle trace.
     Status(OrchestratorStatusArgs),
+    /// Analyze a saved CycleTrace for Failure-to-Insight candidates.
+    TraceToInsight(TraceToInsightArgs),
 }
 
 #[derive(Debug, Args)]
@@ -229,6 +231,17 @@ const DEFAULT_ORCHESTRATOR_TRACE_PATH: &str = "target/last-orchestrator-trace.js
 
 #[derive(Debug, Args)]
 pub struct OrchestratorStatusArgs {
+    /// Output as structured JSON.
+    #[arg(long, short = 'j', default_value_t = false)]
+    pub json: bool,
+
+    /// Path to a saved CycleTrace JSON file (default: target/last-orchestrator-trace.json).
+    #[arg(long)]
+    pub trace_path: Option<String>,
+}
+
+#[derive(Debug, Args)]
+pub struct TraceToInsightArgs {
     /// Output as structured JSON.
     #[arg(long, short = 'j', default_value_t = false)]
     pub json: bool,
@@ -1910,6 +1923,7 @@ async fn run() -> Result<(), Box<dyn Error>> {
         Command::Orchestrator(orchestrator) => match orchestrator.command {
             OrchestratorSubcommand::Run(args) => orchestrator_run(args)?,
             OrchestratorSubcommand::Status(args) => orchestrator_status(args)?,
+            OrchestratorSubcommand::TraceToInsight(args) => orchestrator_trace_to_insight(args)?,
         },
     }
 
@@ -9626,6 +9640,90 @@ fn orchestrator_status(args: OrchestratorStatusArgs) -> Result<(), Box<dyn Error
             "{}",
             style_dim(&format!("   Non-authorizing: {}", trace.non_authorizing))
         );
+    }
+
+    Ok(())
+}
+
+/// Analyze a saved CycleTrace for Failure-to-Insight candidates.
+///
+/// Reads a previously saved CycleTrace JSON file (from `orchestrator run --trace --save-trace`)
+/// and applies heuristic analysis to produce `FailureInsight` candidates. Each candidate
+/// represents a detected failure pattern: unavailable memory sources, blocked decisions,
+/// missing compute routes, or incomplete cycle status.
+///
+/// All insights are non-authorizing and advisory only.
+fn orchestrator_trace_to_insight(args: TraceToInsightArgs) -> Result<(), Box<dyn Error>> {
+    let path = args
+        .trace_path
+        .unwrap_or_else(|| DEFAULT_ORCHESTRATOR_TRACE_PATH.to_owned());
+
+    let content = std::fs::read_to_string(&path)
+        .map_err(|e| format!("Failed to read orchestrator trace file '{}': {e}", path))?;
+
+    let trace: arpagona_agent_core::orchestrator::CycleTrace = serde_json::from_str(&content)
+        .map_err(|e| format!("Failed to parse orchestrator trace file '{}': {e}", path))?;
+
+    let candidates = arpagona_neutral_orchestrator::trace_to_insight::extract_candidates(&trace);
+
+    if args.json {
+        println!("{}", serde_json::to_string_pretty(&candidates)?);
+    } else {
+        println!(
+            "{}",
+            style_info("Failure-to-Insight Candidates (from CycleTrace)")
+        );
+        println!("{}", "-".repeat(60));
+
+        if candidates.is_empty() {
+            println!("No failure patterns detected in the trace.");
+            println!();
+            println!("{}", style_dim("Trace summary:"));
+            println!("  Objective: {}", trace.objective_text);
+            println!("  Cycle status: {}", trace.cycle_status);
+            println!("  Context items: {}", trace.total_context_items);
+            println!(
+                "  Compute route: {}",
+                trace.compute_route_label.as_deref().unwrap_or("none")
+            );
+            println!(
+                "  Decision: {}",
+                trace.decision_status.as_deref().unwrap_or("none")
+            );
+            println!();
+            println!(
+                "{}",
+                style_dim("⚠  All insights are advisory and non-authorizing.")
+            );
+            println!(
+                "{}",
+                style_dim("   No approval, execution, or self-modification.")
+            );
+        } else {
+            for (i, insight) in candidates.iter().enumerate() {
+                println!("\n--- Candidate {} ---", i + 1);
+                println!("  ID:             {}", insight.id);
+                println!("  Failure class:  {:?}", insight.failure_class);
+                println!("  Severity:       {:?}", insight.severity);
+                println!("  Correction:     {:?}", insight.correction_target);
+                println!("  Summary:        {}", insight.summary);
+                println!("  Root cause:     {}", insight.root_cause);
+                println!("  Impact:         {}", insight.impact);
+                println!("  Corrective:     {}", insight.corrective_action);
+                println!("  Owner layer:    {}", insight.owner_layer);
+                println!("  Signal:         {}", insight.detection_signal.description);
+                println!("  Confidence:     {}", insight.confidence);
+            }
+            println!();
+            println!(
+                "{}",
+                style_dim("⚠  All insights are Proposed (non-authorizing).")
+            );
+            println!(
+                "{}",
+                style_dim("   They are advisory candidates, not execution orders.")
+            );
+        }
     }
 
     Ok(())

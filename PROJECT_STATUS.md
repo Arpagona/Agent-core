@@ -3890,3 +3890,61 @@ None for this increment. PR #194 is green and mergeable (CI ✅). GONA must merg
 2. **After merge — P3-14**: Connect orchestrated context assembly metadata to Failure-to-Insight candidate generation now that the CycleTrace is inspectable via `orchestrator status`. The trace file gives a natural input for `--assess` bridge triggers.
 
 
+## 16. Latest Session Update (2026-05-29 DEEP cron — P3-15: Trace-to-Insight heuristic analysis)
+
+This session connected orchestrated context assembly metadata to Failure-to-Insight candidates by adding a heuristic analysis module that inspects CycleTrace metadata.
+
+**What was added:**
+
+**`crates/neutral-orchestrator/src/trace_to_insight.rs`** — new module with:
+- `extract_candidates(&CycleTrace) -> Vec<FailureInsight>` — deterministic, pure, I/O-free heuristic analysis
+- 5 heuristic checks:
+  1. Unavailable memory sources → `FailureClass::MissingContext` (Medium severity)
+  2. Blocked/Denied/Rejected/Overruled decisions → `FailureClass::PolicyGap` (High severity)
+  3. Missing compute route → `FailureClass::WrongComputeChoice` (Low severity)
+  4. Non-completed cycle status → `FailureClass::InsufficientObservability` (Low severity)
+  5. Zero context items (without unavailable sources) → `FailureClass::MissingContext` (High severity)
+- Duplicate suppression: blocked-decision insight prevents redundant incomplete-cycle insight
+- Every insight is `InsightStatus::Proposed` (non-authorizing) with unique IDs
+- 20+ unit tests: clean trace, each heuristic individually, multiple heuristics, unique IDs, non-authorizing invariant, edge cases
+
+**`crates/cli/src/main.rs`:**
+- New CLI command: `arpagona orchestrator trace-to-insight [--json] [--trace-path <path>]`
+- Human-readable output with per-candidate breakdown (ID, failure class, severity, correction target, summary, root cause, impact, corrective action, owner layer, detection signal, confidence)
+- JSON output via `--json` for programmatic consumption
+- Default trace path: `target/last-orchestrator-trace.json`
+- 3 new parser tests for the command
+
+**Verification:**
+- `cargo fmt -- --check`: clean
+- `cargo check`: clean
+- `cargo test --workspace`: **928+ tests pass** (all existing + 20+ new trace_to_insight tests + 3 CLI parser tests)
+
+**Safety boundaries preserved:**
+- ✅ All insights are `InsightStatus::Proposed` (non-authorizing)
+- ✅ Pure deterministic computation — no I/O, no LLM, no persistence, no external effects
+- ✅ No Decision Gate bypass, no scheduler, no autonomy, no tool execution
+- ✅ No browser automation, email, shell, secrets, or MCP expansion
+- ✅ No readback treated as authorization
+- ✅ No self-modification or memory mutation
+- ✅ All trace fields remain unmodified
+- ✅ No new capabilities, permissions, or execution paths
+
+**Files changed:**
+
+| File | Change |
+|------|--------|
+| `crates/neutral-orchestrator/src/trace_to_insight.rs` | **New** — heuristic analysis module with `extract_candidates()` |
+| `crates/neutral-orchestrator/src/lib.rs` | Added `pub mod trace_to_insight` |
+| `crates/cli/src/main.rs` | Added `TraceToInsight` enum variant, `TraceToInsightArgs` struct, `orchestrator_trace_to_insight` handler, 3 parser tests |
+| `FOCUS_LOOP_NEXT.md` | Updated handoff |
+| `PROJECT_STATUS.md` | Session update added |
+
+**Deliberately not changed:**
+- No changes to Decision Gate, Graph Memory, Holographic Memory, Tool Runtime, LLM provider, MCP server, API server, or any existing crate behavior
+- No new crate dependencies
+- No changes to existing orchestrator cycle behavior or CycleTrace schema
+- The new module is additive: existing behavior is untouched
+
+**Recommended next step for GONA:**
+Connect trace-to-insight output to the FailureInsight demo snapshot path, so that `orchestrator run --trace --save-trace` followed by `orchestrator trace-to-insight` feeds candidates into `memory demo failure-insight` for governed persistence (P3-16).

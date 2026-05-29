@@ -46,6 +46,7 @@ pub mod multi_adapter;
 pub mod proposal_generator;
 pub mod reservoir_echo_adapter;
 pub mod tool_runtime_adapter;
+pub mod trace_to_insight;
 
 pub use compressed_cognitive_attention_adapter::CompressedCognitiveAttentionAdapter;
 pub use compute_reservoir_adapter::ComputeReservoirResolver;
