@@ -4,25 +4,28 @@ This file is the short-lived handoff for the next scheduled focus-loop run.
 
 It must contain one concrete next action only. The runtime milestone queue and long-term rules live in `AGENT_FOCUS_LOOP.md`.
 
-## Current status (DEEP cron 2026-05-29 — P3-9 complete)
+## Current status (DEEP cron 2026-05-29 — H1a clippy hygiene pass)
 
-**main is green:** ✅ 0 failures across full workspace.
+**main is green:** ✅ 859 tests, 0 failures across full workspace.
 
-**Phase 3 progress:**
-- P3-0 through P3-8: ✅ All completed
-- **P3-9 (Orchestrator demo loop + docs): ✅ Completed — `--proposal-generator` flag documented in docs/cli.md, orchestrator demo sections (simulated + llm) added to scripts/demo-full-loop.sh.**
+**PR #185** (`feat/h1a-clippy-hygiene-pass`) — open, awaiting CI.
 
-**PR #184** (`feat/p3-9-orchestrator-demo-loop`) — open, awaiting merge.
+**H1a progress:**
+- H1a: Clippy hygiene pass — fixed ~40+ warnings across 17 files:
+  - crates/core: unused vars, useless format!, derivable_impls, manual_find, collapsible_match, needless_borrow, single_match
+  - crates/cli (main.rs): unnecessary_sort_by, unnecessary_unwrap, format_in_format_args, map_clone (3)
+  - crates/cli (tests): unnecessary_map_or (8)
+  - crates/llm: collapsible_str_replace for accent chars
+  - crates/tool-runtime: collapsible_if, needless_borrows_for_generic_args
+  - crates/decision-gate: needless_update (4)
+  - crates/conversation-memory: unnecessary_sort_by, doc_overindented
+  - crates/mcp-server: redundant_closure
+  - crates/neutral-orchestrator: unused imports
+  - crates/compressed-cognitive-attention: saturating_sub, range_contains
+  - apps/api-server: needless_borrows_for_generic_args (7)
 
 **DV backlog:** 0 open entries.
 
 ## Next action
 
-**C2: Governed direct tool-calling by the LLM.** The P3 series (Neutral Orchestrator) is now complete through P3-9. The highest-value next bounded increment is C2: allow LLM tool-call intents through the existing governance envelope.
-
-Target chain:
-```
-LLM ToolCall Intent -> Decision Gate -> Tool Runtime/MCP -> Observation -> Audit -> Reflection
-```
-
-Note: C1 (Real LLM integration in proposal-only mode) was verified complete in an earlier session — `cognitive_llm_mock_provides_proposal_only_synthesis` integration test passes. C2 is the natural next step.
+**H1b: Static analysis / missing edge-case tests pass.** The H1 hardening series continues — check for uncovered edge cases in Tool Runtime (binary/symlink handling), Decision Gate (empty/null payloads), and CLI (error path coverage).
