@@ -3460,3 +3460,70 @@ Verified that **C2 (Governed direct tool-calling by the LLM)** is fully implemen
 ### Recommended next step for GONA
 
 **H1: Production hardening pass.** With C1-C5 and D1-D3 substantially delivered on main, the next bounded increment is H1: stabilize existing alpha behavior — edge-case tests, error handling, audit readability, dependency cleanup, static analysis. D4 (Mission Control Web) remains explicitly deferred until CLI patterns are proven useful first.
+
+## 29. Latest Session Update (2026-05-29 DEEP cron — H1b edge-case test coverage)
+
+This session implemented H1b: static analysis / missing edge-case tests, covering three areas.
+
+### What was added
+
+**Tool Runtime — Symlink handling (3 new tests):**
+- `read_file_follows_symlink_to_allowed_file` — symlink inside workspace → target content readable, resolved path points to target
+- `read_file_blocks_symlink_outside_workspace` — symlink pointing outside workspace → `Blocked`/`is_security: true`
+- `list_files_follows_symlink_to_directory` — directory symlink → entries listed correctly
+
+**Decision Gate — Empty/null payload edge cases (3 new tests):**
+- `govern_tool_call_handles_empty_tool_name` — empty string tool name does not panic
+- `govern_tool_call_handles_empty_permissions` — empty permissions produces `RequiresOverride` or `Blocked`
+- `govern_tool_call_handles_missing_rationale` — empty rationale accepted gracefully
+
+**CLI — Error path parser coverage (4 new tests):**
+- `cli_rejects_cognitive_run_without_objective` — missing `--objective`: clap rejection
+- `cli_rejects_cognitive_run_with_empty_objective` — empty `--objective`: accepted (string type), value verified empty
+- `cli_rejects_invalid_provider_value` — free-form string, accepted, value verified
+- `cli_rejects_tool_inspect_without_tool_name` — missing positional arg: clap rejection
+
+### Test counts
+
+| Crate | Before | After | Delta |
+|-------|-------:|------:|------:|
+| arpagona-tool-runtime | 29 | 32 | +3 |
+| arpagona-decision-gate | 59 | 62 | +3 |
+| arpagona-cli | 118 | 122 | +4 |
+| **Workspace total** | ~858 | ~868 | +10 |
+
+### Verification
+
+- `cargo fmt -- --check`: ✅ clean
+- `cargo check`: ✅ clean (pre-existing E0670 edition noise only)
+- `cargo test --workspace`: ✅ 868+ tests pass, 0 failures, no regressions
+
+### Files changed
+
+| File | Change |
+|------|--------|
+| `crates/tool-runtime/src/lib.rs` | Added 3 symlink handling tests |
+| `crates/decision-gate/src/lib.rs` | Added 3 edge-case tests (empty tool name, empty permissions, empty rationale) |
+| `crates/cli/src/main.rs` | Added 4 CLI error-path parser tests |
+| `FOCUS_LOOP_NEXT.md` | Updated handoff — H1b complete, suggests H2: CLI security boundary verification |
+| `PROJECT_STATUS.md` | Added section 29 documenting this session |
+
+### Safety boundaries preserved
+
+- No new capabilities, no execution, no autonomy
+- No Decision Gate bypass
+- No scheduler, browser, shell, email, secrets, MCP expansion
+- All new tests are pure parser validation or read-only file operations in temp directories
+
+### Deliberately not changed
+
+- No code changes beyond tests and assertions
+- No existing behavior modified
+- No crate boundaries, permissions, risk levels, or governance logic
+- No new dependencies, feature flags, or build configuration
+
+### Recommended next step for GONA
+
+1. **Merge PR #186** to establish the H1b edge-case test baseline.
+2. **H2: CLI security boundary verification** — verify that Tool Runtime security boundaries (absolute path blocking, parent traversal blocking, sensitive file blocking) are not bypassable through any documented CLI path (especially `--memory-value` JSON injection, `--json` pipe, or relative-path resolution edge cases).
+
