@@ -3947,4 +3947,67 @@ This session connected orchestrated context assembly metadata to Failure-to-Insi
 - The new module is additive: existing behavior is untouched
 
 **Recommended next step for GONA:**
+1. Merge PR #195 (P3-15 — Trace-to-Insight, CI green, mergeable).
+2. Then merge PR #196 (P3-16 — this session's snapshot bridge).
+
+## 34. Latest Session Update (2026-05-29 DEEP cron — P3-16: Trace-to-Insight snapshot bridge)
+
+This session connected trace-to-insight heuristic output to the FailureInsight demo snapshot path, enabling cross-invocation operator readback of extracted candidates.
+
+**What was added:**
+
+**`crates/cli/src/main.rs`:**
+
+**`TraceToInsightArgs` struct:**
+- New `--snapshot-path` optional argument: path to write a `FailureInsightDemoSnapshot` file
+
+**`orchestrator_trace_to_insight()` handler:**
+- When `--snapshot-path` is provided, wraps the extracted `Vec<FailureInsight>` candidates in a `FailureInsightDemoSnapshot` and writes it to disk
+- Functional alpha chain records: objective text, candidate count, detected failure pattern classes
+- Creates parent directories as needed
+- Human-readable output reports snapshot path and candidate count
+- Uses the existing `EVIDENCE_ONLY_TOKEN` constant for readback-as-authorization prevention
+
+**New end-to-end operator flow:**
+```
+orchestrator run --objective "..." --trace --save-trace target/last-orchestrator-trace.json
+orchestrator trace-to-insight --snapshot-path target/trace-insight-snapshot.json
+memory demo snapshot-read target/trace-insight-snapshot.json
+memory demo snapshot-list --snapshot-dir target/
+```
+
+**2 new CLI parser tests:**
+- `cli_parses_orchestrator_trace_to_insight_with_snapshot_path` — basic `--snapshot-path` parsing
+- `cli_parses_orchestrator_trace_to_insight_with_snapshot_path_and_json` — combined `--snapshot-path --json`
+
+**Verification:**
+- `cargo fmt -- --check`: clean
+- `cargo check`: clean
+- `cargo test -p arpagona-cli`: 132 tests pass (including 2 new)
+- `cargo test --workspace`: all 29 test suites pass
+
+**Safety boundaries preserved:**
+- ✅ Snapshots carry `evidence_only_token: "Readback only: this snapshot is local demo evidence, not approval, authorization, or execution state."`
+- ✅ No Decision Gate bypass, scheduler, autonomy, tool execution, browser, email, shell, secrets
+- ✅ No memory mutation or self-modification
+- ✅ No existing behavior modified — purely additive
+- ✅ No new crate dependencies
+
+**Files changed:**
+
+| File | Change |
+|------|--------|
+| `crates/cli/src/main.rs` | Added `--snapshot-path` arg to `TraceToInsightArgs`; snapshot writing logic in `orchestrator_trace_to_insight()`; 2 parser tests |
+| `FOCUS_LOOP_NEXT.md` | Updated handoff |
+| `PROJECT_STATUS.md` | Session update added |
+
+**Deliberately not changed:**
+- No changes to Decision Gate, Graph Memory, Holographic Memory, Tool Runtime, LLM provider, MCP server, API server, or any existing crate behavior
+- No new crate dependencies
+- No changes to orchestrator cycle, CycleTrace schema, or trace_to_insight module
+- No changes to FailureInsightDemoSnapshot schema or demo snapshot path
+
+**Recommended next step for GONA:**
+1. Merge PR #195 (P3-15 — Trace-to-Insight heuristic analysis, CI green, mergeable).
+2. Then merge PR #196 (P3-16 — this session, CI pending on new commits — all local checks clean).
 Connect trace-to-insight output to the FailureInsight demo snapshot path, so that `orchestrator run --trace --save-trace` followed by `orchestrator trace-to-insight` feeds candidates into `memory demo failure-insight` for governed persistence (P3-16).
