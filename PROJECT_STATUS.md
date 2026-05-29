@@ -77,11 +77,11 @@
     76|| `apps/api-server` | Alpha | REST access to alpha objects | Must not take business governance responsibility. |
     77|| `crates/cli` | Alpha supervision surface | Local Mission Control precursor | Provides read-only audit, Failure-to-Insight, Graph Memory status, governed memory-write proposal supervision and a local FailureInsight memory demo loop. Must not become an execution bypass. |
 | `crates/mcp-server` | Alpha | Native MCP server | Stdio + HTTP/SSE transport, DecisionGate governance, audit store, resources + prompts, notifications (A1-A5). 52+ tests across all phases. Must not add unsafe MCP capabilities (shell, browser, network, unrestricted file write). |
-|| Neutral Orchestrator | Not implemented | Coordination layer | Deferred until governance, compute and tool layers are coherent enough for controlled integration. |
-|| Mission Control Web | Deferred | Human supervision UI | Do not expand yet. CLI supervision comes first. |
-|| Scheduler / autonomous loops | Deferred | Controlled recurring work | Must wait for Decision Gate, Tool Registry, Audit and human approval path. |
+| Neutral Orchestrator | Not implemented | Coordination layer | Deferred until governance, compute and tool layers are coherent enough for controlled integration. |
+| Mission Control Web | Deferred | Human supervision UI | Do not expand yet. CLI supervision comes first. |
+| Scheduler / autonomous loops | Deferred | Controlled recurring work | Must wait for Decision Gate, Tool Registry, Audit and human approval path. |
 | MCP operator-readiness (A6) | 🔜 | External agent integration docs | MCP itself is now an active Alpha layer (see `crates/mcp-server` row). A6 covers documentation, examples and client smoke tests. Unsafe MCP capabilities remain forbidden. |
-|| Browser automation | Deferred | Controlled web interaction | Must wait for governance, audit and security hardening. |
+| Browser automation | Deferred | Controlled web interaction | Must wait for governance, audit and security hardening. |
     83|| Security hardening | Deferred | Production-grade protection | Final V0 hardening stage, not a reason to bypass governance now.
     84|
     85|## 3. What Is Stable
@@ -567,7 +567,7 @@ Ordered memory events (embedding vectors)
 ### Changed files
 
 | File | Change |
-|------|--------|
+------|--------|
 | `Cargo.toml` | Added `crates/compressed-cognitive-attention` to workspace members |
 | `crates/compressed-cognitive-attention/Cargo.toml` | New crate manifest |
 | `crates/compressed-cognitive-attention/src/lib.rs` | Full implementation + 50 tests |
@@ -605,7 +605,7 @@ Stability level: Alpha experimental crate.
 ### Changed
 
 | File | Change |
-|------|--------|
+------|--------|
 | `FOCUS_LOOP_NEXT.md` | Updated to reflect Phase 2 completion; corrected stale C1-as-next-action; proposes Phase 3 candidates for GONA arbitration |
 
 Stability level: documentation handoff. No code changes.
@@ -637,7 +637,7 @@ Next work requires GONA arbitration on Phase 3 priorities.
 ### Files changed (this session)
 
 | File | Change |
-|------|--------|
+------|--------|
 | FOCUS_LOOP_NEXT.md | Updated handoff — all 5 PRs merged, C4+C5+D2+D3+E2+E4 delivered, next: E3 or H1 |
 | PROJECT_STATUS.md | Added section 25 documenting this session |
 
@@ -674,7 +674,7 @@ The E3 demo pack (`demos/local-company-assistant/`) existed as a working scripte
 ### E3 milestone acceptance
 
 | Required Property | Status | Evidence |
-|-------------------|--------|----------|
+-------------------|--------|----------|
 | One scripted scenario | ✅ | `demo.sh` — Boulangerie du Marché, 5 phases, 11 tests |
 | One sample dataset | ✅ | `samples/` — 3 documents (feedback, operations, staff) |
 | One expected output report | ✅ NEW | `expected-output.md` — acceptance criteria, per-phase JSON, failure modes |
@@ -699,7 +699,7 @@ The E3 demo pack (`demos/local-company-assistant/`) existed as a working scripte
 ### Files changed (this session)
 
 | File | Change |
-|------|--------|
+------|--------|
 | `demos/local-company-assistant/README.md` | Restructured for operator-friendly quick start, added troubleshooting, cross-links |
 | `demos/local-company-assistant/demo.sh` | Fixed tool count grep to handle space after colon in JSON |
 | `demos/local-company-assistant/test_debug.sh` | Changed from absolute to relative path (Tool Runtime security) |
@@ -711,7 +711,7 @@ The E3 demo pack (`demos/local-company-assistant/`) existed as a working scripte
 ### Track E status after this session
 
 | Step | Status |
-|------|--------|
+------|--------|
 | E1 — SME documentary assistant demo | ✅ Complete |
 | E2 — Business/workflow prospecting demo | ✅ Complete |
 | E3 — Local company assistant demo pack | ✅ **Complete (this session)** |
@@ -786,7 +786,7 @@ This session implemented Track B Step B3 — optional local embeddings for the H
 
 ### Verification
 | Check | Result |
-|---|---|
+---|---|
 | `cargo fmt -- --check` | ✅ Clean |
 | `cargo check` | ✅ Clean (only pre-existing E0670 edition linter noise) |
 | `cargo test --workspace` | ✅ 509 tests pass across all crates |
@@ -820,7 +820,7 @@ providers (fastembed, ONNX, etc.) via future feature-gated implementations.
 - All existing tests pass without modification
 
 ### Risks
-|- Character n-gram embedding is a simplified stand-in for real embeddings. Captures morphology but not true synonymy ("car" ≠ "automobile"). This is documented as a limitation.
+- Character n-gram embedding is a simplified stand-in for real embeddings. Captures morphology but not true synonymy ("car" ≠ "automobile"). This is documented as a limitation.
 
 ## Latest Session Update — Session 39: Track A Phase 4 — MCP Resources + Prompts
 
@@ -878,7 +878,7 @@ This session added a durable SQLite-backed `HolographicMemoryStore` implementati
 ### Tests (20 new, all passing)
 
 | Category | Tests |
-|----------|-------|
+----------|-------|
 | Basic CRUD | new_store_is_empty, add_and_retrieve_trace, add_duplicate_returns_error, get_nonexistent_returns_error, list_traces_scoped_to_project |
 | Activation | activate_trace_increments_count, activate_multiple_times, activate_nonexistent_returns_error |
 | Resonance | retrieve_by_resonance_matches_correct_trace, retrieve_by_resonance_empty_query_returns_empty, retrieve_by_resonance_scoped_to_project, retrieval_activates_traces |
@@ -918,7 +918,7 @@ Added `MemoryWriteKind::CreateHolographicTrace` variant and its `ActionType::Cre
 **Scope of changes:**
 
 | File | Change |
-|------|--------|
+------|--------|
 | `crates/core/src/action.rs` | Added `CreateHolographicTrace` to `ActionType` enum, `MemoryWriteKind` enum, `action_type()` mapping, and `FromStr` parser |
 | `crates/core/src/audit.rs` | Added `CreateHolographicTrace` to `memory_write_intent_for_audit` match |
 | `crates/core/src/executor.rs` | Added `CreateHolographicTrace` to NoopExecutor supported types |
@@ -971,7 +971,7 @@ This session fixed a safety observability gap in the Tool Runtime: path escape a
 ### Tests
 
 | Test | Status |
-|------|--------|
+------|--------|
 | `read_file_blocks_outside_workspace` | Updated: now expects `Blocked` / `is_security: true` |
 | `search_text_does_not_scan_outside_workspace` | Updated: now expects `Blocked` / `is_security: true` |
 | `absolute_path_parent_traversal_is_security_blocked` | **New** — read_file with real workspace escape via `../outside.txt` |
@@ -1010,7 +1010,7 @@ This session closed DV-2026-05-26-004 (medium severity) from the daily validatio
 **`crates/compute-reservoir/src/lib.rs`** — 4 new tests in the `#[cfg(test)] mod tests` block:
 
 | Test | Covers | Verifies |
-|------|--------|----------|
+------|--------|----------|
 | `p4_public_low_complexity_prefers_cheap_local_with_justification` | Public/low-complexity + local_first | local-small selected; justification mentions cost/locality |
 | `p4_high_sensitivity_justifies_local_resource_by_sensitivity` | Confidential sensitivity + complex reasoning | local-small selected; sensitivity blocks cloud; justification mentions sensitivity |
 | `p4_complex_high_value_justifies_strong_model_by_capability` | Complex/high-value with budget | cloud-strong selected (only node with ComplexReasoning); justification mentions resource |
@@ -1150,7 +1150,7 @@ After: Requests a structured self-scorecard with three labeled sections — `[ST
 ### New tests (7 deterministic tests)
 
 | Test | What it verifies |
-|------|-----------------|
+------|-----------------|
 | `cognitive_synthesis_prompt_contains_structured_sections` | Prompt has [STATE] [KEY GAP / RISK] [RECOMMENDED NEXT STEP] |
 | `cognitive_synthesis_prompt_retains_safety_warnings` | No tool calls / no authorization warnings preserved |
 | `cognitive_synthesis_user_prompt_contains_objective_and_wm_summary` | Prompt assembly works correctly |
@@ -1170,7 +1170,7 @@ After: Requests a structured self-scorecard with three labeled sections — `[ST
 ### Files changed
 
 | File | Change |
-|------|--------|
+------|--------|
 | `crates/llm/src/lib.rs` | Updated prompt, mock provider, added parser + 7 tests (+256/−13 lines) |
 | `DAILY_VALIDATION_BACKLOG.md` | Closed DV-2026-05-27-002 as fixed |
 | `FOCUS_LOOP_NEXT.md` | Updated backlog status, preserved P4 handoff |
@@ -1198,7 +1198,7 @@ This session verified that all planned milestones (P1-P8, Track A A1-A5, Track B
 **`scripts/demo-full-loop.sh`** — Fixed governance result field names in the `validate_and_format` Python function:
 
 | Before (broken) | After (correct) |
-|-----------------|-----------------|
+-----------------|-----------------|
 | `r.get('decision', {}).get('decision', 'unknown')` | `r.get('decision', {}).get('status', 'unknown')` — now shows `"approved"` |
 | `r.get('proposed_action', {}).get('risk', 'unknown')` | `r.get('proposed_action', {}).get('risk_level', 'unknown')` — now shows `"low"` |
 
@@ -1211,7 +1211,7 @@ This session verified that all planned milestones (P1-P8, Track A A1-A5, Track B
 All milestones verified by demo script run:
 
 | Domain | decision_count | audit_event_count | decision_status | risk_level |
-|--------|---------------|------------------|----------------|------------|
+--------|---------------|------------------|----------------|------------|
 | Business | 1 | 1 | approved | low |
 | Coding | 2 | 2 | approved (×2) | low (×2) |
 | Research | 1 | 1 | approved | low |
@@ -1225,7 +1225,7 @@ Objective → WorkingMemory → Plan → Observations → Assessment
 ### Files changed
 
 | File | Change |
-|------|--------|
+------|--------|
 | `scripts/demo-full-loop.sh` | Fixed governance result field names (+2/−2 lines) |
 | `FOCUS_LOOP_NEXT.md` | Full rewrite: all milestones complete, await human direction |
 | `PROJECT_STATUS.md` | This section |
@@ -1257,7 +1257,7 @@ This session followed the new Phase 2 roadmap from PR #129 (merged). The handoff
 **Parser tests for `--llm` and `--provider`** — Added 5 new tests in `crates/cli/src/main.rs`:
 
 | Test | What it covers |
-|------|----------------|
+------|----------------|
 | `cli_parses_cognitive_run_with_llm_flag` | Basic `--llm` parsing + default provider check |
 | `cli_parses_cognitive_run_with_llm_and_provider` | `--llm --provider mock` |
 | `cli_parses_cognitive_run_with_llm_and_json` | `--llm --json` |
@@ -1267,7 +1267,7 @@ This session followed the new Phase 2 roadmap from PR #129 (merged). The handoff
 **Proposal-only safety tests** — Added 4 new tests in `crates/llm/src/lib.rs`:
 
 | Test | What it proves |
-|------|----------------|
+------|----------------|
 | `mock_synthesis_output_is_proposal_only` | Mock synthesis output is NOT valid JSON, does NOT contain "approved", "executed", or "memory_write" |
 | `mock_synthesis_output_is_advisory_text_not_proposed_action` | Output does NOT contain proposed_action/decision_status/memory_write keywords; DOES contain [STATE] and [RECOMMENDED NEXT STEP] |
 | `run_cognitive_synthesis_with_mock_returns_non_executable_text` | The top-level entry point returns plain advisory text, not a structured artifact |
@@ -1301,7 +1301,7 @@ The output is clearly advisory text — no ProposedAction, no Decision, no Audit
 ### Files changed
 
 | File | Change |
-|------|--------|
+------|--------|
 | `crates/cli/src/main.rs` | +5 CLI parser tests for `--llm` and `--provider` flags |
 | `crates/llm/src/lib.rs` | +4 proposal-only safety tests for LLM synthesis |
 | `FOCUS_LOOP_NEXT.md` | Updated handoff to C2 |
@@ -1320,8 +1320,8 @@ The output is clearly advisory text — no ProposedAction, no Decision, no Audit
 ### Risks
 
 - The default provider is `ollama` (local Ollama endpoint). If Ollama is not running and `--provider` is not set to `mock`, the `--llm` flag will produce a connection error. Users should set `--provider mock` for deterministic behavior, or ensure an Ollama instance is available.
-|- The OpenAI provider requires `OPENAI_API_KEY` in the environment. The `arpagona auth openai` command can help operators configure this.
-|- C1 is intentionally proposal-only. Real LLM tool-calling is deferred to C2.
+- The OpenAI provider requires `OPENAI_API_KEY` in the environment. The `arpagona auth openai` command can help operators configure this.
+- C1 is intentionally proposal-only. Real LLM tool-calling is deferred to C2.
 
 ## 22. Latest Session Update (2026-05-27 — C3: Prompt, response, decision and risk journaling)
 
@@ -1332,7 +1332,7 @@ This session implemented Track C Step C3 — making LLM interactions auditable a
 **`crates/core/src/llm_journal.rs`** — new module:
 
 | Type | Purpose |
-|------|---------|
+------|---------|
 | `LlmInteractionType` | Synthesis, ToolCallIntent, DirectToolCall |
 | `LlmJournalEntry` | id, created_at, interaction_type, prompt_summary, response_summary, provider, model, objective, proposed_actions, tool_call_intents, decision_gate_outcomes, risk_level |
 | `LlmJournal` | In-memory ring-buffer with file-backed persistence (JSON-lines) |
@@ -1347,7 +1347,7 @@ Key methods:
 **`crates/cli/src/main.rs`** — CLI integration:
 
 | Change | Detail |
-|--------|--------|
+--------|--------|
 | `global_llm_journal()` | Global `OnceLock<Mutex<LlmJournal>>` with file persistence at `target/llm-journal.jsonl` (configurable via `ARPAGONA_LLM_JOURNAL_PATH`) |
 | `Llm` command variant | `arpagona llm journal [--limit N] [--json]` |
 | Synthesis journaling | `cognitive_run()` now journals each successful `--llm` synthesis call with objective, provider, prompt/response summaries |
@@ -1366,7 +1366,7 @@ $ arpagona llm journal --json --limit 5
 ### Verification
 
 | Check | Result |
-|-------|--------|
+-------|--------|
 | `cargo fmt -- --check` | ✅ Clean |
 | `cargo check` | ✅ Clean (only pre-existing warnings) |
 | `cargo test --workspace` | ✅ 600+ tests pass (7 new in arpagona-agent-core) |
@@ -1375,7 +1375,7 @@ $ arpagona llm journal --json --limit 5
 ### New tests (7 in arpagona-agent-core)
 
 | Test | What it proves |
-|------|---------------|
+------|---------------|
 | `new_journal_is_empty` | Empty journal behavior |
 | `add_synthesis_creates_entry` | Synthesis entries created correctly |
 | `journal_respects_capacity` | Ring-buffer eviction at capacity |
@@ -1387,7 +1387,7 @@ $ arpagona llm journal --json --limit 5
 ### Files changed
 
 | File | Change |
-|------|--------|
+------|--------|
 | crates/core/src/llm_journal.rs | **New** — LLM journal types and file-backed persistence |
 | crates/core/src/lib.rs | Added `pub mod llm_journal; ` and `pub use llm_journal::*;` |
 | crates/cli/src/main.rs | Added global journal, Llm command/subcommand, synthesis journaling, readback handler |
@@ -1436,7 +1436,7 @@ This session delivered the governed direct tool-calling bridge (Track C Step C2)
 ### Tests (9 new)
 
 | Test | What it proves |
-|------|---------------|
+------|---------------|
 | `approved_tool_call_executes_via_tool_runtime` | read_file + ProposeToolUse → approved + executed |
 | `approved_list_files_executes_via_tool_runtime` | list_files + permission → approved + executed |
 | `approved_search_text_executes_via_tool_runtime` | search_text + permission → approved + executed |
@@ -1489,14 +1489,14 @@ This session integrated the Compute Reservoir routing decision into the LLM inte
 ### Tests (9 llm_journal tests, 2 new + 7 existing)
 
 | Test | What it proves |
-|------|---------------|
+------|---------------|
 | `add_synthesis_with_routing_stores_compute_routing` | Routing JSON stored and retrievable in journal entry |
 | `synthesis_without_routing_has_none` | Backwards-compatible — entries without routing have `None` |
 
 ### Verification
 
 | Check | Result |
-|-------|--------|
+-------|--------|
 | `cargo fmt -- --check` | ✅ Clean |
 | `cargo check` | ✅ Clean (only pre-existing warnings) |
 | `cargo test --workspace` | ✅ 603+ tests pass, no regressions |
@@ -1504,7 +1504,7 @@ This session integrated the Compute Reservoir routing decision into the LLM inte
 ### Files changed
 
 | File | Change |
-|------|--------|
+------|--------|
 | crates/core/src/llm_journal.rs | Added `compute_routing` field, `add_synthesis_with_routing()` method, 2 new tests |
 | crates/cli/src/main.rs | Wired compute routing into LLM journal on `--llm --allocate`, added human/JSON readback |
 | FOCUS_LOOP_NEXT.md | Updated handoff to C5 |
@@ -1540,7 +1540,7 @@ This session added 18 new anti-drift and adversarial tests across the Decision G
 ### Test families covered
 
 | Family | Tests | Location |
-|--------|-------|----------|
+--------|-------|----------|
 | **Tool bypass containment** | 3 | `crates/decision-gate/src/lib.rs` — proves the Decision Gate always produces a governing decision regardless of tool name; blocks only when permissions are missing |
 | **Malformed payload resilience** | 2 | `crates/decision-gate/src/lib.rs` — proves governance layer never panics on missing or null arguments |
 | **Decision Gate mandatory regression** | 3 | `crates/decision-gate/src/lib.rs` — proves every tool-call proposal begins as `PendingDecision` and requires governance |
@@ -1553,7 +1553,7 @@ This session added 18 new anti-drift and adversarial tests across the Decision G
 ### Verification
 
 | Check | Result |
-|-------|--------|
+-------|--------|
 | `cargo fmt -- --check` | ✅ Clean |
 | `cargo check` | ✅ Clean (only pre-existing warnings) |
 | `cargo test --workspace` | ✅ 600+ tests pass, no regressions |
@@ -1561,7 +1561,7 @@ This session added 18 new anti-drift and adversarial tests across the Decision G
 ### Files changed
 
 | File | Change |
-|------|--------|
+------|--------|
 | `crates/decision-gate/src/lib.rs` | Added 7 C5 anti-drift tests in `#[cfg(test)] mod tests` |
 | `crates/llm/src/lib.rs` | Added 11 C5 anti-drift tests in `#[cfg(test)] mod tests` |
 | `FOCUS_LOOP_NEXT.md` | Updated handoff to D1 (Operator status surface) |
@@ -1613,7 +1613,7 @@ This session delivered D1 — the first coherent operator status view that combi
 ### Tests (5 new status tests)
 
 | Test | What it proves |
-|------|---------------|
+------|---------------|
 | `status_formatted_includes_local_subsystem_section` | Human-readable output includes all local subsystem fields |
 | `status_json_includes_local_subsystem_fields` | JSON serialization includes `local` object with all fields |
 | `read_handoff_next_action_returns_content_when_file_exists` | Handoff parsing does not panic regardless of CWD |
@@ -1623,7 +1623,7 @@ This session delivered D1 — the first coherent operator status view that combi
 ### Verification
 
 | Check | Result |
-|-------|--------|
+-------|--------|
 | `cargo fmt -- --check` | ✅ Clean |
 | `cargo check` | ✅ Clean (only pre-existing warnings) |
 | `cargo test --workspace` | ✅ 90+ tests pass across all crates, no regressions |
@@ -1642,7 +1642,7 @@ This session delivered D1 — the first coherent operator status view that combi
 ### Files changed
 
 | File | Change |
-|------|--------|
+------|--------|
 | `crates/cli/src/main.rs` | Added `LocalSubsystemStatus` struct, `gather_local_subsystem_status()`, `check_ollama_reachable()`, `read_handoff_next_action()`, `count_backlog_open_items()`, extended `StatusReadback` with `local` field, extended formatter, 5 new tests |
 | `PROJECT_STATUS.md` | Added this session update |
 | `FOCUS_LOOP_NEXT.md` | Updated handoff to D2 |
@@ -1685,7 +1685,7 @@ This session fixed DV-2026-05-28-004: restored targeted governance/readback regr
 ### Verification
 
 | Check | Result |
-|-------|--------|
+-------|--------|
 | `cargo fmt -- --check` | ✅ Clean |
 | `cargo check` | ✅ Clean (only pre-existing warnings) |
 | `cargo test --workspace` | ✅ All tests pass, no regressions |
@@ -1694,7 +1694,7 @@ This session fixed DV-2026-05-28-004: restored targeted governance/readback regr
 ### List of repaired assertions from DV-2026-05-28-004
 
 | Assertion | Restored in |
-|-----------|-------------|
+-----------|-------------|
 | CognitiveObservations structure (tool_name, kind, status) | `cognitive_observe_assess_govern_pipeline_has_structured_governance_results` |
 | FailureInsightCandidates presence | `cognitive_observe_assess_govern_pipeline_has_structured_governance_results` |
 | Governance results: proposed_action_id, decision.status, audit_event.event_type | `cognitive_observe_assess_govern_pipeline_has_structured_governance_results` |
@@ -1735,7 +1735,7 @@ This session fixed DV-2026-05-28-003: missing parent-traversal targets that woul
 **Tests (5 changed/added):**
 
 | Test | Change | Coverage |
-|------|--------|----------|
+------|--------|----------|
 | `read_file_blocks_path_escaping_workspace` | Updated: expect `Blocked`/`is_security: true` (was `Failed`/`is_security: false`) | `../safe.txt` with nonexistent target outside workspace |
 | `nonexistent_parent_traversal_is_security_blocked` | **New** | `../nonexistent.txt` → Blocked/is_security: true; proves missing parent-traversal targets are classified as security before I/O |
 | `deep_parent_traversal_is_security_blocked` | **New** | `a/deep/../../../../outside.txt` → Blocked; proves deep `..` escape via read_file |
@@ -1747,7 +1747,7 @@ This session fixed DV-2026-05-28-003: missing parent-traversal targets that woul
 ### Verification
 
 | Check | Result |
-|-------|--------|
+-------|--------|
 | `cargo fmt -- --check` | ✅ Clean |
 | `cargo check` | ✅ Clean (pre-existing warnings only) |
 | `cargo test -p arpagona-tool-runtime` | ✅ 20 tests pass (4 new + 1 updated + 15 existing) |
@@ -1756,7 +1756,7 @@ This session fixed DV-2026-05-28-003: missing parent-traversal targets that woul
 ### Files changed
 
 | File | Change |
-|------|--------|
+------|--------|
 | `crates/tool-runtime/src/lib.rs` | Added lexical escape detection in `resolve_path()`, updated 1 test, added 4 new tests (+109/−5 lines) |
 | `DAILY_VALIDATION_BACKLOG.md` | Added DV-2026-05-28-003 entry (was missing from backlog), marked fixed |
 | `FOCUS_LOOP_NEXT.md` | Updated handoff to reflect PR #141, remaining backlog items |
@@ -1792,7 +1792,7 @@ This session extended the E1 SME Documentary Assistant demo with an LLM-assisted
 The demo integrates `--llm --provider` into every cognitive phase:
 
 | Phase | Description | LLM role |
-|-------|-------------|----------|
+-------|-------------|----------|
 | Phase 1 | Tool Runtime read-only discovery | Same as demo.sh (tool runtime does not call LLM) |
 | Phase 2 | Cognitive analysis | `--llm --provider` enriches working memory, plan, proposals with structured [STATE]/[KEY GAP/RISK]/[RECOMMENDED NEXT STEP] synthesis |
 | Phase 3 | Governed analysis pipeline | `--assess --observe --govern --llm` exercises full governance chain with LLM-enriched context |
@@ -1814,7 +1814,7 @@ The demo integrates `--llm --provider` into every cognitive phase:
 ### Files changed
 
 | File | Change |
-|------|--------|
+------|--------|
 | `demos/sme-documentary/demo-llm.sh` | **New** — LLM-assisted demo variant (3 modes) |
 | `demos/sme-documentary/README.md` | Updated: Quick Start split, LLM instructions, Next Steps |
 | `FOCUS_LOOP_NEXT.md` | Updated: E1 LLM variant complete, next action = E2 |
@@ -1847,7 +1847,7 @@ This session fixed DV-2026-05-28-005 (low severity): local Ollama synthesis prod
 ### Verification
 
 | Check | Result |
-|-------|--------|
+-------|--------|
 | `cargo fmt -- --check` | ✅ Clean |
 | `cargo check` | ✅ Clean (pre-existing E0670 edition warnings only) |
 | `cargo test -p arpagona-llm` | ✅ 38 tests pass (36 existing + 2 new) |
@@ -1891,7 +1891,7 @@ This session completed the DEEP focus loop as the 2026-05-28 7am cron run.
 All 5 open conflicting PRs are now on main. No open PRs remain. All DV-2026-05-28-* entries resolved.
 
 | PR | Milestone | Status |
-|----|-----------|--------|
+----|-----------|--------|
 | #147 | DV-2026-05-28-005 — LLM synthesis specificity | ✅ Merged |
 | #145 | C2 — Governed direct tool-call CLI bridge | ✅ Merged |
 | #146 | C2.2 — Approved tool-call execution through Tool Runtime | ✅ Merged |
@@ -1921,7 +1921,7 @@ This session performed the DEEP 2026-05-28 2nd focus loop run. Governance bootst
 All PRs had green CI checks. Merged in order:
 
 | PR # | Branch | Milestone | Additions | Special handling |
-|------|--------|-----------|-----------|-----------------|
+------|--------|-----------|-----------|-----------------|
 | #149 | `feat/e2-business-prospecting-demo` | E2 — Business Prospecting Workflow Demo | 635+18 | Clean merge — no conflicts |
 | #150 | `feat/c4-compute-reservoir-model-routing` | C4 — Compute Reservoir Model Routing | 418+18 | Rebased — handoff file conflicts resolved |
 | #151 | `docs/e4-readme-demo-10-min` | E4 — README: demo in 10 minutes | 308+117 | Rebased — handoff file conflicts resolved |
@@ -1941,7 +1941,7 @@ Commit `67620e6 feat: Track C Step C5 — Anti-drift and adversarial tests` is o
 ### Phase 2 delivery status
 
 | Track | Milestone | Status |
-|-------|-----------|--------|
+-------|-----------|--------|
 | C1 | Real LLM integration (--llm flag) | ✅ On main |
 | C2 | Governed direct tool-calling | ✅ Merged |
 | C3 | LLM interaction journaling | ✅ On main |
@@ -1978,7 +1978,7 @@ Commit `67620e6 feat: Track C Step C5 — Anti-drift and adversarial tests` is o
 ### Files changed (this session)
 
 | File | Change |
-|------|--------|
+------|--------|
 | FOCUS_LOOP_NEXT.md | Updated handoff — all 5 PRs merged, C4+C5+D2+D3+E2+E4 delivered, next: E3 or H1 |
 | PROJECT_STATUS.md | Added section 25 documenting this session |
 
@@ -2003,7 +2003,7 @@ This session completed a bounded H1 production hardening pass: removing unused i
 
 **Files changed:**
 | File | Change |
-|------|--------|
+------|--------|
 | `crates/core/src/executor_registry.rs` | Removed unused `ProposedActionId` from non-test import |
 | `crates/core/src/executor.rs` | Removed unused `ExecutionResult::blocked()` — 11-line dead method, never called |
 | `crates/core/src/policy_engine.rs` | Removed unused `PolicyEngineResult::needs_dry_run()` — 9-line dead method, never called |
@@ -2018,7 +2018,7 @@ Verification: `cargo fmt -- --check` ✅, `cargo check` ✅, `cargo test` ✅ (6
 **New document: `docs/product-positioning-evidence.md`** — 5 evidence-backed claims with anti-claims, audience language templates, and evidence table mapping claims → demos → crates → test counts.
 
 | # | Claim | Evidence |
-|---|-------|-----------------|
+---|-------|-----------------|
 | 1 | Complete offline governed cognitive pipeline | E1/E2/E3 demos — 5-phase pipeline |
 | 2 | Read-only safe perception with bounded tool runtime | `crates/tool-runtime` — path escape blocking, size limits, `.git`/`.env` blocking |
 | 3 | Non-authorizing cognitive analysis with mandatory governance | `crates/core/src/cognitive_work.rs`, `crates/decision-gate` |
@@ -2030,7 +2030,7 @@ Track E is now **COMPLETE** ✅ (E1-E5 all delivered).
 ### Phase 2 delivery status after this session
 
 | Track | Milestone | Status |
-|-------|-----------|--------|
+-------|-----------|--------|
 | C1–C5 | Real LLM → anti-drift tests | ✅ Complete |
 | D1–D3, D5 | Operator surfaces + approval design | ✅ Complete |
 | D4 | Web Mission Control | 🔜 Deferred |
@@ -2071,7 +2071,7 @@ After fix: `cargo check -p arpagona-api-server` produces **0 warnings** (was 6).
 ### Added: Tool Runtime edge-case tests (5 new)
 
 | Test | What it proves |
-|------|---------------|
+------|---------------|
 | `read_file_empty_file_succeeds` | 0-byte file reads without panic, returns 0 lines |
 | `list_files_empty_directory_returns_empty` | Empty directory lists no entries gracefully |
 | `list_files_in_subdirectory_works` | Listing inside a nested workspace subdirectory works |
@@ -2081,7 +2081,7 @@ After fix: `cargo check -p arpagona-api-server` produces **0 warnings** (was 6).
 ### Verification
 
 | Check | Result |
-|-------|--------|
+-------|--------|
 | `cargo fmt -- --check` | ✅ Clean (0 diffs) |
 | `cargo check` | ✅ Clean (0 warnings across all crates) |
 | `cargo test` | ✅ ~655 tests pass, 0 failures, 0 regressions |
@@ -2095,7 +2095,7 @@ After fix: `cargo check -p arpagona-api-server` produces **0 warnings** (was 6).
 ### Files changed
 
 | File | Change |
-|------|--------|
+------|--------|
 | `apps/api-server/src/main.rs` | Fixed 6 unused-variable warnings |
 | `crates/tool-runtime/src/lib.rs` | Added 5 edge-case tests |
 | `PROJECT_STATUS.md` | Added section 29 documenting this session |
@@ -2119,7 +2119,7 @@ This session continued the H1 production hardening pass, adding 7 new Decision G
 The existing 52 Decision Gate tests covered standard paths (low→approved, medium→human, missing permission→blocked/override, C5 anti-drift). These 7 new tests cover governance path edge cases:
 
 | Test | What it proves |
-|------|---------------|
+------|---------------|
 | `high_risk_without_matching_policy_falls_back_to_needs_human_approval` | High risk, no policies, all granted → NeedsHumanApproval via default fallback |
 | `critical_risk_with_blocking_policy_is_blocked` | Critical risk + active policy (non-requiring human approval) → Blocked |
 | `critical_risk_with_requiring_approval_policy_needs_human_approval` | Critical risk + policy requiring human approval → NeedsHumanApproval via policy match |
@@ -2131,7 +2131,7 @@ The existing 52 Decision Gate tests covered standard paths (low→approved, medi
 ### Verification
 
 | Check | Result |
-|-------|--------|
+-------|--------|
 | `cargo fmt -- --check` | ✅ Clean |
 | `cargo check` | ✅ **0 warnings** (api-server warnings fixed on this branch) — main has 6 |
 | `cargo test` | ✅ ~660 tests pass, 0 failures, 0 regressions |
@@ -2154,7 +2154,7 @@ The existing 52 Decision Gate tests covered standard paths (low→approved, medi
 ### Files changed (this session)
 
 | File | Change |
-|------|--------|
+------|--------|
 | `crates/decision-gate/src/lib.rs` | Added 7 blocking scenario tests (+211 lines) |
 | `FOCUS_LOOP_NEXT.md` | Updated handoff — H1 Decision Gate tests done, merge pending, next: CLI error messages or stale deps |
 | `PROJECT_STATUS.md` | Added section 30 documenting this session |
@@ -2186,7 +2186,7 @@ This session merged PR #158 and fixed two data-accuracy issues in the operator s
 ### Files changed
 
 | File | Change |
-|------|--------|
+------|--------|
 | `FOCUS_LOOP_NEXT.md` | Updated — PR #158 merged, backlog fix added, next action: D1 gap analysis |
 | `PROJECT_STATUS.md` | Added section 31 documenting this session |
 | `DAILY_VALIDATION_BACKLOG.md` | Moved DV-2026-05-28-005 from Open → Closed section |
@@ -2220,7 +2220,7 @@ This session added `--json` support to `arpagona audit list`, completing the JSO
 **`crates/cli/src/main.rs`**:
 
 | Change | Detail |
-|--------|--------|
+--------|--------|
 | `ListAuditArgs` struct | Added with `json: bool` field and `--json` clap attribute |
 | `AuditSubcommand::List` | Changed from unit variant to `List(ListAuditArgs)` |
 | `list_audit()` | Updated signature to accept args; emits JSON when `--json` is set |
@@ -2230,7 +2230,7 @@ This session added `--json` support to `arpagona audit list`, completing the JSO
 ### Verification
 
 | Check | Result |
-|-------|--------|
+-------|--------|
 | `cargo fmt -- --check` | ✅ Clean |
 | `cargo check` | ✅ Clean (0 warnings) |
 | `cargo test` | ✅ All 660+ tests pass, including 2 new parser tests |
@@ -2246,7 +2246,7 @@ This session added `--json` support to `arpagona audit list`, completing the JSO
 ### Files changed
 
 | File | Change |
-|------|--------|
+------|--------|
 | `crates/cli/src/main.rs` | +51/−5: struct variant, dispatch, JSON output, 2 parser tests |
 | `FOCUS_LOOP_NEXT.md` | Updated handoff — PR #162 open, all DV entries resolved |
 
@@ -2274,7 +2274,7 @@ This session:
 
 **Tests:** 4 new tests (tool-runtime: 25 → 29):
 | Test | Verifies |
-|------|----------|
+------|----------|
 | `read_file_binary_file_returns_clear_error` | Binary with null bytes → Failed, error code `binary_file`, not security |
 | `read_file_binary_file_with_only_null_bytes_is_detected` | 100-byte null-only file → blocked cleanly |
 | `read_file_text_file_no_null_bytes_still_succeeds` | Text file still works (regression guard) |
@@ -2283,7 +2283,7 @@ This session:
 ### Verification
 
 | Check | Result |
-|-------|--------|
+-------|--------|
 | `cargo fmt -- --check` | ✅ Clean |
 | `cargo check` | ✅ Clean (0 warnings) |
 | `cargo test --workspace` | ✅ ~660+ tests pass (0 failures) |
@@ -2298,7 +2298,7 @@ This session:
 ### Files changed
 
 | File | Change |
-|------|--------|
+------|--------|
 | `crates/tool-runtime/src/lib.rs` | +135: `is_binary_file()` helper + binary check in `execute_read_file()` + 4 tests |
 | `FOCUS_LOOP_NEXT.md` | Updated handoff — PR #159, #162 merged; #163 open |
 | `DAILY_VALIDATION_BACKLOG.md` | No changes (all DV entries resolved) |
@@ -2318,7 +2318,7 @@ This session completed the H1 continuation: merged remaining open PRs and cleane
 ### PRs merged
 
 | PR | Title | Status |
-|----|-------|--------|
+----|-------|--------|
 | #161 | fix: H1 — backlog/handoff accuracy in arpagona status | ✅ Merged via CLI |
 | #163 | H1: Improve Tool Runtime error messages for binary/unreadable files | ✅ Rebased from main, CI green, merged via CLI |
 
@@ -2331,7 +2331,7 @@ This session completed the H1 continuation: merged remaining open PRs and cleane
 ### Verification
 
 | Command | Result |
-|---------|--------|
+---------|--------|
 | `cargo fmt -- --check` | ✅ Clean (0 changes needed) |
 | `cargo check` | ✅ Clean (0 warnings) |
 | `cargo test --workspace` | ✅ ~668 tests pass, 0 failures |
@@ -2340,7 +2340,7 @@ This session completed the H1 continuation: merged remaining open PRs and cleane
 ### Files changed
 
 | File | Change |
-|------|--------|
+------|--------|
 | `Cargo.toml` | Removed `"net"` from workspace tokio features |
 | `crates/tool-runtime/src/lib.rs` | Unused var fix + stronger case-sensitivity assertion in test |
 | `PROJECT_STATUS.md` | This session update |
@@ -2385,7 +2385,7 @@ This session completed the final Phase 2 delivery step: merged PR #166 (compress
 
 ### Verification (pre-push)
 | Command | Result |
-|---------|--------|
+---------|--------|
 | `cargo fmt -- --check` | ✅ Clean |
 | `cargo check` | ✅ Clean |
 | `cargo test --workspace` | ✅ Passes |
@@ -2401,7 +2401,7 @@ This session completed the final Phase 2 delivery step: merged PR #166 (compress
 ### Files changed
 
 | File | Change |
-|------|--------|
+------|--------|
 | `FOCUS_LOOP_NEXT.md` | Updated — PR #166 merged, Phase 2 complete, waiting for GONA Phase 3 arbitration |
 | `PROJECT_STATUS.md` | Added this session entry |
 
@@ -2459,7 +2459,7 @@ This session implemented Phase 3 milestone P3-1: the Neutral Orchestrator V0 pur
 ### Changes
 
 | File | Change |
-|------|--------|
+------|--------|
 | `crates/core/src/ids.rs` | Added 4 orchestrator-specific ID types: `OrchestratorCycleId`, `ContextBundleId`, `ComputeRouteId`, `ProposalRequestId` |
 | `crates/core/src/orchestrator.rs` | **New module** with 7 domain types, 2 warning constants, 1 builder, 20-unit-test module (25 tests) |
 | `crates/core/src/lib.rs` | Registered `pub mod orchestrator` with re-export |
@@ -2503,12 +2503,12 @@ All pure, serializable, non-authorizing:
 ### Phase 3 queue progress
 
 | Milestone | Status |
-|-----------|--------|
+-----------|--------|
 | P3-0 — Roadmap definition | ✅ (#168) |
 | **P3-1 — Domain contract** | **✅ (#169)** |
-|| P3-2 — Deterministic loop skeleton | 🔜 |
-|| P3-3 — CLI/MCP readback | 📋 |
-|| P3-4 — Memory-aware context design | 📋 |
+| P3-2 — Deterministic loop skeleton | 🔜 |
+| P3-3 — CLI/MCP readback | 📋 |
+| P3-4 — Memory-aware context design | 📋 |
 
 ## 29. Latest Session Update (2026-05-30 DEEP cron — P3-2 Neutral Orchestrator V0 deterministic loop skeleton)
 
@@ -2573,7 +2573,7 @@ ObjectiveInput
 ### Changed files
 
 | File | Change |
-|------|--------|
+------|--------|
 | `Cargo.toml` | Added `crates/neutral-orchestrator` to workspace members |
 | `crates/neutral-orchestrator/Cargo.toml` | New crate manifest |
 | `crates/neutral-orchestrator/src/lib.rs` | Full implementation + 13 tests (~800 lines) |
@@ -2583,7 +2583,7 @@ ObjectiveInput
 ### Verification
 
 | Check | Result |
-|-------|--------|
+-------|--------|
 | `cargo fmt -- --check` | ✅ Clean |
 | `cargo check` | ✅ Clean (0 warnings) |
 | `cargo test --workspace` | ✅ 730+ tests pass (13 in new crate, no regressions) |
@@ -2601,7 +2601,7 @@ ObjectiveInput
 ### Phase 3 queue progress
 
 | Milestone | Status |
-|-----------|--------|
+-----------|--------|
 | P3-0 — Roadmap definition | ✅ (#168) |
 | P3-1 — Domain contract | ✅ (#169) |
 | **P3-2 — Deterministic loop skeleton** | **✅ (#170)** |
@@ -2617,7 +2617,7 @@ This session implemented the P3-3 milestone: an `arpagona orchestrator run --obj
 ### What was changed
 
 | File | Change |
-|------|--------|
+------|--------|
 | `crates/cli/Cargo.toml` | Added `arpagona-neutral-orchestrator` dependency |
 | `crates/cli/src/main.rs` | Added `Orchestrator(OrchestratorCommand)` variant, `OrchestratorCommand`/`OrchestratorSubcommand::Run`/`OrchestratorRunArgs` structs, `orchestrator_run()` handler function with human-readable causal trace + `--json` output, CLI dispatch wiring, and 4 tests |
 
@@ -2633,7 +2633,7 @@ The `orchestrator_run` handler:
 ### Tests (4 new)
 
 | Test | What it proves |
-|------|---------------|
+------|---------------|
 | `cli_parses_orchestrator_run_defaults` | Default permissions, workspace, agent IDs are correct |
 | `cli_parses_orchestrator_run_with_json` | `--json`, `--perm WriteMemory`, custom workspace/agent IDs parse correctly |
 | `cli_parses_orchestrator_run_multiple_permissions` | Multiple `--perm` flags collect into a vec |
@@ -2642,7 +2642,7 @@ The `orchestrator_run` handler:
 ### Verification
 
 | Check | Result |
-|-------|--------|
+-------|--------|
 | `cargo fmt -- --check` | ✅ Clean |
 | `cargo check` | ✅ Clean (0 warnings) |
 | `cargo test -p arpagona-cli` | ✅ 115 tests pass (4 new + existing) |
@@ -2661,7 +2661,7 @@ The `orchestrator_run` handler:
 ### Phase 3 queue progress
 
 | Milestone | Status |
-|-----------|--------|
+-----------|--------|
 | P3-0 — Roadmap definition | ✅ (#168) |
 | P3-1 — Domain contract | ✅ (#169) |
 | P3-2 — Deterministic loop skeleton | ✅ (#170) |
@@ -2686,7 +2686,7 @@ This session delivered the P3-4 milestone: a design document and the initial con
 Defines the full pipeline for how memory sources feed advisory context into orchestrator cycles:
 
 | Source | Adapter (future) | Purpose |
-|---|---|---|
+---|---|---|
 | Graph Memory | `GraphMemoryAdapter` | Structured durable facts, past decisions |
 | Holographic Memory | `HolographicMemoryAdapter` | Pattern resonance — "what does this resemble?" |
 | Reservoir Echo | `ReservoirEchoAdapter` | Short-term volatile traces, recent cycles |
@@ -2698,7 +2698,7 @@ Every adapter returns advisory data only. The document specifies query contracts
 **Domain types** in `crates/core/src/orchestrator.rs`:
 
 | Type | Role |
-|---|---|
+---|---|
 | `MemoryQueryRequest` | Formal query sent to the context assembly pipeline (cycle_id, objective_id, objective_text, workspace_id, requested_sources, max_items_per_source) |
 | `MemoryQueryResponse` | Advisory response from a source adapter (source, items, available, explanation) |
 | `ContextSource::CompressedCognitiveAttention` | New enum variant for the compressed attention source |
@@ -2720,7 +2720,7 @@ Every adapter returns advisory data only. The document specifies query contracts
 ### Files changed
 
 | File | Change |
-|---|---|
+---|---|
 | `docs/p3-4-memory-aware-context-design.md` | **New** — full design document |
 | `crates/core/src/orchestrator.rs` | Added `MemoryQueryRequest`, `MemoryQueryResponse`, `ContextSource::CompressedCognitiveAttention` variant |
 | `crates/neutral-orchestrator/src/context_assembler.rs` | **New** — `ContextAssembler` trait + `SimulatedContextAssembler` + 5 tests |
@@ -2731,7 +2731,7 @@ Every adapter returns advisory data only. The document specifies query contracts
 ### Verification
 
 | Check | Result |
-|---|---|
+---|---|
 | `cargo fmt -- --check` | ✅ Clean |
 | `cargo check` | ✅ Clean (0 warnings) |
 | `cargo test --workspace` | ✅ All tests pass (0 failures across all crates) |
@@ -2758,7 +2758,7 @@ Every adapter returns advisory data only. The document specifies query contracts
 ### Phase 3 queue progress
 
 | Milestone | Status |
-|---|---|
+---|---|
 | P3-0 — Roadmap definition | ✅ (#168) |
 | P3-1 — Domain contract | ✅ (#169) |
 | P3-2 — Deterministic loop skeleton | ✅ (#170) |
@@ -2804,7 +2804,7 @@ This session delivered the P3-5 milestone: structured cycle traces with per-sour
 ### Verification
 
 | Check | Result |
-|---|---|
+---|---|
 | `cargo fmt -- --check` | ✅ Clean |
 | `cargo check` | ✅ Clean (pre-existing E0670 lint noise only) |
 | `cargo test --workspace` | ✅ All tests pass across all crates |
@@ -2822,7 +2822,7 @@ This session delivered the P3-5 milestone: structured cycle traces with per-sour
 ### Files changed
 
 | File | Change |
-|---|---|
+---|---|
 | `crates/core/src/orchestrator.rs` | Added `ContextSourceSummary`, `CycleTrace` types + 5 tests |
 | `crates/neutral-orchestrator/src/lib.rs` | Added `to_cycle_trace()`, updated `causal_trace()`, 4 cycle trace tests |
 | `crates/cli/src/main.rs` | Added `--trace` flag to orchestrator run |
@@ -2842,7 +2842,7 @@ This session delivered the P3-5 milestone: structured cycle traces with per-sour
 ### Phase 3 queue progress
 
 | Milestone | Status |
-|---|---|
+---|---|
 | P3-0 — Roadmap definition | ✅ (#168) |
 | P3-1 — Domain contract | ✅ (#169) |
 | P3-2 — Deterministic loop skeleton | ✅ (#170) |
@@ -2886,7 +2886,7 @@ implementation backed by the Tool Runtime crate.
 ### New tests (6)
 
 | Test | What it proves |
-|------|---------------|
+------|---------------|
 | `tool_runtime_adapter_returns_tool_runtime_source` | Reports correct source |
 | `tool_runtime_adapter_ignores_non_matching_sources` | Non-ToolRuntime sources pass through |
 | `tool_runtime_adapter_searches_workspace` | Real workspace search returns items |
@@ -2897,7 +2897,7 @@ implementation backed by the Tool Runtime crate.
 ### Files changed
 
 | File | Change |
-|------|--------|
+------|--------|
 | crates/neutral-orchestrator/Cargo.toml | Added arpagona-tool-runtime dep |
 | crates/neutral-orchestrator/src/lib.rs | Added mod + re-export |
 | crates/neutral-orchestrator/src/tool_runtime_adapter.rs | **NEW** (398 lines) |
@@ -2921,7 +2921,7 @@ implementation backed by the Tool Runtime crate.
 ### Phase 3 queue progress
 
 | Milestone | Status |
-|---|---|
+---|---|
 | P3-0 — Roadmap definition | ✅ (#168) |
 | P3-1 — Domain contract | ✅ (#169) |
 | P3-2 — Deterministic loop skeleton | ✅ (#170) |
@@ -2981,7 +2981,7 @@ Holographic Memory crate's resonance retrieval.
 **Changed files:**
 
 | File | Change |
-|------|--------|
+------|--------|
 | `crates/neutral-orchestrator/Cargo.toml` | Added `arpagona-holographic-memory` dependency |
 | `crates/neutral-orchestrator/src/lib.rs` | Added `pub mod holographic_memory_adapter;` + reexport |
 | `crates/neutral-orchestrator/src/holographic_memory_adapter.rs` | **NEW** — HolographicMemoryAdapter with 18 tests |
@@ -3029,14 +3029,14 @@ short-term cognitive continuity (`ReservoirState` from `crates/core/src/cognitiv
 **Changed files:**
 
 | File | Change |
-|------|--------|
+------|--------|
 | `crates/neutral-orchestrator/src/lib.rs` | Added `pub mod reservoir_echo_adapter;` + reexport |
 | `crates/neutral-orchestrator/src/reservoir_echo_adapter.rs` | **NEW** — ReservoirEchoAdapter with 18 tests |
 
 ### New test coverage (18 tests added to neutral-orchestrator)
 
 | Test | What it proves |
-|------|---------------|
+------|---------------|
 | `adapter_returns_reservoir_echo_source` | supported_sources contains ReservoirEcho |
 | `adapter_ignores_non_matching_sources` | Non-matching sources pass through cleanly |
 | `adapter_handles_empty_reservoir` | Empty reservoir returns available but zero items |
@@ -3075,7 +3075,7 @@ short-term cognitive continuity (`ReservoirState` from `crates/core/src/cognitiv
 
 1. **Review this PR** — P3-4c ReservoirEchoAdapter.
 2. Proceed to **P3-4b (CompressedCognitiveAttentionAdapter)**: bridge the compressed-cognitive-attention crate's temporally enriched retrieval into the ContextAssembler pipeline.
-|- No Tool Runtime, API endpoint, or MCP server changes
+- No Tool Runtime, API endpoint, or MCP server changes
 
 ## 28. Latest Session Update (2026-05-29 — P3-4b CompressedCognitiveAttentionAdapter)
 
@@ -3115,7 +3115,7 @@ This session implemented the last memory-aware adapter for the Neutral Orchestra
 ### Files changed
 
 | File | Change |
-|------|--------|
+------|--------|
 | crates/neutral-orchestrator/Cargo.toml | Added `arpagona-compressed-cognitive-attention` dependency |
 | crates/neutral-orchestrator/src/lib.rs | Added module declaration and public re-export |
 | crates/neutral-orchestrator/src/compressed_cognitive_attention_adapter.rs | New file — 650+ lines of adapter + 16 tests |
@@ -3157,7 +3157,7 @@ This session completed the P3-4 memory adapter series by merging 4 PRs onto main
 ### PRs merged
 
 | PR | Branch | Description | Merge Order |
-|----|--------|-------------|-------------|
+----|--------|-------------|-------------|
 | #177 | `feat/p3-4b-compressed-cognitive-attention-adapter` | P3-4b: CompressedCognitiveAttentionAdapter | 1st |
 | #178 | `fix/daily-validation-2026-05-29-orchestrator-cli-docs` | docs: orchestrator CLI daily validation coverage | 2nd |
 | #179 | `fix/dv-2026-05-29-safety-refusal-synthesis` | DV-2026-05-29-002: safety refusal for forbidden secret/shell objectives in LLM synthesis | 3rd (rebased) |
@@ -3181,7 +3181,7 @@ The Neutral Orchestrator's `ContextAssembler` supports 5 source adapters:
 ### Verification
 
 | Check | Result |
-|-------|--------|
+-------|--------|
 | `cargo fmt -- --check` | ✅ Clean |
 | `cargo check` | ✅ Clean (0 warnings) |
 | `cargo test` | ✅ 206 tests passed (all crates) |
@@ -3271,7 +3271,5 @@ Session: DEEP cron 2026-05-29. Merged #181 (P3-6) into main, then implemented P3
 - No SurrealDB or async persistence changes
 - No Product/Mission Control Web growth
 
-### Next recommended step for GONA
 
-**P3-8: Proposal routing CLI surface** — Add `--llm` or `--proposal-generator` flag to `arpagona orchestrator run` so operators can switch between `SimulatedProposalGenerator` and `LlmProposalGenerator` at the CLI. This also serves as the integration point for the C1 milestone (real LLM proposal-only mode) in the orchestrator context.
-
+## 29. Latest Session Update (2026-05-29 — P3-8: Proposal routing CLI surface)\n|\n|This session implemented P3-8: added `--proposal-generator` flag to `arpagona orchestrator run`\n|so operators can switch between `SimulatedProposalGenerator` and `LlmProposalGenerator` at the CLI.\n|\n|### Changes\n|\n|- **crates/llm/src/lib.rs**: Made `LlmProvider` trait dyn-compatible (`Pin<Box<dyn Future>>` instead of `impl Future`) — required for `Box<dyn LlmProvider>` in `LlmProposalGenerator`.\n|- **crates/neutral-orchestrator/Cargo.toml**: Added `tokio` dependency.\n|- **crates/neutral-orchestrator/src/lib.rs**: Added `#[cfg(feature = \"llm-provider\")] pub use proposal_generator::LlmProposalGenerator`.\n|- **crates/neutral-orchestrator/src/proposal_generator.rs**: Fixed cfg-gated imports for `WorkspaceId`, `AgentId`; added tokio Runtime::new() in LLM tests to satisfy block_in_place requirement.\n|- **crates/cli/Cargo.toml**: Enabled `llm-provider` feature on `arpagona-neutral-orchestrator`.\n|- **crates/cli/src/main.rs**: Added `ProposalGeneratorArg` enum (`Simulated`, `Llm`) with `Display` impl; `--proposal-generator` arg on `OrchestratorRunArgs`; updated `orchestrator_run` to construct engine with appropriate generator; 3 parser tests.\n|- **FOCUS_LOOP_NEXT.md**: Updated handoff to P3-9 / next Phase 3 step.\n|\n|### Smoke tests\n|\n|- `--proposal-generator simulated` (default): ReadDocument → Approved → completed ✓\n|- `--proposal-generator llm`: SimulateEmail (MockProvider) → Blocked (permission mismatch) → needs_review ✓\n|\n|### Verification\n|\n|- `cargo fmt -- --check`: clean\n|- `cargo check --workspace`: clean (1 pre-existing warning about unused fields in LlmProposalGenerator)\n|- `cargo test --workspace`: all passing\n|\n|### Safety boundaries preserved\n|\n|- Both generators produce `PendingDecision` proposals only\n|- Every `OrchestratorOutcome` is `non_authorizing: true`\n|- Decision Gate remains mandatory between proposal and any effect\n|- No tool execution, no scheduler, no autonomy, no Mission Control Web growth\n|- No shell/browser/secrets/email/self-modification added\n|- `LlmProposalGenerator` is behind `llm-provider` feature gate (on by default for CLI)\n|\n|### Not changed (deliberately)\n|\n|- `crates/llm/src/lib.rs`: Only method return types changed to `Pin<Box<dyn Future>>`; all 3 implementors updated; no behavior change.\n|- `run_deterministic_cycle` convenience function preserved (still used by one test).\n|- `docs/cli.md` orchestrator section not updated — deferred to P3-9 docs pass.\n|- `docs/gona-deep-governance.md` and `docs/steroid-hermes-action-plan.md` still not present — bootstrap fallback active.\n|\n|### Next recommended step for GONA\n|\n|**P3-9: Orchestrator docs + demo script** — Add `--proposal-generator` to `docs/cli.md`, create `scripts/demo-orchestrator-loop.sh` showing both generators, or move to **C2: Governed direct tool-calling by the LLM**.\n

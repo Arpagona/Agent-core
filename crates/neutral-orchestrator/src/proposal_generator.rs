@@ -21,7 +21,11 @@
 
 use arpagona_agent_core::action::{ActionType, ProposedAction, ProposedActionStatus};
 use arpagona_agent_core::cognitive_work::Objective;
+#[cfg(feature = "llm-provider")]
+use arpagona_agent_core::ids::AgentId;
 use arpagona_agent_core::ids::ProposedActionId;
+#[cfg(feature = "llm-provider")]
+use arpagona_agent_core::ids::WorkspaceId;
 use arpagona_agent_core::orchestrator::{
     ComputeRouteResult, ContextBundle, ObjectiveInput, ProposalRequest,
 };
@@ -515,6 +519,9 @@ mod tests {
     fn llm_generator_wraps_mock_provider() {
         use arpagona_llm::{LlmProvider, MockProvider, ProposedActionDraft};
 
+        let rt = tokio::runtime::Runtime::new().expect("tokio runtime for LLM test");
+        let _guard = rt.enter();
+
         let mock_draft = ProposedActionDraft {
             action_type: ActionType::ReadMemory,
             target: Some("memory:test".to_owned()),
@@ -558,6 +565,9 @@ mod tests {
     #[test]
     fn llm_generator_action_passes_through_decision_gate() {
         use arpagona_llm::{MockProvider, ProposedActionDraft};
+
+        let rt = tokio::runtime::Runtime::new().expect("tokio runtime for LLM test");
+        let _guard = rt.enter();
 
         let mock_draft = ProposedActionDraft {
             action_type: ActionType::ReadDocument,

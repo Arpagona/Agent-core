@@ -17,6 +17,7 @@ arpagona-llm = { path = "../llm", optional = true }
 chrono.workspace = true
 serde.workspace = true
 serde_json.workspace = true
+tokio.workspace = true
 
 [features]
 llm-provider = ["arpagona-llm"]

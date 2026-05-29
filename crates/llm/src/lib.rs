@@ -10,6 +10,7 @@ use std::env;
 use std::error::Error;
 use std::fmt;
 use std::future::Future;
+use std::pin::Pin;
 
 use arpagona_agent_core::{
     ActionType, AgentId, Permission, ProposedAction, ProposedActionId, ProposedActionStatus,
@@ -85,11 +86,11 @@ impl ProposedActionDraft {
     }
 }
 
-pub trait LlmProvider {
+pub trait LlmProvider: Send + Sync {
     fn propose_action(
         &self,
         request: LlmActionRequest,
-    ) -> impl Future<Output = Result<ProposedActionDraft, LlmError>> + Send;
+    ) -> Pin<Box<dyn Future<Output = Result<ProposedActionDraft, LlmError>> + Send>>;
 }
 
 #[derive(Clone, Debug)]
@@ -121,9 +122,9 @@ impl LlmProvider for MockProvider {
     fn propose_action(
         &self,
         _request: LlmActionRequest,
-    ) -> impl Future<Output = Result<ProposedActionDraft, LlmError>> + Send {
+    ) -> Pin<Box<dyn Future<Output = Result<ProposedActionDraft, LlmError>> + Send>> {
         let draft = self.draft.clone();
-        async move { Ok(draft) }
+        Box::pin(async move { Ok(draft) })
     }
 }
 
@@ -239,9 +240,9 @@ impl LlmProvider for OpenAiProvider {
     fn propose_action(
         &self,
         request: LlmActionRequest,
-    ) -> impl Future<Output = Result<ProposedActionDraft, LlmError>> + Send {
+    ) -> Pin<Box<dyn Future<Output = Result<ProposedActionDraft, LlmError>> + Send>> {
         let turn = self.propose_turn(request);
-        async move {
+        Box::pin(async move {
             match turn.await? {
                 AgentTurnDraft::ProposedAction { action } => Ok(action),
                 AgentTurnDraft::DirectReply { .. } => Err(LlmError::InvalidResponse(
@@ -252,7 +253,7 @@ impl LlmProvider for OpenAiProvider {
                         .to_owned(),
                 )),
             }
-        }
+        })
     }
 }
 
@@ -370,9 +371,9 @@ impl LlmProvider for OllamaProvider {
     fn propose_action(
         &self,
         request: LlmActionRequest,
-    ) -> impl Future<Output = Result<ProposedActionDraft, LlmError>> + Send {
+    ) -> Pin<Box<dyn Future<Output = Result<ProposedActionDraft, LlmError>> + Send>> {
         let self_clone = self.clone();
-        async move {
+        Box::pin(async move {
             let text = self_clone
                 .synthesize(provider_system_prompt(), &request.prompt)
                 .await?;
@@ -386,7 +387,7 @@ impl LlmProvider for OllamaProvider {
                         .to_owned(),
                 )),
             }
-        }
+        })
     }
 }
 

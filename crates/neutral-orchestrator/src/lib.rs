@@ -53,6 +53,8 @@ pub use context_assembler::{ContextAssembler, SimulatedContextAssembler};
 pub use graph_memory_adapter::GraphMemoryAdapter;
 pub use holographic_memory_adapter::HolographicMemoryAdapter;
 pub use multi_adapter::MultiAdapterContextAssembler;
+#[cfg(feature = "llm-provider")]
+pub use proposal_generator::LlmProposalGenerator;
 pub use proposal_generator::{ProposalError, ProposalGenerator, SimulatedProposalGenerator};
 pub use reservoir_echo_adapter::ReservoirEchoAdapter;
 pub use tool_runtime_adapter::ToolRuntimeAdapter;
