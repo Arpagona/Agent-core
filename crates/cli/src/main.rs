@@ -203,6 +203,11 @@ pub struct OrchestratorRunArgs {
     #[arg(long, default_value_t = false)]
     pub trace: bool,
 
+    /// Analyze the cycle trace for Failure-to-Insight candidates and display them.
+    /// Detects unavailable sources, empty sources, blocked decisions and failed cycles.
+    #[arg(long, default_value_t = false)]
+    pub insights: bool,
+
     /// Save the CycleTrace as JSON to a file (default: target/last-orchestrator-trace.json).
     /// Use with --trace to capture the compute-aware breakdown for later orchestrator status.
     #[arg(long)]
@@ -236,6 +241,10 @@ pub struct OrchestratorStatusArgs {
     /// Path to a saved CycleTrace JSON file (default: target/last-orchestrator-trace.json).
     #[arg(long)]
     pub trace_path: Option<String>,
+
+    /// Analyze the saved trace for Failure-to-Insight candidates and display them.
+    #[arg(long, default_value_t = false)]
+    pub insights: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, clap::ValueEnum)]
@@ -9588,6 +9597,58 @@ fn orchestrator_run(args: OrchestratorRunArgs) -> Result<(), Box<dyn Error>> {
         }
     }
 
+    // ── Analyze for Failure-to-Insight candidates when --insights is set ──
+    if args.insights {
+        let trace = cycle.to_cycle_trace();
+        let insights = arpagona_agent_core::orchestrator::analyze_cycle_trace_for_insights(&trace);
+        if insights.is_empty() {
+            if !args.json {
+                println!();
+                println!(
+                    "{}",
+                    style_success("✓ No Failure-to-Insight candidates detected")
+                );
+                println!(
+                    "{}",
+                    style_dim("   All context sources were reachable and returned items.")
+                );
+            }
+        } else {
+            if !args.json {
+                println!();
+                println!(
+                    "{}",
+                    style_warning(&format!(
+                        "⚠  {} Failure-to-Insight candidate(s) detected",
+                        insights.len()
+                    ))
+                );
+                for insight in &insights {
+                    println!("{}", "-".repeat(50));
+                    println!("   ID:       {}", insight.id);
+                    println!("   Class:    {:?}", insight.failure_class);
+                    println!("   Severity: {:?}", insight.severity);
+                    println!("   Target:   {:?}", insight.correction_target);
+                    println!("   Summary:  {}", insight.summary);
+                    println!("   Root:     {}", insight.root_cause);
+                    println!("   Action:   {}", insight.corrective_action);
+                    println!("   Owner:    {}", insight.owner_layer);
+                    println!(
+                        "   Status:   {:?} (always proposed, never auto-applied)",
+                        insight.status
+                    );
+                }
+                println!("{}", "-".repeat(50));
+                println!(
+                    "{}",
+                    style_dim("⚠  Insights are advisory only — proposed, not applied.")
+                );
+            } else {
+                println!("{}", serde_json::to_value(&insights)?);
+            }
+        }
+    }
+
     Ok(())
 }
 
@@ -13292,5 +13353,81 @@ mod tests {
             matches!(cli.command, Command::Orchestrator(_)),
             "orchestrator status must dispatch to Orchestrator command"
         );
+    }
+
+    #[test]
+    fn cli_parses_orchestrator_run_with_insights_flag() {
+        let cli = Cli::try_parse_from(vec![
+            "arpagona",
+            "orchestrator",
+            "run",
+            "--objective",
+            "Test insights",
+            "--insights",
+        ])
+        .expect("orchestrator run --insights should parse");
+        match cli.command {
+            Command::Orchestrator(OrchestratorCommand {
+                command: OrchestratorSubcommand::Run(args),
+            }) => {
+                assert!(args.insights, "--insights should be set to true");
+                assert_eq!(args.objective, "Test insights");
+            }
+            _ => panic!("expected orchestrator run"),
+        }
+    }
+
+    #[test]
+    fn cli_parses_orchestrator_run_with_insights_and_json() {
+        let cli = Cli::try_parse_from(vec![
+            "arpagona",
+            "orchestrator",
+            "run",
+            "--objective",
+            "Test insights JSON",
+            "--insights",
+            "--json",
+        ])
+        .expect("orchestrator run --insights --json should parse");
+        match cli.command {
+            Command::Orchestrator(OrchestratorCommand {
+                command: OrchestratorSubcommand::Run(args),
+            }) => {
+                assert!(args.insights, "--insights should be set");
+                assert!(args.json, "--json should be set");
+                assert_eq!(args.objective, "Test insights JSON");
+            }
+            _ => panic!("expected orchestrator run"),
+        }
+    }
+
+    #[test]
+    fn cli_parses_orchestrator_run_with_insights_and_trace_and_save_trace() {
+        let cli = Cli::try_parse_from(vec![
+            "arpagona",
+            "orchestrator",
+            "run",
+            "--objective",
+            "Full demo: insights with trace",
+            "--insights",
+            "--trace",
+            "--save-trace",
+            "target/insights-trace.json",
+        ])
+        .expect("orchestrator run --insights --trace --save-trace should parse");
+        match cli.command {
+            Command::Orchestrator(OrchestratorCommand {
+                command: OrchestratorSubcommand::Run(args),
+            }) => {
+                assert!(args.insights, "--insights should be set");
+                assert!(args.trace, "--trace should be set");
+                assert_eq!(
+                    args.save_trace,
+                    Some("target/insights-trace.json".to_owned())
+                );
+                assert_eq!(args.objective, "Full demo: insights with trace");
+            }
+            _ => panic!("expected orchestrator run"),
+        }
     }
 }

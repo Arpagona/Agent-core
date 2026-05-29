@@ -3889,6 +3889,70 @@ None for this increment. PR #194 is green and mergeable (CI ✅). GONA must merg
 1. **Merge PR #194** (CI ✅, 913 tests pass, all bounded increments delivered on same topic).
 2. **After merge — P3-14**: Connect orchestrated context assembly metadata to Failure-to-Insight candidate generation now that the CycleTrace is inspectable via `orchestrator status`. The trace file gives a natural input for `--assess` bridge triggers.
 
+---
+
+## 28. Latest Session Update (2026-05-29 — P3-15: CycleTrace → Failure-to-Insight candidates)
+
+This session connected orchestrated context assembly metadata to Failure-to-Insight candidate generation.
+
+### What was added
+
+**`crates/core/src/orchestrator.rs`:**
+- `pub fn analyze_cycle_trace_for_insights(trace: &CycleTrace) -> Vec<FailureInsight>` — pure, deterministic analysis that inspects a CycleTrace for 5 signals:
+  1. **Unavailable sources** → `FailureClass::InsufficientObservability` (Medium)
+  2. **Available sources returning zero items** → `FailureClass::MissingContext` (Low)
+  3. **Blocked/rejected decisions** → `FailureClass::BlockedWithoutExplanation` (Medium)
+  4. **Zero context at all from queried sources** → `FailureClass::MissingContext` (High)
+  5. **Failed/error cycle status** → `FailureClass::InsufficientObservability` (Medium)
+- All generated insights are `status: Proposed` (non-authorizing, never auto-applied)
+- No I/O, no persistence, no LLM calls, no tool execution
+
+**`crates/cli/src/main.rs`:**
+- New `--insights` flag on `orchestrator run` — displays FailureInsight candidates after the cycle trace
+- Insights shown in human-readable format with ID, class, severity, target, summary, root cause, corrective action, owner
+- JSON output via `--json --insights` for programmatic consumption
+- Success message when no issues detected
+
+**Tests:**
+- 7 new core tests: empty trace, unavailable source, empty source, blocked decision, no context (High severity), failed cycle, combined multi-signal with non-authorizing invariant
+- 3 new CLI parser tests: `--insights` alone, `--insights --json`, `--insights --trace --save-trace`
+
+### Verification
+- `cargo fmt -- --check`: ✅ clean
+- `cargo check`: ✅ full workspace
+- `cargo test`: ✅ **923 tests pass** (0 failures, all crates)
+
+### Safety boundaries preserved
+- ✅ Pure deterministic function — no I/O, no authorization, no side effects
+- ✅ Insights always `status: Proposed` — never auto-applied, never stored to persistence
+- ✅ No Decision Gate bypass — insights are advisory evidence only
+- ✅ No scheduler, autonomy, browser automation, email, secrets, self-modification
+- ✅ No SurrealDB, LLM, MCP, or API endpoint changes
+- ✅ No new capabilities or execution paths added
+- ✅ All non-authorizing invariants preserved with tests
+
+### Deliberately not changed
+- No existing orchestrator behavior modified (only extended)
+- No CycleTrace, ContextBundle, or domain contract semantics changed
+- No Decision Gate, Graph Memory, Holographic Memory, Compute Reservoir, or Tool Runtime changes
+- No `orchestrator status --insights` wired (secondary, can be added later)
+- No automatic insight persistence — operator reads them from stdout/JSON
+- No Failure-to-Insight write-back to Graph Memory — that requires a future governed integration
+
+### Files changed
+
+| File | Change |
+|------|--------|
+| `crates/core/src/orchestrator.rs` | Added imports for FailureInsight types, `analyze_cycle_trace_for_insights()` function, 7 tests |
+| `crates/cli/src/main.rs` | Added `--insights` flag to `OrchestratorRunArgs`, insight display in `orchestrator_run()`, 3 parser tests |
+| `FOCUS_LOOP_NEXT.md` | Updated handoff for next run |
+| `PROJECT_STATUS.md` | This update |
+
+### Recommended next step for GONA
+
+1. **Review and merge PR** `feat/p3-15-cycle-trace-to-failure-insight` when CI clears.
+2. **After merge — P3-16**: Connect FailureInsight candidates to Compute Reservoir cost/quality feedback. Analyze compute route selections against cycle outcomes (e.g., blocked decisions, failed cycles) to detect suboptimal routing decisions. This is the other bridge the previous handoff recommended: "connecting orchestrated context assembly metadata to Compute Reservoir cost/quality feedback."
+
 
 
 ## 29. Latest Session Update (2026-05-29 DEEP cron — P3-14 CycleTrace-to-FailureInsight bridge)

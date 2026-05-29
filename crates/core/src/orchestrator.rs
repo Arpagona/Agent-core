@@ -28,6 +28,12 @@
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 
+use crate::failure_insight::{
+    CorrectionTarget, DetectionSignal, DetectionSignalType, FailureClass, FailureInsight,
+    InsightSeverity,
+};
+use crate::ids::FailureInsightId;
+
 use crate::action::ToolCallIntent;
 use crate::cognitive_work::{
     ContextItem, CycleStatus, Objective, ObjectiveDomain, ObjectiveStatus,
@@ -936,6 +942,196 @@ pub fn build_demo_orchestrator_cycle(
     )
 }
 
+/// Analyze a CycleTrace for Failure-to-Insight candidates.
+///
+/// This is a pure, deterministic analysis that inspects the cycle trace
+/// for signals that should produce FailureInsight candidates:
+///
+/// - Unavailable memory sources → `InsufficientObservability`
+/// - Available sources returning zero items → `MissingContext`
+/// - Blocked/rejected decisions → `BlockedWithoutExplanation`
+/// - Zero context assembled at all → `MissingContext`
+/// - Failed/error cycle status → `InsufficientObservability`
+///
+/// # Safety
+///
+/// Returned insights are always `status: Proposed`. They are advisory and
+/// non-authorizing. No insight may be interpreted as approval, authorization,
+/// or execution permission. The function is pure and deterministic — it does
+/// no I/O, no persistence writes, no LLM calls, and no tool execution.
+pub fn analyze_cycle_trace_for_insights(trace: &CycleTrace) -> Vec<FailureInsight> {
+    let mut insights: Vec<FailureInsight> = Vec::new();
+    let now = Utc::now();
+
+    // 1. Unavailable sources → InsufficientObservability
+    for unavailable in &trace.unavailable_sources {
+        insights.push(FailureInsight::new(
+            FailureInsightId::new(format!("fi-{}-unavailable-{}", trace.cycle_id, unavailable)),
+            FailureClass::InsufficientObservability,
+            InsightSeverity::Medium,
+            CorrectionTarget::Memory,
+            format!(
+                "Memory source '{}' was unavailable during cycle {}",
+                unavailable, trace.cycle_id
+            ),
+            format!(
+                "The orchestrator queried '{}' but the source was unreachable.",
+                unavailable
+            ),
+            format!(
+                "Missing '{}' may reduce proposal quality. Only {} item(s) were assembled.",
+                unavailable, trace.total_context_items
+            ),
+            format!(
+                "Investigate why '{}' was unavailable. Check adapter health and configuration.",
+                unavailable
+            ),
+            "Context Assembly / Memory Adapters",
+            DetectionSignal::new(
+                DetectionSignalType::RuntimeObservation,
+                format!(
+                    "Cycle {} reported unavailable source '{}'",
+                    trace.cycle_id, unavailable
+                ),
+            ),
+            0.85,
+            now,
+        ));
+    }
+
+    // 2. Available sources with zero items → MissingContext
+    for summary in &trace.context_source_summaries {
+        if summary.available && summary.item_count == 0 {
+            insights.push(FailureInsight::new(
+                FailureInsightId::new(format!("fi-{}-empty-{}", trace.cycle_id, summary.source)),
+                FailureClass::MissingContext,
+                InsightSeverity::Low,
+                CorrectionTarget::Memory,
+                format!(
+                    "Source '{}' returned zero items although reachable",
+                    summary.source
+                ),
+                format!(
+                    "Source '{}' was available but produced no context for '{}'",
+                    summary.source, trace.objective_text
+                ),
+                format!(
+                    "Empty results from '{}' reduce proposal quality.",
+                    summary.source
+                ),
+                format!(
+                    "Check if '{}' has relevant data for this domain.",
+                    summary.source
+                ),
+                "Context Assembly / Memory Adapters",
+                DetectionSignal::new(
+                    DetectionSignalType::RuntimeObservation,
+                    format!(
+                        "Cycle {}: source '{}' returned 0 of {} items",
+                        trace.cycle_id, summary.source, trace.total_context_items
+                    ),
+                ),
+                0.7,
+                now,
+            ));
+        }
+    }
+
+    // 3. Blocked/rejected decision → BlockedWithoutExplanation
+    if let Some(ref status) = trace.decision_status {
+        if status.contains("Denied") || status.contains("Blocked") || status.contains("Rejected") {
+            insights.push(FailureInsight::new(
+                FailureInsightId::new(format!("fi-{}-blocked", trace.cycle_id)),
+                FailureClass::BlockedWithoutExplanation,
+                InsightSeverity::Medium,
+                CorrectionTarget::Policy,
+                format!(
+                    "Decision was blocked during cycle {}: {}",
+                    trace.cycle_id, status
+                ),
+                format!(
+                    "Decision status '{}' indicates the action was not approved.",
+                    status
+                ),
+                format!(
+                    "Summary: {}. A blocked action with incomplete explanation may indicate a policy gap.",
+                    trace.summary
+                ),
+                format!("Review Decision Gate rules for this action type. Ensure clear rejection reasons."),
+                "Decision Gate / Policy",
+                DetectionSignal::new(
+                    DetectionSignalType::RuntimeObservation,
+                    format!(
+                        "Cycle {} decision status: {}",
+                        trace.cycle_id, status
+                    ),
+                ),
+                0.75,
+                now,
+            ));
+        }
+    }
+
+    // 4. No context at all from configured sources → MissingContext (high severity)
+    // This fires when the context assembly pipeline ran (has source summaries)
+    // but produced zero items total, and NO sources were unavailable.
+    // This is the case where sources exist with data but nothing matched.
+    if !trace.context_source_summaries.is_empty()
+        && trace.total_context_items == 0
+        && trace.unavailable_sources.is_empty()
+    {
+        insights.push(FailureInsight::new(
+            FailureInsightId::new(format!("fi-{}-no-context", trace.cycle_id)),
+            FailureClass::MissingContext,
+            InsightSeverity::High,
+            CorrectionTarget::Memory,
+            format!(
+                "No context was assembled at all for cycle {}",
+                trace.cycle_id
+            ),
+            format!("The orchestrator produced zero context items. No sources were queried."),
+            format!("Without context, proposals will be generic."),
+            format!("Verify context adapters are registered in MultiAdapterContextAssembler."),
+            "Context Assembly / Orchestration",
+            DetectionSignal::new(
+                DetectionSignalType::RuntimeObservation,
+                format!("Cycle {}: 0 items, 0 source summaries", trace.cycle_id),
+            ),
+            0.9,
+            now,
+        ));
+    }
+
+    // 5. Failed/error cycle → InsufficientObservability
+    if trace.cycle_status.contains("Failed") || trace.cycle_status.contains("Error") {
+        insights.push(FailureInsight::new(
+            FailureInsightId::new(format!("fi-{}-failed", trace.cycle_id)),
+            FailureClass::InsufficientObservability,
+            InsightSeverity::Medium,
+            CorrectionTarget::Code,
+            format!(
+                "Cycle {} ended with status '{}'",
+                trace.cycle_id, trace.cycle_status
+            ),
+            format!(
+                "The cycle did not complete successfully. Status: '{}'.",
+                trace.cycle_status
+            ),
+            format!("Failed cycles cannot produce useful proposals."),
+            format!("Inspect orchestrator error path. Check context, compute route failures."),
+            "Orchestrator / Runtime",
+            DetectionSignal::new(
+                DetectionSignalType::RuntimeObservation,
+                format!("Cycle {} failed: {}", trace.cycle_id, trace.cycle_status),
+            ),
+            0.8,
+            now,
+        ));
+    }
+
+    insights
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1491,6 +1687,24 @@ mod tests {
         );
     }
 
+    // ─── analyze_cycle_trace_for_insights tests ────────────────────────
+
+    #[test]
+    fn analyze_insights_empty_trace_yields_no_insights() {
+        let trace = CycleTrace::new(
+            OrchestratorCycleId::new("oc-empty"),
+            "Test objective",
+            "Completed",
+            "Cycle completed successfully",
+        );
+        let insights = analyze_cycle_trace_for_insights(&trace);
+        assert!(
+            insights.is_empty(),
+            "Empty trace should yield 0 insights, got {}",
+            insights.len()
+        );
+    }
+
     #[test]
     fn detect_candidates_when_decision_blocked() {
         let mut trace = CycleTrace::new(
@@ -1584,6 +1798,157 @@ mod tests {
             "should mention the unavailable source: {}",
             candidates[0].summary
         );
+    }
+
+    // ─── analyze_cycle_trace_for_insights tests (P3-15) ───────────────
+
+    #[test]
+    fn analyze_insights_unavailable_source_yields_insight() {
+        let mut trace = CycleTrace::new(
+            OrchestratorCycleId::new("oc-unavail"),
+            "Check memory sources",
+            "Completed",
+            "One source was unavailable",
+        );
+        trace.unavailable_sources.push("graph_memory".to_owned());
+
+        let insights = analyze_cycle_trace_for_insights(&trace);
+        assert_eq!(insights.len(), 1);
+        assert_eq!(
+            insights[0].failure_class,
+            FailureClass::InsufficientObservability
+        );
+        assert_eq!(
+            insights[0].status,
+            crate::failure_insight::InsightStatus::Proposed
+        );
+        assert!(insights[0].summary.contains("unavailable"));
+        assert!(insights[0].summary.contains("graph_memory"));
+    }
+
+    #[test]
+    fn analyze_insights_available_source_zero_items_yields_insight() {
+        let mut trace = CycleTrace::new(
+            OrchestratorCycleId::new("oc-empty-source"),
+            "Find relevant facts",
+            "Completed",
+            "Source returned nothing",
+        );
+        trace.context_source_summaries =
+            vec![ContextSourceSummary::new("holographic_memory", 0, true)];
+
+        let insights = analyze_cycle_trace_for_insights(&trace);
+        // 2 insights: check #2 (empty source: MissingContext Low) + check #4 (no context at all: MissingContext High)
+        assert_eq!(insights.len(), 2);
+        assert!(insights
+            .iter()
+            .any(|i| i.failure_class == FailureClass::MissingContext));
+        assert!(insights
+            .iter()
+            .any(|i| i.summary.contains("holographic_memory")));
+    }
+
+    #[test]
+    fn analyze_insights_blocked_decision_yields_insight() {
+        let mut trace = CycleTrace::new(
+            OrchestratorCycleId::new("oc-blocked"),
+            "Delete production data",
+            "Completed",
+            "Action was blocked by Decision Gate",
+        );
+        trace.decision_status = Some("Denied: requires human approval".to_owned());
+        // Add context items so check #4 doesn't fire
+        trace.context_source_summaries = vec![ContextSourceSummary::new("graph_memory", 3, true)];
+        trace.total_context_items = 3;
+
+        let insights = analyze_cycle_trace_for_insights(&trace);
+        assert_eq!(insights.len(), 1);
+        assert_eq!(
+            insights[0].failure_class,
+            FailureClass::BlockedWithoutExplanation
+        );
+        assert!(insights[0].summary.contains("blocked"));
+        assert!(insights[0].summary.contains("oc-blocked"));
+    }
+
+    #[test]
+    fn analyze_insights_no_context_at_all_yields_high_severity() {
+        let mut trace = CycleTrace::new(
+            OrchestratorCycleId::new("oc-noctx"),
+            "Something",
+            "Completed",
+            "No context assembled",
+        );
+        // Source exists but returned 0 items — triggers check #4 (high severity no-context)
+        // and check #2 (missing context, low severity)
+        trace.context_source_summaries = vec![ContextSourceSummary::new("graph_memory", 0, true)];
+        let insights = analyze_cycle_trace_for_insights(&trace);
+        // 2 insights: check #2 (low, empty source) + check #4 (high, no context at all)
+        assert_eq!(insights.len(), 2);
+        // At least one has High severity (check #4)
+        assert!(insights.iter().any(|i| i.severity == InsightSeverity::High));
+        assert!(insights
+            .iter()
+            .any(|i| i.failure_class == FailureClass::MissingContext));
+    }
+
+    #[test]
+    fn analyze_insights_failed_cycle_yields_insight() {
+        let mut trace = CycleTrace::new(
+            OrchestratorCycleId::new("oc-failed"),
+            "Do complex task",
+            "Failed",
+            "Cycle failed during context assembly",
+        );
+        trace.context_source_summaries = vec![ContextSourceSummary::new("graph_memory", 3, true)];
+        trace.total_context_items = 3;
+
+        let insights = analyze_cycle_trace_for_insights(&trace);
+        assert_eq!(insights.len(), 1);
+        assert_eq!(
+            insights[0].failure_class,
+            FailureClass::InsufficientObservability
+        );
+        assert_eq!(
+            insights[0].status,
+            crate::failure_insight::InsightStatus::Proposed
+        );
+    }
+
+    #[test]
+    fn analyze_insights_all_insights_are_non_authorizing() {
+        let mut trace = CycleTrace::new(
+            OrchestratorCycleId::new("oc-all"),
+            "Test all signals",
+            "Failed",
+            "Multiple issues detected",
+        );
+        trace.unavailable_sources.push("graph_memory".to_owned());
+        trace.context_source_summaries = vec![
+            ContextSourceSummary::new("reservoir_echo", 0, true),
+            ContextSourceSummary::new("holographic_memory", 2, true),
+        ];
+        trace.total_context_items = 2;
+        trace.decision_status = Some("Blocked".to_owned());
+
+        let insights = analyze_cycle_trace_for_insights(&trace);
+        // Expect: unavailable (1) + empty source (1) + blocked (1) + failed (1) = 4
+        assert_eq!(insights.len(), 4);
+
+        // Every insight must be Proposed (not auto-applied)
+        for insight in &insights {
+            assert_eq!(
+                insight.status,
+                crate::failure_insight::InsightStatus::Proposed,
+                "Insight '{}' must start as Proposed, not auto-applied",
+                insight.id
+            );
+            // Verify no authorization fields exist in JSON serialization
+            let json = serde_json::to_value(insight).expect("serialize insight");
+            assert!(json.get("approved").is_none());
+            assert!(json.get("authorized").is_none());
+            assert!(json.get("executed").is_none());
+        }
     }
 }
 

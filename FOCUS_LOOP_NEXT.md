@@ -4,18 +4,31 @@ This file is the short-lived handoff for the next scheduled focus-loop run.
 
 It must contain one concrete next action only. The runtime milestone queue and long-term rules live in `AGENT_FOCUS_LOOP.md`.
 
-## Current status (DEEP cron 2026-05-29 — P3-14 CycleTrace-to-FailureInsight bridge)
+## Current status (DEEP cron 2026-05-29 — Rebasing P3-15/16/17 stack onto main)
 
-**main is green:** ✅ Full workspace tests pass.
+**main is green:** ✅ Full workspace tests pass (826+ tests).
 
-**PR #201** (`feat/p3-14-cycletrace-failure-insight-bridge`) — **NEW**, CI pending. Contains:
-- P3-14: CycleTrace → FailureInsightCandidate bridge (ContextAssemblyWeak variant + detect_failure_candidates() + CycleTrace field + format display + 7 tests)
-- Wire in OrchestratorCycle.to_cycle_trace()
-- No CLI changes needed — `orchestrator status` already uses `trace.format()` and `trace --json`
+**P3-14** (CycleTrace → FailureInsightCandidate bridge) — ✅ **MERGED on main.**
+
+**PRs awaiting GONA merge:**
+
+| # | Branch | Milestone | CI | Mergeable |
+|---|---|---|---|---|
+| **#200** | `docs/governance-bootstrap-handoff` | GONA-DEEP charter + Steroid Hermes plan | ✅ Pass | ✅ (needs GONA merge) |
+| **#202** | `feat/p3-15-cycletrace-cost-quality-meta` | P3-15: cost/quality metadata in CycleTrace | ✅ Pass | ✅ (needs GONA merge) |
+| **#197** | `feat/p3-15-cycle-trace-to-failure-insight` | P3-15: CycleTrace → FailureInsight analysis (CLI `--insights`) | ✅ Pass | 🔄 **REBASED by this run** |
+| **#198** | `feat/p3-16-compute-efficiency-feedback` | P3-16: Compute efficiency feedback | ✅ Pass | 🔄 **REBASED by this run** |
+| **#199** | `feat/p3-17-efficiency-context-assembly` | P3-17: Efficiency → context assembly | ✅ Pass | 🔄 **REBASED by this run** |
+
+The #197→#198→#199 stack has been rebased onto current `main` (P3-14 merged). Conflicts in `FOCUS_LOOP_NEXT.md` and `orchestrator.rs` resolved — both `detect_failure_candidates()` (P3-14) and `analyze_cycle_trace_for_insights()` (P3-15) coexist.
 
 **DAILY_VALIDATION_BACKLOG.md:** 0 open entries.
 
 ## Next action
 
-1. **GONA: review and merge PR #201** (once CI is green).
-2. **Then** — advance to connecting orchestrated context assembly metadata to Compute Reservoir cost/quality feedback (e.g., attaching cost estimates or route-quality scores to CycleTrace), or to exposing failure insight candidates via a dedicated CLI surface (`orchestrator insights <trace-path>`).
+1. **GONA: merge PR #202** (P3-15 cost/quality metadata, green, clean on main).
+2. **GONA: merge PR #200** (governance bootstrap docs, green, clean on main).
+3. **GONA: merge PR #197** (P3-15 CycleTrace → FailureInsight CLI, rebased, all checks pass).
+4. **GONA: merge PR #198** (P3-16 compute efficiency feedback, stacked on #197).
+5. **GONA: merge PR #199** (P3-17 efficiency → context assembly, stacked on #198).
+6. **After all merges**: Next DEEP run can wire efficiency signal explanations into CycleTrace operator readback (P3-18+), or advance to P4.
