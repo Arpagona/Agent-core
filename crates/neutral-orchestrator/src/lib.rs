@@ -25,9 +25,7 @@ use arpagona_agent_core::action::ProposedAction;
 use arpagona_agent_core::audit::{ActorRef, AuditEvent};
 use arpagona_agent_core::cognitive_work::CycleStatus;
 use arpagona_agent_core::decision::Decision;
-use arpagona_agent_core::ids::{
-    AgentId, AuditEventId, ComputeRouteId, ContextBundleId, WorkspaceId,
-};
+use arpagona_agent_core::ids::{AgentId, AuditEventId, ContextBundleId, WorkspaceId};
 #[cfg(test)]
 use arpagona_agent_core::ids::{ObjectiveId, OrchestratorCycleId};
 #[cfg(test)]
@@ -40,6 +38,7 @@ use arpagona_agent_core::permission::Permission;
 use chrono::{DateTime, Utc};
 
 pub mod compressed_cognitive_attention_adapter;
+pub mod compute_reservoir_adapter;
 pub mod context_assembler;
 pub mod graph_memory_adapter;
 pub mod holographic_memory_adapter;
@@ -49,6 +48,7 @@ pub mod reservoir_echo_adapter;
 pub mod tool_runtime_adapter;
 
 pub use compressed_cognitive_attention_adapter::CompressedCognitiveAttentionAdapter;
+pub use compute_reservoir_adapter::ComputeReservoirResolver;
 pub use context_assembler::{ContextAssembler, SimulatedContextAssembler};
 pub use graph_memory_adapter::GraphMemoryAdapter;
 pub use holographic_memory_adapter::HolographicMemoryAdapter;
@@ -172,12 +172,10 @@ impl OrchestratorCycle {
 /// println!("{}", cycle.causal_trace());
 /// ```
 pub struct OrchestratorEngine {
-    /// Human-readable label for the compute route (overridable).
-    compute_route_label: String,
-    /// Whether local compute is preferred.
-    local_preferred: bool,
-    /// The base compute route justification.
-    compute_route_justification: String,
+    /// Compute Reservoir resolver for real resource-aware route allocation.
+    /// Defaults to a resolver with the standard compute node inventory and
+    /// a local-first ComputePolicy.
+    compute_reservoir_resolver: ComputeReservoirResolver,
     /// Pluggable context assembler for gathering advisory context from memory sources.
     /// Defaults to SimulatedContextAssembler (no-op, deterministic, zero I/O).
     context_assembler: Box<dyn ContextAssembler>,
@@ -195,35 +193,28 @@ impl Default for OrchestratorEngine {
 impl OrchestratorEngine {
     /// Create a new orchestrator engine with default settings.
     ///
-    /// Default compute route: "local_deterministic" with local-first preference.
+    /// Default compute route: real ComputeReservoirResolver with local-first policy.
     /// Default context assembler: SimulatedContextAssembler (no-op, zero I/O).
     /// Default proposal generator: SimulatedProposalGenerator (deterministic ReadDocument at Low risk).
     pub fn new() -> Self {
         Self {
-            compute_route_label: "local_deterministic".to_owned(),
-            local_preferred: true,
-            compute_route_justification: "Local deterministic compute selected by default for V0 deterministic loop skeleton."
-                .to_owned(),
+            compute_reservoir_resolver: ComputeReservoirResolver::new(),
             context_assembler: Box::new(SimulatedContextAssembler::new()),
             proposal_generator: Box::new(SimulatedProposalGenerator::new()),
         }
     }
 
-    /// Configure the compute route label.
-    pub fn with_compute_route_label(mut self, label: impl Into<String>) -> Self {
-        self.compute_route_label = label.into();
-        self
-    }
-
-    /// Configure whether local compute is preferred.
-    pub fn with_local_preferred(mut self, preferred: bool) -> Self {
-        self.local_preferred = preferred;
-        self
-    }
-
-    /// Configure the compute route justification.
-    pub fn with_compute_route_justification(mut self, justification: impl Into<String>) -> Self {
-        self.compute_route_justification = justification.into();
+    /// Configure the compute reservoir resolver for resource-aware route allocation.
+    ///
+    /// Use this to plug in a custom resolver with different compute nodes,
+    /// policies, or heuristic strategies. Defaults to `ComputeReservoirResolver::new()`.
+    ///
+    /// # Safety
+    ///
+    /// The resolver must return advisory compute route results only. No result
+    /// may contain approval, authorization, or execution tokens.
+    pub fn with_compute_reservoir_resolver(mut self, resolver: ComputeReservoirResolver) -> Self {
+        self.compute_reservoir_resolver = resolver;
         self
     }
 
@@ -441,7 +432,11 @@ impl OrchestratorEngine {
         bundle
     }
 
-    /// Create a deterministic ComputeRouteResult.
+    /// Create a ComputeRouteResult using the ComputeReservoirResolver.
+    ///
+    /// This replaces the old hard-coded deterministic label with a real
+    /// allocation from the compute-reservoir crate, producing explainable
+    /// cost/latency/sensitivity/capability trade-offs.
     fn create_compute_route(
         &self,
         input: &ObjectiveInput,
@@ -449,18 +444,8 @@ impl OrchestratorEngine {
         bundle: &ContextBundle,
         now: DateTime<Utc>,
     ) -> ComputeRouteResult {
-        let route_id =
-            ComputeRouteId::new(format!("cr-{}", now.timestamp_nanos_opt().unwrap_or(0)));
-
-        ComputeRouteResult::new(
-            route_id,
-            input.cycle_id.clone(),
-            objective.id.clone(),
-            bundle.id.clone(),
-            &self.compute_route_label,
-            self.local_preferred,
-            &self.compute_route_justification,
-        )
+        self.compute_reservoir_resolver
+            .resolve(input, objective, bundle, now)
     }
 
     /// Create a ProposalRequest linking the objective, context and compute route.
@@ -856,14 +841,42 @@ mod tests {
     // ─── Engine configuration tests ─────────────────────────────────────
 
     #[test]
-    fn test_engine_custom_compute_route() {
-        let engine = OrchestratorEngine::new()
-            .with_compute_route_label("cloud_llm")
-            .with_local_preferred(false)
-            .with_compute_route_justification("Using cloud model for complex reasoning");
+    fn test_engine_with_custom_compute_reservoir_resolver() {
+        // Create a custom resolver with explicit nodes that guarantees
+        // a specific route outcome.
+        let custom_node = arpagona_compute_reservoir::ComputeNode {
+            id: arpagona_compute_reservoir::ComputeNodeId::new("custom-worker"),
+            label: "Custom worker".to_owned(),
+            kind: arpagona_compute_reservoir::ComputeResourceKind::RemoteWorker,
+            status: arpagona_compute_reservoir::ComputeNodeStatus::Available,
+            capabilities: vec![arpagona_compute_reservoir::ComputeCapability::SimpleReasoning],
+            max_data_sensitivity: arpagona_compute_reservoir::DataSensitivity::Public,
+            expected_cost_cents: 10,
+            expected_latency_ms: 300,
+            is_local: false,
+            strength: 5,
+        };
+
+        // Also add a local node to guarantee a selection with local-first budget
+        let local_node = arpagona_compute_reservoir::ComputeNode {
+            id: arpagona_compute_reservoir::ComputeNodeId::new("custom-local"),
+            label: "Custom local".to_owned(),
+            kind: arpagona_compute_reservoir::ComputeResourceKind::LocalLlm,
+            status: arpagona_compute_reservoir::ComputeNodeStatus::Available,
+            capabilities: vec![arpagona_compute_reservoir::ComputeCapability::SimpleReasoning],
+            max_data_sensitivity: arpagona_compute_reservoir::DataSensitivity::Public,
+            expected_cost_cents: 0,
+            expected_latency_ms: 100,
+            is_local: true,
+            strength: 4,
+        };
+
+        let resolver = ComputeReservoirResolver::new().with_nodes(vec![custom_node, local_node]);
+
+        let engine = OrchestratorEngine::new().with_compute_reservoir_resolver(resolver);
 
         let input = ObjectiveInput::new(
-            "Analyze complex pattern",
+            "Simple analysis task",
             WorkspaceId::new("ws-1"),
             AgentId::new("agent-1"),
             Utc::now(),
@@ -873,9 +886,17 @@ mod tests {
             .run_cycle(input, &[Permission::ReadDocument])
             .expect("cycle should succeed");
 
-        assert_eq!(cycle.compute_route_result.selected_route_label, "cloud_llm");
-        assert!(!cycle.compute_route_result.local_preferred);
-        assert!(cycle.compute_route_result.justification.contains("complex"));
+        // The custom resolver should select the custom local node
+        // since the budget is local-first
+        assert!(cycle.compute_route_result.local_preferred);
+        assert!(cycle
+            .compute_route_result
+            .selected_route_label
+            .contains("custom"));
+        assert!(cycle
+            .compute_route_result
+            .justification
+            .contains("Compute Reservoir"));
     }
 
     // ─── Advisory invariant tests ───────────────────────────────────────
