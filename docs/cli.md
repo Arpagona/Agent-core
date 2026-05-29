@@ -393,6 +393,7 @@ Options :
 - `--perm <PERMISSION>` — Permissions accordées au Decision Gate, répétable. Défaut : `ReadDocument`.
 - `--workspace-id <ID>` — Workspace du cycle. Défaut : `workspace-alpha`.
 - `--agent-id <ID>` — Agent émetteur du cycle. Défaut : `agent-alpha`.
+- `--proposal-generator <BACKEND>` — Backend de génération de proposition : `simulated` (déterministe, par défaut) ou `llm` (via fournisseur LLM en mode proposition uniquement). Défaut : `simulated`.
 
 La commande exécute le squelette local du Neutral Orchestrator : objectif → assemblage de contexte consultatif → routage compute → proposition → Decision Gate → issue orchestrée. Le résultat reste explicitement non autorisant : il ne planifie pas de scheduler, n'exécute pas d'outil externe, ne crée pas d'approbation durable et ne remplace pas le Decision Gate.
 

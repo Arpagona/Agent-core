@@ -175,7 +175,55 @@ printf '\n'
   --json 2>/dev/null \
   | validate_and_format
 
-printf '\n'
+printf '\\n'
+
+# ── Step 4: Orchestrator run — simulated proposal generator ─────────
+
+section "4. Neutral Orchestrator — deterministic (simulated)"
+
+printf '\\n'
+printf '  Simulated proposal generator (default): deterministic ReadDocument at Low risk.\\n\\n'
+"${CLI[@]}" orchestrator run \
+  --objective "Analyser les tendances du marché de l'IA en France pour 2026" \
+  --proposal-generator simulated \
+  --workspace-id workspace-alpha \
+  --agent-id agent-alpha \
+  --perm ReadDocument \
+  --json 2>/dev/null | python3 -c "
+import json, sys
+data = json.load(sys.stdin)
+print(f'  Cycle status:  {data.get(\"cycle_status\", \"?\")}')
+print(f'  Gate applied:  {data.get(\"gate_was_applied\", \"?\")}')
+print(f'  Non-auth:      {data.get(\"non_authorizing\", \"?\")}')
+print(f'  Decision ID:   {data.get(\"decision_id\", \"?\")}')
+print(f'  Audit events:  {len(data.get(\"audit_event_ids\", []))}')
+print(f'  Summary:       {data.get(\"summary\", \"\")}')
+"
+printf '\\n'
+
+# ── Step 5: Orchestrator run — LLM proposal generator ──────────────
+
+section "5. Neutral Orchestrator — LLM-backed (mock provider)"
+
+printf '\\n'
+printf '  LLM proposal generator: wraps MockProvider for real proposal-only cycle integration.\\n\\n'
+"${CLI[@]}" orchestrator run \
+  --objective "Analyser les tendances du marché de l'IA en France pour 2026" \
+  --proposal-generator llm \
+  --workspace-id workspace-alpha \
+  --agent-id agent-alpha \
+  --perm ReadDocument \
+  --json 2>/dev/null | python3 -c "
+import json, sys
+data = json.load(sys.stdin)
+print(f'  Cycle status:  {data.get(\"cycle_status\", \"?\")}')
+print(f'  Gate applied:  {data.get(\"gate_was_applied\", \"?\")}')
+print(f'  Non-auth:      {data.get(\"non_authorizing\", \"?\")}')
+print(f'  Decision ID:   {data.get(\"decision_id\", \"?\")}')
+print(f'  Audit events:  {len(data.get(\"audit_event_ids\", []))}')
+print(f'  Summary:       {data.get(\"summary\", \"\")}')
+"
+printf '\\n'
 
 # ── Summary ─────────────────────────────────────────────────────────
 
@@ -183,24 +231,30 @@ header "Résumé — Demo terminée"
 
 cat <<'SUMMARY'
 
-  ✔ Trois cycles cognitifs complets ont été exécutés :
-    - Chaque cycle a produit :
+  ✔ Cinq cycles cognitifs complets ont été exécutés :
+    - Cycles 1-3 : Cognitive Work Loop avec gouvernance (business, coding, research)
+    - Cycle 4   : Neutral Orchestrator avec générateur de proposition simulé
+    - Cycle 5   : Neutral Orchestrator avec générateur de proposition LLM (mock)
+    - Tous les cycles ont produit :
       • Objective + WorkingMemory + Plan
       • Assessment (FailureInsightCandidates)
       • Observation bridge (tool runtime)
       • Governance (DecisionGate → Decision → Audit)
     - Toutes les sorties sont evidence-only, non-authorizing.
-    - Aucun appel LLM, aucune persistence, aucun effet externe.
+    - Aucun appel LLM réel, aucune persistence, aucun effet externe.
 
   La chaîne de gouvernance hors-ligne fonctionne sans serveur API :
     ProposedAction → DecisionGate → Decision → AuditEvent
     → gouvernance_results JSON avec décisions et événements d'audit.
 
+  Le Neutral Orchestrator supporte deux backends de proposition :
+    - `simulated` (défaut) : proposition déterministe ReadDocument/Low
+    - `llm` : proposition via fournisseur LLM en mode proposition uniquement
+
   Prochaine étape recommandée :
-    Ajouter des tests d'intégration prouvant que la sortie JSON
-    de la boucle gouvernée contient bien decision_count > 0,
-    audit_event_count > 0, et governance_warning non vide.
+    Étendre le cycle orchestré pour inclure le Compute Reservoir,
+    le Tool Runtime et le Failure-to-Insight pipeline complet.
 
 SUMMARY
 
-printf '\n'
+printf '\\n'
