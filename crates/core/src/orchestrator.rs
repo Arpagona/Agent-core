@@ -642,6 +642,9 @@ pub struct CycleTrace {
     pub compute_route_label: Option<String>,
     /// The compute route justification (advisory).
     pub compute_route_justification: Option<String>,
+    /// Whether local compute was preferred for this cycle (advisory).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub compute_local_preferred: Option<bool>,
     /// The action type proposed (if any).
     pub action_type: Option<String>,
     /// The Decision Gate status (if evaluated).
@@ -680,6 +683,7 @@ impl CycleTrace {
             unavailable_sources: vec![],
             compute_route_label: None,
             compute_route_justification: None,
+            compute_local_preferred: None,
             action_type: None,
             decision_status: None,
             audit_event_count: 0,
@@ -1125,6 +1129,173 @@ pub fn analyze_cycle_trace_for_insights(trace: &CycleTrace) -> Vec<FailureInsigh
                 format!("Cycle {} failed: {}", trace.cycle_id, trace.cycle_status),
             ),
             0.8,
+            now,
+        ));
+    }
+
+    // 6. Compute efficiency analysis
+    insights.extend(analyze_compute_efficiency(trace));
+
+    insights
+}
+
+/// Analyze a CycleTrace for compute efficiency and routing quality signals.
+///
+/// This pure function inspects the compute route metadata in a CycleTrace
+/// and produces FailureInsight candidates when suboptimal routing decisions
+/// are detected:
+///
+/// - Missing compute route → `InsufficientObservability` (routing gap)
+/// - Route label contains fallback cues → `WrongComputeChoice` (fallback)
+/// - Route justification mentions "No suitable" → `WrongComputeChoice` (no resource)
+/// - Route exists but justification is missing → `WrongComputeChoice` (opaque)
+/// - Cycle failed despite having a compute route → `WrongComputeChoice` (ineffective)
+///
+/// # Safety
+///
+/// All insights are `status: Proposed` — advisory and non-authorizing.
+/// No insight may be interpreted as approval, authorization, or execution
+/// permission. The function is pure and deterministic.
+pub fn analyze_compute_efficiency(trace: &CycleTrace) -> Vec<FailureInsight> {
+    let mut insights: Vec<FailureInsight> = Vec::new();
+    let now = Utc::now();
+
+    // 1. Missing compute route → InsufficientObservability
+    let route_exists = trace.compute_route_label.is_some();
+    if !route_exists && trace.cycle_status.contains("Completed") {
+        insights.push(FailureInsight::new(
+            FailureInsightId::new(format!("fi-{}-missing-route", trace.cycle_id)),
+            FailureClass::InsufficientObservability,
+            InsightSeverity::Low,
+            CorrectionTarget::Code,
+            format!("Compute route not recorded for cycle {}", trace.cycle_id),
+            format!("The cycle completed but no compute route label was set on the trace."),
+            format!("Without route metadata, cost/quality analysis is impossible."),
+            format!(
+                "Wire Compute Reservoir route selection into the CycleTrace before creating it."
+            ),
+            "Compute Reservoir / Orchestrator",
+            DetectionSignal::new(
+                DetectionSignalType::RuntimeObservation,
+                format!("Cycle {}: compute_route_label is None", trace.cycle_id),
+            ),
+            0.6,
+            now,
+        ));
+    }
+
+    // 2. Route label contains fallback cues → WrongComputeChoice
+    if let Some(ref label) = trace.compute_route_label {
+        let lower = label.to_lowercase();
+        if lower.contains("fallback") || lower.contains("no_suitable") {
+            insights.push(FailureInsight::new(
+                FailureInsightId::new(format!("fi-{}-fallback-route", trace.cycle_id)),
+                FailureClass::WrongComputeChoice,
+                InsightSeverity::Low,
+                CorrectionTarget::Code,
+                format!(
+                    "Suboptimal compute route '{}' for cycle {}",
+                    label, trace.cycle_id
+                ),
+                format!(
+                    "Route '{}' indicates a fallback or degraded path was taken.",
+                    label
+                ),
+                format!("Suboptimal routing may reduce proposal quality or increase latency."),
+                format!("Review Compute Reservoir resource availability and routing heuristics."),
+                "Compute Reservoir / Orchestrator",
+                DetectionSignal::new(
+                    DetectionSignalType::RuntimeObservation,
+                    format!("Cycle {}: fallback route '{}'", trace.cycle_id, label),
+                ),
+                0.5,
+                now,
+            ));
+        }
+    }
+
+    // 3. Route justification mentions "No suitable" → WrongComputeChoice
+    if let Some(ref justification) = trace.compute_route_justification {
+        if justification.to_lowercase().contains("no suitable") {
+            insights.push(FailureInsight::new(
+                FailureInsightId::new(format!("fi-{}-no-suitable-resource", trace.cycle_id)),
+                FailureClass::WrongComputeChoice,
+                InsightSeverity::Medium,
+                CorrectionTarget::Code,
+                format!(
+                    "No suitable compute resource for cycle {}",
+                    trace.cycle_id
+                ),
+                format!("Justification: '{}'", justification),
+                format!("No suitable resource may indicate capacity or configuration issues."),
+                format!("Check available models, local/cloud provider status, and Compute Reservoir configuration."),
+                "Compute Reservoir / Infrastructure",
+                DetectionSignal::new(
+                    DetectionSignalType::RuntimeObservation,
+                    format!("Cycle {}: 'no suitable' in justification", trace.cycle_id),
+                ),
+                0.7,
+                now,
+            ));
+        }
+    }
+
+    // 4. Route exists but justification is missing → WrongComputeChoice (opaque)
+    if route_exists && trace.compute_route_justification.is_none() {
+        insights.push(FailureInsight::new(
+            FailureInsightId::new(format!("fi-{}-no-justification", trace.cycle_id)),
+            FailureClass::WrongComputeChoice,
+            InsightSeverity::Low,
+            CorrectionTarget::Code,
+            format!(
+                "Compute route '{}' has no justification for cycle {}",
+                trace.compute_route_label.as_deref().unwrap_or("?"),
+                trace.cycle_id
+            ),
+            format!("A compute route label was recorded but no justification was provided."),
+            format!("Without justification, operators cannot assess the routing decision."),
+            format!("Ensure Compute Reservoir provides a justification when selecting a route."),
+            "Compute Reservoir / Orchestrator",
+            DetectionSignal::new(
+                DetectionSignalType::RuntimeObservation,
+                format!(
+                    "Cycle {}: route label present, justification missing",
+                    trace.cycle_id
+                ),
+            ),
+            0.4,
+            now,
+        ));
+    }
+
+    // 5. Cycle failed despite having a compute route → WrongComputeChoice (ineffective)
+    if route_exists
+        && (trace.cycle_status.contains("Failed") || trace.cycle_status.contains("Error"))
+    {
+        insights.push(FailureInsight::new(
+            FailureInsightId::new(format!("fi-{}-failed-with-route", trace.cycle_id)),
+            FailureClass::WrongComputeChoice,
+            InsightSeverity::Medium,
+            CorrectionTarget::Code,
+            format!(
+                "Compute route '{}' did not prevent failure for cycle {}",
+                trace.compute_route_label.as_deref().unwrap_or("?"),
+                trace.cycle_id
+            ),
+            format!("Cycle failed despite being assigned a compute route with justification."),
+            format!("The chosen compute resource may be unsuitable for this task type."),
+            format!("Review compute route selection criteria and cycle failure logs."),
+            "Compute Reservoir / Orchestrator",
+            DetectionSignal::new(
+                DetectionSignalType::RuntimeObservation,
+                format!(
+                    "Cycle {}: route '{}' + status '{}'",
+                    trace.cycle_id,
+                    trace.compute_route_label.as_deref().unwrap_or("?"),
+                    trace.cycle_status
+                ),
+            ),
+            0.65,
             now,
         ));
     }
@@ -1691,12 +1862,15 @@ mod tests {
 
     #[test]
     fn analyze_insights_empty_trace_yields_no_insights() {
-        let trace = CycleTrace::new(
+        let mut trace = CycleTrace::new(
             OrchestratorCycleId::new("oc-empty"),
             "Test objective",
             "Completed",
             "Cycle completed successfully",
         );
+        trace.compute_route_label = Some("local_deterministic".to_owned());
+        trace.compute_route_justification = Some("Default route".to_owned());
+        trace.compute_local_preferred = Some(true);
         let insights = analyze_cycle_trace_for_insights(&trace);
         assert!(
             insights.is_empty(),
@@ -1811,6 +1985,8 @@ mod tests {
             "One source was unavailable",
         );
         trace.unavailable_sources.push("graph_memory".to_owned());
+        trace.compute_route_label = Some("local_deterministic".to_owned());
+        trace.compute_route_justification = Some("Default route".to_owned());
 
         let insights = analyze_cycle_trace_for_insights(&trace);
         assert_eq!(insights.len(), 1);
@@ -1836,6 +2012,8 @@ mod tests {
         );
         trace.context_source_summaries =
             vec![ContextSourceSummary::new("holographic_memory", 0, true)];
+        trace.compute_route_label = Some("local_ollama_qwen3.5".to_owned());
+        trace.compute_route_justification = Some("Default route".to_owned());
 
         let insights = analyze_cycle_trace_for_insights(&trace);
         // 2 insights: check #2 (empty source: MissingContext Low) + check #4 (no context at all: MissingContext High)
@@ -1860,6 +2038,8 @@ mod tests {
         // Add context items so check #4 doesn't fire
         trace.context_source_summaries = vec![ContextSourceSummary::new("graph_memory", 3, true)];
         trace.total_context_items = 3;
+        trace.compute_route_label = Some("local_deterministic".to_owned());
+        trace.compute_route_justification = Some("Default route".to_owned());
 
         let insights = analyze_cycle_trace_for_insights(&trace);
         assert_eq!(insights.len(), 1);
@@ -1882,6 +2062,8 @@ mod tests {
         // Source exists but returned 0 items — triggers check #4 (high severity no-context)
         // and check #2 (missing context, low severity)
         trace.context_source_summaries = vec![ContextSourceSummary::new("graph_memory", 0, true)];
+        trace.compute_route_label = Some("local_deterministic".to_owned());
+        trace.compute_route_justification = Some("Default route".to_owned());
         let insights = analyze_cycle_trace_for_insights(&trace);
         // 2 insights: check #2 (low, empty source) + check #4 (high, no context at all)
         assert_eq!(insights.len(), 2);
@@ -1949,6 +2131,140 @@ mod tests {
             assert!(json.get("authorized").is_none());
             assert!(json.get("executed").is_none());
         }
+    }
+
+    // ─── analyze_compute_efficiency tests (P3-16) ──────────────────────
+
+    #[test]
+    fn compute_efficiency_missing_route_on_completed_cycle() {
+        let mut trace = CycleTrace::new(
+            OrchestratorCycleId::new("oc-no-route-eff"),
+            "Test",
+            "Completed",
+            "No route recorded",
+        );
+        let insights = analyze_compute_efficiency(&trace);
+        assert_eq!(insights.len(), 1);
+        assert_eq!(
+            insights[0].failure_class,
+            FailureClass::InsufficientObservability
+        );
+        assert_eq!(
+            insights[0].status,
+            crate::failure_insight::InsightStatus::Proposed
+        );
+        assert!(insights[0].summary.contains("not recorded"));
+    }
+
+    #[test]
+    fn compute_efficiency_fallback_route_detected() {
+        let mut trace = CycleTrace::new(
+            OrchestratorCycleId::new("oc-fallback"),
+            "Test",
+            "Completed",
+            "Fallback used",
+        );
+        trace.compute_route_label = Some("fallback_local_qwen3.5".to_owned());
+        trace.compute_route_justification = Some("Default fallback".to_owned());
+        let insights = analyze_compute_efficiency(&trace);
+        assert_eq!(insights.len(), 1);
+        assert_eq!(insights[0].failure_class, FailureClass::WrongComputeChoice);
+        assert!(insights[0].summary.contains("Suboptimal"));
+    }
+
+    #[test]
+    fn compute_efficiency_unjustified_route_detected() {
+        let mut trace = CycleTrace::new(
+            OrchestratorCycleId::new("oc-unjustified"),
+            "Test",
+            "Completed",
+            "No justification",
+        );
+        trace.compute_route_label = Some("local_deterministic".to_owned());
+        let insights = analyze_compute_efficiency(&trace);
+        assert_eq!(insights.len(), 1);
+        assert_eq!(insights[0].failure_class, FailureClass::WrongComputeChoice);
+        assert!(insights[0].summary.contains("no justification"));
+    }
+
+    #[test]
+    fn compute_efficiency_no_suitable_resource_detected() {
+        let mut trace = CycleTrace::new(
+            OrchestratorCycleId::new("oc-no-res"),
+            "Test",
+            "Completed",
+            "No resource",
+        );
+        trace.compute_route_label = Some("no_suitable_resource".to_owned());
+        trace.compute_route_justification = Some("No suitable compute available".to_owned());
+        let insights = analyze_compute_efficiency(&trace);
+        assert_eq!(insights.len(), 2);
+        assert!(insights
+            .iter()
+            .any(|i| i.failure_class == FailureClass::WrongComputeChoice));
+        assert!(insights.iter().any(|i| i.summary.contains("Suboptimal")));
+        assert!(insights
+            .iter()
+            .any(|i| i.summary.contains("No suitable compute")));
+    }
+
+    #[test]
+    fn compute_efficiency_failed_cycle_with_route() {
+        let mut trace = CycleTrace::new(
+            OrchestratorCycleId::new("oc-fail-route"),
+            "Test",
+            "Failed",
+            "Cycle failed despite route",
+        );
+        trace.compute_route_label = Some("cloud_gpt4".to_owned());
+        trace.compute_route_justification = Some("Chose strong model".to_owned());
+        let insights = analyze_compute_efficiency(&trace);
+        assert_eq!(insights.len(), 1);
+        assert_eq!(insights[0].failure_class, FailureClass::WrongComputeChoice);
+        assert!(insights[0].summary.contains("did not prevent"));
+    }
+
+    #[test]
+    fn compute_efficiency_all_insights_are_non_authorizing() {
+        let mut trace = CycleTrace::new(
+            OrchestratorCycleId::new("oc-all-eff"),
+            "Test",
+            "Failed",
+            "Multiple compute issues",
+        );
+        trace.compute_route_label = Some("fallback_ollama".to_owned());
+        trace.compute_route_justification = Some("No suitable model, falling back".to_owned());
+        let insights = analyze_compute_efficiency(&trace);
+        assert!(!insights.is_empty(), "Should have insights");
+        for insight in &insights {
+            assert_eq!(
+                insight.status,
+                crate::failure_insight::InsightStatus::Proposed,
+                "Insight '{}' must start as Proposed",
+                insight.id
+            );
+            let json = serde_json::to_value(insight).expect("serialize");
+            assert!(json.get("approved").is_none());
+            assert!(json.get("authorized").is_none());
+            assert!(json.get("executed").is_none());
+        }
+    }
+
+    #[test]
+    fn compute_efficiency_no_signals_for_well_configured_completed_cycle() {
+        let mut trace = CycleTrace::new(
+            OrchestratorCycleId::new("oc-well-configured"),
+            "Test",
+            "Completed",
+            "Well configured cycle",
+        );
+        trace.compute_route_label = Some("local_ollama_qwen3.5".to_owned());
+        trace.compute_route_justification = Some("Local model for sensitive data".to_owned());
+        let insights = analyze_compute_efficiency(&trace);
+        assert!(
+            insights.is_empty(),
+            "Well-configured cycle should have no compute efficiency insights"
+        );
     }
 }
 
