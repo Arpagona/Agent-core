@@ -4,19 +4,18 @@ This file is the short-lived handoff for the next scheduled focus-loop run.
 
 It must contain one concrete next action only. The runtime milestone queue and long-term rules live in `AGENT_FOCUS_LOOP.md`.
 
-## Current status (DEEP cron 2026-05-29 — P3-next: orchestrator status with compute-aware breakdown)
+## Current status (DEEP cron 2026-05-29 — P3-14 CycleTrace-to-FailureInsight bridge)
 
 **main is green:** ✅ Full workspace tests pass.
 
-**PR #194** (`feat/p3-13-compute-aware-adapters`) — **OPEN**, **MERGEABLE**, CI ✅ SUCCESS. Contains:
-- P3-13: Compute-aware context assembly for all 5 real adapters (original)
-- P3-next: `orchestrator status --json` command with compute-aware context assembly breakdown
-- `orchestrator run --save-trace <path>` flag for persisting CycleTrace to JSON
-- 7 new parser tests, docs/cli.md updated with both commands and end-to-end example
+**PR #201** (`feat/p3-14-cycletrace-failure-insight-bridge`) — **NEW**, CI pending. Contains:
+- P3-14: CycleTrace → FailureInsightCandidate bridge (ContextAssemblyWeak variant + detect_failure_candidates() + CycleTrace field + format display + 7 tests)
+- Wire in OrchestratorCycle.to_cycle_trace()
+- No CLI changes needed — `orchestrator status` already uses `trace.format()` and `trace --json`
 
 **DAILY_VALIDATION_BACKLOG.md:** 0 open entries.
 
 ## Next action
 
-1. **GONA: merge PR #194** (CI ✅, mergeable, all local checks ✅ — 913 tests pass).
-2. **Then — P3-14: Cycle Trace V0 operator inspects breakdown via `orchestrator status`** — now delivered on the same branch. After merge, advance to connecting orchestrated context assembly metadata to Failure-to-Insight candidates or Compute Reservoir cost/quality feedback.
+1. **GONA: review and merge PR #201** (once CI is green).
+2. **Then** — advance to connecting orchestrated context assembly metadata to Compute Reservoir cost/quality feedback (e.g., attaching cost estimates or route-quality scores to CycleTrace), or to exposing failure insight candidates via a dedicated CLI surface (`orchestrator insights <trace-path>`).

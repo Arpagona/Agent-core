@@ -36,6 +36,7 @@ use crate::ids::{
     AgentId, AuditEventId, ComputeRouteId, ContextBundleId, DecisionId, ObjectiveId,
     OrchestratorCycleId, ProposalRequestId, ProposedActionId, WorkspaceId,
 };
+use crate::observation::{FailureInsightCandidate, FailureInsightCandidateKind};
 
 // ─── ObjectiveInput ────────────────────────────────────────────────────────
 
@@ -649,6 +650,9 @@ pub struct CycleTrace {
     pub summary: String,
     /// Invariant: traces are always non-authorizing.
     pub non_authorizing: bool,
+    /// Failure insight candidates detected during this cycle (advisory, non-authorizing).
+    #[serde(default)]
+    pub failure_insight_candidates: Vec<FailureInsightCandidate>,
     /// Timestamp of the trace.
     pub created_at: DateTime<Utc>,
 }
@@ -677,8 +681,95 @@ impl CycleTrace {
             cycle_status: cycle_status.into(),
             summary: summary.into(),
             non_authorizing: true,
+            failure_insight_candidates: vec![],
             created_at: Utc::now(),
         }
+    }
+
+    /// Attach failure insight candidates to this trace.
+    ///
+    /// These candidates are advisory and non-authorizing. They represent
+    /// detected signals (weak context, blocked decisions, routing issues)
+    /// that may warrant operator attention but do not imply corrective action.
+    pub fn with_failure_insight_candidates(
+        mut self,
+        candidates: Vec<FailureInsightCandidate>,
+    ) -> Self {
+        self.failure_insight_candidates = candidates;
+        self
+    }
+
+    /// Scan this trace for failure insight candidates based on the context
+    /// assembly, compute route and decision state.
+    ///
+    /// Returns new candidates that were not previously attached. This method
+    /// is read-only and non-authorizing — it merely inspects the existing
+    /// metadata and flags patterns that may warrant operator attention.
+    ///
+    /// Detected signals:
+    /// - Zero total context items → ContextAssemblyWeak
+    /// - Unavailable context sources → ContextAssemblyWeak (per source)
+    /// - Blocked or NeedsReview decision_status → ContextAssemblyWeak
+    pub fn detect_failure_candidates(&self) -> Vec<FailureInsightCandidate> {
+        let mut candidates: Vec<FailureInsightCandidate> = vec![];
+
+        // 1. Zero total context items
+        if self.total_context_items == 0 && !self.unavailable_sources.is_empty() {
+            let src_list = self.unavailable_sources.join(", ");
+            candidates.push(FailureInsightCandidate {
+                kind: FailureInsightCandidateKind::ContextAssemblyWeak,
+                summary: format!(
+                    "All {} context source(s) unavailable",
+                    self.unavailable_sources.len()
+                ),
+                reason: format!(
+                    "All context sources unavailable: {}. Cannot assemble context.",
+                    src_list
+                ),
+                tool_name: String::new(),
+                is_positive_signal: false,
+            });
+        } else if self.total_context_items == 0 {
+            candidates.push(FailureInsightCandidate {
+                kind: FailureInsightCandidateKind::ContextAssemblyWeak,
+                summary: "Context assembly returned zero items".to_owned(),
+                reason: "Context assembly returned zero items across all sources.".to_owned(),
+                tool_name: String::new(),
+                is_positive_signal: false,
+            });
+        }
+
+        // 2. Each unavailable source (skipped if zero-total was already reported)
+        if self.total_context_items > 0 {
+            for src in &self.unavailable_sources {
+                candidates.push(FailureInsightCandidate {
+                    kind: FailureInsightCandidateKind::ContextAssemblyWeak,
+                    summary: format!("Source '{}' unavailable", src),
+                    reason: format!("Source '{}' was unavailable during context assembly.", src),
+                    tool_name: String::new(),
+                    is_positive_signal: false,
+                });
+            }
+        }
+
+        // 3. Blocked or NeedsReview decision
+        if let Some(ref ds) = self.decision_status {
+            let ds_lower = ds.to_lowercase();
+            if ds_lower.contains("blocked") || ds_lower.contains("needs_review") {
+                candidates.push(FailureInsightCandidate {
+                    kind: FailureInsightCandidateKind::ContextAssemblyWeak,
+                    summary: format!("Decision Gate: {}", ds),
+                    reason: format!(
+                        "Decision Gate status '{}' indicates a blocked or stuck cycle.",
+                        ds
+                    ),
+                    tool_name: String::new(),
+                    is_positive_signal: false,
+                });
+            }
+        }
+
+        candidates
     }
 
     /// Return a human-readable formatted trace string.
@@ -732,6 +823,15 @@ impl CycleTrace {
         lines.push(format!("Non-auth:    {}", self.non_authorizing));
         lines.push(format!("Status:      {}", self.cycle_status));
         lines.push(format!("Summary:     {}", self.summary));
+
+        if !self.failure_insight_candidates.is_empty() {
+            lines.push("Failure candidates:".to_string());
+            for fc in &self.failure_insight_candidates {
+                let kind_str = serde_json::to_string(&fc.kind).unwrap_or_default();
+                lines.push(format!("  - kind={} summary={}", kind_str, fc.summary));
+            }
+        }
+
         lines.join("\n")
     }
 
@@ -1314,6 +1414,176 @@ mod tests {
         assert_eq!(re.item_count, 0);
         assert!(re.sample_key.is_none());
         assert!(re.sample_value_preview.is_none());
+    }
+
+    // ─── detect_failure_candidates tests ───────────────────────────────────
+
+    #[test]
+    fn detect_no_candidates_when_context_is_healthy() {
+        let mut trace = CycleTrace::new(
+            OrchestratorCycleId::new("c1"),
+            "Healthy objective",
+            "Completed",
+            "All good",
+        );
+        trace.total_context_items = 5;
+
+        let candidates = trace.detect_failure_candidates();
+        assert!(
+            candidates.is_empty(),
+            "healthy trace should not produce any candidates, got: {:?}",
+            candidates
+        );
+    }
+
+    #[test]
+    fn detect_candidates_when_all_sources_unavailable() {
+        let mut trace = CycleTrace::new(
+            OrchestratorCycleId::new("c2"),
+            "Test objective",
+            "NeedsReview",
+            "No context available",
+        );
+        trace.total_context_items = 0;
+        trace.unavailable_sources =
+            vec!["graph_memory".to_owned(), "holographic_memory".to_owned()];
+
+        let candidates = trace.detect_failure_candidates();
+        assert_eq!(
+            candidates.len(),
+            1,
+            "should produce 1 candidate for all-unavailable"
+        );
+        assert_eq!(
+            candidates[0].kind,
+            FailureInsightCandidateKind::ContextAssemblyWeak
+        );
+        assert!(
+            candidates[0].summary.contains("unavailable"),
+            "summary should mention unavailable sources: {}",
+            candidates[0].summary
+        );
+    }
+
+    #[test]
+    fn detect_candidates_when_zero_context_items() {
+        let mut trace = CycleTrace::new(
+            OrchestratorCycleId::new("c3"),
+            "Zero items",
+            "Completed",
+            "No items retrieved",
+        );
+        trace.total_context_items = 0;
+
+        let candidates = trace.detect_failure_candidates();
+        assert_eq!(
+            candidates.len(),
+            1,
+            "should produce 1 candidate for zero items"
+        );
+        assert_eq!(
+            candidates[0].kind,
+            FailureInsightCandidateKind::ContextAssemblyWeak
+        );
+        assert!(
+            candidates[0].summary.contains("zero"),
+            "summary should mention zero items"
+        );
+    }
+
+    #[test]
+    fn detect_candidates_when_decision_blocked() {
+        let mut trace = CycleTrace::new(
+            OrchestratorCycleId::new("c4"),
+            "Blocked objective",
+            "NeedsReview",
+            "Blocked by Decision Gate",
+        );
+        trace.total_context_items = 3;
+        trace.decision_status = Some("Blocked".to_owned());
+
+        let candidates = trace.detect_failure_candidates();
+        assert!(
+            !candidates.is_empty(),
+            "blocked decision should produce candidates"
+        );
+        assert!(
+            candidates.iter().any(|c| c.summary.contains("Blocked")),
+            "at least one candidate should mention Blocked: {:?}",
+            candidates
+        );
+    }
+
+    #[test]
+    fn detect_candidates_serialization_round_trip_with_candidates() {
+        let mut trace = CycleTrace::new(
+            OrchestratorCycleId::new("c5"),
+            "Serialization test",
+            "Completed",
+            "Testing round-trip with candidates",
+        );
+        trace.total_context_items = 0;
+        let candidates = trace.detect_failure_candidates();
+        trace.failure_insight_candidates = candidates;
+
+        let json = serde_json::to_value(&trace).expect("should serialize");
+        let decoded: CycleTrace = serde_json::from_value(json).expect("should deserialize");
+
+        assert!(
+            !decoded.failure_insight_candidates.is_empty(),
+            "candidates should survive round-trip serialization"
+        );
+        assert_eq!(
+            decoded.failure_insight_candidates[0].kind,
+            FailureInsightCandidateKind::ContextAssemblyWeak
+        );
+    }
+
+    #[test]
+    fn detect_no_candidates_for_empty_trace_with_items() {
+        // A trace with context items, no unavailable sources,
+        // and a healthy decision should produce zero candidates.
+        let mut trace = CycleTrace::new(
+            OrchestratorCycleId::new("c6"),
+            "Healthy",
+            "Completed",
+            "Normal cycle",
+        );
+        trace.total_context_items = 10;
+        trace.decision_status = Some("Approved".to_owned());
+
+        let candidates = trace.detect_failure_candidates();
+        assert!(
+            candidates.is_empty(),
+            "healthy trace should be clean, got {:?}",
+            candidates
+        );
+    }
+
+    #[test]
+    fn detect_candidates_with_partially_unavailable_sources() {
+        // When some sources have items but others are unavailable,
+        // we should get per-source candidates for the unavailable ones.
+        let mut trace = CycleTrace::new(
+            OrchestratorCycleId::new("c7"),
+            "Partial availability test",
+            "Completed",
+            "Some sources unavailable",
+        );
+        trace.total_context_items = 3;
+        trace.unavailable_sources = vec!["holographic_memory".to_owned()];
+
+        let candidates = trace.detect_failure_candidates();
+        assert_eq!(
+            candidates.len(),
+            1,
+            "should produce 1 candidate for partial unavailability"
+        );
+        assert!(
+            candidates[0].summary.contains("holographic_memory"),
+            "should mention the unavailable source: {}",
+            candidates[0].summary
+        );
     }
 }
 
