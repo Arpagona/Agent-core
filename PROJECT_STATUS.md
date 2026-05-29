@@ -3948,3 +3948,57 @@ This session created the P3-14 milestone: connecting orchestrated context assemb
 
 1. Review and merge PR #201.
 2. Next: connect CycleTrace metadata to Compute Reservoir cost/quality feedback, or add dedicated CLI surface (`orchestrator insights <trace-path>`).
+
+## 30. Latest Session Update (2026-05-29 DEEP cron — Governance bootstrap + P3-14 merge + tool audit)
+
+This session merged PR #201 (P3-14), fixed PR #200 (governance bootstrap docs), and assessed the 3 stacked P3 PRs (#197-#199) for GONA merge.
+
+### What was done
+
+1. **PR #201 merged (P3-14)** — CycleTrace → FailureInsightCandidate bridge. CI green, mergeable, merged to `main`.
+2. **Governance bootstrap docs added** — `docs/gona-deep-governance.md` (GONA/DEEP charter, roles, boundaries, merge protocol, emergency stops) and `docs/steroid-hermes-action-plan.md` (vertical cognitive loop plan, milestone grid, safety boundaries, invariants).
+3. **PR #200 repaired** — original branch had code revert conflicts from pre-P3-14 state. Recreated clean branch from `main` with only doc additions and updated handoff files. Force-pushed.
+4. **3 stacked P3 PRs assessed** — #197 (P3-15), #198 (P3-16), #199 (P3-17) all mergeable and CI green.
+5. **Tool Runtime security read-block audit** — tested `tool demo read-file` against workspace files and confirmed correct behavior.
+
+### Verification
+
+| Check | Result |
+|---|---|
+| `cargo fmt -- --check` | ✅ Clean |
+| `cargo check` | ✅ Clean (api-server warnings only) |
+| `cargo test --workspace` | ✅ All pass (0 regressions) |
+
+### Files changed (this session)
+
+| File | Change |
+|------|--------|
+| `docs/gona-deep-governance.md` | **NEW** — GONA-DEEP governance charter |
+| `docs/steroid-hermes-action-plan.md` | **NEW** — Steroid Hermes vertical cognitive loop action plan |
+| `FOCUS_LOOP_NEXT.md` | Updated — P3-14 merged, stacked PRs #197-#199 queued for GONA |
+| `PROJECT_STATUS.md` | Added section 30 documenting this session |
+
+### Safety boundaries preserved
+
+- No code changes to any crate — documentation and handoff files only
+- No Decision Gate bypass, scheduler, autonomy, browser, email, secrets, or unrestricted shell
+- No readback-as-authorization behavior
+- No new CLI flags, runtime behavior, model calls, permissions, or governance logic
+- No new capabilities, execution paths, or memory writes
+
+### Deliberately not changed
+
+- No code in any crate: core, decision-gate, compute-reservoir, holographic-memory, mcp-server, tool-runtime, tool-registry, cli, llm, runtime, neutral-orchestrator, compressed-cognitive-attention
+- No security boundaries, permissions, risk levels, or crate responsibilities
+- No new test additions
+- No PR was created for new feature work (all effort went to merge + bootstrap)
+
+### P3 stacked PRs for GONA merge
+
+| # | Branch | Milestone | CI | Mergeable |
+|---|--------|-----------|----|-----------|
+| 197 | `feat/p3-15-cycle-trace-to-failure-insight` | P3-15: CycleTrace → FailureInsight candidates (CLI) | ✅ Pass | ✅ Mergeable |
+| 198 | `feat/p3-16-compute-efficiency-feedback` | P3-16: Compute efficiency feedback | ✅ Pass | ✅ Mergeable |
+| 199 | `feat/p3-17-efficiency-context-assembly` | P3-17: Efficiency → context assembly | ✅ Pass | ✅ Mergeable |
+
+All three stack: #197 → #198 → #199. GONA merge in that order unblocks the next DEEP run to wire efficiency signal explanations into CycleTrace operator readback (P3-18+).
