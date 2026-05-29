@@ -63,6 +63,7 @@ Rules:
 - evidence: targeted governance/readback regression assertions were restored in `crates/cli/tests/snapshot_integration.rs`.
 
 ### Older closed / superseded items
+- DV-2026-05-29-002 — Safety refusal for forbidden secret/shell objectives in LLM synthesis — **fixed in PR #179**
 - DV-2026-05-26-001 — fixed in PR #119.
 - DV-2026-05-26-002 — fixed 2026-05-26.
 - DV-2026-05-27-001 — closed, superseded by PR #103 merge.
