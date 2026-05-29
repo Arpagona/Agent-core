@@ -3204,4 +3204,14 @@ The Neutral Orchestrator's `ContextAssembler` supports 5 source adapters:
 
 ### Next recommended step for GONA
 
-**P3-6: Integration verification spring** — run `arpagona orchestrator cycle run` end-to-end with all 5 context sources, verify multi-source coherence, and write an integration acceptance test exercising the full context assembly pipeline. Then proceed toward Neutral Orchestrator V0 completeness with proposal routing, Decision Gate integration, and audit linkage.
+**P3-6: Integration verification spring** → ✅ **Completed** (PR #182).
+`MultiAdapterContextAssembler` created — composite `ContextAssembler` wires all 5
+adapters (ToolRuntime, GraphMemory, HolographicMemory, ReservoirEcho,
+CompressedCognitiveAttention) into one assembly pipeline. 4 new integration
+tests: source enumeration, default-empty behavior, seeded multi-source
+assembly with non-authorizing invariant, and full orchestrator cycle
+compatibility. 85 neutral-orchestrator tests pass (up from 81).
+
+**Next: P3-7: Proposal routing and Decision Gate integration** — connect
+the Neutral Orchestrator's `ProposalRequest` to real proposal generation
+via the existing LLM provider abstraction, keeping Decision Gate mandatory.

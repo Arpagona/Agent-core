@@ -44,6 +44,7 @@ pub mod compressed_cognitive_attention_adapter;
 pub mod context_assembler;
 pub mod graph_memory_adapter;
 pub mod holographic_memory_adapter;
+pub mod multi_adapter;
 pub mod reservoir_echo_adapter;
 pub mod tool_runtime_adapter;
 
@@ -51,6 +52,7 @@ pub use compressed_cognitive_attention_adapter::CompressedCognitiveAttentionAdap
 pub use context_assembler::{ContextAssembler, SimulatedContextAssembler};
 pub use graph_memory_adapter::GraphMemoryAdapter;
 pub use holographic_memory_adapter::HolographicMemoryAdapter;
+pub use multi_adapter::MultiAdapterContextAssembler;
 pub use reservoir_echo_adapter::ReservoirEchoAdapter;
 pub use tool_runtime_adapter::ToolRuntimeAdapter;
 
