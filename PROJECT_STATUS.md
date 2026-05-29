@@ -4052,4 +4052,49 @@ This session extended PR #205 (`feat/p3-18-multi-adapter-cli-wiring`) with CLI f
 - No Graph Memory persistence — uses `InMemoryGraphMemoryStore` and `InMemoryHolographicMemoryStore`
 - No hidden memory injection — seeded data is ephemeral (in-memory only, lost after process exit)
 - No API endpoint changes
-- No SurrealDB, SQLite, or filesystem persistence modifications
+
+## 29. Latest Session Update (2026-05-29 DEEP cron — Seeded Orchestrator demo script)
+
+This session added the seeded orchestrator demo script that proves the full P3-18 multi-adapter CLI wiring chain end-to-end.
+
+### What was added
+
+**scripts/demo-seeded-orchestrator.sh** — new self-contained demo script:
+
+- Step 1: Basic orchestrator run verifies `completed` cycle + `non_authorizing: true` invariant
+- Step 2: `--multi-adapter` enables all 5 memory adapter context assembly
+- Step 3: `--seed-audit-event`, `--seed-holo-trace`, `--seed-reservoir-pulse`, `--seed-cca-event` flags pre-populate adapters
+- Step 4: `--trace` outputs CycleTrace with context assembly metadata
+- Step 5: `--save-trace` persists CycleTrace to a JSON file on disk
+- Step 6: Full chain with all flags + JSON produces valid structured output with Decision Gate, non-authorizing, and audit events
+
+**Demo verification:** 9/9 steps pass:
+- `cargo fmt -- --check`: ✅ clean
+- `cargo check`: ✅ clean
+- `cargo test`: ✅ all tests pass
+- `bash scripts/demo-seeded-orchestrator.sh`: ✅ 9/9 all green
+
+### Safety boundaries preserved
+- Demo script only — no code changes to any crate
+- No shell, browser, email, secrets, scheduler, MCP, or API expansion
+- No Decision Gate bypass, no readback-as-authorization
+- No new capabilities, permissions, or governance logic
+
+### Files changed
+| File | Change |
+|------|--------|
+| `scripts/demo-seeded-orchestrator.sh` | **NEW** — seeded orchestrator demo with 6 phases, 9 assertions |
+
+### Deliberately not changed
+- No crate changes: core, decision-gate, tool-runtime, tool-registry, cli, llm, runtime, orchestrator, holographic-memory, graph-memory, mcp-server
+- No CLI flags, parser changes, or command modifications
+- No API endpoints, MCP capabilities, or web surfaces
+- No tests were added to any crate (demo script is integration-only)
+- No handoff file was modified except this one
+
+### Stability level
+Alpha demo script. Requires `feat/p3-18-multi-adapter-cli-wiring` branch (PR #205).
+
+### Recommended next step for GONA
+Merge the P3 stack: #200 → #202 → #197 → #198 → #199 → #203 → #204 → #205.
+After merge, extend demo to include `--insights` (P3-15, PR #197) and compute efficiency feedback (P3-16, PR #198).
