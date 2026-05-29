@@ -150,6 +150,10 @@ impl OrchestratorCycle {
         trace.audit_event_count = self.outcome.audit_event_count();
         trace.gate_was_applied = self.outcome.gate_was_applied;
 
+        // Failure insight candidates from context assembly and decision state
+        let candidates = trace.detect_failure_candidates();
+        trace.failure_insight_candidates = candidates;
+
         trace
     }
 }

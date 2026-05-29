@@ -146,6 +146,8 @@ pub enum FailureInsightCandidateKind {
     RepeatedOperatorFriction,
     /// The observation quality was too low to be useful.
     InsufficientObservationQuality,
+    /// Context assembly in the orchestrator cycle returned weak or zero results.
+    ContextAssemblyWeak,
 }
 
 // ---------------------------------------------------------------------------
@@ -890,6 +892,7 @@ mod tests {
             FailureInsightCandidateKind::DocumentationMismatch,
             FailureInsightCandidateKind::RepeatedOperatorFriction,
             FailureInsightCandidateKind::InsufficientObservationQuality,
+            FailureInsightCandidateKind::ContextAssemblyWeak,
         ];
 
         for variant in &variants {
