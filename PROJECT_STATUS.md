@@ -3527,3 +3527,80 @@ This session implemented H1b: static analysis / missing edge-case tests, coverin
 1. **Merge PR #186** to establish the H1b edge-case test baseline.
 2. **H2: CLI security boundary verification** — verify that Tool Runtime security boundaries (absolute path blocking, parent traversal blocking, sensitive file blocking) are not bypassable through any documented CLI path (especially `--memory-value` JSON injection, `--json` pipe, or relative-path resolution edge cases).
 
+## 29. Latest Session Update (2026-05-29 — H2 CLI security boundary verification)
+
+This session verified and hardened the Tool Runtime security boundary for all documented CLI paths.
+
+### Security boundary probe results
+
+| Test Vector | CLI Path | Result |
+|-------------|----------|--------|
+| Absolute path `/etc/passwd` | `tool demo read-file` | ✅ Blocked (status: blocked) |
+| Parent traversal `../Cargo.toml` | `tool demo read-file` | ✅ Blocked (status: blocked) |
+| Double parent traversal `../../Cargo.toml` | `tool demo read-file` | ✅ Blocked (status: blocked) |
+| `.env` file | `tool demo read-file` | ✅ Blocked (status: blocked) |
+| `.git` directory listing | `tool demo list-files` | ✅ Blocked (status: blocked) |
+| `.git/config` via crafted JSON observe | `tool demo observe` | ✅ Blocked (routed through runtime validate) |
+| Empty path `""` | `tool demo read-file` | ✅ Graceful failure (not a file) |
+| Parent traversal `..` | `tool demo list-files` | ✅ Blocked (status: blocked) |
+| `--memory-value` JSON injection | memory demo | ✅ Not a tool runtime path — no bypass |
+| `--json` pipe-to-file | all commands | ✅ Output formatting only, security check done by runtime |
+
+### Security gap found and fixed
+
+**Gap:** `tool demo read-file .git/config` returned `success`, leaking git remote URL and SSH identity file path.
+
+**Root cause:** `is_blocked_file()` only checked patterns `.env`, `.ssh/`, `id_rsa`, `id_ed25519`, `config.json`. There was no `.git/` pattern, so `.git/config`, `.git/HEAD`, `.git/packed-refs` and other `.git` internals were fully readable.
+
+**Fix:** Added `.git/` to `BLOCKED_FILE_PATTERNS` in `crates/tool-runtime/src/lib.rs`:
+- `.git/config` → blocked ✅
+- `.git/HEAD` → blocked ✅
+- `./.git/config` → blocked ✅ (relative variant)
+- `.gitignore` → still readable ✅ (no false positive: `.gitignore` does not contain `.git/`)
+- `.github/workflows/*` → not blocked ✅ (`.github/` does not contain `.git/`)
+
+### New regression tests (5)
+
+Added to `crates/tool-runtime/src/lib.rs`:
+- `read_file_blocks_git_config` — `.git/config` blocked with `is_security: true`
+- `read_file_blocks_git_head` — `.git/HEAD` blocked
+- `read_file_blocks_relative_git_path` — `./.git/config` also blocked
+- `read_file_gitignore_still_readable` — `.gitignore` remains readable (negative test)
+- `read_file_github_dir_not_blocked` — `.github/workflows/*` not falsely blocked
+
+### Verification
+
+- `cargo fmt -- --check`: ✅ clean
+- `cargo check`: ✅ clean (pre-existing neutral-orchestrator dead_code warning only)
+- `cargo test --workspace`: ✅ 874 tests pass (869 previous + 5 new)
+- CLI smoke tests: all security boundaries hold for every documented path
+
+### Deliberately not changed
+
+- No new CLI commands or flags added
+- No CLI output format changed
+- No API endpoint added
+- No Decision Gate behavior changed
+- No crate boundaries, permissions, risk levels, or governance logic
+- No scheduler, browser, email, secrets, autonomy, self-modification, or Mission Control Web growth
+- No SurrealDB or persistence changes
+- No `is_blocked_file` pattern changed for existing patterns (`.env`, `.ssh/`, `id_rsa`, etc.)
+- Readback remains evidence only, not authorization
+
+### Files changed
+
+| File | Change |
+|------|--------|
+| `crates/tool-runtime/src/lib.rs` | Added `.git/` to `BLOCKED_FILE_PATTERNS` + 5 new regression tests |
+| `FOCUS_LOOP_NEXT.md` | Updated handoff to reflect H2 completion and Phase 3 recommitment |
+
+### Stability level
+
+Alpha hardening. The `.git/` block is a pattern-string prefix check with no false positives on `.gitignore`, `.gitattributes`, `.gitmodules`, or `.github/`.
+
+### Recommended next step for GONA
+
+1. **Merge this PR** to close the `.git/` security gap.
+2. **Recommit to Phase 3 — Neutral Orchestrator V0 integration.** With H1a (clippy), H1b (edge-case tests) and H2 (CLI security boundary) all delivered, the H hardening track is complete. The focus loop should return to `--proposal-generator` integration tests and operator readback surfaces for orchestrator state.
+
+

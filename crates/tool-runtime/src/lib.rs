@@ -59,7 +59,14 @@ const MAX_SEARCH_FILE_SIZE: u64 = 512_000; // 500 KiB
 const IGNORED_DIRECTORIES: &[&str] = &[".git", "target", "node_modules", ".env", ".ssh"];
 
 /// File patterns that are always blocked by read_file.
-const BLOCKED_FILE_PATTERNS: &[&str] = &[".env", ".ssh/", "id_rsa", "id_ed25519", "config.json"];
+const BLOCKED_FILE_PATTERNS: &[&str] = &[
+    ".env",
+    ".git/",
+    ".ssh/",
+    "id_rsa",
+    "id_ed25519",
+    "config.json",
+];
 
 // ---------------------------------------------------------------------------
 // Error types
@@ -1521,6 +1528,114 @@ mod tests {
         assert!(
             !ToolRuntime::is_binary_file(&short_bin_path),
             "very short file (<4 bytes) with null byte should not trigger false positive"
+        );
+    }
+
+    // -------------------------------------------------------------------------
+    // H2 — CLI security boundary: .git/ file access blocked
+    // -------------------------------------------------------------------------
+
+    #[test]
+    fn read_file_blocks_git_config() {
+        let dir = test_workspace();
+        // Create a synthetic .git/config to simulate the real security boundary
+        let git_dir = dir.path().join(".git");
+        fs::create_dir_all(&git_dir).expect("should create .git dir");
+        create_test_file(
+            dir.path(),
+            ".git/config",
+            "[core]\n\tbare = false\n[remote \"origin\"]\n\turl = git@example.com:org/repo.git\n",
+        );
+        let runtime = make_runtime(dir.path());
+
+        let result = runtime.execute("read_file", &json!({"path": ".git/config"}));
+
+        assert_eq!(
+            result.status,
+            ToolExecutionStatus::Blocked,
+            ".git/config read must be blocked: got {:?}",
+            result.status
+        );
+        assert!(
+            result
+                .error
+                .as_ref()
+                .map(|e| e.is_security)
+                .unwrap_or(false),
+            "blocked .git/config must set is_security: {:?}",
+            result.error
+        );
+    }
+
+    #[test]
+    fn read_file_blocks_git_head() {
+        let dir = test_workspace();
+        let git_dir = dir.path().join(".git");
+        fs::create_dir_all(&git_dir).expect("should create .git dir");
+        create_test_file(dir.path(), ".git/HEAD", "ref: refs/heads/main\n");
+        let runtime = make_runtime(dir.path());
+
+        let result = runtime.execute("read_file", &json!({"path": ".git/HEAD"}));
+
+        assert_eq!(
+            result.status,
+            ToolExecutionStatus::Blocked,
+            ".git/HEAD read must be blocked: got {:?}",
+            result.status
+        );
+    }
+
+    #[test]
+    fn read_file_blocks_relative_git_path() {
+        let dir = test_workspace();
+        let git_dir = dir.path().join(".git");
+        fs::create_dir_all(&git_dir).expect("should create .git dir");
+        create_test_file(dir.path(), ".git/config", "sensitive");
+        let runtime = make_runtime(dir.path());
+
+        // The `./.git/config` path also contains `.git/`
+        let result = runtime.execute("read_file", &json!({"path": "./.git/config"}));
+
+        assert_eq!(
+            result.status,
+            ToolExecutionStatus::Blocked,
+            "./.git/config must also be blocked: got {:?}",
+            result.status
+        );
+    }
+
+    #[test]
+    fn read_file_gitignore_still_readable() {
+        let dir = test_workspace();
+        create_test_file(dir.path(), ".gitignore", "target/\n*.env");
+        let runtime = make_runtime(dir.path());
+
+        let result = runtime.execute("read_file", &json!({"path": ".gitignore"}));
+
+        assert_eq!(
+            result.status,
+            ToolExecutionStatus::Success,
+            ".gitignore is a normal project file and must remain readable: got {:?}",
+            result.status
+        );
+    }
+
+    #[test]
+    fn read_file_github_dir_not_blocked() {
+        // Verify .github/ is NOT blocked by the `.git/` pattern
+        let dir = test_workspace();
+        let github_dir = dir.path().join(".github");
+        fs::create_dir_all(&github_dir).expect("should create .github dir");
+        create_test_file(dir.path(), ".github/workflows/test.yml", "name: test");
+        let runtime = make_runtime(dir.path());
+
+        let result = runtime.execute("read_file", &json!({"path": ".github/workflows/test.yml"}));
+
+        // .github/ is not .git/ — must not be blocked
+        assert_ne!(
+            result.status,
+            ToolExecutionStatus::Blocked,
+            ".github/workflows/* are not git internals and must not be blocked"
         );
     }
 }
