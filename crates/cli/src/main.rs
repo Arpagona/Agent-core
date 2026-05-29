@@ -9375,11 +9375,8 @@ fn orchestrator_run(args: OrchestratorRunArgs) -> Result<(), Box<dyn Error>> {
         ProposalGeneratorArg::Simulated => OrchestratorEngine::new(),
         ProposalGeneratorArg::Llm => {
             let mock_provider = Box::new(arpagona_llm::MockProvider::safe_default());
-            let llm_generator = arpagona_neutral_orchestrator::LlmProposalGenerator::new(
-                mock_provider,
-                workspace_id.clone(),
-                agent_id.clone(),
-            );
+            let llm_generator =
+                arpagona_neutral_orchestrator::LlmProposalGenerator::new(mock_provider);
             OrchestratorEngine::new().with_proposal_generator(Box::new(llm_generator))
         }
     };
