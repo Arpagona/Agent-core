@@ -2,6 +2,7 @@ use arpagona_agent_core::{
     action::ToolCallIntent,
     holographic::{resonate_for_working_memory, RESONANCE_NON_AUTHORIZING_WARNING},
     llm_journal::LlmJournal,
+    orchestrator::ObjectiveInput,
     ActionType, AgentId, AuditEvent, AuditEventId, AuditTraceSummary, CognitiveCycleResult,
     CorrectionTarget, Decision, DecisionId, DecisionStatus, DetectionSignal, DetectionSignalType,
     ExecutorRegistry, ExecutorState, FailureClass, FailureInsight, FailureInsightId,
@@ -28,7 +29,7 @@ use arpagona_holographic_memory::{
     InMemoryHolographicMemoryStore, SourceKind,
 };
 use arpagona_llm::run_cognitive_synthesis;
-use arpagona_neutral_orchestrator::run_deterministic_cycle;
+use arpagona_neutral_orchestrator::OrchestratorEngine;
 use arpagona_tool_runtime::{ToolRuntime, ToolRuntimeConfig};
 use chrono::Utc;
 use clap::{Args, Parser, Subcommand, ValueEnum};
@@ -210,6 +211,27 @@ pub struct OrchestratorRunArgs {
     /// Agent ID for the cycle.
     #[arg(long, default_value = DEFAULT_AGENT_ID)]
     pub agent_id: String,
+
+    /// Proposal generator backend: simulated (deterministic, default) or llm (mock provider for now).
+    #[arg(long, default_value_t = ProposalGeneratorArg::Simulated)]
+    pub proposal_generator: ProposalGeneratorArg,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, clap::ValueEnum)]
+pub enum ProposalGeneratorArg {
+    /// Deterministic ReadDocument at Low risk (no LLM, no I/O).
+    Simulated,
+    /// Mock LLM-backed proposal generator for real proposal-only integration.
+    Llm,
+}
+
+impl std::fmt::Display for ProposalGeneratorArg {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            ProposalGeneratorArg::Simulated => write!(f, "simulated"),
+            ProposalGeneratorArg::Llm => write!(f, "llm"),
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, clap::ValueEnum)]
@@ -9357,7 +9379,22 @@ fn orchestrator_run(args: OrchestratorRunArgs) -> Result<(), Box<dyn Error>> {
     let workspace_id = WorkspaceId::new(args.workspace_id);
     let agent_id = AgentId::new(args.agent_id);
 
-    let cycle = run_deterministic_cycle(&args.objective, workspace_id, agent_id, &[perm])
+    let engine = match args.proposal_generator {
+        ProposalGeneratorArg::Simulated => OrchestratorEngine::new(),
+        ProposalGeneratorArg::Llm => {
+            let mock_provider = Box::new(arpagona_llm::MockProvider::safe_default());
+            let llm_generator = arpagona_neutral_orchestrator::LlmProposalGenerator::new(
+                mock_provider,
+                workspace_id.clone(),
+                agent_id.clone(),
+            );
+            OrchestratorEngine::new().with_proposal_generator(Box::new(llm_generator))
+        }
+    };
+
+    let input = ObjectiveInput::new(args.objective, workspace_id, agent_id, chrono::Utc::now());
+    let cycle = engine
+        .run_cycle(input, &[perm])
         .map_err(|e| format!("Orchestrator cycle failed: {e}"))?;
 
     if args.json && args.trace {
@@ -12764,5 +12801,73 @@ mod tests {
             cycle.outcome.non_authorizing,
             "OrchestratorOutcome must always be non-authorizing"
         );
+    }
+
+    #[test]
+    fn cli_parses_orchestrator_run_with_simulated_generator() {
+        let cli = Cli::try_parse_from(vec![
+            "arpagona",
+            "orchestrator",
+            "run",
+            "--objective",
+            "Test simulated generator",
+            "--proposal-generator",
+            "simulated",
+        ])
+        .expect("orchestrator run with --proposal-generator simulated should parse");
+        match cli.command {
+            Command::Orchestrator(OrchestratorCommand {
+                command: OrchestratorSubcommand::Run(args),
+            }) => {
+                assert_eq!(args.proposal_generator, ProposalGeneratorArg::Simulated);
+            }
+            _ => panic!("expected orchestrator run"),
+        }
+    }
+
+    #[test]
+    fn cli_parses_orchestrator_run_with_llm_generator() {
+        let cli = Cli::try_parse_from(vec![
+            "arpagona",
+            "orchestrator",
+            "run",
+            "--objective",
+            "Test llm generator",
+            "--proposal-generator",
+            "llm",
+        ])
+        .expect("orchestrator run with --proposal-generator llm should parse");
+        match cli.command {
+            Command::Orchestrator(OrchestratorCommand {
+                command: OrchestratorSubcommand::Run(args),
+            }) => {
+                assert_eq!(args.proposal_generator, ProposalGeneratorArg::Llm);
+            }
+            _ => panic!("expected orchestrator run"),
+        }
+    }
+
+    #[test]
+    fn cli_orchestrator_run_defaults_to_simulated_generator() {
+        let cli = Cli::try_parse_from(vec![
+            "arpagona",
+            "orchestrator",
+            "run",
+            "--objective",
+            "Default generator test",
+        ])
+        .expect("orchestrator run without --proposal-generator should parse");
+        match cli.command {
+            Command::Orchestrator(OrchestratorCommand {
+                command: OrchestratorSubcommand::Run(args),
+            }) => {
+                assert_eq!(
+                    args.proposal_generator,
+                    ProposalGeneratorArg::Simulated,
+                    "default proposal_generator should be Simulated"
+                );
+            }
+            _ => panic!("expected orchestrator run"),
+        }
     }
 }
