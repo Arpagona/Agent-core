@@ -29,19 +29,15 @@ use serde::{Deserialize, Serialize};
 /// ```
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
+#[derive(Default)]
 pub enum ExecutorState {
     /// Executor exists but is disabled — cannot execute or resolve actions.
+    #[default]
     Disabled,
     /// Executor is ready and may execute approved, policy-checked actions.
     Ready,
     /// Executor is explicitly blocked — attempts produce `ExecutionBlocked`.
     Blocked,
-}
-
-impl Default for ExecutorState {
-    fn default() -> Self {
-        Self::Disabled
-    }
 }
 
 impl ExecutorState {

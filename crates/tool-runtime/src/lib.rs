@@ -216,12 +216,10 @@ impl ToolRuntime {
         let input_path = Path::new(path_str);
 
         // Reject absolute paths
-        if input_path.is_absolute() {
-            if !self.config.allow_absolute_paths {
-                return Err(ToolRuntimeError::SecurityBlocked(
-                    "Absolute paths are not allowed".to_owned(),
-                ));
-            }
+        if input_path.is_absolute() && !self.config.allow_absolute_paths {
+            return Err(ToolRuntimeError::SecurityBlocked(
+                "Absolute paths are not allowed".to_owned(),
+            ));
         }
 
         // Resolve relative to workspace
@@ -1371,7 +1369,7 @@ mod tests {
         // Test the helper directly: a file with null bytes
         let dir = test_workspace();
         let bin_path = dir.path().join("helper_test.bin");
-        std::fs::write(&bin_path, &[0x00, 0x01, 0x02, 0x03, 0x04])
+        std::fs::write(&bin_path, [0x00, 0x01, 0x02, 0x03, 0x04])
             .expect("should write small binary file");
         assert!(
             ToolRuntime::is_binary_file(&bin_path),
@@ -1396,7 +1394,7 @@ mod tests {
 
         // A very short file with a null byte (<4 bytes) should NOT be flagged
         let short_bin_path = dir.path().join("short.bin");
-        std::fs::write(&short_bin_path, &[0x00]).expect("should write short binary file");
+        std::fs::write(&short_bin_path, [0x00]).expect("should write short binary file");
         assert!(
             !ToolRuntime::is_binary_file(&short_bin_path),
             "very short file (<4 bytes) with null byte should not trigger false positive"

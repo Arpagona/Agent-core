@@ -505,7 +505,6 @@ mod tests {
             OverrideConfig {
                 max_failed_attempts: 2,
                 lockout_seconds: 60,
-                ..Default::default()
             },
         );
 
@@ -526,7 +525,6 @@ mod tests {
             OverrideConfig {
                 max_failed_attempts: 1,
                 lockout_seconds: 0, // immediate unlock
-                ..Default::default()
             },
         );
 
@@ -696,7 +694,6 @@ mod tests {
             OverrideConfig {
                 max_failed_attempts: 2,
                 lockout_seconds: 0, // immediate unlock
-                ..Default::default()
             },
         );
 
@@ -721,7 +718,6 @@ mod tests {
             OverrideConfig {
                 max_failed_attempts: 2,
                 lockout_seconds: 300,
-                ..Default::default()
             },
         );
 

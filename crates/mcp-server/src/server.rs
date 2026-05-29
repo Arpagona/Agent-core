@@ -254,7 +254,7 @@ impl McpServer {
                 .map(|v| McpMessage::Success(JsonRpcSuccess::new(req.id.clone(), v))),
             other => Err(JsonRpcError::method_not_found(req.id.clone(), other)),
         }
-        .unwrap_or_else(|e| McpMessage::Error(e))
+        .unwrap_or_else(McpMessage::Error)
     }
 
     // -----------------------------------------------------------------------

@@ -2456,7 +2456,7 @@ fn gather_memory_visibility_section() -> MemoryVisibilitySection {
                     last_activated_at: t.last_activated_at.clone(),
                 })
                 .collect();
-            sorted.sort_by(|a, b| b.activation_count.cmp(&a.activation_count));
+            sorted.sort_by_key(|b| std::cmp::Reverse(b.activation_count));
             sorted.truncate(5);
             sorted
         },
@@ -3840,7 +3840,7 @@ fn memory_holographic_status(args: HolographicStatusArgs) -> Result<(), Box<dyn 
             last_activated_at: t.last_activated_at.clone(),
         })
         .collect();
-    most_activated.sort_by(|a, b| b.activation_count.cmp(&a.activation_count));
+    most_activated.sort_by_key(|b| std::cmp::Reverse(b.activation_count));
     most_activated.truncate(5);
 
     // Aggregated linked IDs from all traces
@@ -5417,19 +5417,11 @@ async fn review_action(
                 println!("{} {}", style_dim("id:"), action.id);
                 println!("{} {:?}", style_dim("status:"), action.status);
                 println!("{} {:?}", style_dim("action_type:"), action.action_type);
-                println!(
-                    "{} {}",
-                    style_dim("risk_level:"),
-                    format!("{:?}", action.risk_level)
-                );
+                println!("{} {:?}", style_dim("risk_level:"), action.risk_level);
                 println!("{} {}", style_dim("rationale:"), action.rationale);
                 println!("{} {}", style_dim("created_at:"), action.created_at);
-                if action.target.is_some() {
-                    println!(
-                        "{} {}",
-                        style_dim("target:"),
-                        action.target.as_ref().unwrap()
-                    );
+                if let Some(target) = &action.target {
+                    println!("{} {}", style_dim("target:"), target);
                 }
                 // Print payload fields
                 if let Some(score) = action
@@ -7485,7 +7477,7 @@ fn dedup_proposed_actions(
             merged_count: group.len(),
             merged_proposal_ids: merged_ids,
             aggregated_source_summaries: aggregated_summaries,
-            aggregated_rationales: aggregated_rationales,
+            aggregated_rationales,
             max_expected_benefit: max_benefit_str,
             max_confidence,
             highest_risk_level: highest_risk_str.clone(),
@@ -8428,7 +8420,7 @@ async fn cognitive_run(
                         let observations = run_observations(&result);
                         let assessments: Vec<_> = observations
                             .iter()
-                            .map(|o| arpagona_agent_core::assess_observation(o))
+                            .map(arpagona_agent_core::assess_observation)
                             .collect();
                         let obs_fic =
                             arpagona_agent_core::FailureInsightCandidate::from_assessments(
@@ -8523,7 +8515,7 @@ async fn cognitive_run(
                     .get("working_memory")
                     .and_then(|wm| wm.get("failure_insight_candidates"))
                     .and_then(|v| v.as_array())
-                    .map(|arr| arr.clone())
+                    .cloned()
                     .unwrap_or_default();
 
                 // Collect CognitiveObservations from working_memory (injected by --observe)
@@ -8531,7 +8523,7 @@ async fn cognitive_run(
                     .get("working_memory")
                     .and_then(|wm| wm.get("cognitive_observations"))
                     .and_then(|v| v.as_array())
-                    .map(|arr| arr.clone())
+                    .cloned()
                     .unwrap_or_default();
 
                 // Only run the proposal bridge if there are candidates or observations
@@ -8609,7 +8601,7 @@ async fn cognitive_run(
                     .get("working_memory")
                     .and_then(|wm| wm.get("failure_insight_candidates"))
                     .and_then(|v| v.as_array())
-                    .map(|arr| arr.clone())
+                    .cloned()
                     .unwrap_or_default();
 
                 if !failure_insight_candidates.is_empty() {
@@ -8760,7 +8752,7 @@ async fn cognitive_run(
                     }
                 } else {
                     (
-                        &args.provider.as_str(),
+                        args.provider.as_str(),
                         "Provider set via --provider flag".to_owned(),
                     )
                 };

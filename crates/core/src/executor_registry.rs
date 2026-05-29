@@ -177,12 +177,12 @@ impl ExecutorRegistry {
         if matches!(action_type, ActionType::Custom(_)) {
             return None;
         }
-        for slot in self.slots.values() {
-            if slot.can_resolve() && slot.executor.supported_action_types().contains(action_type) {
-                return Some(slot);
-            }
-        }
-        None
+        self.slots
+            .values()
+            .find(|&slot| {
+                slot.can_resolve() && slot.executor.supported_action_types().contains(action_type)
+            })
+            .map(|v| v as _)
     }
 
     fn blocked_result(

@@ -309,7 +309,7 @@ mod tests {
     use super::*;
     use arpagona_agent_core::cognitive_work::ObjectiveDomain;
     use arpagona_agent_core::decision::DecisionStatus;
-    use arpagona_agent_core::ids::{AgentId, ContextBundleId, ObjectiveId, WorkspaceId};
+    use arpagona_agent_core::ids::{AgentId, ContextBundleId, WorkspaceId};
     use arpagona_agent_core::orchestrator::ObjectiveInput;
     use arpagona_decision_gate::evaluate_proposed_action;
 
@@ -517,7 +517,7 @@ mod tests {
     #[cfg(feature = "llm-provider")]
     #[test]
     fn llm_generator_wraps_mock_provider() {
-        use arpagona_llm::{LlmProvider, MockProvider, ProposedActionDraft};
+        use arpagona_llm::{MockProvider, ProposedActionDraft};
 
         let rt = tokio::runtime::Runtime::new().expect("tokio runtime for LLM test");
         let _guard = rt.enter();
