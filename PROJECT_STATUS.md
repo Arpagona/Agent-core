@@ -3733,3 +3733,34 @@ This session implemented P3-4f: the Neutral Orchestrator now propagates compute 
 3. **Merge PR #190** (P3-4f — Memory-aware context routing, stacked on #189).
 4. **Then P3-13**: Update real adapters (GraphMemoryAdapter, HolographicMemoryAdapter, ReservoirEchoAdapter, ToolRuntimeAdapter) to use `MemoryQueryRequest.compute_route_label` and `local_preferred` for prioritized/filtered context assembly.
 
+## 28. Latest Session Update (2026-05-29 — P3-13: Compute-aware context assembly for all 5 real adapters)
+
+This session implemented P3-13: all 5 real context assembly adapters now use compute route hints from `MemoryQueryRequest` for prioritized/filtered context retrieval.
+
+**Changes:**
+- **GraphMemoryAdapter**: local routes return ~half the items (lighter); cloud routes return full items; explanation includes compute route suffix
+- **ReservoirEchoAdapter**: local routes can return more traces (echo is cheap); cloud routes standard; explanation includes route info
+- **HolographicMemoryAdapter**: local routes reduce resonance retrieval limits; cloud routes full scope; explanation includes route
+- **ToolRuntimeAdapter**: local routes perform lighter search (fewer results); cloud routes broader workspace context; route in explanation
+- **CompressedCognitiveAttentionAdapter**: local routes reduce CCA top-k; cloud routes full retrieval; route in explanation
+
+**Tests:** 16 new tests across all 5 adapters covering local route reduction, cloud route full context, default route backward compatibility, and minimum-1-item edge case.
+
+**Verification:**
+- `cargo fmt -- --check`: clean
+- `cargo check`: clean
+- `cargo test`: all pass (0 failures across workspace)
+
+**Branch/PR:** `feat/p3-13-compute-aware-adapters` → PR #194
+
+**Safety boundaries preserved:**
+- All items remain advisory and non-authorizing
+- No new capabilities, permissions, or execution paths added
+- Compute route hints are advisory signals, not authorization tokens
+- Backward compatible: adapters with no compute route set behave identically
+
+**Not changed:**
+- No scheduler, browser, write/delete, email, MCP, secrets, API endpoint, self-modification, autonomy, multi-agent runtime, or LLM integration
+- No Decision Gate bypass
+- No readback-as-authorization behavior
+
