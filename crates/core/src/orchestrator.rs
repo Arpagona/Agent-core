@@ -326,6 +326,10 @@ impl ComputeRouteRequest {
 /// This is the orchestrator's view of a Compute Reservoir allocation. It is
 /// advisory only — it does not approve actions, execute tools, or authorize
 /// side effects.
+///
+/// Fields marked `#[serde(default, skip_serializing_if = "Option::is_none")]`
+/// are optional cost/quality metadata that may be absent when no Compute
+/// Reservoir allocation was made (e.g., fallback or no-suitable-resource).
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct ComputeRouteResult {
     /// The orchestrator-level compute route ID for cross-linking.
@@ -342,6 +346,18 @@ pub struct ComputeRouteResult {
     pub justification: String,
     /// Static warning that this result is advisory only.
     pub advisory_warning: String,
+    /// Optional expected cost in cents from the Compute Reservoir allocation.
+    /// Absent when no resource was selected or cost was not available.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub expected_cost_cents: Option<u32>,
+    /// Optional expected latency in milliseconds from the Compute Reservoir allocation.
+    /// Absent when no resource was selected or latency was not available.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub expected_latency_ms: Option<u64>,
+    /// Optional descriptive label for the selected resource kind (e.g. "local_llm", "cloud_llm").
+    /// Absent when no resource was selected.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub resource_kind: Option<String>,
     /// Timestamp of the result.
     pub created_at: DateTime<Utc>,
 }
@@ -366,8 +382,29 @@ impl ComputeRouteResult {
             local_preferred,
             justification: justification.into(),
             advisory_warning: COMPUTE_ROUTE_ADVISORY_WARNING.to_owned(),
+            expected_cost_cents: None,
+            expected_latency_ms: None,
+            resource_kind: None,
             created_at: Utc::now(),
         }
+    }
+
+    /// Attach the expected cost in cents from the Compute Reservoir allocation.
+    pub fn with_expected_cost_cents(mut self, cost_cents: u32) -> Self {
+        self.expected_cost_cents = Some(cost_cents);
+        self
+    }
+
+    /// Attach the expected latency in milliseconds from the Compute Reservoir allocation.
+    pub fn with_expected_latency_ms(mut self, latency_ms: u64) -> Self {
+        self.expected_latency_ms = Some(latency_ms);
+        self
+    }
+
+    /// Attach the resource kind label (e.g. "local_llm", "cloud_llm").
+    pub fn with_resource_kind(mut self, kind: impl Into<String>) -> Self {
+        self.resource_kind = Some(kind.into());
+        self
     }
 }
 
@@ -636,6 +673,18 @@ pub struct CycleTrace {
     pub compute_route_label: Option<String>,
     /// The compute route justification (advisory).
     pub compute_route_justification: Option<String>,
+    /// Expected cost in cents from the Compute Reservoir allocation (advisory).
+    /// Absent when no resource was selected or cost was not available.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub compute_route_expected_cost_cents: Option<u32>,
+    /// Expected latency in milliseconds from the Compute Reservoir allocation (advisory).
+    /// Absent when no resource was selected or latency was not available.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub compute_route_expected_latency_ms: Option<u64>,
+    /// Resource kind label from the Compute Reservoir allocation (advisory).
+    /// Absent when no resource was selected.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub compute_route_resource_kind: Option<String>,
     /// The action type proposed (if any).
     pub action_type: Option<String>,
     /// The Decision Gate status (if evaluated).
@@ -674,6 +723,9 @@ impl CycleTrace {
             unavailable_sources: vec![],
             compute_route_label: None,
             compute_route_justification: None,
+            compute_route_expected_cost_cents: None,
+            compute_route_expected_latency_ms: None,
+            compute_route_resource_kind: None,
             action_type: None,
             decision_status: None,
             audit_event_count: 0,
@@ -699,6 +751,24 @@ impl CycleTrace {
         self
     }
 
+    /// Attach the expected cost in cents from the Compute Reservoir allocation.
+    pub fn with_compute_route_cost_cents(mut self, cost_cents: u32) -> Self {
+        self.compute_route_expected_cost_cents = Some(cost_cents);
+        self
+    }
+
+    /// Attach the expected latency in milliseconds from the Compute Reservoir allocation.
+    pub fn with_compute_route_latency_ms(mut self, latency_ms: u64) -> Self {
+        self.compute_route_expected_latency_ms = Some(latency_ms);
+        self
+    }
+
+    /// Attach the resource kind label from the Compute Reservoir allocation.
+    pub fn with_compute_route_resource_kind(mut self, kind: impl Into<String>) -> Self {
+        self.compute_route_resource_kind = Some(kind.into());
+        self
+    }
+
     /// Scan this trace for failure insight candidates based on the context
     /// assembly, compute route and decision state.
     ///
@@ -710,6 +780,8 @@ impl CycleTrace {
     /// - Zero total context items → ContextAssemblyWeak
     /// - Unavailable context sources → ContextAssemblyWeak (per source)
     /// - Blocked or NeedsReview decision_status → ContextAssemblyWeak
+    /// - Compute route selected but expected cost unknown → ComputeQualityLow
+    /// - Compute route selected but expected latency unknown → ComputeQualityLow
     pub fn detect_failure_candidates(&self) -> Vec<FailureInsightCandidate> {
         let mut candidates: Vec<FailureInsightCandidate> = vec![];
 
@@ -769,6 +841,28 @@ impl CycleTrace {
             }
         }
 
+        // 4. Compute route selected but metadata is absent (cost/quality gap)
+        if self.compute_route_label.is_some() {
+            if self.compute_route_expected_cost_cents.is_none() {
+                candidates.push(FailureInsightCandidate {
+                    kind: FailureInsightCandidateKind::ComputeQualityLow,
+                    summary: "Compute route selected but expected cost unknown".to_owned(),
+                    reason: "Compute route was selected but no expected cost was provided. Cost-aware routing requires cost estimates.".to_owned(),
+                    tool_name: String::new(),
+                    is_positive_signal: false,
+                });
+            }
+            if self.compute_route_expected_latency_ms.is_none() {
+                candidates.push(FailureInsightCandidate {
+                    kind: FailureInsightCandidateKind::ComputeQualityLow,
+                    summary: "Compute route selected but expected latency unknown".to_owned(),
+                    reason: "Compute route was selected but no expected latency was provided. Latency-aware routing requires latency estimates.".to_owned(),
+                    tool_name: String::new(),
+                    is_positive_signal: false,
+                });
+            }
+        }
+
         candidates
     }
 
@@ -807,6 +901,19 @@ impl CycleTrace {
 
         if let Some(ref label) = self.compute_route_label {
             lines.push(format!("Compute:     {}", label));
+            if let Some(ref kind) = self.compute_route_resource_kind {
+                lines.push(format!("  Kind:      {}", kind));
+            }
+            if let Some(cost) = self.compute_route_expected_cost_cents {
+                lines.push(format!(
+                    "  Cost:      ${} ({} cents)",
+                    cost as f64 / 100.0,
+                    cost
+                ));
+            }
+            if let Some(latency) = self.compute_route_expected_latency_ms {
+                lines.push(format!("  Latency:   {}ms", latency));
+            }
             if let Some(ref justification) = self.compute_route_justification {
                 lines.push(format!("  Why:       {}", justification));
             }
@@ -1557,6 +1664,64 @@ mod tests {
             candidates.is_empty(),
             "healthy trace should be clean, got {:?}",
             candidates
+        );
+    }
+
+    #[test]
+    fn detect_candidates_when_compute_route_missing_cost_or_latency() {
+        // A trace with a compute route label but no expected cost or latency
+        // should produce ComputeQualityLow candidates.
+        let mut trace = CycleTrace::new(
+            OrchestratorCycleId::new("c7"),
+            "Analyze budget data",
+            "Completed",
+            "Cycle with compute route but no cost metadata",
+        );
+        trace.total_context_items = 3;
+        trace.compute_route_label = Some("local-small".to_owned());
+        trace.compute_route_justification = Some("Local processing selected.".to_owned());
+
+        let candidates = trace.detect_failure_candidates();
+        assert!(!candidates.is_empty(), "should detect cost/quality gaps");
+        let cost_candidates: Vec<_> = candidates
+            .iter()
+            .filter(|c| c.kind == FailureInsightCandidateKind::ComputeQualityLow)
+            .collect();
+        assert_eq!(
+            cost_candidates.len(),
+            2,
+            "should have 2 ComputeQualityLow candidates (cost + latency), got {}",
+            cost_candidates.len()
+        );
+        assert!(
+            cost_candidates[0].summary.contains("expected cost"),
+            "first candidate should mention cost"
+        );
+        assert!(
+            cost_candidates[1].summary.contains("expected latency"),
+            "second candidate should mention latency"
+        );
+
+        // Now add cost/latency — should go to 0 cost/quality candidates
+        let mut trace2 = CycleTrace::new(
+            OrchestratorCycleId::new("c8"),
+            "Analyze budget data",
+            "Completed",
+            "Cycle with full compute route metadata",
+        );
+        trace2.total_context_items = 3;
+        trace2.compute_route_label = Some("local-small".to_owned());
+        trace2.compute_route_expected_cost_cents = Some(0);
+        trace2.compute_route_expected_latency_ms = Some(800);
+
+        let candidates2 = trace2.detect_failure_candidates();
+        let cost_candidates2: Vec<_> = candidates2
+            .iter()
+            .filter(|c| c.kind == FailureInsightCandidateKind::ComputeQualityLow)
+            .collect();
+        assert!(
+            cost_candidates2.is_empty(),
+            "full metadata should produce 0 cost/quality candidates"
         );
     }
 

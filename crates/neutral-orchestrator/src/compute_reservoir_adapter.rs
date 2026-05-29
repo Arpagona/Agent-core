@@ -300,7 +300,13 @@ impl ComputeReservoirResolver {
 
         let justification = justification_parts.join("\n");
 
-        ComputeRouteResult::new(
+        // Determine resource kind string (lowercase debug repr of ComputeResourceKind)
+        let resource_kind_str = allocation
+            .resource_kind
+            .as_ref()
+            .map(|k| format!("{:?}", k).to_lowercase());
+
+        let mut route = ComputeRouteResult::new(
             route_id,
             input.cycle_id.clone(),
             objective.id.clone(),
@@ -308,7 +314,20 @@ impl ComputeReservoirResolver {
             label,
             local_preferred,
             justification,
-        )
+        );
+
+        // Attach structured cost/quality metadata from the Compute Reservoir allocation
+        if let Some(cost) = allocation.expected_cost_cents {
+            route = route.with_expected_cost_cents(cost);
+        }
+        if let Some(latency) = allocation.expected_latency_ms {
+            route = route.with_expected_latency_ms(latency);
+        }
+        if let Some(kind_str) = resource_kind_str {
+            route = route.with_resource_kind(kind_str);
+        }
+
+        route
     }
 }
 

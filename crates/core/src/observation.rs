@@ -148,6 +148,8 @@ pub enum FailureInsightCandidateKind {
     InsufficientObservationQuality,
     /// Context assembly in the orchestrator cycle returned weak or zero results.
     ContextAssemblyWeak,
+    /// The compute route quality metadata was insufficient for informed routing (cost/latency unknown).
+    ComputeQualityLow,
 }
 
 // ---------------------------------------------------------------------------
@@ -893,6 +895,7 @@ mod tests {
             FailureInsightCandidateKind::RepeatedOperatorFriction,
             FailureInsightCandidateKind::InsufficientObservationQuality,
             FailureInsightCandidateKind::ContextAssemblyWeak,
+            FailureInsightCandidateKind::ComputeQualityLow,
         ];
 
         for variant in &variants {

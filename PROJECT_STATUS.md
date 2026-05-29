@@ -3948,3 +3948,74 @@ This session created the P3-14 milestone: connecting orchestrated context assemb
 
 1. Review and merge PR #201.
 2. Next: connect CycleTrace metadata to Compute Reservoir cost/quality feedback, or add dedicated CLI surface (`orchestrator insights <trace-path>`).
+
+## 30. Latest Session Update (2026-05-29 DEEP cron — P3-15 structured cost/quality metadata in CycleTrace)
+
+This session connected orchestrated context assembly metadata to Compute Reservoir cost/quality feedback by adding structured fields to CycleTrace and ComputeRouteResult.
+
+### What was added
+
+**`crates/core/src/observation.rs`:**
+- `FailureInsightCandidateKind::ComputeQualityLow` — new variant for cost/quality metadata gaps
+
+**`crates/core/src/orchestrator.rs`:**
+- `ComputeRouteResult.expected_cost_cents: Option<u32>` — structured cost from Compute Reservoir
+- `ComputeRouteResult.expected_latency_ms: Option<u64>` — structured latency from Compute Reservoir
+- `ComputeRouteResult.resource_kind: Option<String>` — resource kind label
+- Builder methods: `with_expected_cost_cents()`, `with_expected_latency_ms()`, `with_resource_kind()`
+- `CycleTrace.compute_route_expected_cost_cents: Option<u32>` — cost in CycleTrace
+- `CycleTrace.compute_route_expected_latency_ms: Option<u64>` — latency in CycleTrace
+- `CycleTrace.compute_route_resource_kind: Option<String>` — resource kind in CycleTrace
+- Builder methods: `with_compute_route_cost_cents()`, `with_compute_route_latency_ms()`, `with_compute_route_resource_kind()`
+- `CycleTrace.format()` now displays cost, latency and resource kind when available
+- `detect_failure_candidates()` detects ComputeQualityLow when route selected but cost/latency absent
+- 3 new tests: `detect_candidates_when_compute_route_missing_cost_or_latency` (+ round-trip subcase)
+
+**`crates/neutral-orchestrator/src/compute_reservoir_adapter.rs`:**
+- `allocation_to_route()` now propagates cost, latency and resource_kind from ComputeAllocation to ComputeRouteResult
+
+**`crates/neutral-orchestrator/src/lib.rs`:**
+- `to_cycle_trace()` now propagates cost/latency/resource_kind from ComputeRouteResult to CycleTrace
+
+### Changed files
+
+| File | Change |
+|------|--------|
+| `crates/core/src/observation.rs` | Added `ComputeQualityLow` variant to `FailureInsightCandidateKind` enum + serialization test |
+| `crates/core/src/orchestrator.rs` | Added cost/quality fields to `ComputeRouteResult` (3 fields + 3 builders) and `CycleTrace` (3 fields + 3 builders + format display + detect_candidates check + 1 new test) |
+| `crates/neutral-orchestrator/src/compute_reservoir_adapter.rs` | Wire real cost/latency/resource_kind from `ComputeAllocation` to `ComputeRouteResult` |
+| `crates/neutral-orchestrator/src/lib.rs` | Wire cost/quality fields in `to_cycle_trace()` |
+| `FOCUS_LOOP_NEXT.md` | Updated handoff to P3-15 completion |
+| `PROJECT_STATUS.md` | Added this section |
+
+### Verification
+
+- `cargo fmt -- --check`: ✅ clean
+- `cargo check`: ✅ clean
+- `cargo test`: ✅ all tests pass (0 failures, 0 regressions)
+
+### Safety boundaries preserved
+
+- No scheduler, browser, shell, email, secrets, MCP expansion, or self-modification
+- No Decision Gate bypass
+- No new capability expansion (cost/latency are structured metadata only)
+- Cost/quality fields are advisory and never authorize actions
+- No mutation of external state
+- No readback-as-authorization behavior
+
+### Stability level
+
+Alpha extension of the orchestrator domain types and CycleTrace. All new fields are `Option<...>` with `#[serde(skip_serializing_if = "Option::is_none")]` for backward compatibility of serialized traces.
+
+### Deliberately NOT changed
+
+- No CLI commands added (P3-16 will add `orchestrator insights <trace-path>`)
+- No MCP resources added
+- No Web Mission Control expansion
+- No Compute Reservoir scoring algorithm changed — only metadata propagation
+- No existing test behavior modified
+
+### Recommended next step for GONA
+
+1. Review and merge PR #202.
+2. Next: P3-16 — Expose failure insight candidates via dedicated CLI surface (`orchestrator insights <trace-path>`).
