@@ -68,6 +68,10 @@ const DEFAULT_RATIONALE: &str = "Préparer un brouillon sans l’envoyer";
 const DEFAULT_PROVIDER: &str = "ollama";
 const DEFAULT_CHAT_PROVIDER: &str = "ollama";
 const DEFAULT_SNAPSHOT_DIR: &str = "target/demo-snapshots";
+const DEFAULT_OLLAMA_ENDPOINT: &str = "http://localhost:11434/api/chat";
+const DEFAULT_OLLAMA_MODEL: &str = "qwen3.5:9b";
+
+const ALLOWED_TOOLS: &[&str] = &["append_file", "read_file", "list_files", "search_text"];
 
 const ANSI_RESET: &str = "\x1b[0m";
 const ANSI_BOLD: &str = "\x1b[1m";
@@ -188,6 +192,14 @@ pub struct ActorRunArgs {
     /// Workspace root for file tools (default: current directory).
     #[arg(long, default_value = ".")]
     pub workspace: String,
+
+    /// Intent interpretation provider: deterministic (std::str parsing) or ollama (local LLM).
+    #[arg(long, default_value_t = IntentProviderArg::Deterministic)]
+    pub intent_provider: IntentProviderArg,
+
+    /// Ollama model name (only used with --intent-provider ollama).
+    #[arg(long)]
+    pub ollama_model: Option<String>,
 }
 
 #[derive(Debug, Args)]
@@ -203,6 +215,14 @@ pub struct ActorSessionArgs {
     /// Emit newline-delimited JSON envelopes for each task.
     #[arg(long)]
     pub json: bool,
+
+    /// Intent interpretation provider: deterministic (std::str parsing) or ollama (local LLM).
+    #[arg(long, default_value_t = IntentProviderArg::Deterministic)]
+    pub intent_provider: IntentProviderArg,
+
+    /// Ollama model name (only used with --intent-provider ollama).
+    #[arg(long)]
+    pub ollama_model: Option<String>,
 }
 
 #[derive(Debug, Args)]
@@ -407,6 +427,23 @@ impl std::fmt::Display for ProposalGeneratorArg {
         match self {
             ProposalGeneratorArg::Simulated => write!(f, "simulated"),
             ProposalGeneratorArg::Llm => write!(f, "llm"),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, clap::ValueEnum)]
+pub enum IntentProviderArg {
+    /// Deterministic NL parsing (no LLM, no network).
+    Deterministic,
+    /// Local Ollama LLM proposes structured intents.
+    Ollama,
+}
+
+impl std::fmt::Display for IntentProviderArg {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            IntentProviderArg::Deterministic => write!(f, "deterministic"),
+            IntentProviderArg::Ollama => write!(f, "ollama"),
         }
     }
 }
@@ -10908,6 +10945,14 @@ struct ActorIntent {
 enum IntentParseError {
     UnrecognizedTask(String),
     MissingArgument(String),
+    /// Ollama endpoint was unreachable or returned an error.
+    OllamaUnavailable(String),
+    /// Ollama returned invalid JSON that could not be parsed as an intent.
+    InvalidOllamaResponse(String),
+    /// Ollama proposed a tool that is not in the allowed list.
+    DisallowedTool(String),
+    /// Ollama response was missing required fields (tool, arguments, rationale, risk_level).
+    IncompleteResponse(String),
 }
 
 /// Seam for pluggable intent interpretation providers.
@@ -10935,14 +10980,145 @@ impl IntentInterpreter for DeterministicIntentInterpreter {
     }
 }
 
+/// An Ollama-backed intent interpreter that calls a local Ollama instance.
+///
+/// # Safety
+///
+/// - Ollama may only propose structured `ToolCallIntent` values.
+/// - All proposed intents pass through deterministic validation:
+///   allowed-tool checks, schema validation, and risk labeling.
+/// - Direct tool execution by the LLM is forbidden.
+/// - The proposal always enters the Decision Gate as PendingDecision.
+struct OllamaIntentInterpreter {
+    client: reqwest::Client,
+    endpoint: String,
+    model: String,
+}
+
+impl OllamaIntentInterpreter {
+    fn new() -> Self {
+        let endpoint =
+            env::var("OLLAMA_ENDPOINT").unwrap_or_else(|_| DEFAULT_OLLAMA_ENDPOINT.to_owned());
+        let model = env::var("OLLAMA_MODEL").unwrap_or_else(|_| DEFAULT_OLLAMA_MODEL.to_owned());
+        Self {
+            client: reqwest::Client::new(),
+            endpoint,
+            model,
+        }
+    }
+
+    fn with_model(model: String) -> Self {
+        let endpoint =
+            env::var("OLLAMA_ENDPOINT").unwrap_or_else(|_| DEFAULT_OLLAMA_ENDPOINT.to_owned());
+        Self {
+            client: reqwest::Client::new(),
+            endpoint,
+            model,
+        }
+    }
+
+    /// Call Ollama and parse a structured intent from the response.
+    fn call_ollama(&self, task: &str) -> Result<ActorIntent, IntentParseError> {
+        let system_prompt = r#"You are an intent parsing router. Given a natural language task, return ONLY valid JSON with exactly this structure:
+{
+  "tool": "append_file" | "read_file" | "list_files" | "search_text",
+  "arguments": { ... },
+  "rationale": "why this tool was chosen",
+  "risk_level": "informational" | "low"
+}
+
+Rules:
+- ALLOWED tools only: append_file, read_file, list_files, search_text
+- "read_file" and "list_files" and "search_text" are informational risk
+- "append_file" is low risk
+- arguments must be valid for the chosen tool
+- Never claim to execute, approve, or bypass governance
+- Return ONLY the JSON object, nothing else"#;
+
+        let body = serde_json::json!({
+            "model": self.model,
+            "messages": [
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": task}
+            ],
+            "stream": false,
+            "options": {
+                "temperature": 0.1
+            }
+        });
+
+        let response = tokio::task::block_in_place(|| {
+            tokio::runtime::Handle::current()
+                .block_on(async { self.client.post(&self.endpoint).json(&body).send().await })
+                .map_err(|e| IntentParseError::OllamaUnavailable(e.to_string()))
+        })?;
+
+        let status = response.status();
+        let value: serde_json::Value = tokio::task::block_in_place(|| {
+            tokio::runtime::Handle::current()
+                .block_on(async { response.json().await })
+                .map_err(|e| IntentParseError::InvalidOllamaResponse(e.to_string()))
+        })?;
+
+        if !status.is_success() {
+            let msg = value
+                .get("error")
+                .and_then(|v| v.as_str())
+                .unwrap_or("unknown error");
+            return Err(IntentParseError::OllamaUnavailable(msg.to_owned()));
+        }
+
+        let content = value
+            .pointer("/message/content")
+            .and_then(|v| v.as_str())
+            .ok_or_else(|| {
+                IntentParseError::InvalidOllamaResponse(
+                    "missing /message/content in response".to_owned(),
+                )
+            })?;
+
+        // Strip markdown code fences if present
+        let cleaned = content
+            .trim()
+            .strip_prefix("```json")
+            .or_else(|| content.trim().strip_prefix("```"))
+            .map(|s| s.trim_end_matches("```").trim())
+            .unwrap_or(content.trim());
+
+        let parsed: serde_json::Value = serde_json::from_str(cleaned).map_err(|e| {
+            IntentParseError::InvalidOllamaResponse(format!("JSON parse error: {e}"))
+        })?;
+
+        parse_ollama_intent(&parsed)
+    }
+}
+
+impl IntentInterpreter for OllamaIntentInterpreter {
+    fn interpret(&self, task: &str) -> Result<ActorIntent, IntentParseError> {
+        self.call_ollama(task)
+    }
+}
+
 impl std::fmt::Display for IntentParseError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             IntentParseError::UnrecognizedTask(t) => {
-                write!(f, "Unrecognized task: '{t}'. Supported: append <content> to <path>, read <path>, show <path>, list files [in <path>], list directory <path>, search [for] <pattern> [in <path>], find <pattern> [in <path>].")
+                write!(f, "Unrecognized task: '{t}'. Supported: append <content> to <path>, read <path>, show <path>, list files [in <path>], list directory <path>, search [for] <pattern> [in <path>], find <pattern> [in <path]>.")
             }
             IntentParseError::MissingArgument(m) => {
                 write!(f, "Missing argument: {m}")
+            }
+            IntentParseError::OllamaUnavailable(msg) => {
+                write!(f, "Ollama unavailable: {msg}")
+            }
+            IntentParseError::InvalidOllamaResponse(msg) => {
+                write!(f, "Invalid response from Ollama: {msg}")
+            }
+            IntentParseError::DisallowedTool(tool) => {
+                write!(f, "Ollama proposed disallowed tool '{tool}'. Allowed: append_file, read_file, list_files, search_text")
+            }
+            IntentParseError::IncompleteResponse(msg) => {
+                write!(f, "Incomplete response from Ollama: {msg}")
             }
         }
     }
@@ -11074,8 +11250,8 @@ fn actor_run_core(
     task: &str,
     workspace: &str,
     approve: bool,
+    interpreter: &dyn IntentInterpreter,
 ) -> Result<serde_json::Value, Box<dyn Error>> {
-    let interpreter = DeterministicIntentInterpreter;
     let intent = interpreter.interpret(task).map_err(|e| format!("{e}"))?;
 
     let tool_call_intent = ToolCallIntent {
@@ -11334,7 +11510,17 @@ fn print_actor_run_text(output: &serde_json::Value, task: &str) {
 }
 
 fn actor_run(args: ActorRunArgs) -> Result<(), Box<dyn Error>> {
-    let output = actor_run_core(&args.task, &args.workspace, args.approve)?;
+    let interpreter: Box<dyn IntentInterpreter> = match args.intent_provider {
+        IntentProviderArg::Deterministic => Box::new(DeterministicIntentInterpreter),
+        IntentProviderArg::Ollama => {
+            let ollama = match &args.ollama_model {
+                Some(model) => OllamaIntentInterpreter::with_model(model.clone()),
+                None => OllamaIntentInterpreter::new(),
+            };
+            Box::new(ollama)
+        }
+    };
+    let output = actor_run_core(&args.task, &args.workspace, args.approve, &*interpreter)?;
 
     if args.json {
         println!("{}", serde_json::to_string_pretty(&output)?);
@@ -11348,6 +11534,16 @@ fn actor_run(args: ActorRunArgs) -> Result<(), Box<dyn Error>> {
 /// Start an interactive acquisition loop reading tasks from stdin.
 /// Each task goes through the governed actor_run_core pipeline (simulation-only, no implicit approval).
 fn actor_session(args: ActorSessionArgs) -> Result<(), Box<dyn Error>> {
+    let interpreter: Box<dyn IntentInterpreter> = match args.intent_provider {
+        IntentProviderArg::Deterministic => Box::new(DeterministicIntentInterpreter),
+        IntentProviderArg::Ollama => {
+            let ollama = match &args.ollama_model {
+                Some(model) => OllamaIntentInterpreter::with_model(model.clone()),
+                None => OllamaIntentInterpreter::new(),
+            };
+            Box::new(ollama)
+        }
+    };
     let max_tasks = args.max.unwrap_or(u32::MAX);
     let mut task_count: u32 = 0;
 
@@ -11392,7 +11588,7 @@ fn actor_session(args: ActorSessionArgs) -> Result<(), Box<dyn Error>> {
 
             task_count += 1;
 
-            match actor_run_core(&line, &args.workspace, false) {
+            match actor_run_core(&line, &args.workspace, false, &*interpreter) {
                 Ok(result) => {
                     let status = if result["simulation_result"].is_null() {
                         "governance_blocked"
@@ -11486,7 +11682,7 @@ fn actor_session(args: ActorSessionArgs) -> Result<(), Box<dyn Error>> {
             println!();
             println!("--- Task #{} ---", task_count);
 
-            match actor_run_core(&line, &args.workspace, false) {
+            match actor_run_core(&line, &args.workspace, false, &*interpreter) {
                 Ok(result) => {
                     print_actor_run_text(&result, &line);
                 }
@@ -12375,6 +12571,61 @@ fn orchestrator_insights_list(args: OrchestratorInsightsListArgs) -> Result<(), 
     }
 
     Ok(())
+}
+
+/// Parse a validated Ollama JSON response into an ActorIntent.
+///
+/// Performs deterministic validation: allowed-tool checks, schema validation,
+/// and risk labeling. This function is testable without an Ollama instance.
+fn parse_ollama_intent(parsed: &serde_json::Value) -> Result<ActorIntent, IntentParseError> {
+    let tool = parsed
+        .get("tool")
+        .and_then(|v| v.as_str())
+        .ok_or_else(|| IntentParseError::IncompleteResponse("missing 'tool' field".to_owned()))?;
+
+    // Validate tool is in the allowed list
+    if !ALLOWED_TOOLS.contains(&tool) {
+        return Err(IntentParseError::DisallowedTool(tool.to_owned()));
+    }
+
+    let arguments = parsed.get("arguments").ok_or_else(|| {
+        IntentParseError::IncompleteResponse("missing 'arguments' field".to_owned())
+    })?;
+
+    let rationale = parsed
+        .get("rationale")
+        .and_then(|v| v.as_str())
+        .ok_or_else(|| {
+            IntentParseError::IncompleteResponse("missing 'rationale' field".to_owned())
+        })?;
+
+    let risk_level_str = parsed
+        .get("risk_level")
+        .and_then(|v| v.as_str())
+        .unwrap_or("informational");
+
+    let risk_level = match risk_level_str {
+        "low" => RiskLevel::Low,
+        _ => RiskLevel::Informational,
+    };
+
+    let display_summary = format!(
+        "Ollama proposed: {} {}",
+        tool,
+        arguments
+            .get("path")
+            .and_then(|v| v.as_str())
+            .or_else(|| arguments.get("pattern").and_then(|v| v.as_str()))
+            .unwrap_or("?")
+    );
+
+    Ok(ActorIntent {
+        tool: tool.to_owned(),
+        arguments: arguments.clone(),
+        risk_level,
+        rationale: rationale.to_owned(),
+        display_summary,
+    })
 }
 
 #[cfg(test)]
@@ -16906,5 +17157,90 @@ mod tests {
         let intent = parse_intent("list directory Src/App").unwrap();
         assert_eq!(intent.tool, "list_files");
         assert_eq!(intent.arguments["path"], "Src/App");
+    }
+
+    // ─── parse_ollama_intent tests ──────────────────────────────────────────
+
+    #[test]
+    fn parse_ollama_intent_valid_read_file() {
+        let response = json!({
+            "tool": "read_file",
+            "arguments": {"path": "docs/README.md"},
+            "rationale": "User wants to read the README",
+            "risk_level": "informational",
+        });
+        let intent = parse_ollama_intent(&response).unwrap();
+        assert_eq!(intent.tool, "read_file");
+        assert_eq!(intent.arguments["path"], "docs/README.md");
+        assert_eq!(intent.risk_level, RiskLevel::Informational);
+    }
+
+    #[test]
+    fn parse_ollama_intent_valid_append_file() {
+        let response = json!({
+            "tool": "append_file",
+            "arguments": {"path": "notes.md", "content": "hello"},
+            "rationale": "Append user note",
+            "risk_level": "low",
+        });
+        let intent = parse_ollama_intent(&response).unwrap();
+        assert_eq!(intent.tool, "append_file");
+        assert_eq!(intent.risk_level, RiskLevel::Low);
+    }
+
+    #[test]
+    fn parse_ollama_intent_disallowed_tool_returns_error() {
+        let response = json!({
+            "tool": "shell",
+            "arguments": {},
+            "rationale": "run command",
+            "risk_level": "high",
+        });
+        let err = parse_ollama_intent(&response).unwrap_err();
+        assert!(matches!(err, IntentParseError::DisallowedTool(t) if t == "shell"));
+    }
+
+    #[test]
+    fn parse_ollama_intent_missing_tool_returns_error() {
+        let response = json!({
+            "arguments": {},
+            "rationale": "test",
+            "risk_level": "informational",
+        });
+        let err = parse_ollama_intent(&response).unwrap_err();
+        assert!(matches!(err, IntentParseError::IncompleteResponse(_)));
+    }
+
+    #[test]
+    fn parse_ollama_intent_missing_arguments_returns_error() {
+        let response = json!({
+            "tool": "read_file",
+            "rationale": "test",
+            "risk_level": "informational",
+        });
+        let err = parse_ollama_intent(&response).unwrap_err();
+        assert!(matches!(err, IntentParseError::IncompleteResponse(_)));
+    }
+
+    #[test]
+    fn parse_ollama_intent_missing_rationale_returns_error() {
+        let response = json!({
+            "tool": "read_file",
+            "arguments": {"path": "x"},
+            "risk_level": "informational",
+        });
+        let err = parse_ollama_intent(&response).unwrap_err();
+        assert!(matches!(err, IntentParseError::IncompleteResponse(_)));
+    }
+
+    #[test]
+    fn parse_ollama_intent_default_risk_level_when_missing() {
+        let response = json!({
+            "tool": "list_files",
+            "arguments": {"path": "src/"},
+            "rationale": "list files",
+        });
+        let intent = parse_ollama_intent(&response).unwrap();
+        assert_eq!(intent.risk_level, RiskLevel::Informational);
     }
 }
