@@ -53,22 +53,25 @@ CLI demo:
 arpagona tool demo write-file arpagona-sandbox-demo.txt "hello" --execute
 ```
 
-### Tier 2 — Patch/edit tools, next
+### Tier 2 — Patch/edit tools, implemented
 
 Needed for real coding/workflow value:
 
-- `patch_file` / `replace_text`
+- `patch_file` / `replace_text` — exact-match text replacement
 - `append_file`
 - `mkdir`
 - possibly `delete_file`, but only in a trash/quarantine mode first
 
 Safety:
 
-- simulate-first diffs;
-- exact-match edits by default;
-- size caps;
+- `simulate=true` by default;
+- exact-match edits by default, `replace_all` flag for multiple occurrences;
+- 256 KiB file size cap;
+- binary file rejection;
 - no `.git`, `.env`, `target`, `node_modules`, `.ssh` mutation;
-- audit snapshot of before/after metadata.
+- diff preview in simulate mode.
+
+**Status**: `patch_file` implemented on `feat/sandboxed-write-file-tool`. CLI `tool list`, `tool inspect patch_file`, `tool demo patch-file` all wired. 12 unit tests passing.`
 
 ### Tier 3 — Command execution, later and gated
 

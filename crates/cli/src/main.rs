@@ -1303,6 +1303,8 @@ enum ToolDemoSubcommand {
     SearchText(ToolDemoSearchTextArgs),
     /// Demo the sandboxed write_file tool.
     WriteFile(ToolDemoWriteFileArgs),
+    /// Demo the sandboxed patch_file tool (exact-match text replacement).
+    PatchFile(ToolDemoPatchFileArgs),
     /// Run the full cognitive observation pipeline: tool execution → observation → assessment.
     Observe(ToolDemoObserveArgs),
 }
@@ -1353,6 +1355,25 @@ struct ToolDemoWriteFileArgs {
     /// Allow overwriting an existing file.
     #[arg(long)]
     overwrite: bool,
+    /// Emit structured JSON instead of human-oriented text.
+    #[arg(long)]
+    json: bool,
+}
+
+#[derive(Debug, Args)]
+struct ToolDemoPatchFileArgs {
+    /// Path to the file to patch (relative to workspace).
+    path: String,
+    /// Exact text to find in the file.
+    old_string: String,
+    /// Replacement text.
+    new_string: String,
+    /// Actually apply the patch. Without this flag, patch_file only simulates.
+    #[arg(long)]
+    execute: bool,
+    /// Replace all occurrences instead of just the first.
+    #[arg(long)]
+    replace_all: bool,
     /// Emit structured JSON instead of human-oriented text.
     #[arg(long)]
     json: bool,
@@ -2055,6 +2076,7 @@ async fn run() -> Result<(), Box<dyn Error>> {
                 ToolDemoSubcommand::ListFiles(args) => tool_demo_list_files(args)?,
                 ToolDemoSubcommand::SearchText(args) => tool_demo_search_text(args)?,
                 ToolDemoSubcommand::WriteFile(args) => tool_demo_write_file(args)?,
+                ToolDemoSubcommand::PatchFile(args) => tool_demo_patch_file(args)?,
                 ToolDemoSubcommand::Observe(args) => tool_demo_observe(args)?,
             },
         },
@@ -4352,7 +4374,14 @@ fn tool_list(args: ToolListArgs) -> Result<(), Box<dyn Error>> {
             "Write a workspace-bounded file; simulates by default",
             "Transformation",
         ),
+        (
+            "patch_file",
+            "Exact-match text replacement in a workspace file; simulates by default",
+            "Transformation",
+        ),
     ];
+
+    let mutation_tools = ["write_file", "patch_file"];
 
     if args.json {
         let output: Vec<serde_json::Value> = tools
@@ -4362,7 +4391,7 @@ fn tool_list(args: ToolListArgs) -> Result<(), Box<dyn Error>> {
                     "name": name,
                     "description": desc,
                     "cognitive_role": role,
-                    "read_only": *name != "write_file",
+                    "read_only": !mutation_tools.contains(name),
                     "alpha": true,
                     "sandboxed": true,
                 })
@@ -4380,8 +4409,8 @@ fn tool_list(args: ToolListArgs) -> Result<(), Box<dyn Error>> {
             println!("    Cognitive role: {role}");
             println!(
                 "    Read-only:    {}",
-                if *name == "write_file" {
-                    "no — sandboxed write, simulate by default"
+                if mutation_tools.contains(name) {
+                    "no — sandboxed mutation, simulate by default"
                 } else {
                     "yes"
                 }
@@ -4579,6 +4608,58 @@ fn tool_inspect(args: ToolInspectArgs) -> Result<(), Box<dyn Error>> {
                 println!("  Parent traversal (..):    blocked");
                 println!("  Sensitive files:          blocked (.env, .ssh, id_rsa, id_ed25519)");
                 println!("  Max content size:         256 KiB");
+            }
+        }
+        "patch_file" => {
+            let info = serde_json::json!({
+                "name": "patch_file",
+                "description": "Exact-match text replacement in a workspace file; simulates by default",
+                "cognitive_role": ["Transformation"],
+                "read_only": false,
+                "sandboxed": true,
+                "alpha": true,
+                "aliases": ["replace_text"],
+                "arguments": {
+                    "path": {"type": "string", "description": "File to patch, relative to workspace", "required": true},
+                    "old_string": {"type": "string", "description": "Exact text to find", "required": true},
+                    "new_string": {"type": "string", "description": "Replacement text", "default": ""},
+                    "simulate": {"type": "boolean", "description": "Show diff without mutating", "default": true},
+                    "replace_all": {"type": "boolean", "default": false}
+                },
+                "security": {
+                    "absolute_paths": "blocked",
+                    "parent_traversal": "blocked",
+                    "sensitive_files": "blocked (.env, .ssh, id_rsa, id_ed25519)",
+                    "blocked_dirs": ".git, target, node_modules, .env, .ssh",
+                    "max_file_size": "256 KiB",
+                    "binary_files": "blocked"
+                },
+                "workspace": "current directory"
+            });
+            if args.json {
+                println!("{}", serde_json::to_string_pretty(&info)?);
+            } else {
+                println!("{DEMO_TOOL_WARNING}");
+                println!();
+                println!("Tool: patch_file (alias: replace_text)");
+                println!("  Description:   Exact-match text replacement in a workspace file");
+                println!("  Cognitive role: Transformation");
+                println!("  Read-only:     no — sandboxed; simulate by default");
+                println!("  Workspace:     current directory");
+                println!();
+                println!("Arguments:");
+                println!("  path (required): File to patch, relative to workspace");
+                println!("  old_string (required): Exact text to find");
+                println!("  new_string (default ''): Replacement text");
+                println!("  simulate (default true): Show diff without mutating");
+                println!("  replace_all (default false): Replace all occurrences");
+                println!();
+                println!("Security:");
+                println!("  Absolute paths:           blocked");
+                println!("  Parent traversal (..):    blocked");
+                println!("  Sensitive files:          blocked (.env, .ssh, id_rsa, id_ed25519)");
+                println!("  Max file size:            256 KiB");
+                println!("  Binary files:             blocked");
             }
         }
         other => {
@@ -4800,6 +4881,65 @@ fn tool_demo_write_file(args: ToolDemoWriteFileArgs) -> Result<(), Box<dyn Error
                 println!("   {}", result.output_summary);
             }
             arpagona_agent_core::ToolExecutionStatus::Skipped => println!("⏭️  Status: Skipped"),
+        }
+        println!();
+        println!("Full result available with --json");
+    }
+    Ok(())
+}
+
+fn tool_demo_patch_file(args: ToolDemoPatchFileArgs) -> Result<(), Box<dyn Error>> {
+    let config = ToolRuntimeConfig::new(".");
+    let runtime = ToolRuntime::new(config);
+
+    let result = runtime.execute(
+        "patch_file",
+        &serde_json::json!({
+            "path": args.path,
+            "old_string": args.old_string,
+            "new_string": args.new_string,
+            "simulate": !args.execute,
+            "replace_all": args.replace_all,
+        }),
+    );
+
+    if args.json {
+        println!("{}", serde_json::to_string_pretty(&result)?);
+    } else {
+        println!("{DEMO_TOOL_WARNING}");
+        println!();
+        println!("Tool demo: patch_file");
+        println!(
+            "   Path: {}",
+            result.observation.payload["path"].as_str().unwrap_or("?")
+        );
+        println!(
+            "   Mode: {}",
+            if args.execute { "execute" } else { "simulate" }
+        );
+        println!();
+        match result.status {
+            arpagona_agent_core::ToolExecutionStatus::Success => {
+                println!("Status: Success");
+                println!("   {}", result.output_summary);
+            }
+            arpagona_agent_core::ToolExecutionStatus::Blocked => {
+                println!("Status: Blocked (security)");
+                if let Some(error) = &result.error {
+                    println!("   Reason: {}", error.message);
+                }
+            }
+            arpagona_agent_core::ToolExecutionStatus::Failed => {
+                println!("Status: Failed");
+                if let Some(error) = &result.error {
+                    println!("   Error: {}", error.message);
+                }
+            }
+            arpagona_agent_core::ToolExecutionStatus::Warning => {
+                println!("Status: Warning");
+                println!("   {}", result.output_summary);
+            }
+            arpagona_agent_core::ToolExecutionStatus::Skipped => println!("Status: Skipped"),
         }
         println!();
         println!("Full result available with --json");

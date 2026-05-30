@@ -207,6 +207,7 @@ impl ToolRuntime {
             "list_files" => self.execute_list_files(execution_id, arguments),
             "search_text" => self.execute_search_text(execution_id, arguments),
             "write_file" => self.execute_write_file(execution_id, arguments),
+            "patch_file" | "replace_text" => self.execute_patch_file(execution_id, arguments),
             other => ToolExecutionResult::failed(
                 execution_id,
                 tool_name,
@@ -865,6 +866,313 @@ impl ToolRuntime {
                 format!("I/O error writing {path_str}"),
             ),
         }
+    }
+
+    // -----------------------------------------------------------------------
+    // Tool: patch_file / replace_text
+    // -----------------------------------------------------------------------
+
+    fn execute_patch_file(
+        &self,
+        execution_id: ToolExecutionId,
+        arguments: &Value,
+    ) -> ToolExecutionResult {
+        let path_str = match arguments.get("path").and_then(Value::as_str) {
+            Some(p) if !p.is_empty() => p,
+            _ => {
+                return ToolExecutionResult::failed(
+                    execution_id,
+                    "patch_file",
+                    ToolExecutionError::new("missing_argument", "Required argument: path"),
+                    "Missing 'path' argument for patch_file",
+                );
+            }
+        };
+
+        let old_string = match arguments.get("old_string").and_then(Value::as_str) {
+            Some(s) if !s.is_empty() => s,
+            _ => {
+                return ToolExecutionResult::failed(
+                    execution_id,
+                    "patch_file",
+                    ToolExecutionError::new(
+                        "missing_argument",
+                        "Required argument: old_string",
+                    ),
+                    "Missing 'old_string' argument for patch_file",
+                );
+            }
+        };
+
+        let new_string = arguments
+            .get("new_string")
+            .and_then(Value::as_str)
+            .unwrap_or("");
+
+        let simulate = arguments
+            .get("simulate")
+            .and_then(Value::as_bool)
+            .unwrap_or(true);
+
+        let replace_all = arguments
+            .get("replace_all")
+            .and_then(Value::as_bool)
+            .unwrap_or(false);
+
+        // Security: resolve path using write path resolver (same security as write_file)
+        // We pass create_parent_dirs=false and simulate=true since we're patching an
+        // existing file — the resolved target is used for read-only path validation.
+        let resolved = match self.resolve_write_path(path_str, false, true) {
+            Ok(p) => p,
+            Err(ToolRuntimeError::SecurityBlocked(msg)) => {
+                return ToolExecutionResult::blocked(
+                    execution_id,
+                    "patch_file",
+                    format!("Path access blocked: {msg}"),
+                );
+            }
+            Err(e) => {
+                return ToolExecutionResult::failed(
+                    execution_id,
+                    "patch_file",
+                    ToolExecutionError::new("invalid_path", format!("Cannot access path: {e}")),
+                    format!("Path validation failed: {e}"),
+                );
+            }
+        };
+
+        // Verify the target is an existing regular file
+        let metadata = match std::fs::metadata(&resolved) {
+            Ok(m) => m,
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+                return ToolExecutionResult::failed(
+                    execution_id,
+                    "patch_file",
+                    ToolExecutionError::new("file_not_found", format!("File not found: {path_str}")),
+                    format!("Target file does not exist: {path_str}"),
+                );
+            }
+            Err(e) => {
+                return ToolExecutionResult::failed(
+                    execution_id,
+                    "patch_file",
+                    ToolExecutionError::new("io_error", format!("Cannot read file metadata: {e}")),
+                    format!("I/O error reading {path_str}"),
+                );
+            }
+        };
+
+        if !metadata.is_file() {
+            return ToolExecutionResult::failed(
+                execution_id,
+                "patch_file",
+                ToolExecutionError::new("not_a_file", format!("Not a file: {path_str}")),
+                "Expected a file, got a directory or special file",
+            );
+        }
+
+        // Check file size — reuse the same limit as writes (256 KiB)
+        if metadata.len() > MAX_WRITE_SIZE as u64 {
+            return ToolExecutionResult::failed(
+                execution_id,
+                "patch_file",
+                ToolExecutionError::new(
+                    "file_too_large",
+                    format!(
+                        "File too large: {} bytes (max: {} bytes)",
+                        metadata.len(),
+                        MAX_WRITE_SIZE
+                    ),
+                ),
+                "File exceeds maximum allowed size for patching",
+            );
+        }
+
+        // Detect binary files before attempting text operations
+        if Self::is_binary_file(&resolved) {
+            return ToolExecutionResult::failed(
+                execution_id,
+                "patch_file",
+                ToolExecutionError::new(
+                    "binary_file",
+                    format!(
+                        "Cannot patch file as text: {path_str} appears to be a binary file"
+                    ),
+                ),
+                "File appears to be binary and cannot be patched as text",
+            );
+        }
+
+        // Read file contents
+        let content = match std::fs::read_to_string(&resolved) {
+            Ok(c) => c,
+            Err(e) => {
+                return ToolExecutionResult::failed(
+                    execution_id,
+                    "patch_file",
+                    ToolExecutionError::new("io_error", format!("Cannot read file: {e}")),
+                    format!("I/O error reading {path_str}"),
+                );
+            }
+        };
+
+        // Count matches
+        let match_count = content.matches(old_string).count();
+
+        if match_count == 0 {
+            return ToolExecutionResult::failed(
+                execution_id,
+                "patch_file",
+                ToolExecutionError::new(
+                    "pattern_not_found",
+                    format!(
+                        "Pattern not found in {path_str}: {old_string:?}"
+                    ),
+                ),
+                format!("The specified pattern was not found in {path_str}"),
+            );
+        }
+
+        if match_count > 1 && !replace_all {
+            return ToolExecutionResult::failed(
+                execution_id,
+                "patch_file",
+                ToolExecutionError::new(
+                    "multiple_matches",
+                    format!(
+                        "Pattern found {match_count} times in {path_str}. \
+                         Set replace_all=true to replace all occurrences, \
+                         or use a more specific pattern."
+                    ),
+                ),
+                format!(
+                    "Found {match_count} occurrences in {path_str}; \
+                     refusing to patch without replace_all=true"
+                ),
+            );
+        }
+
+        // Replace (first or all depending on replace_all flag)
+        let new_content = if replace_all {
+            content.replace(old_string, new_string)
+        } else {
+            content.replacen(old_string, new_string, 1)
+        };
+
+        // Compute change statistics for the report
+        let lines_total = content.lines().count();
+        let lines_changed = content
+            .lines()
+            .zip(new_content.lines())
+            .filter(|(old, new)| old != new)
+            .count();
+
+        if simulate {
+            // Build a diff preview (show context around first change)
+            let diff_preview = self.build_patch_diff_preview(&content, &new_content, 3);
+
+            return ToolExecutionResult::success(
+                execution_id,
+                "patch_file",
+                ToolObservation {
+                    summary: format!(
+                        "Simulated patch_file: {path_str} ({match_count} match{}, replace_all={replace_all})",
+                        if match_count == 1 { "" } else { "es" }
+                    ),
+                    payload: json!({
+                        "path": path_str,
+                        "resolved_path": resolved.to_string_lossy(),
+                        "simulate": true,
+                        "matches": match_count,
+                        "replace_all": replace_all,
+                        "lines_total": lines_total,
+                        "lines_changed": if replace_all { lines_changed } else { 1 },
+                        "diff_preview": diff_preview,
+                    }),
+                    actionable: true,
+                    failure_insight_candidate: false,
+                    failure_hint: None,
+                },
+                format!(
+                    "Simulated patch_file: {path_str} ({match_count} match{})",
+                    if match_count == 1 { "" } else { "es" }
+                ),
+            );
+        }
+
+        // Execute: write the patched content
+        match std::fs::write(&resolved, &new_content) {
+            Ok(()) => ToolExecutionResult::success(
+                execution_id,
+                "patch_file",
+                ToolObservation {
+                    summary: format!(
+                        "Patched file: {path_str} ({match_count} replacement{})",
+                        if match_count == 1 { "" } else { "s" }
+                    ),
+                    payload: json!({
+                        "path": path_str,
+                        "resolved_path": resolved.to_string_lossy(),
+                        "simulate": false,
+                        "matches": match_count,
+                        "replace_all": replace_all,
+                        "lines_total": lines_total,
+                        "bytes_written": new_content.len(),
+                    }),
+                    actionable: true,
+                    failure_insight_candidate: false,
+                    failure_hint: None,
+                },
+                format!(
+                    "Patched file: {path_str} ({match_count} replacement{})",
+                    if match_count == 1 { "" } else { "s" }
+                ),
+            ),
+            Err(e) => ToolExecutionResult::failed(
+                execution_id,
+                "patch_file",
+                ToolExecutionError::new("io_error", format!("Cannot write patched file: {e}")),
+                format!("I/O error writing patched content to {path_str}"),
+            ),
+        }
+    }
+
+    /// Build a small diff preview showing context around the first change.
+    /// Returns a list of {line_number, old_line, new_line} entries for the
+    /// first changed block, with `context` lines of surrounding context.
+    fn build_patch_diff_preview(
+        &self,
+        old_content: &str,
+        new_content: &str,
+        context: usize,
+    ) -> Value {
+        let old_lines: Vec<&str> = old_content.lines().collect();
+        let new_lines: Vec<&str> = new_content.lines().collect();
+        let max_lines = old_lines.len().max(new_lines.len());
+
+        // Find the first differing line index
+        let first_diff = (0..max_lines).find(|&i| old_lines.get(i) != new_lines.get(i));
+
+        let Some(diff_idx) = first_diff else {
+            return json!([]);
+        };
+
+        let start = diff_idx.saturating_sub(context);
+        let end = (diff_idx + context + 1).min(max_lines);
+
+        let mut preview = Vec::new();
+        for i in start..end {
+            let old_line = old_lines.get(i).copied().unwrap_or("");
+            let new_line = new_lines.get(i).copied().unwrap_or("");
+            if old_line != new_line {
+                preview.push(json!({
+                    "line": i + 1,
+                    "old": old_line,
+                    "new": new_line,
+                }));
+            }
+        }
+        json!(preview)
     }
 
     // -----------------------------------------------------------------------
@@ -1853,6 +2161,251 @@ mod tests {
             !ToolRuntime::is_binary_file(&short_bin_path),
             "very short file (<4 bytes) with null byte should not trigger false positive"
         );
+    }
+
+    // -------------------------------------------------------------------------
+    // patch_file tests
+    // -------------------------------------------------------------------------
+
+    #[test]
+    fn patch_file_simulates_by_default_without_mutation() {
+        let dir = test_workspace();
+        create_test_file(dir.path(), "test.txt", "Hello world\nGoodbye there");
+        let runtime = make_runtime(dir.path());
+
+        let result = runtime.execute(
+            "patch_file",
+            &json!({"path": "test.txt", "old_string": "world", "new_string": "there"}),
+        );
+
+        assert_eq!(result.status, ToolExecutionStatus::Success);
+        assert_eq!(result.observation.payload["simulate"], true);
+        // File must be unchanged after simulate
+        assert_eq!(
+            std::fs::read_to_string(dir.path().join("test.txt")).unwrap(),
+            "Hello world\nGoodbye there"
+        );
+    }
+
+    #[test]
+    fn patch_file_executes_replace() {
+        let dir = test_workspace();
+        create_test_file(dir.path(), "test.txt", "Hello world\nGoodbye world");
+        let runtime = make_runtime(dir.path());
+
+        let result = runtime.execute(
+            "patch_file",
+            &json!({
+                "path": "test.txt",
+                "old_string": "Hello world",
+                "new_string": "Hello there",
+                "simulate": false,
+            }),
+        );
+
+        assert_eq!(result.status, ToolExecutionStatus::Success);
+        assert_eq!(result.observation.payload["simulate"], false);
+        assert_eq!(result.observation.payload["matches"], 1);
+        assert_eq!(
+            std::fs::read_to_string(dir.path().join("test.txt")).unwrap(),
+            "Hello there\nGoodbye world"
+        );
+    }
+
+    #[test]
+    fn patch_file_works_with_replace_text_alias() {
+        let dir = test_workspace();
+        create_test_file(dir.path(), "test.txt", "Replace me");
+        let runtime = make_runtime(dir.path());
+
+        let result = runtime.execute(
+            "replace_text",
+            &json!({
+                "path": "test.txt",
+                "old_string": "Replace me",
+                "new_string": "Done",
+                "simulate": false,
+            }),
+        );
+
+        assert_eq!(result.status, ToolExecutionStatus::Success);
+        assert_eq!(
+            std::fs::read_to_string(dir.path().join("test.txt")).unwrap(),
+            "Done"
+        );
+    }
+
+    #[test]
+    fn patch_file_rejects_missing_old_string() {
+        let dir = test_workspace();
+        create_test_file(dir.path(), "test.txt", "Hello");
+        let runtime = make_runtime(dir.path());
+
+        let result = runtime.execute(
+            "patch_file",
+            &json!({"path": "test.txt", "old_string": "nonexistent", "new_string": "x", "simulate": false}),
+        );
+
+        assert_eq!(result.status, ToolExecutionStatus::Failed);
+        assert_eq!(result.error.as_ref().unwrap().code, "pattern_not_found");
+    }
+
+    #[test]
+    fn patch_file_rejects_multiple_matches_without_replace_all() {
+        let dir = test_workspace();
+        create_test_file(dir.path(), "test.txt", "apple\nbanana\napple\ncherry");
+        let runtime = make_runtime(dir.path());
+
+        let result = runtime.execute(
+            "patch_file",
+            &json!({"path": "test.txt", "old_string": "apple", "new_string": "orange", "simulate": false}),
+        );
+
+        assert_eq!(result.status, ToolExecutionStatus::Failed);
+        assert_eq!(result.error.as_ref().unwrap().code, "multiple_matches");
+    }
+
+    #[test]
+    fn patch_file_replace_all_works() {
+        let dir = test_workspace();
+        create_test_file(dir.path(), "test.txt", "apple\nbanana\napple\ncherry");
+        let runtime = make_runtime(dir.path());
+
+        let result = runtime.execute(
+            "patch_file",
+            &json!({
+                "path": "test.txt",
+                "old_string": "apple",
+                "new_string": "orange",
+                "simulate": false,
+                "replace_all": true,
+            }),
+        );
+
+        assert_eq!(result.status, ToolExecutionStatus::Success);
+        assert_eq!(result.observation.payload["matches"], 2);
+        assert_eq!(
+            std::fs::read_to_string(dir.path().join("test.txt")).unwrap(),
+            "orange\nbanana\norange\ncherry"
+        );
+    }
+
+    #[test]
+    fn patch_file_blocks_absolute_path() {
+        let dir = test_workspace();
+        let runtime = make_runtime(dir.path());
+
+        let result = runtime.execute(
+            "patch_file",
+            &json!({"path": "/etc/passwd", "old_string": "root", "new_string": "user", "simulate": false}),
+        );
+
+        assert_eq!(result.status, ToolExecutionStatus::Blocked);
+        assert!(result.error.as_ref().unwrap().is_security);
+    }
+
+    #[test]
+    fn patch_file_blocks_parent_traversal() {
+        let dir = test_workspace();
+        let runtime = make_runtime(dir.path());
+
+        let result = runtime.execute(
+            "patch_file",
+            &json!({"path": "../outside.txt", "old_string": "x", "new_string": "y", "simulate": false}),
+        );
+
+        assert_eq!(result.status, ToolExecutionStatus::Blocked);
+        assert!(result.error.as_ref().unwrap().is_security);
+    }
+
+    #[test]
+    fn patch_file_blocks_blocked_file() {
+        let dir = test_workspace();
+        create_test_file(dir.path(), ".env", "SECRET=value");
+        let runtime = make_runtime(dir.path());
+
+        let result = runtime.execute(
+            "patch_file",
+            &json!({"path": ".env", "old_string": "SECRET", "new_string": "PUBLIC", "simulate": false}),
+        );
+
+        assert_eq!(result.status, ToolExecutionStatus::Blocked);
+        assert!(result.error.as_ref().unwrap().is_security);
+    }
+
+    #[test]
+    fn patch_file_blocks_binary_file() {
+        let dir = test_workspace();
+        // Write small binary file with null bytes
+        let binary_data: Vec<u8> = vec![0x48, 0x65, 0x00, 0x6c, 0x6c, 0x6f];
+        std::fs::write(dir.path().join("binary.bin"), &binary_data)
+            .expect("should write binary file");
+        let runtime = make_runtime(dir.path());
+
+        let result = runtime.execute(
+            "patch_file",
+            &json!({"path": "binary.bin", "old_string": "H", "new_string": "J", "simulate": false}),
+        );
+
+        assert_eq!(result.status, ToolExecutionStatus::Failed);
+        assert_eq!(result.error.as_ref().unwrap().code, "binary_file");
+    }
+
+    #[test]
+    fn patch_file_rejects_nonexistent_file() {
+        let dir = test_workspace();
+        let runtime = make_runtime(dir.path());
+
+        let result = runtime.execute(
+            "patch_file",
+            &json!({"path": "nonexistent.txt", "old_string": "x", "new_string": "y", "simulate": false}),
+        );
+
+        assert_eq!(result.status, ToolExecutionStatus::Failed);
+        assert_eq!(result.error.as_ref().unwrap().code, "file_not_found");
+    }
+
+    #[test]
+    fn patch_file_works_with_empty_new_string() {
+        let dir = test_workspace();
+        create_test_file(dir.path(), "test.txt", "Hello world\nExtra content");
+        let runtime = make_runtime(dir.path());
+
+        let result = runtime.execute(
+            "patch_file",
+            &json!({
+                "path": "test.txt",
+                "old_string": " world",
+                "new_string": "",
+                "simulate": false,
+            }),
+        );
+
+        assert_eq!(result.status, ToolExecutionStatus::Success);
+        assert_eq!(
+            std::fs::read_to_string(dir.path().join("test.txt")).unwrap(),
+            "Hello\nExtra content"
+        );
+    }
+
+    #[test]
+    fn patch_file_diff_preview_in_simulate() {
+        let dir = test_workspace();
+        create_test_file(dir.path(), "test.txt", "Line one\nLine two\nLine three");
+        let runtime = make_runtime(dir.path());
+
+        let result = runtime.execute(
+            "patch_file",
+            &json!({"path": "test.txt", "old_string": "Line two", "new_string": "Replaced two"}),
+        );
+
+        assert_eq!(result.status, ToolExecutionStatus::Success);
+        let diff_preview = &result.observation.payload["diff_preview"];
+        let preview = diff_preview.as_array().unwrap();
+        assert!(!preview.is_empty(), "diff preview should have entries");
+        // At minimum the changed line should be in the preview
+        assert!(preview.iter().any(|e| e["old"] == "Line two"));
+        assert!(preview.iter().any(|e| e["new"] == "Replaced two"));
     }
 
     // -------------------------------------------------------------------------
