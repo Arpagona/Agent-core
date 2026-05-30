@@ -11065,7 +11065,7 @@ fn parse_intent(task: &str) -> Result<ActorIntent, IntentParseError> {
 /// Parses the natural language task, runs it through the governed
 /// simulation -> approval -> execution -> readback -> journal loop.
 const ACTOR_RUN_WARNING: &str = "[WARNING - Actor Run is a sandboxed governed local mission. Simulation first; execution requires --approve.]";
-const ACTOR_SESSION_WARNING: &str = "[WARNING - Actor Session is a governed local loop. Each task is simulated first; execution requires --approve.]";
+const ACTOR_SESSION_WARNING: &str = "[WARNING - Actor Session is a governed local loop. Each task is simulated first; rerun with `arpagona actor run --approve` to execute after review.]";
 
 /// Core actor run logic: returns a structured JSON value with all result fields.
 /// Does NOT print anything — used by both `actor_run` and `actor_session`.
@@ -11187,7 +11187,7 @@ fn actor_run_core(task: &str, workspace: &str, approve: bool) -> Result<serde_js
                 "tool": intent.tool,
                 "parsed_intent": intent,
                 "workspace": workspace_path,
-                "approval_flag": false,
+                "approval_flag": approve,
             }),
             serde_json::json!({
                 "decision_id": decision.id,

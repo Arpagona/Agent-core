@@ -40,7 +40,7 @@ With `--json`, each task produces a newline-delimited JSON object per task on st
 
 ```
 $ arpagona actor session
-[WARNING — Actor Session is a governed local loop. Each task is simulated first; execution requires --approve.]
+[WARNING - Actor Session is a governed local loop. Each task is simulated first; rerun the task with `arpagona actor run --approve` to execute after review.]
 
 === Actor Session ===
 Type a task, or /help for commands. Ctrl+C or /quit to exit.
@@ -82,7 +82,7 @@ ActorCommand
 
 ### How Session wraps Run
 
-The session loop does **not** duplicate actor_run logic. It calls `actor_run()` directly:
+The session loop does **not** duplicate actor_run logic. It calls `actor_run_core()` directly:
 
 ```text
 Session loop
@@ -93,19 +93,19 @@ Session loop
   │      ├─ b. If "/quit" or Ctrl+C → break
   │      ├─ c. If "/help" → print commands → continue
   │      ├─ d. If "/status" → print session stats → continue
-  │      ├─ e. If task line → call actor_run(task, workspace, ...)
+  │      ├─ e. If task line → call actor_run_core(task, workspace, false)
   │      └─ f. Increment task counter
   ├─ 3. Print session summary
   └─ 4. Exit
 ```
 
-The `--workspace` flag is passed through to every `actor_run()` call, preserving parity with the one-shot command. Each task operates in the same workspace directory for the entire session.
+The `--workspace` flag is passed through to every `actor_run_core()` call, preserving parity with the one-shot command. Each task operates in the same workspace directory for the entire session.
 
 ### Existing code integration
 
 No changes to `parse_intent()`, `DeterministicIntentInterpreter`, `IntentInterpreter` trait, `govern_tool_call()`, simulation, execution, readback, or journal paths.
 
-The session loop is **pure orchestration** at the CLI layer — same pattern as `actor_run()` but calling it in a loop.
+The session loop is **pure orchestration** at the CLI layer — same pattern as `actor_run_core()` but calling it in a loop.
 
 ### File impact
 
@@ -135,7 +135,7 @@ The session loop is **pure orchestration** at the CLI layer — same pattern as 
 ### What the Session loop MAY do autonomously
 
 - Acquire the next task from the current input source
-- Call `actor_run()` with the acquired task
+- Call `actor_run_core()` with the acquired task
 - Show readback / display output
 - Maintain task counter and session state
 - Handle `/help`, `/status`, `/quit`
@@ -143,7 +143,7 @@ The session loop is **pure orchestration** at the CLI layer — same pattern as 
 
 ### What the Session loop MUST NOT do
 
-- **No bypass of inner governance** — each task goes through `parse_intent()` → Decision Gate → simulation → (optional `--approve`) → execution → readback → journal. The session loop cannot skip, accelerate, or override any phase.
+- **No bypass of inner governance** — each task goes through `parse_intent()` → Decision Gate → simulation → (requires separate `actor run --approve` for execution) → readback → journal. The session loop cannot skip, accelerate, or override any phase.
 - **No tool execution authority** — the session loop has no tool permissions. All tool calls flow through the existing `govern_tool_call()`.
 - **No implicit approval** — the session loop does not inject `--approve` automatically. Each task follows the same simulation-first rule.
 - **No interpreter/provider switching** — the session loop cannot change `IntentInterpreter` from Deterministic to Ollama. That requires an explicit design decision and Thibaud approval.
@@ -155,7 +155,7 @@ The session loop is **pure orchestration** at the CLI layer — same pattern as 
 
 ### Governance invariant
 
-> The acquisition loop adds orchestration only. It does not add governance authority, tool execution, or autonomy expansion. Every bounded task still goes through the full `actor_run` governed pipeline.
+> The acquisition loop adds orchestration only. It does not add governance authority, tool execution, or autonomy expansion. Every bounded task still goes through the full `actor_run_core` governed pipeline.
 
 ### Verification (pre-implementation)
 
@@ -176,7 +176,7 @@ Before any Session implementation is merged, acceptance tests must prove:
 - [ ] Define `ActorSessionArgs` struct with `--max`, `--workspace`, and `--json` flags
 - [ ] Add `Session` variant to `ActorSubcommand` enum
 - [ ] Wire dispatch in the `Command` handler: `ActorSubcommand::Session(args) => actor_session(args)?`
-- [ ] Implement `actor_session()`: loop, input, dispatch to `actor_run()`, counter, exit
+- [ ] Implement `actor_session()`: loop, input, dispatch to `actor_run_core()`, counter, exit
 
 ### Phase 2 — Session commands (estimate: 50-80 LoC)
 
@@ -190,7 +190,7 @@ Prefer clap parse tests (verify `ActorSessionArgs` parsing for `--max`, `--works
 
 - [ ] `actor_session_single_read_task` — starts session, sends "read file", verifies output, sends "/quit"
 - [ ] `actor_session_max_two_tasks` — `--max 2`, sends 4 tasks, verifies only 2 processed
-- [ ] `actor_session_workspace` — `--workspace /tmp/test-workspace`, sends "read file", verifies workspace passed to actor_run
+- [ ] `actor_session_workspace` — `--workspace /tmp/test-workspace`, sends "read file", verifies workspace passed to actor_run_core
 - [ ] `actor_session_quit_command` — sends "read file", "/quit", verifies early exit
 - [ ] `actor_session_simulate_only` — sends append without --approve, verifies no file created
 - [ ] `actor_session_unrecognized_task_continues` — sends garbage, verifies error but loop continues
