@@ -4667,9 +4667,49 @@ This session added two new sandboxed filesystem tools to the Tool Runtime, compl
 - No Mission Control Web or API endpoint changes
 - No Decision Gate, Graph Memory, or audit system modifications
 - No LLM/provider or runtime loop changes
-- No existing tool behavior modified
+## 34. Latest Session Update (2026-05-30 DEEP cron — sandboxed sync_file/fsync tool)
+
+This session added `sync_file` (alias: `fsync`) to the sandboxed Tool Runtime.
+
+### What was added
+
+**`crates/tool-runtime/src/lib.rs`:**
+- Added `"sync_file" | "fsync"` dispatch entry
+- Added `execute_sync_file()` — opens file, calls `sync_all()`, also syncs parent directory
+- Security: absolute paths blocked, parent-traversal blocked (SecurityBlocked), blocked files/dirs protected
+- Max file size: 1 MiB (bounded by `MAX_FILE_SIZE`)
+- Simulation-first by default (`simulate=true` unless `simulate=false` is passed)
+- 11 unit tests: simulate default, execute fsync, absolute path block, parent traversal block, nonexistent file, directory path, fsync alias, blocked file pattern, missing argument, workspace file success
+
+**`crates/cli/src/main.rs`:**
+- Added `SyncFile(ToolDemoSyncFileArgs)` enum variant to `ToolDemoSubcommand`
+- Added `ToolDemoSyncFileArgs` struct with `path` (string), `execute` (--long), `json` (--long)
+- Added dispatch line in tool demo match
+- Added `tool_demo_sync_file()` handler function
+- Added tool-list entry and mutation_tools entry
+- Added `tool inspect sync_file` / `fsync` entry with JSON schema and human display
+
+### Files changed
+
+| File | Change |
+|------|--------|
+| crates/tool-runtime/src/lib.rs | Added sync_file dispatch, execute_sync_file(), 11 unit tests |
+| crates/cli/src/main.rs | Added SyncFile variant, args, dispatch, list, inspect, demo handler |
+
+### Verification
+
+- `cargo fmt -- --check`: clean
+- `cargo check`: clean
+- `cargo test --workspace`: 987+ tests pass, 0 failures
+
+### Safety boundaries preserved
+
+- No unrestricted shell, browser, network, secrets access, email
+- No Decision Gate bypass
+- No readback-as-authorization
+- Sandboxed to workspace, simulation-first by default
+- Security-blocked for absolute paths, parent traversal, blocked files/dirs
 
 ### PR state
 
-- PR #229 (docs/sandboxed-tool-documentation): MERGEABLE, green CI -- pending GONA merge
-- PR #230 (feat/copy-move-sandboxed-tools): Created, CI pending -- DEEP cannot merge
+- PR #230 (feat/copy-move-sandboxed-tools): Updated with sync_file commit, force-pushed, mergeable -- pending GONA merge
