@@ -9616,8 +9616,8 @@ fn llm_journal_list(args: LlmJournalArgs) -> Result<(), Box<dyn Error>> {
                 "model": e.model,
                 "objective": e.objective,
                 "proposed_actions": e.proposed_actions,
-                "tool_call_intents": e.tool_call_intents,
-                "decision_gate_outcomes": e.decision_gate_outcomes,
+                "tool_call_intents": e.tool_call_intents.as_ref().map(|v| redact_journal_value(v.clone())),
+                "decision_gate_outcomes": e.decision_gate_outcomes.as_ref().map(|v| redact_journal_value(v.clone())),
                 "risk_level": e.risk_level,
                 "compute_routing": e.compute_routing,
             })).collect::<Vec<_>>(),
@@ -9740,8 +9740,8 @@ fn action_supervise(args: ActionSuperviseArgs) -> Result<(), Box<dyn Error>> {
                     "prompt_summary": e.prompt_summary,
                     "response_summary": e.response_summary,
                     "proposed_actions": e.proposed_actions,
-                    "tool_call_intents": e.tool_call_intents,
-                    "decision_gate_outcomes": e.decision_gate_outcomes,
+                    "tool_call_intents": e.tool_call_intents.as_ref().map(|v| redact_journal_value(v.clone())),
+                    "decision_gate_outcomes": e.decision_gate_outcomes.as_ref().map(|v| redact_journal_value(v.clone())),
                     "risk_level": e.risk_level,
                 })
             })
@@ -11756,12 +11756,10 @@ fn actor_session(args: ActorSessionArgs) -> Result<(), Box<dyn Error>> {
 /// journal summary, and session state. Pure readback — no mutation paths.
 fn actor_status_readback(args: ActorStatusArgs) -> Result<(), Box<dyn Error>> {
     // Gather agent info from constants/env
-    let agent_id = env::var("ARPAGONA_AGENT_ID")
-        .unwrap_or_else(|_| DEFAULT_AGENT_ID.to_owned());
-    let workspace_id = env::var("ARPAGONA_WORKSPACE_ID")
-        .unwrap_or_else(|_| DEFAULT_WORKSPACE_ID.to_owned());
-    let api_url = env::var("ARPAGONA_API_URL")
-        .unwrap_or_else(|_| DEFAULT_API_URL.to_owned());
+    let agent_id = env::var("ARPAGONA_AGENT_ID").unwrap_or_else(|_| DEFAULT_AGENT_ID.to_owned());
+    let workspace_id =
+        env::var("ARPAGONA_WORKSPACE_ID").unwrap_or_else(|_| DEFAULT_WORKSPACE_ID.to_owned());
+    let api_url = env::var("ARPAGONA_API_URL").unwrap_or_else(|_| DEFAULT_API_URL.to_owned());
 
     // Check agent-kind env var (optional)
     let agent_kind = env::var("ARPAGONA_AGENT_KIND")
@@ -11774,7 +11772,10 @@ fn actor_status_readback(args: ActorStatusArgs) -> Result<(), Box<dyn Error>> {
     let direct_tool_calls = journal
         .all_entries()
         .iter()
-        .filter(|e| e.interaction_type == arpagona_agent_core::llm_journal::LlmInteractionType::DirectToolCall)
+        .filter(|e| {
+            e.interaction_type
+                == arpagona_agent_core::llm_journal::LlmInteractionType::DirectToolCall
+        })
         .count();
     let governance_entries = journal
         .all_entries()
@@ -11804,15 +11805,36 @@ fn actor_status_readback(args: ActorStatusArgs) -> Result<(), Box<dyn Error>> {
         let status = &readback["actor_status"];
         let journal_summary = &readback["journal_summary"];
         println!("[Actor Status Readback]");
-        println!("  agent_id:       {}", status["agent_id"].as_str().unwrap_or("?"));
-        println!("  agent_kind:     {}", status["agent_kind"].as_str().unwrap_or("?"));
-        println!("  workspace_id:   {}", status["workspace_id"].as_str().unwrap_or("?"));
-        println!("  api_url:        {}", status["api_url"].as_str().unwrap_or("?"));
+        println!(
+            "  agent_id:       {}",
+            status["agent_id"].as_str().unwrap_or("?")
+        );
+        println!(
+            "  agent_kind:     {}",
+            status["agent_kind"].as_str().unwrap_or("?")
+        );
+        println!(
+            "  workspace_id:   {}",
+            status["workspace_id"].as_str().unwrap_or("?")
+        );
+        println!(
+            "  api_url:        {}",
+            status["api_url"].as_str().unwrap_or("?")
+        );
         println!();
         println!("[LLM Journal Summary]");
-        println!("  total_entries:      {}", journal_summary["total_entries"].as_u64().unwrap_or(0));
-        println!("  direct_tool_calls:  {}", journal_summary["direct_tool_calls"].as_u64().unwrap_or(0));
-        println!("  governance_entries: {}", journal_summary["governance_entries"].as_u64().unwrap_or(0));
+        println!(
+            "  total_entries:      {}",
+            journal_summary["total_entries"].as_u64().unwrap_or(0)
+        );
+        println!(
+            "  direct_tool_calls:  {}",
+            journal_summary["direct_tool_calls"].as_u64().unwrap_or(0)
+        );
+        println!(
+            "  governance_entries: {}",
+            journal_summary["governance_entries"].as_u64().unwrap_or(0)
+        );
         println!();
         println!("NON_AUTHORIZING_READBACK: This is a read-only actor status summary.");
         println!("It carries no authority to execute or approve actions.");
@@ -11863,10 +11885,27 @@ fn actor_memory_readback(args: ActorMemoryArgs) -> Result<(), Box<dyn Error>> {
     } else {
         let memory = &readback["actor_memory"];
         println!("[Actor Memory Readback]");
-        println!("  graph_memory_support_compiled: {}", memory["graph_memory_support_compiled"].as_bool().unwrap_or(false));
-        let backend = memory["configured_backend"].as_str().unwrap_or("not configured");
-        println!("  configured_backend:           {}", if backend.is_empty() { "not configured" } else { backend });
-        println!("  memory_active:                {}", memory["memory_active"].as_bool().unwrap_or(false));
+        println!(
+            "  graph_memory_support_compiled: {}",
+            memory["graph_memory_support_compiled"]
+                .as_bool()
+                .unwrap_or(false)
+        );
+        let backend = memory["configured_backend"]
+            .as_str()
+            .unwrap_or("not configured");
+        println!(
+            "  configured_backend:           {}",
+            if backend.is_empty() {
+                "not configured"
+            } else {
+                backend
+            }
+        );
+        println!(
+            "  memory_active:                {}",
+            memory["memory_active"].as_bool().unwrap_or(false)
+        );
         println!();
         println!("[Alpha Limits]");
         for limit in memory["alpha_limits"].as_array().unwrap() {
@@ -11883,6 +11922,35 @@ fn actor_memory_readback(args: ActorMemoryArgs) -> Result<(), Box<dyn Error>> {
     }
 
     Ok(())
+}
+
+/// Recursively redact sensitive fields from a journal Value for display.
+/// Replaces `content_preview` and `payload` keys at any nesting depth
+/// with a redacted marker, preventing secret exposure through readback JSON.
+fn redact_journal_value(v: serde_json::Value) -> serde_json::Value {
+    const REDACTED: &str = "[REDACTED: journal readback — use raw journal file for full detail]";
+    match v {
+        serde_json::Value::Object(map) => {
+            let mut redacted = serde_json::Map::new();
+            for (k, val) in map {
+                let key_lower = k.to_lowercase();
+                if key_lower == "content_preview"
+                    || key_lower == "payload"
+                    || key_lower == "simulation_payload"
+                    || key_lower == "raw_content"
+                {
+                    redacted.insert(k, serde_json::Value::String(REDACTED.to_owned()));
+                } else {
+                    redacted.insert(k, redact_journal_value(val));
+                }
+            }
+            serde_json::Value::Object(redacted)
+        }
+        serde_json::Value::Array(arr) => {
+            serde_json::Value::Array(arr.into_iter().map(redact_journal_value).collect())
+        }
+        other => other,
+    }
 }
 
 /// Show read-only actor journal readback: LLM journal entries
@@ -11906,7 +11974,8 @@ fn actor_journal_readback(args: ActorJournalArgs) -> Result<(), Box<dyn Error>> 
         all_entries
             .iter()
             .filter(|e| {
-                e.interaction_type == arpagona_agent_core::llm_journal::LlmInteractionType::DirectToolCall
+                e.interaction_type
+                    == arpagona_agent_core::llm_journal::LlmInteractionType::DirectToolCall
                     && e.objective.as_deref() == Some("actor_run")
             })
             .collect()
@@ -11928,8 +11997,8 @@ fn actor_journal_readback(args: ActorJournalArgs) -> Result<(), Box<dyn Error>> 
                     "objective": e.objective,
                     "prompt_summary": e.prompt_summary,
                     "response_summary": e.response_summary,
-                    "tool_call_intents": e.tool_call_intents,
-                    "decision_gate_outcomes": e.decision_gate_outcomes,
+                    "tool_call_intents": e.tool_call_intents.as_ref().map(|v| redact_journal_value(v.clone())),
+                    "decision_gate_outcomes": e.decision_gate_outcomes.as_ref().map(|v| redact_journal_value(v.clone())),
                     "risk_level": e.risk_level,
                 })
             })
@@ -17180,17 +17249,17 @@ mod tests {
     #[test]
     fn actor_journal_parses_with_interaction_type() {
         let cli = Cli::parse_from([
-            "arpagona", "actor", "journal",
-            "--interaction-type", "direct_tool_call",
+            "arpagona",
+            "actor",
+            "journal",
+            "--interaction-type",
+            "direct_tool_call",
         ]);
         match cli.command {
             Command::Actor(ActorCommand {
                 command: ActorSubcommand::Journal(args),
             }) => {
-                assert_eq!(
-                    args.interaction_type.as_deref(),
-                    Some("direct_tool_call")
-                );
+                assert_eq!(args.interaction_type.as_deref(), Some("direct_tool_call"));
             }
             _ => panic!("expected actor journal --interaction-type"),
         }
@@ -17212,9 +17281,13 @@ mod tests {
     #[test]
     fn actor_journal_parses_with_all_options() {
         let cli = Cli::parse_from([
-            "arpagona", "actor", "journal",
-            "--limit", "3",
-            "--interaction-type", "synthesis",
+            "arpagona",
+            "actor",
+            "journal",
+            "--limit",
+            "3",
+            "--interaction-type",
+            "synthesis",
             "--json",
         ]);
         match cli.command {
