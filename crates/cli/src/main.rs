@@ -8,7 +8,7 @@ use arpagona_agent_core::{
     ExecutorRegistry, ExecutorState, FailureClass, FailureInsight, FailureInsightId,
     InsightSeverity, MemoryWriteIntent, MemoryWriteKind, MemoryWriteProvenance, MemoryWriteTarget,
     ObjectiveDomain, Permission, ProposedAction, ProposedActionId, ProposedActionStatus, RiskLevel,
-    SourceId, Task, TaskId, WorkspaceId,
+    SourceId, Task, TaskId, ToolExecutionStatus, WorkspaceId,
 };
 use arpagona_compute_reservoir::{
     allocate_for_working_memory, ComputeAllocation, ComputeCapability, ComputeNode, ComputeNodeId,
@@ -1315,6 +1315,8 @@ enum ToolDemoSubcommand {
     MoveFile(ToolDemoMoveFileArgs),
     /// Run the full cognitive observation pipeline: tool execution → observation → assessment.
     Observe(ToolDemoObserveArgs),
+    /// Run the First Useful Actor Lab: governed local file action with simulation, approval, execution, and readback.
+    ActorLab(ToolDemoActorLabArgs),
 }
 
 #[derive(Debug, Args)]
@@ -1462,6 +1464,26 @@ struct ToolDemoObserveArgs {
     tool_name: String,
     /// JSON arguments for the tool, e.g. '{"path": "Cargo.toml"}'.
     json_args: String,
+    /// Emit structured JSON instead of human-oriented text.
+    #[arg(long)]
+    json: bool,
+}
+
+#[derive(Debug, Args)]
+struct ToolDemoActorLabArgs {
+    /// Workspace-relative note file used by the lab.
+    #[arg(long, default_value = "actor-lab/NOTES.md")]
+    path: String,
+    /// Note content appended by the supervised actor. A trailing newline is added if missing.
+    #[arg(
+        long,
+        allow_hyphen_values = true,
+        default_value = "- First Useful Actor Lab: governed sandboxed local action proved end-to-end."
+    )]
+    note: String,
+    /// Explicitly approve the simulated proposal and perform the sandboxed append.
+    #[arg(long)]
+    approve: bool,
     /// Emit structured JSON instead of human-oriented text.
     #[arg(long)]
     json: bool,
@@ -2159,6 +2181,7 @@ async fn run() -> Result<(), Box<dyn Error>> {
                 ToolDemoSubcommand::CopyFile(args) => tool_demo_copy_file(args)?,
                 ToolDemoSubcommand::MoveFile(args) => tool_demo_move_file(args)?,
                 ToolDemoSubcommand::Observe(args) => tool_demo_observe(args)?,
+                ToolDemoSubcommand::ActorLab(args) => tool_demo_actor_lab(args)?,
             },
         },
         Command::Cognitive(cognitive) => match cognitive.command {
@@ -5410,6 +5433,223 @@ fn tool_demo_observe(args: ToolDemoObserveArgs) -> Result<(), Box<dyn Error>> {
         println!();
         println!("Full pipeline output available with --json");
     }
+    Ok(())
+}
+
+const ACTOR_LAB_WARNING: &str = "⚠️  First Useful Actor Lab — supervised local sandbox only. Simulation first; execution requires --approve. ⚠️";
+
+fn tool_demo_actor_lab(args: ToolDemoActorLabArgs) -> Result<(), Box<dyn Error>> {
+    let note = if args.note.ends_with('\n') {
+        args.note.clone()
+    } else {
+        format!("{}\n", args.note)
+    };
+    let user_task = format!(
+        "Append one supervised note to the workspace-local lab file `{}` and read it back.",
+        args.path
+    );
+
+    let simulate_args = serde_json::json!({
+        "path": args.path,
+        "content": note,
+        "create_parent_dirs": true,
+        "create_if_missing": true,
+        "simulate": true,
+    });
+
+    let intent = ToolCallIntent {
+        tool: "append_file".to_owned(),
+        arguments: simulate_args.clone(),
+        rationale: "First Useful Actor Lab: prove governed local file action via simulation before explicit approval.".to_owned(),
+        risk_level: RiskLevel::Low,
+    };
+
+    let (decision, proposed_action) = govern_tool_call(&intent, &[Permission::ProposeToolUse]);
+    let runtime = ToolRuntime::new(ToolRuntimeConfig::new("."));
+    let simulation_result = if decision.status == DecisionStatus::Approved {
+        Some(runtime.execute("append_file", &simulate_args))
+    } else {
+        None
+    };
+
+    let simulation_succeeded = simulation_result
+        .as_ref()
+        .map(|result| result.status == ToolExecutionStatus::Success)
+        .unwrap_or(false);
+
+    let execute_args = serde_json::json!({
+        "path": args.path,
+        "content": note,
+        "create_parent_dirs": true,
+        "create_if_missing": true,
+        "simulate": false,
+    });
+
+    let execution_result =
+        if args.approve && decision.status == DecisionStatus::Approved && simulation_succeeded {
+            Some(runtime.execute("append_file", &execute_args))
+        } else {
+            None
+        };
+
+    let readback_result = execution_result
+        .as_ref()
+        .filter(|result| result.status == ToolExecutionStatus::Success)
+        .map(|_| runtime.execute("read_file", &serde_json::json!({"path": args.path})));
+
+    let observed_result = readback_result
+        .as_ref()
+        .or(execution_result.as_ref())
+        .or(simulation_result.as_ref())
+        .ok_or("Actor Lab could not produce a tool execution result to observe")?;
+    let cognitive_observation =
+        arpagona_agent_core::CognitiveObservation::from_tool_execution(observed_result);
+    let assessment = arpagona_agent_core::assess_observation(&cognitive_observation);
+
+    let approval_state = if args.approve {
+        if execution_result
+            .as_ref()
+            .map(|result| result.status == ToolExecutionStatus::Success)
+            .unwrap_or(false)
+        {
+            "approved_and_executed"
+        } else {
+            "approved_but_not_executed"
+        }
+    } else {
+        "simulation_only_waiting_for_explicit_approval"
+    };
+
+    let journal_entry_id = {
+        let mut journal = global_llm_journal().lock().unwrap();
+        journal.add_direct_tool_call(
+            "first_useful_actor_lab",
+            "cli",
+            None,
+            user_task.clone(),
+            format!(
+                "Actor Lab {}: decision={:?}, simulation={}, execution={}",
+                approval_state,
+                decision.status,
+                simulation_result
+                    .as_ref()
+                    .map(|result| format!("{:?}", result.status))
+                    .unwrap_or_else(|| "not_run".to_owned()),
+                execution_result
+                    .as_ref()
+                    .map(|result| format!("{:?}", result.status))
+                    .unwrap_or_else(|| "not_run".to_owned())
+            ),
+            serde_json::json!({
+                "lab": "first_useful_actor_lab",
+                "user_task": user_task,
+                "tool": "append_file",
+                "simulate_arguments": simulate_args,
+                "execute_arguments": execute_args,
+                "approval_flag": args.approve,
+            }),
+            serde_json::json!({
+                "decision_id": decision.id,
+                "decision_status": decision.status,
+                "decision_reason": decision.reason,
+                "proposed_action_id": proposed_action.id,
+                "approval_state": approval_state,
+                "simulation_result": simulation_result,
+                "execution_result": execution_result,
+                "readback_result": readback_result,
+                "cognitive_observation": cognitive_observation,
+                "assessment": assessment,
+                "non_authorizing": true,
+            }),
+            Some(RiskLevel::Low),
+        )
+    };
+
+    if args.json {
+        let output = serde_json::json!({
+            "lab": "first_useful_actor_lab",
+            "warning": ACTOR_LAB_WARNING,
+            "user_task": user_task,
+            "proposed_action": {
+                "id": proposed_action.id,
+                "action_type": proposed_action.action_type,
+                "target": proposed_action.target,
+                "risk_level": proposed_action.risk_level,
+            },
+            "decision": {
+                "id": decision.id,
+                "status": decision.status,
+                "reason": decision.reason,
+                "risk_level": decision.risk_level,
+                "policies_applied": decision.policies_applied,
+            },
+            "simulation_result": simulation_result,
+            "approval_state": approval_state,
+            "execution_result": execution_result,
+            "readback_result": readback_result,
+            "cognitive_observation": cognitive_observation,
+            "assessment": assessment,
+            "journal_entry_id": journal_entry_id,
+            "next_step": if args.approve { "Inspect readback_result and journal_entry_id." } else { "Rerun with --approve to perform the sandboxed append." },
+            "non_authorizing": true,
+        });
+        println!("{}", serde_json::to_string_pretty(&output)?);
+    } else {
+        println!("{ACTOR_LAB_WARNING}");
+        println!();
+        println!("🧪 First Useful Actor Lab");
+        println!("   Mission: {user_task}");
+        println!();
+        println!("━━━ 1. Proposed sandboxed action ━━━");
+        println!("   Tool:        append_file");
+        println!("   Path:        {}", args.path);
+        println!("   Risk:        Low");
+        println!("   Proposal ID: {}", proposed_action.id);
+        println!();
+        println!("━━━ 2. Decision Gate ━━━");
+        println!("   Decision:    {:?}", decision.status);
+        println!("   Decision ID: {}", decision.id);
+        println!("   Reason:      {}", decision.reason);
+        println!();
+        println!("━━━ 3. Simulation / diff preview ━━━");
+        if let Some(result) = &simulation_result {
+            println!("   Status:      {:?}", result.status);
+            println!("   Summary:     {}", result.output_summary);
+            println!("   Would append: {:?}", note);
+        } else {
+            println!("   Status:      not run because governance did not approve simulation");
+        }
+        println!();
+        println!("━━━ 4. Explicit approval path ━━━");
+        if args.approve {
+            println!("   Approval:    --approve supplied");
+        } else {
+            println!("   Approval:    missing — simulation only");
+            println!("   Next step:   rerun with --approve to execute the sandboxed append");
+        }
+        println!();
+        println!("━━━ 5. Execution + readback ━━━");
+        if let Some(result) = &execution_result {
+            println!("   Execution:   {:?}", result.status);
+            println!("   Summary:     {}", result.output_summary);
+            if let Some(readback) = &readback_result {
+                println!("   Readback:    {:?}", readback.status);
+                println!("   Summary:     {}", readback.output_summary);
+            }
+        } else {
+            println!("   Execution:   not run");
+        }
+        println!();
+        println!("━━━ 6. Observation / audit readback ━━━");
+        println!("   Observation: {:?}", cognitive_observation.status);
+        println!("   Useful:      {}", assessment.is_useful);
+        println!("   Complete:    {}", assessment.is_complete);
+        println!("   Journal ID:  {}", journal_entry_id);
+        println!("   Warning:     readback is evidence, not authorization");
+        println!();
+        println!("Full lab output available with --json");
+    }
+
     Ok(())
 }
 
@@ -14666,6 +14906,36 @@ mod tests {
                 assert!(args.json);
             }
             _ => panic!("expected tool govern with medium risk"),
+        }
+    }
+
+    #[test]
+    fn tool_demo_actor_lab_parses_approval_path() {
+        let cli = Cli::parse_from([
+            "arpagona",
+            "tool",
+            "demo",
+            "actor-lab",
+            "--path",
+            "actor-lab/NOTES.md",
+            "--note",
+            "- test note",
+            "--approve",
+            "--json",
+        ]);
+        match cli.command {
+            Command::Tool(ToolCommand {
+                command:
+                    ToolSubcommand::Demo(ToolDemoCommand {
+                        command: ToolDemoSubcommand::ActorLab(args),
+                    }),
+            }) => {
+                assert_eq!(args.path, "actor-lab/NOTES.md");
+                assert_eq!(args.note, "- test note");
+                assert!(args.approve);
+                assert!(args.json);
+            }
+            _ => panic!("expected tool demo actor-lab"),
         }
     }
 
