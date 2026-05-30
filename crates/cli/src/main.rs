@@ -8737,12 +8737,23 @@ async fn cognitive_run(
             // When --llm, run LLM synthesis and inject into output
             if args.llm {
                 let wm = &result.working_memory;
+                let mut context_details = String::new();
+                for (i, item) in wm.context_items.iter().enumerate() {
+                    context_details.push_str(&format!(
+                        "\nContext item {}: key={}, value={}, source={}",
+                        i + 1,
+                        item.key,
+                        item.value,
+                        item.source,
+                    ));
+                }
                 let wm_summary = format!(
-                    "Domain: {:?}\nSensitivity: {:?}\nComplexity: {:.2}\nContext items: {}\nMissing context: {}\nAssumptions: {}\nProposed next action: {:?}",
+                    "Domain: {:?}\nSensitivity: {:?}\nComplexity: {:.2}\nContext items: {}{}\nMissing context: {}\nAssumptions: {}\nProposed next action: {:?}",
                     result.objective.domain,
                     wm.sensitivity_estimate,
                     wm.complexity_estimate,
                     wm.context_items.len(),
+                    context_details,
                     wm.missing_context.len(),
                     wm.assumptions.len(),
                     wm.proposed_next_action.as_ref().map(|a| &a.kind),
