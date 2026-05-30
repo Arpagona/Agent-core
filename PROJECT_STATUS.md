@@ -3947,4 +3947,58 @@ This session created the P3-14 milestone: connecting orchestrated context assemb
 ### Recommended next step for GONA
 
 1. Review and merge PR #201.
+
+## 28. Latest Session Update (2026-05-30 — CycleTrace auto-naming for orchestrator run --save-trace)
+
+This session added auto-naming support to `orchestrator run --save-trace`, advancing Phase 3 operator workflow:
+
+**Changed:**
+- `--save-trace` argument changed from required-value to optional-value (`num_args = 0..=1` + `default_missing_value = "auto"`)
+- When `--save-trace` is used without an explicit path: auto-generates a unique filename in `target/orchestrator-traces/` using cycle ID and timestamp (e.g. `target/orchestrator-traces/cycle-oc-1717000000-20260530T060000.json`)
+- When `--save-trace <path>` is used: saves to explicit path (backward compatible)
+- New test: `cli_parses_orchestrator_run_with_save_trace_auto` proves `--save-trace` alone parses as `Some("auto")`
+- Updated `docs/cli.md` to document both usage patterns
+
+**Auto-naming implementation (crates/cli/src/main.rs):**
+```rust
+let actual_path = if save_trace_val == "auto" {
+    let dir = "target/orchestrator-traces";
+    std::fs::create_dir_all(dir).ok();
+    format!("{}/cycle-{}-{}.json", dir, trace.cycle_id, trace.created_at.format("%Y%m%dT%H%M%S"))
+} else {
+    save_trace_val.clone()
+};
+```
+
+**Verification:**
+- `cargo fmt -- --check`: ✅
+- `cargo check`: ✅
+- `cargo test`: ✅ (full workspace, 0 failures)
+- 14 orchestrator CLI tests pass including new auto-naming test
+
+**Stability level:** Alpha CLI supervision surface (file I/O extension to existing --save-trace flag).
+
+**Safety boundaries preserved:**
+- No network access, no authorization, no execution
+- Auto-naming is pure file I/O — JSON serialization of existing CycleTrace struct
+- No scheduler, autonomy, browser, email, MCP, secrets, Decision Gate bypass
+- Traces remain `non_authorizing: true`
+- No existing behavior modified or bypassed
+
+**PR state:**
+- **PR #210** (`feat/p3-20-save-trace-auto-naming`) — new, CI pending. Contains this session's work.
+- **PR #209** (`feat/p3-orchestrator-cycles`) — OPEN, MERGEABLE, CI green. Ready for GONA merge.
+- **PR #201** — ✅ **MERGED**. P3-14: CycleTrace → FailureInsightCandidate bridge.
+- Stacked PRs #197-#208 (except #201) — still open, waiting GONA merge.
+
+**Deliberately not changed:**
+- `orchestrator status` command (still reads from explicit path or default)
+- CycleTrace struct definition
+- Audit system integration (deferred — auto-naming is a prerequisite)
+- Any crate boundary, Decision Gate behavior, runtime loop, or existing test
+
+**Recommended next step for GONA:**
+1. Review and merge PR #209 (orchestrator cycles list).
+2. Review and merge PR #210 (this session's auto-naming).
+3. Then connect CycleTrace to the governed Audit system for persistent trace storage across invocations.
 2. Next: connect CycleTrace metadata to Compute Reservoir cost/quality feedback, or add dedicated CLI surface (`orchestrator insights <trace-path>`).
