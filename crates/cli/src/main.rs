@@ -10255,6 +10255,18 @@ fn handle_run(args: RunArgs) -> Result<(), Box<dyn Error>> {
         .map(|a| format!("{:?}", a.risk_level))
         .unwrap_or_else(|| "unknown".to_owned());
 
+    // Build compute route info for operator visibility (provider/model path)
+    let route_display = cycle.compute_route_result.selected_route_label.clone();
+
+    // Governance status: audit event count and gate applied status
+    let audit_count = outcome.audit_event_ids.len();
+    let gate_status = if outcome.gate_was_applied {
+        "applied"
+    } else {
+        "not applied"
+    };
+    let governance_info = format!("{} event(s) | Gate {}", audit_count, gate_status);
+
     // Clean, human-readable output — no governance jargon
     println!();
     println!("{}", style_brand("  ❍ ARPAGONA"));
@@ -10266,22 +10278,12 @@ fn handle_run(args: RunArgs) -> Result<(), Box<dyn Error>> {
         decision_icon(&decision_status),
         style_decision(&decision_status)
     );
-    println!("  Summary     {}", strip_gate_jargon(&outcome.summary));
+    println!("  Compute     {}", route_display);
+    println!("  Audit       {}", governance_info);
     println!("  Cycle       {}", outcome.cycle_id);
     println!();
 
     Ok(())
-}
-
-/// Remove internal governance jargon from summary output for human readability.
-fn strip_gate_jargon(text: &str) -> String {
-    text.replace("action ReadDocument evaluated by Decision Gate as ", "")
-        .replace("Deterministic cycle completed — ", "")
-        .replace("evaluated by Decision Gate as ", "")
-        .replace("Decision Gate", "")
-        .replace("  ", " ")
-        .trim()
-        .to_string()
 }
 
 /// Bold text helper.

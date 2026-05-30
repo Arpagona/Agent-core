@@ -142,3 +142,75 @@ A useful near-term alpha should let a human operator run local CLI commands to u
 - what remains pending.
 
 That is the practical bridge between the current Rust foundation and a future Mission Control Web interface.
+
+## 9. Local Development Workflow
+
+### 9.1. Smoke testing
+
+Use `scripts/smoke-human-cli.sh` for a quick human-path smoke check:
+
+```bash
+# Quick smoke (pre-built binary, ~20s):
+bash scripts/smoke-human-cli.sh
+
+# Full smoke including orchestrator trace, compute routing, audit (requires pre-built binary, ~60s):
+bash scripts/smoke-human-cli.sh --all
+
+# Rebuild first, then smoke:
+bash scripts/smoke-human-cli.sh --build --all
+```
+
+Each command has a 20-second timeout. Failures are reported individually. Exit code = number of failed tests.
+
+### 9.2. Process doctor
+
+Use `scripts/dev-process-doctor.sh` to inspect stale development processes:
+
+```bash
+# Read-only report:
+bash scripts/dev-process-doctor.sh
+
+# With kill prompts:
+bash scripts/dev-process-doctor.sh --kill
+```
+
+The doctor inspects:
+- running `arpagona-api-server` and `arpagona chat` processes;
+- port occupancy (3000, 3001);
+- cargo build/check contention.
+
+### 9.3. CARGO_TARGET_DIR convention
+
+When DEEP (Hermes) and a human operator or GONA both use the same repo, `cargo build` contention on the shared `target/` directory makes the CLI unusable for the second party. Two recommended approaches:
+
+**Option A — dedicated binary path (preferred for smoke tests)**
+
+Build once, then use `target/debug/arpagona` directly instead of `cargo run`:
+
+```bash
+# Agent/CI builds:
+cargo build -p arpagona-cli
+
+# Human smoke (does not trigger cargo):
+target/debug/arpagona run "mon objectif"
+target/debug/arpagona status
+```
+
+**Option B — per-profile target directories (advanced)**
+
+Set `CARGO_TARGET_DIR` per agent profile to prevent build contention entirely:
+
+```bash
+# deep profile (Hermes):
+export CARGO_TARGET_DIR=target/deep
+
+# gona profile:
+export CARGO_TARGET_DIR=target/gona
+
+# human/operator:
+export CARGO_TARGET_DIR=target/human
+```
+
+This prevents lock contention but requires separate builds per profile. Useful when DEEP is compiling while the operator wants to run.
+
+**Convention: prefer Option A** unless build contention causes daily friction. Document the per-profile target choice in the agent's profile config if switching to Option B.
