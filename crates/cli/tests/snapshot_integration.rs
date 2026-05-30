@@ -961,3 +961,55 @@ fn cognitive_llm_mock_provides_proposal_only_synthesis() {
         "no proposed actions by --llm alone"
     );
 }
+
+/// Smoke test for the top-level `run` command.
+///
+/// Verifies that `arpagona run "<objective>"` produces clean, readable output:
+/// - no JSON
+/// - no internal governance jargon like "Decision Gate"
+/// - contains the objective text, action, decision status, and a cycle ID
+#[test]
+fn run_command_produces_clean_readable_output() {
+    let output = std::process::Command::new(ARPAGONA_BIN)
+        .args(["run", "Smoke test objective"])
+        .output()
+        .expect("failed to run arpagona run");
+
+    assert!(
+        output.status.success(),
+        "arpagona run failed:\nstdout: {}\nstderr: {}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr),
+    );
+
+    let stdout = String::from_utf8(output.stdout).expect("valid utf-8");
+
+    // Should NOT contain governance jargon or JSON markers
+    assert!(
+        !stdout.contains("Decision Gate"),
+        "output should not contain 'Decision Gate' jargon\n{}",
+        stdout
+    );
+    assert!(
+        !stdout.contains(r#""cycle_id""#),
+        "output should not contain raw JSON\n{}",
+        stdout
+    );
+
+    // Should contain clean readable fields
+    assert!(
+        stdout.contains("Smoke test objective"),
+        "output should contain the objective text\n{}",
+        stdout
+    );
+    assert!(
+        stdout.contains("Decision"),
+        "output should contain a Decision line\n{}",
+        stdout
+    );
+    assert!(
+        stdout.contains("Cycle"),
+        "output should contain a Cycle line\n{}",
+        stdout
+    );
+}
