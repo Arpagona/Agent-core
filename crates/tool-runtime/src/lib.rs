@@ -895,10 +895,7 @@ impl ToolRuntime {
                 return ToolExecutionResult::failed(
                     execution_id,
                     "patch_file",
-                    ToolExecutionError::new(
-                        "missing_argument",
-                        "Required argument: old_string",
-                    ),
+                    ToolExecutionError::new("missing_argument", "Required argument: old_string"),
                     "Missing 'old_string' argument for patch_file",
                 );
             }
@@ -948,7 +945,10 @@ impl ToolRuntime {
                 return ToolExecutionResult::failed(
                     execution_id,
                     "patch_file",
-                    ToolExecutionError::new("file_not_found", format!("File not found: {path_str}")),
+                    ToolExecutionError::new(
+                        "file_not_found",
+                        format!("File not found: {path_str}"),
+                    ),
                     format!("Target file does not exist: {path_str}"),
                 );
             }
@@ -995,9 +995,7 @@ impl ToolRuntime {
                 "patch_file",
                 ToolExecutionError::new(
                     "binary_file",
-                    format!(
-                        "Cannot patch file as text: {path_str} appears to be a binary file"
-                    ),
+                    format!("Cannot patch file as text: {path_str} appears to be a binary file"),
                 ),
                 "File appears to be binary and cannot be patched as text",
             );
@@ -1025,9 +1023,7 @@ impl ToolRuntime {
                 "patch_file",
                 ToolExecutionError::new(
                     "pattern_not_found",
-                    format!(
-                        "Pattern not found in {path_str}: {old_string:?}"
-                    ),
+                    format!("Pattern not found in {path_str}: {old_string:?}"),
                 ),
                 format!("The specified pattern was not found in {path_str}"),
             );
