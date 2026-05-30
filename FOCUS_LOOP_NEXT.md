@@ -8,7 +8,7 @@ It must contain one concrete next action only. The runtime milestone queue and l
 
 **main is green:** ✅ Full workspace tests pass.
 
-**PR #TODO** (`feat/p3-orchestrator-cycles`) — **NEW**. Contains:
+**PR #209** (`feat/p3-orchestrator-cycles`) — **NEW**, CI pending. Contains:
 - New `orchestrator cycles` CLI command to list saved CycleTrace files from a directory
 - `list_orchestrator_cycles_in_directory()` scans `.json` files, deserializes CycleTrace, returns structured listing metadata (cycle ID, objective, status, context sources, gate applied, non-authorizing, failure insight candidates, audit events, timestamp)
 - Supports `--json` for structured output
