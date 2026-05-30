@@ -1305,6 +1305,10 @@ enum ToolDemoSubcommand {
     WriteFile(ToolDemoWriteFileArgs),
     /// Demo the sandboxed patch_file tool (exact-match text replacement).
     PatchFile(ToolDemoPatchFileArgs),
+    /// Demo the sandboxed append_file tool.
+    AppendFile(ToolDemoAppendFileArgs),
+    /// Demo the sandboxed mkdir tool.
+    Mkdir(ToolDemoMkdirArgs),
     /// Run the full cognitive observation pipeline: tool execution → observation → assessment.
     Observe(ToolDemoObserveArgs),
 }
@@ -1374,6 +1378,41 @@ struct ToolDemoPatchFileArgs {
     /// Replace all occurrences instead of just the first.
     #[arg(long)]
     replace_all: bool,
+    /// Emit structured JSON instead of human-oriented text.
+    #[arg(long)]
+    json: bool,
+}
+
+#[derive(Debug, Args)]
+struct ToolDemoAppendFileArgs {
+    /// Path to the file to append to (relative to workspace).
+    path: String,
+    /// Content to append.
+    content: String,
+    /// Actually append. Without this flag, append_file only simulates.
+    #[arg(long)]
+    execute: bool,
+    /// Allow creating missing parent directories.
+    #[arg(long)]
+    create_parent_dirs: bool,
+    /// Allow creating the file if it does not exist.
+    #[arg(long, default_value_t = true)]
+    create_if_missing: bool,
+    /// Emit structured JSON instead of human-oriented text.
+    #[arg(long)]
+    json: bool,
+}
+
+#[derive(Debug, Args)]
+struct ToolDemoMkdirArgs {
+    /// Directory path to create (relative to workspace).
+    path: String,
+    /// Actually create the directory. Without this flag, mkdir only simulates.
+    #[arg(long)]
+    execute: bool,
+    /// Create parent directories as needed.
+    #[arg(long)]
+    parents: bool,
     /// Emit structured JSON instead of human-oriented text.
     #[arg(long)]
     json: bool,
@@ -2077,6 +2116,8 @@ async fn run() -> Result<(), Box<dyn Error>> {
                 ToolDemoSubcommand::SearchText(args) => tool_demo_search_text(args)?,
                 ToolDemoSubcommand::WriteFile(args) => tool_demo_write_file(args)?,
                 ToolDemoSubcommand::PatchFile(args) => tool_demo_patch_file(args)?,
+                ToolDemoSubcommand::AppendFile(args) => tool_demo_append_file(args)?,
+                ToolDemoSubcommand::Mkdir(args) => tool_demo_mkdir(args)?,
                 ToolDemoSubcommand::Observe(args) => tool_demo_observe(args)?,
             },
         },
@@ -4379,9 +4420,19 @@ fn tool_list(args: ToolListArgs) -> Result<(), Box<dyn Error>> {
             "Exact-match text replacement in a workspace file; simulates by default",
             "Transformation",
         ),
+        (
+            "append_file",
+            "Append to a workspace-bounded file; simulates by default",
+            "Transformation",
+        ),
+        (
+            "mkdir",
+            "Create a workspace-bounded directory; simulates by default",
+            "Transformation",
+        ),
     ];
 
-    let mutation_tools = ["write_file", "patch_file"];
+    let mutation_tools = ["write_file", "patch_file", "append_file", "mkdir"];
 
     if args.json {
         let output: Vec<serde_json::Value> = tools
@@ -4660,6 +4711,77 @@ fn tool_inspect(args: ToolInspectArgs) -> Result<(), Box<dyn Error>> {
                 println!("  Sensitive files:          blocked (.env, .ssh, id_rsa, id_ed25519)");
                 println!("  Max file size:            256 KiB");
                 println!("  Binary files:             blocked");
+            }
+        }
+        "append_file" => {
+            let info = serde_json::json!({
+                "name": "append_file",
+                "description": "Append content to a file within the workspace; simulate by default",
+                "cognitive_role": ["Transformation"],
+                "read_only": false,
+                "sandboxed": true,
+                "alpha": true,
+                "arguments": {
+                    "path": {"type": "string", "description": "File to append to, relative to workspace", "required": true},
+                    "content": {"type": "string", "description": "Content to append", "required": true},
+                    "simulate": {"type": "boolean", "default": true},
+                    "create_parent_dirs": {"type": "boolean", "default": false},
+                    "create_if_missing": {"type": "boolean", "default": true}
+                },
+                "security": {
+                    "absolute_paths": "blocked",
+                    "parent_traversal": "blocked",
+                    "sensitive_files": "blocked (.env, .ssh, id_rsa, id_ed25519)",
+                    "blocked_dirs": ".git, target, node_modules, .env, .ssh",
+                    "max_result_size": "256 KiB"
+                }
+            });
+            if args.json {
+                println!("{}", serde_json::to_string_pretty(&info)?);
+            } else {
+                println!("{DEMO_TOOL_WARNING}");
+                println!();
+                println!("Tool: append_file");
+                println!("  Description:   Append to a file within the workspace");
+                println!("  Cognitive role: Transformation");
+                println!("  Read-only:     no — sandboxed; simulate by default");
+                println!(
+                    "Arguments: path, content, simulate, create_parent_dirs, create_if_missing"
+                );
+                println!("Security: absolute paths/.. blocked; sensitive files blocked; max result 256 KiB");
+            }
+        }
+        "mkdir" | "create_dir" => {
+            let info = serde_json::json!({
+                "name": "mkdir",
+                "aliases": ["create_dir"],
+                "description": "Create a directory within the workspace; simulate by default",
+                "cognitive_role": ["Transformation"],
+                "read_only": false,
+                "sandboxed": true,
+                "alpha": true,
+                "arguments": {
+                    "path": {"type": "string", "description": "Directory path relative to workspace", "required": true},
+                    "simulate": {"type": "boolean", "default": true},
+                    "parents": {"type": "boolean", "default": false}
+                },
+                "security": {
+                    "absolute_paths": "blocked",
+                    "parent_traversal": "blocked",
+                    "blocked_dirs": ".git, target, node_modules, .env, .ssh"
+                }
+            });
+            if args.json {
+                println!("{}", serde_json::to_string_pretty(&info)?);
+            } else {
+                println!("{DEMO_TOOL_WARNING}");
+                println!();
+                println!("Tool: mkdir (alias: create_dir)");
+                println!("  Description:   Create a directory within the workspace");
+                println!("  Cognitive role: Transformation");
+                println!("  Read-only:     no — sandboxed; simulate by default");
+                println!("Arguments: path, simulate, parents");
+                println!("Security: absolute paths/.. blocked; blocked dirs protected");
             }
         }
         other => {
@@ -4942,6 +5064,70 @@ fn tool_demo_patch_file(args: ToolDemoPatchFileArgs) -> Result<(), Box<dyn Error
             arpagona_agent_core::ToolExecutionStatus::Skipped => println!("Status: Skipped"),
         }
         println!();
+        println!("Full result available with --json");
+    }
+    Ok(())
+}
+
+fn tool_demo_append_file(args: ToolDemoAppendFileArgs) -> Result<(), Box<dyn Error>> {
+    let runtime = ToolRuntime::new(ToolRuntimeConfig::new("."));
+    let result = runtime.execute(
+        "append_file",
+        &serde_json::json!({
+            "path": args.path,
+            "content": args.content,
+            "simulate": !args.execute,
+            "create_parent_dirs": args.create_parent_dirs,
+            "create_if_missing": args.create_if_missing,
+        }),
+    );
+
+    if args.json {
+        println!("{}", serde_json::to_string_pretty(&result)?);
+    } else {
+        println!("{DEMO_TOOL_WARNING}");
+        println!();
+        println!("Tool demo: append_file");
+        println!(
+            "   Mode: {}",
+            if args.execute { "execute" } else { "simulate" }
+        );
+        println!("   Status: {:?}", result.status);
+        println!("   {}", result.output_summary);
+        if let Some(error) = &result.error {
+            println!("   Error: {}", error.message);
+        }
+        println!("Full result available with --json");
+    }
+    Ok(())
+}
+
+fn tool_demo_mkdir(args: ToolDemoMkdirArgs) -> Result<(), Box<dyn Error>> {
+    let runtime = ToolRuntime::new(ToolRuntimeConfig::new("."));
+    let result = runtime.execute(
+        "mkdir",
+        &serde_json::json!({
+            "path": args.path,
+            "simulate": !args.execute,
+            "parents": args.parents,
+        }),
+    );
+
+    if args.json {
+        println!("{}", serde_json::to_string_pretty(&result)?);
+    } else {
+        println!("{DEMO_TOOL_WARNING}");
+        println!();
+        println!("Tool demo: mkdir");
+        println!(
+            "   Mode: {}",
+            if args.execute { "execute" } else { "simulate" }
+        );
+        println!("   Status: {:?}", result.status);
+        println!("   {}", result.output_summary);
+        if let Some(error) = &result.error {
+            println!("   Error: {}", error.message);
+        }
         println!("Full result available with --json");
     }
     Ok(())
