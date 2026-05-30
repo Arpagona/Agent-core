@@ -889,7 +889,7 @@ impl CycleTrace {
             if let Some(ref justification) = self.compute_route_justification {
                 lines.push(format!("  Why:       {}", justification));
             }
-            // Structured compute metadata
+            // Structured compute metadata — enriched for operator visibility
             let cost_str = self
                 .expected_cost_cents
                 .map(|c| format!("${}.{:02}", c / 100, c % 100))
@@ -899,18 +899,31 @@ impl CycleTrace {
                 .map(|l| format!("{}ms", l))
                 .unwrap_or_default();
             let kind_str = self.compute_resource_kind.as_deref().unwrap_or_default();
-            let mut meta_parts: Vec<&str> = vec![];
-            if !kind_str.is_empty() {
-                meta_parts.push(kind_str);
-            }
-            if !cost_str.is_empty() {
-                meta_parts.push(&cost_str);
-            }
-            if !latency_str.is_empty() {
-                meta_parts.push(&latency_str);
-            }
-            if !meta_parts.is_empty() {
-                lines.push(format!("  Cost:      {}", meta_parts.join(", ")));
+
+            // Build a structured efficiency explanation line
+            let efficiency_parts: Vec<String> = [
+                if !kind_str.is_empty() {
+                    Some(kind_str.to_owned())
+                } else {
+                    None
+                },
+                if !cost_str.is_empty() {
+                    Some(format!("Est. cost: {}", cost_str))
+                } else {
+                    None
+                },
+                if !latency_str.is_empty() {
+                    Some(format!("Est. latency: {}", latency_str))
+                } else {
+                    None
+                },
+            ]
+            .into_iter()
+            .flatten()
+            .collect();
+
+            if !efficiency_parts.is_empty() {
+                lines.push(format!("  Eff:       {}", efficiency_parts.join(" — ")));
             }
         }
 
@@ -1002,15 +1015,24 @@ pub fn build_demo_orchestrator_cycle(
         objective.id.clone(),
     );
 
-    let compute_route = ComputeRouteResult::new(
-        ComputeRouteId::new(format!("cr-{}", now.timestamp())),
-        input.cycle_id.clone(),
-        objective.id.clone(),
-        context_bundle.id.clone(),
-        "local_deterministic",
-        true,
-        "Local deterministic compute selected by default for V0 demo cycle.",
-    );
+    let compute_route = {
+        let mut route = ComputeRouteResult::new(
+            ComputeRouteId::new(format!("cr-{}", now.timestamp())),
+            input.cycle_id.clone(),
+            objective.id.clone(),
+            context_bundle.id.clone(),
+            "local_deterministic",
+            true,
+            "Local deterministic compute selected by default for V0 demo cycle.",
+        );
+        // Set structured efficiency metadata for operator visibility.
+        // Local deterministic compute costs $0 (no API calls) and runs
+        // sub-50ms in-process — both are visible in cycle trace output.
+        route.expected_cost_cents = Some(0);
+        route.expected_latency_ms = Some(50);
+        route.compute_resource_kind = Some("LocalDeterministic".to_owned());
+        route
+    };
 
     let proposal_request = ProposalRequest::new(
         input.cycle_id.clone(),
@@ -1448,6 +1470,9 @@ mod tests {
         ];
         trace.total_context_items = 2;
         trace.compute_route_label = Some("local".to_owned());
+        trace.expected_cost_cents = Some(0);
+        trace.expected_latency_ms = Some(50);
+        trace.compute_resource_kind = Some("LocalDeterministic".to_owned());
 
         let output = trace.format();
         assert!(output.contains("oc-1"));
@@ -1458,7 +1483,68 @@ mod tests {
         assert!(output.contains("items=0"));
         assert!(output.contains("Total: 2 items"));
         assert!(output.contains("Compute:     local"));
+        assert!(output.contains("Eff:"));
+        assert!(output.contains("Est. cost: $0.00"));
+        assert!(output.contains("Est. latency: 50ms"));
+        assert!(output.contains("LocalDeterministic"));
         assert!(output.contains("Non-auth:    true"));
+    }
+
+    #[test]
+    fn cycle_trace_format_efficiency_shows_when_metadata_present() {
+        // When cost/latency/kind are set, the format output includes
+        // a structured efficiency explanation for operator visibility.
+        let mut trace = CycleTrace::new(
+            OrchestratorCycleId::new("oc-eff-1"),
+            "Efficiency test",
+            "Completed",
+            "Metadata verification",
+        );
+        trace.compute_route_label = Some("local_ollama_qwen3.5".to_owned());
+        trace.compute_route_justification =
+            Some("Sensitive data requires local processing.".to_owned());
+        trace.expected_cost_cents = Some(0);
+        trace.expected_latency_ms = Some(1200);
+        trace.compute_resource_kind = Some("LocalLlm".to_owned());
+
+        let output = trace.format();
+        assert!(output.contains("Compute:     local_ollama_qwen3.5"));
+        assert!(output.contains("Why:       Sensitive data requires local processing."));
+        assert!(
+            output.contains("Eff:"),
+            "format() must include Eff: line when efficiency metadata is present"
+        );
+        assert!(
+            output.contains("LocalLlm"),
+            "format() must include resource kind"
+        );
+        assert!(
+            output.contains("Est. cost: $0.00"),
+            "format() must show formatted cost"
+        );
+        assert!(
+            output.contains("Est. latency: 1200ms"),
+            "format() must show formatted latency"
+        );
+    }
+
+    #[test]
+    fn cycle_trace_format_no_efficiency_when_metadata_absent() {
+        // When cost/latency/kind are None, no Eff: line should appear.
+        let mut trace = CycleTrace::new(
+            OrchestratorCycleId::new("oc-eff-2"),
+            "No efficiency",
+            "Completed",
+            "Missing metadata",
+        );
+        trace.compute_route_label = Some("untyped".to_owned());
+
+        let output = trace.format();
+        assert!(output.contains("Compute:     untyped"));
+        assert!(
+            !output.contains("Eff:"),
+            "format() must omit Eff: line when no efficiency metadata is available"
+        );
     }
 
     #[test]
