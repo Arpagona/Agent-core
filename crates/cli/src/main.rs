@@ -11050,14 +11050,24 @@ Rules:
         let response = tokio::task::block_in_place(|| {
             tokio::runtime::Handle::current()
                 .block_on(async { self.client.post(&self.endpoint).json(&body).send().await })
-                .map_err(|e| IntentParseError::OllamaUnavailable(format!("{} — endpoint: {}", e, self.endpoint)))
+                .map_err(|e| {
+                    IntentParseError::OllamaUnavailable(format!(
+                        "{} — endpoint: {}",
+                        e, self.endpoint
+                    ))
+                })
         })?;
 
         let status = response.status();
         let value: serde_json::Value = tokio::task::block_in_place(|| {
             tokio::runtime::Handle::current()
                 .block_on(async { response.json().await })
-                .map_err(|e| IntentParseError::InvalidOllamaResponse(format!("{} — endpoint: {}", e, self.endpoint)))
+                .map_err(|e| {
+                    IntentParseError::InvalidOllamaResponse(format!(
+                        "{} — endpoint: {}",
+                        e, self.endpoint
+                    ))
+                })
         })?;
 
         if !status.is_success() {
@@ -11065,7 +11075,10 @@ Rules:
                 .get("error")
                 .and_then(|v| v.as_str())
                 .unwrap_or("unknown error");
-            return Err(IntentParseError::OllamaUnavailable(format!("{} (HTTP {}) — endpoint: {}", msg, status, self.endpoint)));
+            return Err(IntentParseError::OllamaUnavailable(format!(
+                "{} (HTTP {}) — endpoint: {}",
+                msg, status, self.endpoint
+            )));
         }
 
         let content = value
