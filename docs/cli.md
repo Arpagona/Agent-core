@@ -921,6 +921,10 @@ Options :
 - `--approve` — Exécute l'action après simulation (nécessaire pour les mutations).
 - `--json` — Sortie structurée JSON.
 - `--workspace <PATH>` — Racine du workspace (défaut : répertoire courant).
+- `--intent-provider <deterministic|ollama>` — Fournisseur d'interprétation des intentions (défaut : `deterministic`).
+  - `deterministic` : parsing par règles `std::str` (aucune dépendance externe).
+  - `ollama` : LLM local Ollama propose une intention structurée (nécessite Ollama sur `localhost:11434`).
+- `--ollama-model <NAME>` — Modèle Ollama (ex: `qwen3.5:9b`, `gemma4:26b`). Utilisé seulement avec `--intent-provider ollama`. Défaut via `OLLAMA_MODEL` ou `qwen3.5:9b`.
 
 La commande parse une tâche en langage naturel, la route vers un outil fichier (append_file, read_file, list_files, search_text), exécute le pipeline Decision Gate -> simulation -> (optionnel --approve) -> exécution -> readback -> journal.
 
@@ -937,6 +941,8 @@ Options :
 - `--max <N>` — Nombre maximum de tâches à traiter.
 - `--workspace <PATH>` — Racine du workspace (défaut : répertoire courant).
 - `--json` — Émet un objet JSON compact par ligne pour chaque tâche.
+- `--intent-provider <deterministic|ollama>` — Fournisseur d'interprétation des intentions (défaut : `deterministic`).
+- `--ollama-model <NAME>` — Modèle Ollama (ex: `qwen3.5:9b`). Utilisé seulement avec `--intent-provider ollama`.
 
 Le session loop lit des tâches depuis stdin, les exécute une par une via le même pipeline gouverné que `actor run`. Simulation-only par défaut (pas d'approval implicite). Commandes internes : `/quit`, `/help`, `/status`.
 
@@ -947,3 +953,40 @@ cargo install --path crates/cli
 arpagona health
 arpagona chat --provider mock
 ```
+
+## Ollama Intent Provider
+
+Le fournisseur d'intention Ollama utilise un LLM local (via le serveur Ollama) pour interpréter des tâches en langage naturel en intentions structurées.
+
+### Prérequis
+
+1. **Ollama** installé et lancé : `ollama serve`
+2. **Modèle** disponible : `ollama pull qwen3.5:9b` (ou tout modèle compatible)
+3. **CLI ARPAGONA** construite avec le support HTTP (`reqwest`), inclus par défaut
+
+### Utilisation
+
+```bash
+# Actor run avec Ollama (deterministic par défaut — explicite ici)
+cargo run -p arpagona-cli -- actor run --intent-provider ollama "read docs/README.md"
+
+# Avec un modèle spécifique
+cargo run -p arpagona-cli -- actor run --intent-provider ollama --ollama-model gemma4:26b "list files in src/"
+
+# Actor session avec Ollama
+cargo run -p arpagona-cli -- actor session --intent-provider ollama
+```
+
+### Variables d'environnement
+
+| Variable | Défaut | Description |
+|---|---|---|
+| `OLLAMA_ENDPOINT` | `http://localhost:11434/api/chat` | URL de l'API chat Ollama |
+| `OLLAMA_MODEL` | `qwen3.5:9b` | Nom du modèle par défaut |
+
+### Sécurité
+
+- Ollama **propose uniquement** des intentions structurées — il n'exécute jamais d'outils directement.
+- Chaque proposition passe par une validation déterministe : vérification des outils autorisés, validation du schéma par outil, étiquetage de risque déterministe (ignorant le champ `risk_level` d'Ollama).
+- La proposition entre toujours dans le Decision Gate comme `PendingDecision` — simulation puis approbation explicite.
+- Le fournisseur déterministe reste le défaut. Ollama doit être activé explicitement avec `--intent-provider ollama`.
