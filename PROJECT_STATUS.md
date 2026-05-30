@@ -4031,24 +4031,49 @@ This session connected CycleTrace to the governed Audit system, implementing the
 | `docs/cli.md` | Documented both new audit trace commands with usage examples and options |
 | `FOCUS_LOOP_NEXT.md` | Updated handoff — PR #210 confirmed merged, this session's work captured, next action proposed |
 
+## 30. Latest Session Update (2026-05-30 DEEP cron — P3-22: structured compute cost/quality metadata in CycleTrace)
+
+**Date:** 2026-05-30
+
+### Selected milestone
+
+P3-22: Add structured compute metadata (cost, latency, resource kind) to `CycleTrace` for operator cost/quality visibility.
+
+Why chosen: The handoff proposed Compute Reservoir cost/quality feedback to cycle traces. `CycleTrace` already carries `compute_route_label` (text) and `compute_route_justification` (text), but no structured numeric cost/latency fields. This increment adds structured visibility without changing existing behavior.
+
+### What was added
+
+**`crates/core/src/orchestrator.rs`:**
+- `ComputeRouteResult` gains 3 optional fields: `expected_cost_cents`, `expected_latency_ms`, `compute_resource_kind` — all with `#[serde(default, skip_serializing_if = "Option::is_none")]` for backward compat
+- `ComputeRouteResult::with_compute_cost()` builder method for chaining
+- `CycleTrace` gains the same 3 optional fields with serde defaults for backward-compatible deserialization
+- `CycleTrace::format()` displays the new metadata on a `Cost:` line (e.g. `Cost:      LocalLlm, 800ms`)
+
+**`crates/neutral-orchestrator/src/compute_reservoir_adapter.rs`:**
+- `allocation_to_route()` now extracts `cost_cents`, `latency_ms`, `resource_kind_str` from the `ComputeAllocation` and chains `.with_compute_cost()` on the `ComputeRouteResult`
+
+**`crates/neutral-orchestrator/src/lib.rs`:**
+- `OrchestratorCycle.to_cycle_trace()` now propagates the 3 structured fields from `ComputeRouteResult` into `CycleTrace`
+
+### Verification
 ### Verification
 
 | Check | Result |
 |-------|--------|
-| `cargo fmt -- --check` | ✅ Clean |
-| `cargo check` | ✅ Clean (only pre-existing E0670 edition linter noise) |
-| `cargo test` | ✅ Full workspace passes — CLI crate grew from 135 to 139 tests (+4 new parser tests) |
+| `cargo fmt -- --check` | [OK] Clean |
+| `cargo check` | [OK] Clean (only pre-existing E0670 edition linter noise) |
+| `cargo test` | [OK] Full workspace passes — CLI crate grew from 135 to 139 tests (+4 new parser tests) |
 
 ### Safety boundaries preserved
 
-- ✅ No API server changes — both commands are local filesystem operations
-- ✅ No new capabilities: read-only CycleTrace discovery and display
-- ✅ No Decision Gate bypass — readback is evidence only, not authorization
-- ✅ No scheduler, autonomy, browser, email, MCP, secrets, or write tools
-- ✅ No changes to existing crate boundaries, governance logic, or runtime behavior
-- ✅ No existing tests modified — only 4 new tests added
-- ✅ No CycleTrace struct definition changed — reuses existing type
-- ✅ `list_orchestrator_cycles_in_directory` is reused (not duplicated)
+- [OK] No API server changes — both commands are local filesystem operations
+- [OK] No new capabilities: read-only CycleTrace discovery and display
+- [OK] No Decision Gate bypass — readback is evidence only, not authorization
+- [OK] No scheduler, autonomy, browser, email, MCP, secrets, or write tools
+- [OK] No changes to existing crate boundaries, governance logic, or runtime behavior
+- [OK] No existing tests modified — only 4 new tests added
+- [OK] No CycleTrace struct definition changed — reuses existing type
+- [OK] `list_orchestrator_cycles_in_directory` is reused (not duplicated)
 
 ### Deliberately not changed
 
@@ -4061,8 +4086,8 @@ This session connected CycleTrace to the governed Audit system, implementing the
 ### PR state
 
 - **NEW PR: `feat/p3-audit-cycle-trace-bridge`** — this session's work, CI pending
-- PR #209 — ✅ MERGED
-- PR #210 — ✅ MERGED (confirmed HEAD commit on main)
+- PR #209 — [OK] MERGED
+- PR #210 — [OK] MERGED (confirmed HEAD commit on main)
 - Stacked PRs #197-#208 — still pending GONA merge
 
 ### Recommended next step for GONA
@@ -4072,3 +4097,53 @@ This session connected CycleTrace to the governed Audit system, implementing the
    - Add `audit list --by-cycle <id>` API endpoint for server-backed filtering
    - Connect CycleTrace failure insight candidates to the Failure-to-Insight pipeline
    - Add Compute Reservoir cost/quality feedback to cycle traces
+
+### Verification
+
+| Check | Result |
+|-------|--------|
+| `cargo fmt -- --check` | [OK] Clean |
+| `cargo check` | [OK] Clean |
+| `cargo test` | [OK] 922+ tests pass (all crates, 0 failures, 0 regressions) |
+| Smoke test: `orchestrator run --trace` | [OK] `Cost:      LocalLlm, 800ms` shown |
+| Smoke test: `orchestrator run --trace --json` | [OK] `expected_latency_ms: 800`, `compute_resource_kind: "LocalLlm"` in JSON |
+| Smoke test: save-trace → readback | [OK] Structured metadata survives serialization round-trip |
+
+### Files changed
+
+| File | Change |
+|------|--------|
+| `crates/core/src/orchestrator.rs` | +3 optional fields on `ComputeRouteResult` + builder method; +3 optional fields on `CycleTrace` + constructor init + format display |
+| `crates/neutral-orchestrator/src/compute_reservoir_adapter.rs` | Extract structured cost/latency/kind from `ComputeAllocation`; chain `.with_compute_cost()` |
+| `crates/neutral-orchestrator/src/lib.rs` | Propagate structured fields into `CycleTrace` in `to_cycle_trace()` |
+| `FOCUS_LOOP_NEXT.md` | Updated handoff — P3-22 complete, GONA merge queue |
+| `PROJECT_STATUS.md` | This section |
+
+### Deliberately not changed
+
+- No new CLI commands or flags added (metadata auto-appears in existing `orchestrator run --trace` and `orchestrator status` output)
+- No changes to `crates/cli/src/main.rs`, MCP, API server, Decision Gate, Tool Runtime, or any other crate
+- No backward-incompatible serialization changes (all new fields `#[serde(default)]`)
+- No new capabilities added
+- No Decision Gate bypass, autonomy, browser, email, MCP, secrets, or unrestricted tools
+
+### Safety boundaries preserved
+
+- [OK] Read-only: structured data flows through existing pure-domain types, no I/O added
+- [OK] Non-authorizing: compute metadata is advisory display only
+- [OK] No Decision Gate bypass: gate remains the sole approval path
+- [OK] No scheduler, autonomy, browser, email, MCP, secrets, or write tools
+- [OK] No changes to existing crate boundaries or governance logic
+- [OK] Backward-compatible deserialization: all new fields are optional
+
+### Branch
+
+- New: `feat/p3-22-cycle-trace-cost-quality` (from `main` at 0100bc5)
+
+### Recommended next step for GONA
+
+1. Merge PR #211 (CycleTrace-Audit bridge).
+2. Merge or rebase stacked conflicting PRs #197–#208.
+3. **Next Phase 3 increment options:**
+   - Connect CycleTrace failure insight candidates to the Failure-to-Insight pipeline (automated FailureInsight record creation from cycle trace candidates)
+   - Add `audit list --by-cycle <id>` API endpoint for server-backed filtering

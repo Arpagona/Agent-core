@@ -136,6 +136,22 @@ impl OrchestratorCycle {
         trace.compute_route_label = Some(self.compute_route_result.selected_route_label.clone());
         trace.compute_route_justification = Some(self.compute_route_result.justification.clone());
 
+        // Structured compute metadata for operator cost/quality visibility
+        if let Some(cost) = self.compute_route_result.expected_cost_cents {
+            if cost > 0 {
+                trace.expected_cost_cents = Some(cost);
+            }
+        }
+        if let Some(latency) = self.compute_route_result.expected_latency_ms {
+            if latency > 0 {
+                trace.expected_latency_ms = Some(latency);
+            }
+        }
+        if let Some(ref kind) = self.compute_route_result.compute_resource_kind {
+            if !kind.is_empty() {
+                trace.compute_resource_kind = Some(kind.clone());
+            }
+        }
         // Action
         if let Some(ref action) = self.proposed_action {
             trace.action_type = Some(format!("{:?}", action.action_type));
