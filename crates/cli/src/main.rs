@@ -2121,7 +2121,7 @@ fn print_chat_banner(api_url: &str, provider: &str, workspace_id: &str, task_id:
     println!("{}", rainbow_text("             /  ____  \\"));
     println!("{}", rainbow_text("            /__/    \\__\\"));
     println!("{}", rainbow_text("              .  /\\  ."));
-    println!("{}", rainbow_text("           .  . /  \\ .  ."));
+    println!("{}", rainbow_text("           .  . /  \\.  ."));
     println!();
     println!(
         "{}",
@@ -2141,9 +2141,9 @@ fn print_chat_banner(api_url: &str, provider: &str, workspace_id: &str, task_id:
     );
     println!(
         "{}",
-        style_brand("/_/  |_/_/ |_/_/   /_/  |_\\____/ \\____/_/ |_/_/  |_|")
+        style_brand("/_/  |_/_/ |_/_/   /_/  |\\____/ \\____/_/ |_/_/  |_|")
     );
-    println!("{}", style_dim("        Cognitive Runtime Alpha Terminal"));
+    println!("{}{}", style_dim("        "), style_info("Cognitive Runtime Alpha"));
     println!();
     println!(
         "{} {} | {} {} | {} {} | {} {}",
@@ -2158,7 +2158,7 @@ fn print_chat_banner(api_url: &str, provider: &str, workspace_id: &str, task_id:
     );
     println!(
         "{}",
-        style_dim("Type /help for commands. Nothing is executed directly.")
+        style_dim("Type /help for commands. Read-only mode - nothing is executed directly.")
     );
     println!();
 }
@@ -9568,7 +9568,10 @@ fn handle_run(args: RunArgs) -> Result<(), Box<dyn Error>> {
     );
 
     let cycle = engine
-        .run_cycle(input, &[arpagona_agent_core::permission::Permission::ReadDocument])
+        .run_cycle(
+            input,
+            &[arpagona_agent_core::permission::Permission::ReadDocument],
+        )
         .map_err(|e| format!("Run failed: {e}"))?;
 
     let outcome = &cycle.outcome;
@@ -9594,10 +9597,7 @@ fn handle_run(args: RunArgs) -> Result<(), Box<dyn Error>> {
     println!();
     println!("{}", style_brand("  ❍ ARPAGONA"));
     println!("{}", "───────────────────────────────");
-    println!(
-        "  Objective   {}",
-        style_bold(&cycle.objective_input.text)
-    );
+    println!("  Objective   {}", style_bold(&cycle.objective_input.text));
     println!("  Action      {} at {}", action_type, style_risk(&risk));
     println!(
         "  Decision    {} {}",
@@ -9613,21 +9613,21 @@ fn handle_run(args: RunArgs) -> Result<(), Box<dyn Error>> {
 
 /// Remove internal governance jargon from summary output for human readability.
 fn strip_gate_jargon(text: &str) -> String {
-    text.replace(
-        "action ReadDocument evaluated by Decision Gate as ",
-        "",
-    )
-    .replace("Deterministic cycle completed — ", "")
-    .replace("evaluated by Decision Gate as ", "")
-    .replace("Decision Gate", "")
-    .replace("  ", " ")
-    .trim()
-    .to_string()
+    text.replace("action ReadDocument evaluated by Decision Gate as ", "")
+        .replace("Deterministic cycle completed — ", "")
+        .replace("evaluated by Decision Gate as ", "")
+        .replace("Decision Gate", "")
+        .replace("  ", " ")
+        .trim()
+        .to_string()
 }
 
 /// Bold text helper.
 fn style_bold(text: &str) -> String {
-    format!("{ANSI_BOLD}{}{ANSI_RESET}", style_text(text, TermColor::White))
+    format!(
+        "{ANSI_BOLD}{}{ANSI_RESET}",
+        style_text(text, TermColor::White)
+    )
 }
 
 /// Decision status icon.
@@ -13742,12 +13742,8 @@ mod tests {
 
     #[test]
     fn cli_parses_run_positional() {
-        let cli = Cli::try_parse_from(vec![
-            "arpagona",
-            "run",
-            "Review project documentation",
-        ])
-        .expect("run with positional arg should parse");
+        let cli = Cli::try_parse_from(vec!["arpagona", "run", "Review project documentation"])
+            .expect("run with positional arg should parse");
         match cli.command {
             Command::Run(args) => {
                 assert_eq!(args.objective, "Review project documentation");
@@ -13794,9 +13790,8 @@ mod tests {
         let args = RunArgs {
             objective: "Integration test objective".to_owned(),
         };
-        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-            handle_run(args).ok()
-        }));
+        let result =
+            std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| handle_run(args).ok()));
         // Should not panic — the function should complete without error
         assert!(result.is_ok(), "handle_run should not panic");
     }
