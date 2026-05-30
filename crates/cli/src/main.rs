@@ -296,9 +296,6 @@ pub struct OrchestratorCyclesArgs {
     pub trace_dir: Option<String>,
 }
 
-/// Default insights directory.
-const DEFAULT_ORCHESTRATOR_INSIGHTS_DIR: &str = "target/orchestrator-insights";
-
 #[derive(Debug, Args)]
 pub struct OrchestratorInsightsCollectArgs {
     /// Path to a saved CycleTrace JSON file to analyze for failure insight candidates.
