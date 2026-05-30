@@ -648,6 +648,29 @@ Affiche les traces récentes d'interaction LLM : résumé du prompt, résumé de
 
 Cette commande est une surface de supervision alpha read-only. Elle n'exécute aucun appel LLM, n'approuve aucune action et ne modifie aucun état.
 
+### Compute Reservoir — Routage de modèle (C4)
+
+```bash
+cargo run -p arpagona-cli -- compute routing
+cargo run -p arpagona-cli -- compute routing --json
+cargo run -p arpagona-cli -- compute routing --purpose "Analyser un document client" --sensitivity confidential --complexity 0.7
+cargo run -p arpagona-cli -- compute routing --local-first --json
+```
+
+Affiche un aperçu du routage cognitif : quel fournisseur/modèle Compute Reservoir sélectionnerait pour une tâche donnée, avec analyse des compromis coût/latence/sensibilité.
+
+Options :
+
+- `--purpose <TEXTE>` — Décrit l'objectif ou la nature du calcul (défaut : `cognitive task`).
+- `--sensitivity <NIVEAU>` — Niveau de sensibilité des données : `public`, `internal`, `confidential` ou `secret`. Une sensibilité plus élevée augmente la préférence locale (défaut : `internal`).
+- `--complexity <0.0-1.0>` — Estimation de complexité. Les valeurs plus élevées orientent vers des ressources plus fortes (défaut : `0.5`).
+- `--local-first` — Préfère exclusivement les ressources locales (équivaut à un budget cloud nul).
+- `--json` — Sortie structurée JSON avec détails de l'allocation, métriques de coût/latence, nœud sélectionné et justification.
+
+La sortie inclut : le nœud de calcul sélectionné, le fournisseur résolu (local/cloud), le coût attendu, la latence estimée, la note de sensibilité, l'analyse des compromis et la justification complète.
+
+Cette commande est une surface de supervision alpha read-only. Le routage affiché est un aperçu informatif et non autorisant : il ne réserve pas de ressource, n'exécute pas de modèle et ne remplace pas le Decision Gate.
+
 ## Installation
 
 ```bash
