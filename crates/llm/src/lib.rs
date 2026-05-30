@@ -2505,4 +2505,152 @@ mod tests {
         assert!(json.get("execution_token").is_none());
         assert!(json.get("authorized").is_none());
     }
+
+    // ── C5 Anti-drift / adversarial tests ──────────────────────────────────
+    //
+    // These tests protect the model layer against predictable failure modes:
+    //   - overconfident model claims (proposing execution actions in text output)
+    //   - provider failure fallback (error propagation, not panic)
+    //   - anti-structure boundary (synthesis output is text, not JSON)
+    //   - error message readability (all variants produce usable context)
+
+    #[test]
+    fn llm_error_display_all_variants_produce_readable_message() {
+        // C5: provider failure fallback — every error variant must produce a
+        // human-readable, actionable message with enough context for debugging.
+        let variants: [LlmError; 4] = [
+            LlmError::MissingApiKey,
+            LlmError::Transport("connection refused".to_owned()),
+            LlmError::Provider("rate limit exceeded".to_owned()),
+            LlmError::InvalidResponse("expected JSON, got HTML".to_owned()),
+        ];
+        for v in &variants {
+            let msg = format!("{v}");
+            assert!(!msg.is_empty(), "error message must not be empty: {v:?}");
+            assert!(msg.len() > 15, "message must provide context, got: {msg}");
+            // Every variant should mention the concrete error detail
+            match v {
+                LlmError::MissingApiKey => {
+                    assert!(
+                        msg.contains("OPENAI_API_KEY"),
+                        "MissingApiKey must mention the env var: {msg}"
+                    );
+                }
+                LlmError::Transport(_) => {
+                    assert!(
+                        msg.contains("transport"),
+                        "Transport must mention 'transport': {msg}"
+                    );
+                }
+                LlmError::Provider(_) => {
+                    assert!(
+                        msg.contains("provider"),
+                        "Provider must mention 'provider': {msg}"
+                    );
+                }
+                LlmError::InvalidResponse(_) => {
+                    assert!(
+                        msg.contains("Invalid"),
+                        "InvalidResponse must mention 'Invalid': {msg}"
+                    );
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn mock_synthesis_output_never_contains_execution_commands() {
+        // C5: overconfident model claim containment — even mock synthesis
+        // output must not contain shell execution commands or destructive patterns.
+        let provider = MockProvider::safe_default();
+        let prompts = [
+            ("Business", "Objective: Execute task\n\nWorking Memory Summary:\nDomain: Business\nSensitivity: Public\nComplexity: 0.5\nContext items: 2\nMissing context: 0\nAssumptions: 1\nProposed next action: ProposeAction\n"),
+            ("Coding", "Objective: Deploy code\n\nWorking Memory Summary:\nDomain: Coding\nSensitivity: Internal\nComplexity: 0.8\nContext items: 1\nMissing context: 0\nAssumptions: 0\nProposed next action: ProposeAction\n"),
+            ("General", "Objective: Run analysis\n\nWorking Memory Summary:\nDomain: General\nSensitivity: Confidential\nComplexity: 0.3\nContext items: 0\nMissing context: 1\nAssumptions: 2\nProposed next action: RequestContext\n"),
+        ];
+        let dangerous = [
+            "sudo",
+            "rm -rf",
+            "curl ",
+            "wget ",
+            "chmod 777",
+            "exec(",
+            "eval(",
+            "os.system",
+            "subprocess.",
+        ];
+        for (_domain, prompt) in &prompts {
+            let result = tokio::runtime::Runtime::new()
+                .unwrap()
+                .block_on(provider.synthesize(COGNITIVE_SYNTHESIS_SYSTEM_PROMPT, prompt))
+                .expect("mock synthesis should not fail");
+            for pattern in &dangerous {
+                assert!(
+                    !result.contains(*pattern),
+                    "synthesis output must not contain dangerous pattern '{pattern}': {result}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn mock_synthesis_output_is_not_valid_json() {
+        // C5: anti-structure boundary — synthesis output must be plain advisory
+        // text, not valid JSON that could be accidentally parsed as an action.
+        let provider = MockProvider::safe_default();
+        let prompt = "Objective: Research quantum computing\n\nWorking Memory Summary:\nDomain: Research\nSensitivity: Public\nComplexity: 0.7\nContext items: 2\nMissing context: 0\nAssumptions: 1\nProposed next action: ProposeAction\n";
+        let result = tokio::runtime::Runtime::new()
+            .unwrap()
+            .block_on(provider.synthesize(COGNITIVE_SYNTHESIS_SYSTEM_PROMPT, prompt))
+            .expect("mock synthesis should not fail");
+
+        // Must NOT be parseable as JSON (would risk being mistaken for a
+        // structured action proposal or decision payload)
+        let as_json: Result<serde_json::Value, _> = serde_json::from_str(&result);
+        assert!(
+            as_json.is_err(),
+            "synthesis output must NOT be valid JSON: {result}"
+        );
+    }
+
+    #[test]
+    fn run_cognitive_synthesis_openai_missing_key_graceful_failure() {
+        // C5: provider failure fallback — calling run_cognitive_synthesis
+        // with "openai" without an API key must return a structured error,
+        // never panic, and never produce execution or side effects.
+        //
+        // This test only validates the graceful-failure path when
+        // OPENAI_API_KEY is absent. When the key is present (CI), the
+        // provider may attempt a real API call; the test still verifies
+        // non-panicking behavior regardless.
+        let runtime = tokio::runtime::Runtime::new().unwrap();
+        let result = runtime.block_on(run_cognitive_synthesis(
+            "Test objective",
+            "Domain: General\nSensitivity: Public\nComplexity: 0.5\nContext items: 1\nMissing context: 0\nProposed next action: StopWithReport\n",
+            "openai",
+        ));
+
+        // Must always produce a Result (never panic) regardless of env state
+        match result {
+            Err(LlmError::MissingApiKey) => {
+                // Expected when OPENAI_API_KEY is absent — proves graceful config error
+            }
+            Err(LlmError::Transport(_)) => {
+                // Possible when key is set but network is unavailable — graceful
+            }
+            Err(other) => {
+                panic!("openai provider failure must be MissingApiKey or Transport, got: {other}");
+            }
+            Ok(output) => {
+                // OPENAI_API_KEY was present and call succeeded — no error path
+                // to validate, but verify output is non-executing text
+                assert!(!output.is_empty(), "synthesis output must not be empty");
+                let as_json: Result<serde_json::Value, _> = serde_json::from_str(&output);
+                assert!(
+                    as_json.is_err(),
+                    "openai synthesis output must not be valid JSON: {output}"
+                );
+            }
+        }
+    }
 }
