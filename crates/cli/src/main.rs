@@ -10891,6 +10891,31 @@ enum IntentParseError {
     MissingArgument(String),
 }
 
+/// Seam for pluggable intent interpretation providers.
+///
+/// Roadmap:
+/// - Current (phase 1): DeterministicIntentInterpreter (std::str parsing) — no deps, no LLM
+/// - Next:   OllamaIntentInterpreter  — local LLM proposes ToolCallIntent via `arpagona-llm`
+/// - Later:  DeepSeekIntentInterpreter — advanced reasoning for self-improvement
+///
+/// LLM providers must never execute tools directly. They may only propose
+/// a structured ToolCallIntent that passes through deterministic validation,
+/// allowed-tool checks, risk labeling, Decision Gate, simulation, explicit
+/// approval, execution, readback, journal.
+trait IntentInterpreter {
+    fn interpret(&self, task: &str) -> Result<ActorIntent, IntentParseError>;
+}
+
+/// Current deterministic interpreter using only std::str operations.
+/// No external dependencies, no LLM, no network.
+struct DeterministicIntentInterpreter;
+
+impl IntentInterpreter for DeterministicIntentInterpreter {
+    fn interpret(&self, task: &str) -> Result<ActorIntent, IntentParseError> {
+        parse_intent(task)
+    }
+}
+
 impl std::fmt::Display for IntentParseError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
@@ -11028,7 +11053,10 @@ fn parse_intent(task: &str) -> Result<ActorIntent, IntentParseError> {
 const ACTOR_RUN_WARNING: &str = "[WARNING - Actor Run is a sandboxed governed local mission. Simulation first; execution requires --approve.]";
 
 fn actor_run(args: ActorRunArgs) -> Result<(), Box<dyn Error>> {
-    let intent = parse_intent(&args.task).map_err(|e| format!("{e}"))?;
+    // Currently using the deterministic intent interpreter (phase 1).
+    // To switch to Ollama: construct an OllamaIntentInterpreter (in arpagona-llm) here.
+    let interpreter = DeterministicIntentInterpreter;
+    let intent = interpreter.interpret(&args.task).map_err(|e| format!("{e}"))?;
 
     let tool_call_intent = ToolCallIntent {
         tool: intent.tool.clone(),

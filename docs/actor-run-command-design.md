@@ -360,12 +360,55 @@ Journal Entry:  je-456
 
 No new files needed. All logic lives in `crates/cli/src/main.rs` as a new module section.
 
-## 8. What Is NOT Included (Explicitly Deferred)
+## 8. Intent Interpretation Provider Seam
+
+The implementation uses an `IntentInterpreter` trait to decouple NL task parsing from the governance loop.
+
+### Trait
+
+```rust
+trait IntentInterpreter {
+    fn interpret(&self, task: &str) -> Result<ActorIntent, IntentParseError>;
+}
+```
+
+### Provider roadmap
+
+| Phase | Provider | Description | When |
+|-------|----------|-------------|------|
+| 1 (current) | `DeterministicIntentInterpreter` | `std::str` pattern matching, no deps, no LLM, no network | Now |
+| 2 (next) | `OllamaIntentInterpreter` | Local LLM proposes structured `ToolCallIntent` via `arpagona-llm` | Near-term |
+| 3 (future) | `DeepSeekIntentInterpreter` | More complex reasoning for self-improvement workflows | After Agent Core maturity |
+
+### Governance invariant
+
+LLM providers must **never execute tools directly**. They may only propose a structured `ToolCallIntent` that passes through:
+1. Deterministic validation
+2. Allowed-tool checks
+3. Risk labeling
+4. Decision Gate
+5. Simulation
+6. Explicit approval (`--approve`)
+7. Execution
+8. Readback
+9. Journal
+
+### Wiring
+
+The provider is instantiated inside `actor_run()`:
+```rust
+let interpreter = DeterministicIntentInterpreter;
+let intent = interpreter.interpret(&args.task)?;
+```
+
+To switch to an LLM provider, construct a different `IntentInterpreter` implementation at this single call site. No changes to the governance loop, tool runtime, or output formatting are needed.
+
+## 9. What Is NOT Included (Explicitly Deferred)
 
 | Feature | Rationale |
 |---------|-----------|
 | `arpagona actor status` | Not required for first vertical loop. Defer unless it falls out trivially from journal/readback state. |
-| LLM-based intent parsing | Deterministic only. LLM interpretation would introduce non-determinism and governance gaps. |
+| LLM-based intent parsing (now via IntentInterpreter seam) | Deterministic only for phase 1. The seam is ready; OllamaIntentInterpreter is next. |
 | Shell, network, browser, secrets, delete, scheduler tools | Explicitly excluded by GONA. |
 | Status queues, API endpoints | Not needed for the first product increment. |
 | Web dashboard | Will be deferred to D-series after D1-D3. |
