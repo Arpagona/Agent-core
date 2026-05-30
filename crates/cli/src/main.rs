@@ -12042,7 +12042,7 @@ fn actor_journal_readback(args: ActorJournalArgs) -> Result<(), Box<dyn Error>> 
             if let Some(ref dg) = entry.decision_gate_outcomes {
                 println!(
                     "        | decision_gate: {}",
-                    serde_json::to_string(dg).unwrap_or_default()
+                    serde_json::to_string(&redact_journal_value(dg.clone())).unwrap_or_default()
                 );
             }
             if let Some(ref rl) = entry.risk_level {
