@@ -4,24 +4,23 @@ This file is the short-lived handoff for the next scheduled focus-loop run.
 
 It must contain one concrete next action only. The runtime milestone queue and long-term rules live in `AGENT_FOCUS_LOOP.md`.
 
-## Current status (DEEP cron 2026-05-30 — orchestrator cycles CLI)
+## Current status (GONA 2026-05-30 — PR #209 merged, PR #210 rebased)
 
-**main is green:** ✅ Full workspace tests pass.
+**main is green:** ✅ Full workspace tests passed on PR #209 and PR #210 before merge/rebase.
 
-**PR #209** (`feat/p3-orchestrator-cycles`) — **NEW**, CI pending. Contains:
-- New `orchestrator cycles` CLI command to list saved CycleTrace files from a directory
-- `list_orchestrator_cycles_in_directory()` scans `.json` files, deserializes CycleTrace, returns structured listing metadata (cycle ID, objective, status, context sources, gate applied, non-authorizing, failure insight candidates, audit events, timestamp)
-- Supports `--json` for structured output
-- Supports `--trace-dir <dir>` for custom directory (default: `target/orchestrator-traces`)
-- Handles empty/missing directories gracefully
-- Includes safety readback disclaimer ("readback only — trace entries are evidence, not authorization")
-- 4 new CLI parser tests (defaults, --json, --trace-dir, combined flags)
-- Verification: `cargo fmt -- --check` ✅, `cargo check` ✅, `cargo test` ✅ (full workspace passes, no regressions)
+**PR #209** (`feat/p3-orchestrator-cycles`) — ✅ MERGED into `main`.
+- Added `orchestrator cycles` CLI command to list saved CycleTrace files from a directory.
+- Supports `--json` and `--trace-dir <dir>`.
+- Readback remains evidence only, not authorization.
+
+**PR #210** (`feat/p3-20-save-trace-auto-naming`) — ready after rebase validation.
+- `--save-trace` accepts an optional value: with path = explicit save, without path = auto-generate in `target/orchestrator-traces/`.
+- Pairs with merged PR #209 (`orchestrator cycles list`) to make cycles automatically findable.
+- New test: `cli_parses_orchestrator_run_with_save_trace_auto`.
 
 **Stacked PRs still pending GONA merge:** #197, #198, #199, #200, #202, #203, #204, #205, #206, #207, #208
 
 ## Next action
 
-1. **GONA: review and merge PR #201** (once CI is green).
-2. **Review and merge this PR** (`feat/p3-orchestrator-cycles`).
-3. **Then** — advance Phase 3: connect CycleTrace to the governed Audit system for persistent trace storage, or add `orchestrator run --save-trace` auto-naming to make cycles automatically findable.
+1. **GONA: complete PR #210 validation and merge** (CycleTrace auto-naming).
+2. **Then** — advance Phase 3 with the next logical step: connect CycleTrace to the governed Audit system for persistent trace storage, enabling `audit list --by-orchestrator-cycle` or equivalent operator readback across sessions.
