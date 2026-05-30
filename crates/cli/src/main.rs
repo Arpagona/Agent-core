@@ -162,6 +162,9 @@ pub enum ActorSubcommand {
     /// Parse a natural language task and run it through the governed
     /// simulation -> approval -> execution -> readback loop.
     Run(ActorRunArgs),
+    /// Start an interactive acquisition loop that reads tasks from stdin
+    /// and runs each through the governed actor_run pipeline.
+    Session(ActorSessionArgs),
 }
 
 #[derive(Debug, Args)]
@@ -185,6 +188,21 @@ pub struct ActorRunArgs {
     /// Workspace root for file tools (default: current directory).
     #[arg(long, default_value = ".")]
     pub workspace: String,
+}
+
+#[derive(Debug, Args)]
+pub struct ActorSessionArgs {
+    /// Maximum number of tasks to process before exiting.
+    #[arg(long)]
+    pub max: Option<u32>,
+
+    /// Workspace root for file tools (default: current directory).
+    #[arg(long, default_value = ".")]
+    pub workspace: String,
+
+    /// Emit newline-delimited JSON envelopes for each task.
+    #[arg(long)]
+    pub json: bool,
 }
 
 #[derive(Debug, Args)]
@@ -2249,6 +2267,7 @@ async fn run() -> Result<(), Box<dyn Error>> {
         Command::Run(args) => handle_run(args)?,
         Command::Actor(actor) => match actor.command {
             ActorSubcommand::Run(args) => actor_run(args)?,
+            ActorSubcommand::Session(args) => actor_session(args)?,
         },
     }
 
@@ -11046,14 +11065,18 @@ fn parse_intent(task: &str) -> Result<ActorIntent, IntentParseError> {
 /// Parses the natural language task, runs it through the governed
 /// simulation -> approval -> execution -> readback -> journal loop.
 const ACTOR_RUN_WARNING: &str = "[WARNING - Actor Run is a sandboxed governed local mission. Simulation first; execution requires --approve.]";
+const ACTOR_SESSION_WARNING: &str = "[WARNING - Actor Session is a governed local loop. Each task is simulated first; rerun with `arpagona actor run --approve` to execute after review.]";
 
-fn actor_run(args: ActorRunArgs) -> Result<(), Box<dyn Error>> {
-    // Currently using the deterministic intent interpreter (phase 1).
-    // To switch to Ollama: construct an OllamaIntentInterpreter (in arpagona-llm) here.
+/// Core actor run logic: returns a structured JSON value with all result fields.
+/// Does NOT print anything — used by both `actor_run` and `actor_session`.
+/// `approve` controls whether execution follows simulation (session always passes false).
+fn actor_run_core(
+    task: &str,
+    workspace: &str,
+    approve: bool,
+) -> Result<serde_json::Value, Box<dyn Error>> {
     let interpreter = DeterministicIntentInterpreter;
-    let intent = interpreter
-        .interpret(&args.task)
-        .map_err(|e| format!("{e}"))?;
+    let intent = interpreter.interpret(task).map_err(|e| format!("{e}"))?;
 
     let tool_call_intent = ToolCallIntent {
         tool: intent.tool.clone(),
@@ -11062,13 +11085,12 @@ fn actor_run(args: ActorRunArgs) -> Result<(), Box<dyn Error>> {
         risk_level: intent.risk_level.clone(),
     };
 
-    let workspace_path = if args.workspace.is_empty() || args.workspace == "." {
+    let workspace_path = if workspace.is_empty() || workspace == "." {
         ".".to_owned()
     } else {
-        args.workspace.clone()
+        workspace.to_owned()
     };
 
-    // --- Phase 1-2: Decision Gate + Simulation ---
     let (decision, proposed_action) =
         govern_tool_call(&tool_call_intent, &[Permission::ProposeToolUse]);
 
@@ -11091,9 +11113,6 @@ fn actor_run(args: ActorRunArgs) -> Result<(), Box<dyn Error>> {
         .map(|r| r.status == ToolExecutionStatus::Success)
         .unwrap_or(false);
 
-    // --- Phase 3: Execution (only if --approve) ---
-    // Read intent tools simulate at the decision gate but are informational.
-    // For read-only tools, simulation IS the operation — no separate execution.
     let is_read_only = matches!(
         intent.tool.as_str(),
         "read_file" | "list_files" | "search_text"
@@ -11105,7 +11124,8 @@ fn actor_run(args: ActorRunArgs) -> Result<(), Box<dyn Error>> {
         exec
     };
 
-    let execution_result = if args.approve
+    // Session always passes approve=false — no implicit approval in V0
+    let execution_result = if approve
         && decision.status == DecisionStatus::Approved
         && simulation_succeeded
         && !is_read_only
@@ -11115,19 +11135,16 @@ fn actor_run(args: ActorRunArgs) -> Result<(), Box<dyn Error>> {
         None
     };
 
-    // --- Phase 4: Readback ---
     let readback_result = execution_result
         .as_ref()
         .filter(|r| r.status == ToolExecutionStatus::Success)
         .and_then(|_| {
-            // For append_file, read back the modified path
             let path = intent.arguments.get("path")?.as_str()?;
             runtime
                 .execute("read_file", &serde_json::json!({ "path": path }))
                 .into()
         });
 
-    // --- Cognitive observation ---
     let observed_result = execution_result
         .as_ref()
         .or_else(|| simulation_result.as_ref());
@@ -11139,10 +11156,9 @@ fn actor_run(args: ActorRunArgs) -> Result<(), Box<dyn Error>> {
         .as_ref()
         .map(|obs| arpagona_agent_core::assess_observation(obs));
 
-    // --- Phase 5: Journal ---
-    let approval_state = if args.approve && execution_result.is_some() {
+    let approval_state = if approve && execution_result.is_some() {
         "approved_and_executed"
-    } else if args.approve {
+    } else if approve {
         "approved_but_not_executed"
     } else {
         "simulation_only_waiting_for_explicit_approval"
@@ -11154,7 +11170,7 @@ fn actor_run(args: ActorRunArgs) -> Result<(), Box<dyn Error>> {
             "actor_run",
             "cli",
             None,
-            args.task.clone(),
+            task.to_owned(),
             format!(
                 "Actor Run {}: tool={}, decision={:?}, simulation={}, execution={}",
                 approval_state,
@@ -11171,11 +11187,11 @@ fn actor_run(args: ActorRunArgs) -> Result<(), Box<dyn Error>> {
             ),
             serde_json::json!({
                 "command": "actor_run",
-                "user_task": args.task,
+                "user_task": task,
                 "tool": intent.tool,
                 "parsed_intent": intent,
                 "workspace": workspace_path,
-                "approval_flag": args.approve,
+                "approval_flag": approve,
             }),
             serde_json::json!({
                 "decision_id": decision.id,
@@ -11193,99 +11209,300 @@ fn actor_run(args: ActorRunArgs) -> Result<(), Box<dyn Error>> {
         )
     };
 
-    // --- Output ---
-    if args.json {
-        let output = serde_json::json!({
-            "command": "actor-run",
-            "task": args.task,
-            "intent": {
-                "tool": intent.tool,
-                "rationale": intent.rationale,
-                "risk_level": format!("{:?}", intent.risk_level),
-            },
-            "decision": {
-                "id": decision.id,
-                "status": format!("{:?}", decision.status),
-                "reason": decision.reason,
-            },
-            "simulation_result": simulation_result,
-            "approval_state": approval_state,
-            "execution_result": execution_result,
-            "readback_result": readback_result,
-            "cognitive_observation": cognitive_observation,
-            "journal_entry_id": journal_entry_id,
-        });
-        println!("{}", serde_json::to_string_pretty(&output)?);
+    let output = serde_json::json!({
+        "task": task,
+        "intent": {
+            "tool": intent.tool,
+            "rationale": intent.rationale,
+            "risk_level": format!("{:?}", intent.risk_level),
+            "display_summary": intent.display_summary,
+        },
+        "decision": {
+            "id": decision.id,
+            "status": format!("{:?}", decision.status),
+            "reason": decision.reason,
+        },
+        "simulation_result": simulation_result,
+        "approval_state": approval_state,
+        "execution_result": execution_result,
+        "readback_result": readback_result,
+        "cognitive_observation": cognitive_observation,
+        "journal_entry_id": journal_entry_id,
+        "is_read_only": is_read_only,
+        "workspace_path": workspace_path,
+    });
+
+    Ok(output)
+}
+
+/// Print actor-run results in human-readable text format (reused by session).
+fn print_actor_run_text(output: &serde_json::Value, task: &str) {
+    let intent_tool = output["intent"]["tool"].as_str().unwrap_or("?");
+    let risk_level = output["intent"]["risk_level"].as_str().unwrap_or("?");
+    let display_summary = output["intent"]["display_summary"].as_str().unwrap_or("?");
+    let decision_status = output["decision"]["status"].as_str().unwrap_or("?");
+    let decision_id = output["decision"]["id"].as_str().unwrap_or("?");
+    let decision_reason = output["decision"]["reason"].as_str().unwrap_or("?");
+    let approval_state = output["approval_state"].as_str().unwrap_or("?");
+    let journal_entry_id = output["journal_entry_id"].as_str().unwrap_or("?");
+    let is_read_only = output["is_read_only"].as_bool().unwrap_or(false);
+
+    println!("{ACTOR_RUN_WARNING}");
+    println!();
+    println!("=== Actor Run ===");
+    println!("Task: {:?}", task);
+    println!();
+    println!("--- 1. Intent interpretation ---");
+    println!("Tool:   {}", intent_tool);
+    println!("Risk:   {:?}", risk_level);
+    println!("Summary: {}", display_summary);
+    println!();
+    println!("--- 2. Decision Gate ---");
+    println!("Decision:    {:?}", decision_status);
+    println!("Decision ID: {}", decision_id);
+    println!("Reason:     {}", decision_reason);
+    println!();
+    println!("--- 3. Simulation / diff preview ---");
+    if let Some(sim) = output["simulation_result"].as_object() {
+        let sim_status = sim.get("status").and_then(|v| v.as_str()).unwrap_or("?");
+        let sim_summary = sim
+            .get("output_summary")
+            .and_then(|v| v.as_str())
+            .unwrap_or("");
+        println!("Status:  {:?}", sim_status);
+        println!("Summary: {}", sim_summary);
+    } else if output["simulation_result"].is_null() {
+        println!("Status:  not run (governance blocked or no permission)");
+    }
+    println!();
+    println!("--- 4. Approval path ---");
+    if approval_state == "approved_and_executed" {
+        println!("Approval: --approve supplied");
+        println!("Execution: completed");
+    } else if approval_state == "approved_but_not_executed" {
+        println!("Approval: --approve supplied");
+        println!("Execution: not run (simulation failed or governance denied)");
     } else {
-        println!("{ACTOR_RUN_WARNING}");
-        println!();
-        println!("=== Actor Run ===");
-        println!("Task: {:?}", args.task);
-        println!();
-        println!("--- 1. Intent interpretation ---");
-        println!("Tool:   {}", intent.tool);
-        println!("Risk:   {:?}", intent.risk_level);
-        println!("Summary: {}", intent.display_summary);
-        println!();
-        println!("--- 2. Decision Gate ---");
-        println!("Decision:    {:?}", decision.status);
-        println!("Decision ID: {}", decision.id);
-        println!("Reason:     {}", decision.reason);
-        println!();
-        println!("--- 3. Simulation / diff preview ---");
-        if let Some(result) = &simulation_result {
-            println!("Status:  {:?}", result.status);
-            println!("Summary: {}", result.output_summary);
-        } else {
-            println!("Status:  not run (governance blocked or no permission)");
+        println!("Approval: missing -- simulation only");
+        println!("Next step: rerun with --approve to execute");
+        println!("  arpagona actor run {:?} --approve", task);
+    }
+    println!();
+    println!("--- 5. Execution + readback ---");
+    if let Some(exec) = output["execution_result"].as_object() {
+        let exec_status = exec.get("status").and_then(|v| v.as_str()).unwrap_or("?");
+        let exec_summary = exec
+            .get("output_summary")
+            .and_then(|v| v.as_str())
+            .unwrap_or("");
+        println!("Execution:   {:?}", exec_status);
+        println!("Summary:     {}", exec_summary);
+        if let Some(readback) = output["readback_result"].as_object() {
+            let rb_status = readback
+                .get("status")
+                .and_then(|v| v.as_str())
+                .unwrap_or("?");
+            let rb_summary = readback
+                .get("output_summary")
+                .and_then(|v| v.as_str())
+                .unwrap_or("");
+            println!("Readback:    {:?}", rb_status);
+            println!("Content:     {}", rb_summary);
         }
-        println!();
-        println!("--- 4. Approval path ---");
-        if args.approve {
-            println!("Approval: --approve supplied");
-            if execution_result.is_some() {
-                println!("Execution: completed");
-            } else if is_read_only {
-                println!("Execution: read-only tool, no mutate needed");
-            } else {
-                println!("Execution: not run (simulation failed or governance denied)");
-            }
-        } else {
-            println!("Approval: missing -- simulation only");
-            println!("Next step: rerun with --approve to execute");
-            println!("  arpagona actor run {:?} --approve", args.task);
-        }
-        println!();
-        println!("--- 5. Execution + readback ---");
-        if let Some(result) = &execution_result {
-            println!("Execution:   {:?}", result.status);
-            println!("Summary:     {}", result.output_summary);
-            if let Some(readback) = &readback_result {
-                println!("Readback:    {:?}", readback.status);
-                println!("Content:     {}", readback.output_summary);
-            }
-        } else if is_read_only {
-            if let Some(result) = &simulation_result {
-                println!("Result:      {:?}", result.status);
-                println!("Output:      {}", result.output_summary);
-            } else {
-                println!("Execution:   not run");
-            }
+    } else if is_read_only {
+        if let Some(sim) = output["simulation_result"].as_object() {
+            let sim_status = sim.get("status").and_then(|v| v.as_str()).unwrap_or("?");
+            let sim_summary = sim
+                .get("output_summary")
+                .and_then(|v| v.as_str())
+                .unwrap_or("");
+            println!("Result:      {:?}", sim_status);
+            println!("Output:      {}", sim_summary);
         } else {
             println!("Execution:   not run");
         }
-        println!();
-        println!("--- 6. Observation / audit ---");
-        println!(
-            "Observation ID: obs-{}",
-            &decision.id.0[..decision.id.0.len().min(8)]
-        );
-        println!("Journal Entry:  {}", journal_entry_id);
+    } else {
+        println!("Execution:   not run");
+    }
+    println!();
+    println!("--- 6. Observation / audit ---");
+    println!(
+        "Observation ID: obs-{}",
+        &decision_id[..decision_id.len().min(8)]
+    );
+    println!("Journal Entry:  {}", journal_entry_id);
+}
+
+fn actor_run(args: ActorRunArgs) -> Result<(), Box<dyn Error>> {
+    let output = actor_run_core(&args.task, &args.workspace, args.approve)?;
+
+    if args.json {
+        println!("{}", serde_json::to_string_pretty(&output)?);
+    } else {
+        print_actor_run_text(&output, &args.task);
     }
 
     Ok(())
 }
 
+/// Start an interactive acquisition loop reading tasks from stdin.
+/// Each task goes through the governed actor_run_core pipeline (simulation-only, no implicit approval).
+fn actor_session(args: ActorSessionArgs) -> Result<(), Box<dyn Error>> {
+    let max_tasks = args.max.unwrap_or(u32::MAX);
+    let mut task_count: u32 = 0;
+
+    if args.json {
+        // JSON mode: compact one-line envelopes per task (newline-delimited)
+        let mut input = String::new();
+        loop {
+            if task_count >= max_tasks {
+                break;
+            }
+            input.clear();
+            let bytes_read = io::stdin().read_line(&mut input)?;
+            if bytes_read == 0 {
+                break;
+            }
+            let line = input.trim().to_owned();
+            if line.is_empty() {
+                continue;
+            }
+
+            // Session commands
+            if line == "/quit" || line == "/exit" {
+                break;
+            }
+            if line == "/help" {
+                let envelope = serde_json::json!({
+                    "type": "help",
+                    "commands": ["/quit", "/exit", "/help", "/status", "<task>"]
+                });
+                println!("{}", serde_json::to_string(&envelope)?);
+                continue;
+            }
+            if line == "/status" {
+                let envelope = serde_json::json!({
+                    "type": "status",
+                    "tasks_processed": task_count,
+                    "max": args.max,
+                });
+                println!("{}", serde_json::to_string(&envelope)?);
+                continue;
+            }
+
+            task_count += 1;
+
+            match actor_run_core(&line, &args.workspace, false) {
+                Ok(result) => {
+                    let status = if result["simulation_result"].is_null() {
+                        "governance_blocked"
+                    } else {
+                        "simulated"
+                    };
+                    let envelope = serde_json::json!({
+                        "type": "task",
+                        "task_number": task_count,
+                        "task": line,
+                        "status": status,
+                        "tool": result["intent"]["tool"],
+                        "decision": result["decision"]["status"],
+                        "simulation_summary": result["simulation_result"]["output_summary"],
+                        "journal_entry_id": result["journal_entry_id"],
+                    });
+                    println!("{}", serde_json::to_string(&envelope)?);
+                }
+                Err(e) => {
+                    let envelope = serde_json::json!({
+                        "type": "task",
+                        "task_number": task_count,
+                        "task": line,
+                        "status": "error",
+                        "error": format!("{e}"),
+                    });
+                    println!("{}", serde_json::to_string(&envelope)?);
+                }
+            }
+        }
+
+        let summary = serde_json::json!({
+            "type": "summary",
+            "tasks_processed": task_count,
+        });
+        println!("{}", serde_json::to_string(&summary)?);
+    } else {
+        // Text mode: interactive session with full actor_run output per task
+        println!("{ACTOR_SESSION_WARNING}");
+        println!();
+        println!("=== Actor Session ===");
+        println!("Type a task, or /help for commands. Ctrl+C or /quit to exit.");
+        if let Some(max) = args.max {
+            println!("Max tasks: {}", max);
+        }
+        println!();
+
+        let mut input = String::new();
+        loop {
+            if task_count >= max_tasks {
+                println!("[Session: max tasks ({}) reached, exiting.]", max_tasks);
+                break;
+            }
+
+            print!("> ");
+            io::stdout().flush()?;
+            input.clear();
+            let bytes_read = io::stdin().read_line(&mut input)?;
+            if bytes_read == 0 {
+                break;
+            }
+            let line = input.trim().to_owned();
+            if line.is_empty() {
+                continue;
+            }
+
+            // Session commands
+            if line == "/quit" || line == "/exit" {
+                break;
+            }
+            if line == "/help" {
+                println!("Commands:");
+                println!("  /quit or /exit  Exit session");
+                println!("  /help           Show this help");
+                println!("  /status         Show session state");
+                println!("  <task>          Run a task through the governed pipeline");
+                println!();
+                continue;
+            }
+            if line == "/status" {
+                println!("Task count: {}", task_count);
+                if let Some(max) = args.max {
+                    println!("Max tasks:  {}", max);
+                }
+                println!("Session state: active");
+                println!();
+                continue;
+            }
+
+            task_count += 1;
+            println!();
+            println!("--- Task #{} ---", task_count);
+
+            match actor_run_core(&line, &args.workspace, false) {
+                Ok(result) => {
+                    print_actor_run_text(&result, &line);
+                }
+                Err(e) => {
+                    println!("Error: {e}");
+                    println!("[Loop continues -- error handled per task.]");
+                }
+            }
+            println!();
+        }
+
+        println!("Session ended. {} tasks processed.", task_count);
+    }
+
+    Ok(())
+}
 /// Run the Neutral Orchestrator deterministic cycle and display the result.
 /// Run an objective through the in-process orchestrator with clean, readable output.
 ///
@@ -16435,6 +16652,94 @@ mod tests {
                 assert_eq!(args.workspace, "/tmp/scratch");
             }
             _ => panic!("expected actor run with --workspace"),
+        }
+    }
+
+    // -----------------------------------------------------------------------
+    // Actor Session command parse tests
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn actor_session_parses_basic() {
+        let cli = Cli::parse_from(["arpagona", "actor", "session"]);
+        match cli.command {
+            Command::Actor(ActorCommand {
+                command: ActorSubcommand::Session(args),
+            }) => {
+                assert!(args.max.is_none());
+                assert!(!args.json);
+                assert_eq!(args.workspace, ".");
+            }
+            _ => panic!("expected actor session"),
+        }
+    }
+
+    #[test]
+    fn actor_session_parses_with_max() {
+        let cli = Cli::parse_from(["arpagona", "actor", "session", "--max", "5"]);
+        match cli.command {
+            Command::Actor(ActorCommand {
+                command: ActorSubcommand::Session(args),
+            }) => {
+                assert_eq!(args.max, Some(5));
+            }
+            _ => panic!("expected actor session with --max"),
+        }
+    }
+
+    #[test]
+    fn actor_session_parses_with_json() {
+        let cli = Cli::parse_from(["arpagona", "actor", "session", "--json"]);
+        match cli.command {
+            Command::Actor(ActorCommand {
+                command: ActorSubcommand::Session(args),
+            }) => {
+                assert!(args.json);
+            }
+            _ => panic!("expected actor session with --json"),
+        }
+    }
+
+    #[test]
+    fn actor_session_parses_with_workspace() {
+        let cli = Cli::parse_from([
+            "arpagona",
+            "actor",
+            "session",
+            "--workspace",
+            "/tmp/test-workspace",
+        ]);
+        match cli.command {
+            Command::Actor(ActorCommand {
+                command: ActorSubcommand::Session(args),
+            }) => {
+                assert_eq!(args.workspace, "/tmp/test-workspace");
+            }
+            _ => panic!("expected actor session with --workspace"),
+        }
+    }
+
+    #[test]
+    fn actor_session_parses_with_max_and_workspace() {
+        let cli = Cli::parse_from([
+            "arpagona",
+            "actor",
+            "session",
+            "--max",
+            "10",
+            "--workspace",
+            "/tmp/ws",
+            "--json",
+        ]);
+        match cli.command {
+            Command::Actor(ActorCommand {
+                command: ActorSubcommand::Session(args),
+            }) => {
+                assert_eq!(args.max, Some(10));
+                assert_eq!(args.workspace, "/tmp/ws");
+                assert!(args.json);
+            }
+            _ => panic!("expected actor session with all flags"),
         }
     }
 

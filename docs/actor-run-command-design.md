@@ -45,6 +45,10 @@ arpagona actor run "search for milestone in docs/"
 arpagona actor run "append hello to test.txt" --json
 ```
 
+## Interactive acquisition loop (`actor session`)
+
+The `actor session` command is a separate document. See `docs/actor-run-acquisition-loop-design.md` for the full CLI interface, session flow, architecture, and governance boundaries.
+
 ## 3. CLI Hierarchy Change
 
 Add new variant to `Command` enum in `crates/cli/src/main.rs`:
@@ -70,6 +74,9 @@ enum ActorSubcommand {
     /// Parse a natural language task and run it through the governed
     /// simulation -> approval -> execution -> readback loop.
     Run(ActorRunArgs),
+    /// Start an interactive acquisition loop that reads tasks from stdin
+    /// and runs each through the governed actor_run pipeline.
+    Session(ActorSessionArgs),
 }
 ```
 
