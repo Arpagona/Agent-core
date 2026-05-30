@@ -1313,6 +1313,8 @@ enum ToolDemoSubcommand {
     CopyFile(ToolDemoCopyFileArgs),
     /// Demo the sandboxed move_file tool (alias: rename).
     MoveFile(ToolDemoMoveFileArgs),
+    /// Demo the sandboxed sync_file tool (alias: fsync).
+    SyncFile(ToolDemoSyncFileArgs),
     /// Run the full cognitive observation pipeline: tool execution → observation → assessment.
     Observe(ToolDemoObserveArgs),
 }
@@ -1451,6 +1453,18 @@ struct ToolDemoMoveFileArgs {
     /// Allow overwriting an existing destination file.
     #[arg(long)]
     overwrite: bool,
+    /// Emit structured JSON instead of human-oriented text.
+    #[arg(long)]
+    json: bool,
+}
+
+#[derive(Debug, Args)]
+struct ToolDemoSyncFileArgs {
+    /// Path to the file to sync (relative to workspace).
+    path: String,
+    /// Actually execute fsync. Without this flag, sync_file only simulates.
+    #[arg(long)]
+    execute: bool,
     /// Emit structured JSON instead of human-oriented text.
     #[arg(long)]
     json: bool,
@@ -2158,6 +2172,7 @@ async fn run() -> Result<(), Box<dyn Error>> {
                 ToolDemoSubcommand::Mkdir(args) => tool_demo_mkdir(args)?,
                 ToolDemoSubcommand::CopyFile(args) => tool_demo_copy_file(args)?,
                 ToolDemoSubcommand::MoveFile(args) => tool_demo_move_file(args)?,
+                ToolDemoSubcommand::SyncFile(args) => tool_demo_sync_file(args)?,
                 ToolDemoSubcommand::Observe(args) => tool_demo_observe(args)?,
             },
         },
@@ -5309,6 +5324,36 @@ fn tool_demo_move_file(args: ToolDemoMoveFileArgs) -> Result<(), Box<dyn Error>>
         println!("{DEMO_TOOL_WARNING}");
         println!();
         println!("Tool demo: move_file");
+        println!(
+            "   Mode: {}",
+            if args.execute { "execute" } else { "simulate" }
+        );
+        println!("   Status: {:?}", result.status);
+        println!("   {}", result.output_summary);
+        if let Some(error) = &result.error {
+            println!("   Error: {}", error.message);
+        }
+        println!("Full result available with --json");
+    }
+    Ok(())
+}
+
+fn tool_demo_sync_file(args: ToolDemoSyncFileArgs) -> Result<(), Box<dyn Error>> {
+    let runtime = ToolRuntime::new(ToolRuntimeConfig::new("."));
+    let result = runtime.execute(
+        "sync_file",
+        &serde_json::json!({
+            "path": args.path,
+            "simulate": !args.execute,
+        }),
+    );
+
+    if args.json {
+        println!("{}", serde_json::to_string_pretty(&result)?);
+    } else {
+        println!("{}", DEMO_TOOL_WARNING);
+        println!();
+        println!("Tool demo: sync_file");
         println!(
             "   Mode: {}",
             if args.execute { "execute" } else { "simulate" }
