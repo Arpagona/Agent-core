@@ -4255,3 +4255,40 @@ This session added automatic failure insight candidate collection to `orchestrat
 
 ### PR
 PR #214: `feat/p3-24-orchestrator-run-collect-insights`
+
+## 33. Latest Session Update (2026-05-30 — P3-25: orchestrator run --save-audit for governed audit event persistence)
+
+This session added `--save-audit` to `orchestrator run`, enabling governed audit event persistence from orchestrator cycles.
+
+**Changed:**
+- Added `AuditEventType::CognitiveCycleCompleted` variant to `crates/core/src/audit.rs` for describing orchestrated cycle completions.
+- Added `--save-audit [<DIR>]` flag to `OrchestratorRunArgs` in CLI, with auto and explicit path modes (mirrors `--save-trace` behavior).
+- Added `DEFAULT_ORCHESTRATOR_AUDIT_DIR = "target/orchestrator-audit"` constant.
+- Added audit event saving logic in `orchestrator_run()`: one JSON file per audit event, saved to the specified directory.
+- 3 new parser tests: explicit path (`target/my-audit-dir`), auto (no path), combined with `--save-trace`.
+
+**Verification:** `cargo fmt -- --check` [OK], `cargo check` [OK], `cargo test` [OK] (138 CLI tests + all workspace tests pass).
+
+**Stability level:** Alpha CLI extension: pure file I/O, no SurrealDB or GraphMemory backend required.
+
+**Safety boundaries preserved:**
+- Read-only audit event persistence: events are already created internally by the cycle
+- No execution, no autonomy, no authorization
+- Saved events are non-authorizing audit records
+- No Decision Gate bypass
+- No shell, browser, secrets, or unrestricted write access
+
+**PR state:**
+- **PR #215** (`feat/p3-25-orchestrator-save-audit`) — new, CI pending.
+- **PRs #211-#214** (P3-21 through P3-24) — open, mergeable, green CI. Waiting GONA merge.
+
+**Deliberately not changed:**
+- No existing audit CLI commands were modified
+- No Graph Memory/SurrealDB persistence: audit events are saved as standalone JSON files
+- No scheduler, autonomy, or execution expansion
+- No Web Mission Control changes
+- No Decision Gate behavior changes
+
+**Recommended next step for GONA:**
+1. Merge PR #211 (P3-21), then #212, #213, #214, then #215.
+2. Then wire saved audit events into a CLI readback surface, or connect collected insights to the Failure-to-Insight demo snapshot pipeline.
