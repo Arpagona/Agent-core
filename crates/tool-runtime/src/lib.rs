@@ -207,6 +207,8 @@ impl ToolRuntime {
             "list_files" => self.execute_list_files(execution_id, arguments),
             "search_text" => self.execute_search_text(execution_id, arguments),
             "write_file" => self.execute_write_file(execution_id, arguments),
+            "append_file" => self.execute_append_file(execution_id, arguments),
+            "mkdir" | "create_dir" => self.execute_mkdir(execution_id, arguments),
             "patch_file" | "replace_text" => self.execute_patch_file(execution_id, arguments),
             other => ToolExecutionResult::failed(
                 execution_id,
@@ -387,6 +389,73 @@ impl ToolRuntime {
                 .file_name()
                 .ok_or_else(|| ToolRuntimeError::InvalidPath("Missing file name".to_owned()))?,
         ))
+    }
+
+    /// Validate and resolve a directory path for mkdir relative to the workspace.
+    fn resolve_mkdir_path(&self, path_str: &str) -> Result<PathBuf, ToolRuntimeError> {
+        let input_path = Path::new(path_str);
+
+        if path_str.trim().is_empty() || path_str == "." {
+            return Err(ToolRuntimeError::InvalidPath(
+                "mkdir target must be a non-empty subdirectory".to_owned(),
+            ));
+        }
+
+        if input_path.is_absolute() && !self.config.allow_absolute_paths {
+            return Err(ToolRuntimeError::SecurityBlocked(
+                "Absolute paths are not allowed".to_owned(),
+            ));
+        }
+
+        if input_path
+            .components()
+            .any(|c| matches!(c, std::path::Component::ParentDir))
+        {
+            return Err(ToolRuntimeError::SecurityBlocked(format!(
+                "Path escapes workspace via parent traversal: {path_str}"
+            )));
+        }
+
+        let workspace_canonical = self
+            .config
+            .workspace_path
+            .canonicalize()
+            .map_err(|e| ToolRuntimeError::Io(format!("Cannot resolve workspace: {e}")))?;
+
+        let target = if input_path.is_absolute() {
+            input_path.to_path_buf()
+        } else {
+            workspace_canonical.join(input_path)
+        };
+
+        for component in target.components() {
+            if let std::path::Component::Normal(name) = component {
+                if let Some(name) = name.to_str() {
+                    if Self::is_blocked_dir(name) || Self::is_blocked_file(name) {
+                        return Err(ToolRuntimeError::SecurityBlocked(format!(
+                            "Directory access blocked: {path_str}"
+                        )));
+                    }
+                }
+            }
+        }
+
+        let check_parent = target
+            .ancestors()
+            .find(|candidate| candidate.exists())
+            .ok_or_else(|| ToolRuntimeError::Io("No existing parent found".to_owned()))?;
+
+        let parent_canonical = check_parent.canonicalize().map_err(|e| {
+            ToolRuntimeError::Io(format!("Cannot resolve existing parent directory: {e}"))
+        })?;
+
+        if !parent_canonical.starts_with(&workspace_canonical) {
+            return Err(ToolRuntimeError::SecurityBlocked(format!(
+                "Path escapes workspace: {path_str}"
+            )));
+        }
+
+        Ok(target)
     }
 
     /// Check if a filename matches a blocked pattern.
@@ -864,6 +933,301 @@ impl ToolRuntime {
                 "write_file",
                 ToolExecutionError::new("io_error", format!("Cannot write file: {e}")),
                 format!("I/O error writing {path_str}"),
+            ),
+        }
+    }
+
+    // -----------------------------------------------------------------------
+    // Tool: append_file
+    // -----------------------------------------------------------------------
+
+    fn execute_append_file(
+        &self,
+        execution_id: ToolExecutionId,
+        arguments: &Value,
+    ) -> ToolExecutionResult {
+        let path_str = match arguments.get("path").and_then(Value::as_str) {
+            Some(p) if !p.is_empty() => p,
+            _ => {
+                return ToolExecutionResult::failed(
+                    execution_id,
+                    "append_file",
+                    ToolExecutionError::new("missing_argument", "Required argument: path"),
+                    "Missing 'path' argument for append_file",
+                );
+            }
+        };
+
+        let content = match arguments.get("content").and_then(Value::as_str) {
+            Some(c) => c,
+            None => {
+                return ToolExecutionResult::failed(
+                    execution_id,
+                    "append_file",
+                    ToolExecutionError::new("missing_argument", "Required argument: content"),
+                    "Missing 'content' argument for append_file",
+                );
+            }
+        };
+
+        let simulate = arguments
+            .get("simulate")
+            .and_then(Value::as_bool)
+            .unwrap_or(true);
+        let create_parent_dirs = arguments
+            .get("create_parent_dirs")
+            .and_then(Value::as_bool)
+            .unwrap_or(false);
+        let create_if_missing = arguments
+            .get("create_if_missing")
+            .and_then(Value::as_bool)
+            .unwrap_or(true);
+
+        if content.len() > MAX_WRITE_SIZE {
+            return ToolExecutionResult::failed(
+                execution_id,
+                "append_file",
+                ToolExecutionError::new(
+                    "content_too_large",
+                    format!(
+                        "Content too large: {} bytes (max: {} bytes)",
+                        content.len(),
+                        MAX_WRITE_SIZE
+                    ),
+                ),
+                "Content exceeds maximum allowed append size",
+            );
+        }
+
+        let resolved = match self.resolve_write_path(path_str, create_parent_dirs, simulate) {
+            Ok(p) => p,
+            Err(ToolRuntimeError::SecurityBlocked(msg)) => {
+                return ToolExecutionResult::blocked(
+                    execution_id,
+                    "append_file",
+                    format!("Path access blocked: {msg}"),
+                )
+            }
+            Err(e) => {
+                return ToolExecutionResult::failed(
+                    execution_id,
+                    "append_file",
+                    ToolExecutionError::new("invalid_path", format!("Cannot access path: {e}")),
+                    format!("Path validation failed: {e}"),
+                )
+            }
+        };
+
+        let existed_before = resolved.exists();
+        if !existed_before && !create_if_missing {
+            return ToolExecutionResult::failed(
+                execution_id,
+                "append_file",
+                ToolExecutionError::new(
+                    "file_not_found",
+                    format!("Target does not exist and create_if_missing=false: {path_str}"),
+                ),
+                "Append refused because target is missing",
+            );
+        }
+
+        let existing_size = if existed_before {
+            match std::fs::metadata(&resolved) {
+                Ok(m) if m.is_file() => m.len() as usize,
+                Ok(_) => {
+                    return ToolExecutionResult::failed(
+                        execution_id,
+                        "append_file",
+                        ToolExecutionError::new("not_a_file", format!("Not a file: {path_str}")),
+                        "Expected a file, got a directory or special file",
+                    )
+                }
+                Err(e) => {
+                    return ToolExecutionResult::failed(
+                        execution_id,
+                        "append_file",
+                        ToolExecutionError::new(
+                            "io_error",
+                            format!("Cannot read file metadata: {e}"),
+                        ),
+                        format!("I/O error reading {path_str}"),
+                    )
+                }
+            }
+        } else {
+            0
+        };
+
+        if existing_size + content.len() > MAX_WRITE_SIZE {
+            return ToolExecutionResult::failed(
+                execution_id,
+                "append_file",
+                ToolExecutionError::new(
+                    "result_too_large",
+                    format!(
+                        "Result would be too large: {} bytes (max: {} bytes)",
+                        existing_size + content.len(),
+                        MAX_WRITE_SIZE
+                    ),
+                ),
+                "Append would exceed maximum allowed file size",
+            );
+        }
+
+        if simulate {
+            return ToolExecutionResult::success(
+                execution_id,
+                "append_file",
+                ToolObservation {
+                    summary: format!(
+                        "Simulated append_file: {path_str} (+{} bytes, existed={existed_before})",
+                        content.len()
+                    ),
+                    payload: json!({"path": path_str, "resolved_path": resolved.to_string_lossy(), "simulate": true, "bytes_to_append": content.len(), "existing_size": existing_size, "result_size": existing_size + content.len(), "would_create": !existed_before}),
+                    actionable: true,
+                    failure_insight_candidate: false,
+                    failure_hint: None,
+                },
+                format!(
+                    "Simulated append_file: {path_str} (+{} bytes)",
+                    content.len()
+                ),
+            );
+        }
+
+        let mut options = std::fs::OpenOptions::new();
+        options.append(true);
+        if create_if_missing {
+            options.create(true);
+        }
+
+        match options.open(&resolved).and_then(|mut file| {
+            use std::io::Write as _;
+            file.write_all(content.as_bytes())
+        }) {
+            Ok(()) => ToolExecutionResult::success(
+                execution_id,
+                "append_file",
+                ToolObservation {
+                    summary: format!("Appended file: {path_str} (+{} bytes)", content.len()),
+                    payload: json!({"path": path_str, "resolved_path": resolved.to_string_lossy(), "simulate": false, "bytes_appended": content.len(), "created": !existed_before, "result_size": existing_size + content.len()}),
+                    actionable: true,
+                    failure_insight_candidate: false,
+                    failure_hint: None,
+                },
+                format!("Appended file: {path_str} (+{} bytes)", content.len()),
+            ),
+            Err(e) => ToolExecutionResult::failed(
+                execution_id,
+                "append_file",
+                ToolExecutionError::new("io_error", format!("Cannot append file: {e}")),
+                format!("I/O error appending to {path_str}"),
+            ),
+        }
+    }
+
+    // -----------------------------------------------------------------------
+    // Tool: mkdir / create_dir
+    // -----------------------------------------------------------------------
+
+    fn execute_mkdir(
+        &self,
+        execution_id: ToolExecutionId,
+        arguments: &Value,
+    ) -> ToolExecutionResult {
+        let path_str = match arguments.get("path").and_then(Value::as_str) {
+            Some(p) if !p.is_empty() => p,
+            _ => {
+                return ToolExecutionResult::failed(
+                    execution_id,
+                    "mkdir",
+                    ToolExecutionError::new("missing_argument", "Required argument: path"),
+                    "Missing 'path' argument for mkdir",
+                )
+            }
+        };
+
+        let simulate = arguments
+            .get("simulate")
+            .and_then(Value::as_bool)
+            .unwrap_or(true);
+        let parents = arguments
+            .get("parents")
+            .and_then(Value::as_bool)
+            .unwrap_or(false);
+
+        let resolved = match self.resolve_mkdir_path(path_str) {
+            Ok(p) => p,
+            Err(ToolRuntimeError::SecurityBlocked(msg)) => {
+                return ToolExecutionResult::blocked(
+                    execution_id,
+                    "mkdir",
+                    format!("Path access blocked: {msg}"),
+                )
+            }
+            Err(e) => {
+                return ToolExecutionResult::failed(
+                    execution_id,
+                    "mkdir",
+                    ToolExecutionError::new("invalid_path", format!("Cannot access path: {e}")),
+                    format!("Path validation failed: {e}"),
+                )
+            }
+        };
+
+        let existed_before = resolved.exists();
+        if existed_before && !resolved.is_dir() {
+            return ToolExecutionResult::failed(
+                execution_id,
+                "mkdir",
+                ToolExecutionError::new(
+                    "not_a_directory",
+                    format!("Path exists but is not a directory: {path_str}"),
+                ),
+                "mkdir target exists as non-directory",
+            );
+        }
+
+        if simulate {
+            return ToolExecutionResult::success(
+                execution_id,
+                "mkdir",
+                ToolObservation {
+                    summary: format!(
+                        "Simulated mkdir: {path_str} (parents={parents}, existed={existed_before})"
+                    ),
+                    payload: json!({"path": path_str, "resolved_path": resolved.to_string_lossy(), "simulate": true, "parents": parents, "would_create": !existed_before, "existed_before": existed_before}),
+                    actionable: true,
+                    failure_insight_candidate: false,
+                    failure_hint: None,
+                },
+                format!("Simulated mkdir: {path_str}"),
+            );
+        }
+
+        let result = if parents {
+            std::fs::create_dir_all(&resolved)
+        } else {
+            std::fs::create_dir(&resolved)
+        };
+        match result {
+            Ok(()) => ToolExecutionResult::success(
+                execution_id,
+                "mkdir",
+                ToolObservation {
+                    summary: format!("Created directory: {path_str}"),
+                    payload: json!({"path": path_str, "resolved_path": resolved.to_string_lossy(), "simulate": false, "parents": parents, "created": !existed_before}),
+                    actionable: true,
+                    failure_insight_candidate: false,
+                    failure_hint: None,
+                },
+                format!("Created directory: {path_str}"),
+            ),
+            Err(e) => ToolExecutionResult::failed(
+                execution_id,
+                "mkdir",
+                ToolExecutionError::new("io_error", format!("Cannot create directory: {e}")),
+                format!("I/O error creating directory {path_str}"),
             ),
         }
     }
@@ -2160,6 +2524,101 @@ mod tests {
     }
 
     // -------------------------------------------------------------------------
+    // append_file tests
+
+    #[test]
+    fn append_file_simulates_by_default_without_mutation() {
+        let dir = test_workspace();
+        create_test_file(dir.path(), "log.txt", "one");
+        let runtime = make_runtime(dir.path());
+
+        let result = runtime.execute(
+            "append_file",
+            &json!({"path": "log.txt", "content": " two"}),
+        );
+
+        assert_eq!(result.status, ToolExecutionStatus::Success);
+        assert_eq!(result.observation.payload["simulate"], true);
+        assert_eq!(
+            std::fs::read_to_string(dir.path().join("log.txt")).unwrap(),
+            "one"
+        );
+    }
+
+    #[test]
+    fn append_file_executes_inside_workspace() {
+        let dir = test_workspace();
+        create_test_file(dir.path(), "log.txt", "one");
+        let runtime = make_runtime(dir.path());
+
+        let result = runtime.execute(
+            "append_file",
+            &json!({"path": "log.txt", "content": " two", "simulate": false}),
+        );
+
+        assert_eq!(result.status, ToolExecutionStatus::Success);
+        assert_eq!(
+            std::fs::read_to_string(dir.path().join("log.txt")).unwrap(),
+            "one two"
+        );
+    }
+
+    #[test]
+    fn append_file_blocks_parent_traversal() {
+        let dir = test_workspace();
+        let runtime = make_runtime(dir.path());
+
+        let result = runtime.execute(
+            "append_file",
+            &json!({"path": "../escape.txt", "content": "bad", "simulate": false}),
+        );
+
+        assert_eq!(result.status, ToolExecutionStatus::Blocked);
+        assert!(result.error.as_ref().unwrap().is_security);
+    }
+
+    // mkdir tests
+
+    #[test]
+    fn mkdir_simulates_by_default_without_mutation() {
+        let dir = test_workspace();
+        let runtime = make_runtime(dir.path());
+
+        let result = runtime.execute("mkdir", &json!({"path": "new-dir"}));
+
+        assert_eq!(result.status, ToolExecutionStatus::Success);
+        assert_eq!(result.observation.payload["simulate"], true);
+        assert!(!dir.path().join("new-dir").exists());
+    }
+
+    #[test]
+    fn mkdir_executes_inside_workspace() {
+        let dir = test_workspace();
+        let runtime = make_runtime(dir.path());
+
+        let result = runtime.execute(
+            "mkdir",
+            &json!({"path": "parent/child", "simulate": false, "parents": true}),
+        );
+
+        assert_eq!(result.status, ToolExecutionStatus::Success);
+        assert!(dir.path().join("parent/child").is_dir());
+    }
+
+    #[test]
+    fn mkdir_blocks_parent_traversal() {
+        let dir = test_workspace();
+        let runtime = make_runtime(dir.path());
+
+        let result = runtime.execute(
+            "mkdir",
+            &json!({"path": "../escape-dir", "simulate": false}),
+        );
+
+        assert_eq!(result.status, ToolExecutionStatus::Blocked);
+        assert!(result.error.as_ref().unwrap().is_security);
+    }
+
     // patch_file tests
     // -------------------------------------------------------------------------
 
