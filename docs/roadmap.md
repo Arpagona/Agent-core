@@ -176,6 +176,7 @@ Ordre recommandé :
 5. tests de régression ;
 6. intégration Graph Memory ;
 7. influence future sur Compute Reservoir et Decision Gate.
+8. automatisation des templates de post-mortem (Failure-to-Insight).
 
 Contraintes alpha : ne pas implémenter d'auto-amélioration autonome, de self-modification, de réécriture automatique de policy, de mutation mémoire non revue, de scheduler ou d'exécution réelle. Failure-to-Insight est une couche d'apprentissage et d'observabilité, pas une couche d'exécution ni une autorisation implicite.
 
