@@ -4353,3 +4353,78 @@ This session added `--save-audit` to `orchestrator run`, enabling governed audit
 **Recommended next step for GONA:**
 1. Merge PR #211 (P3-21), then #212, #213, #214, then #215.
 2. Then wire saved audit events into a CLI readback surface, or connect collected insights to the Failure-to-Insight demo snapshot pipeline.
+
+## 30. Latest Session Update (2026-05-30 DEEP cron — C4 documentation coverage + PR #222)
+
+### Context
+
+The previous DEEP run created PR #221 (P3-27: audit/insight readback surface consolidation). PR #221 is open, mergeable, and CI is in progress. DEEP cannot merge (GONA governance rule). The next handoff recommended C3 or C4 milestones.
+
+### Assessment
+
+Both C3 and C4 were verified to be already implemented:
+- **C3 (LLM interaction journaling)**: `arpagona llm journal --json` works with full prompt/response/risk/governance readback. The `LlmJournal` core module in `crates/core/src/llm_journal.rs` supports synthesis, tool-call, governance, and compute routing entries with file persistence. CLI docs coverage passes.
+- **C4 (Compute Reservoir model routing)**: `arpagona compute routing --json` works with allocation, provider mapping, trade-off analysis, and cost/latency/sensitivity rationale. Integrated with `--allocate` on `cognitive run`.
+
+### Documentation gap found
+
+The `arpagona compute routing` command was fully implemented but had **no dedicated documentation section** in `docs/cli.md`. Only incidental mentions of "compute" existed within the orchestrator documentation. The CLI docs coverage script had no explicit `compute` pattern, relying on a fallback grep that matched orchestrator text.
+
+### What was done
+
+| File | Change |
+|------|--------|
+| `docs/cli.md` | Added `### Compute Reservoir — Routage de modèle (C4)` section with 4 usage examples, all option descriptions in French, and non-authorizing disclaimer |
+| `scripts/check-cli-docs-coverage.sh` | Added `compute` pattern to `CMD_PATTERNS` |
+
+### Verification
+
+- `bash scripts/check-cli-docs-coverage.sh`: ✅ passes (all 19+ top-level commands covered)
+- `cargo fmt -- --check`: ✅ clean (only .md and .sh changed)
+- `cargo check`: ✅ clean
+- `cargo test`: ✅ all tests pass (0 failures, 0 regressions)
+- `cargo run -- compute routing --json`: ✅ produces correct structured output
+
+### Files changed (this session)
+
+| File | Change |
+|------|--------|
+| `docs/cli.md` | Added C4 Compute Reservoir documentation section (23 lines) |
+| `scripts/check-cli-docs-coverage.sh` | Added `compute` pattern (1 line) |
+| `FOCUS_LOOP_NEXT.md` | Refreshed handoff — PR #221 status, #222 created, stale PR stack cleaned |
+| `scripts/dev-process-doctor.sh` | Committed from untracked (local helper script) |
+| `scripts/smoke-human-cli.sh` | Committed from untracked (local helper script) |
+
+### Stability level
+
+Stable documentation extension. No crate code changes.
+
+### Safety boundaries preserved
+
+- ✅ No scheduler, autonomy, browser automation, email, secrets, self-modification
+- ✅ No Decision Gate bypass
+- ✅ No unrestricted shell or execution
+- ✅ No code changes to any crate
+- ✅ No merge to main — DEEP governance rule strictly observed
+- ✅ DEEP branch only: `docs/c4-compute-routing-cli-docs`
+
+### Deliberately not changed
+
+- No crate code in `crates/core`, `crates/compute-reservoir`, `crates/cli`, `crates/decision-gate`, etc.
+- No test additions (documentation-only PR)
+- No behavior, governance, or safety boundary modifications
+- No API, MCP, or CLI command changes
+- No Web Mission Control expansion
+
+### Active PRs
+
+| # | Branch | Title | Status |
+|---|--------|-------|--------|
+| 221 | `feat/p3-27-audit-insight-readback-surface` | P3-27: Audit/insight readback surface consolidation | **Open, mergeable, CI in progress** — awaiting GONA merge |
+| 222 | `docs/c4-compute-routing-cli-docs` | docs: C4 Compute Reservoir CLI documentation coverage | **Open, new** — CI pending |
+
+### Recommended next step for GONA
+
+1. **Merge PR #221** (P3-27 audit/insight readback surface consolidation).
+2. **Merge PR #222** (C4 documentation coverage).
+3. After merge, consider **C5 — Anti-drift and adversarial tests** (protection for C1-C4 model layer against predictable failure modes).
