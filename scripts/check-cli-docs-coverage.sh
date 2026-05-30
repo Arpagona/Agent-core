@@ -55,6 +55,7 @@ CMD_PATTERNS["memory"]="### Graph Memory|### memory|Mémoire|Démos Memory"
 CMD_PATTERNS["tool"]="### Tool Runtime|### tool|Tool Runtime"
 CMD_PATTERNS["cognitive"]="### Cognitive|### cognitive|Cognitive Work Loop"
 CMD_PATTERNS["mcp-governance-audit"]="### MCP Governance Audit|MCP Governance Audit|mcp-governance-audit"
+CMD_PATTERNS["compute"]="### Compute Reservoir|Routage de modèle|compute routing"
 CMD_PATTERNS["llm"]="### LLM|Journal d.interaction LLM|llm journal"
 CMD_PATTERNS["orchestrator"]="### Neutral Orchestrator|### Orchestrator|orchestrator run"
 
