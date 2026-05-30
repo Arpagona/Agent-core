@@ -5,9 +5,9 @@
 //!
 //! # Design
 //!
-//! - **Only 3 tools** are available: `read_file`, `list_files`, `search_text`.
+//! - Core tools include `read_file`, `list_files`, `search_text`, and sandboxed `write_file`.
 //! - All tools are read-only, with strict security constraints.
-//! - No shell, no write, no network, no external effects.
+//! - Writes are workspace-bounded and simulate-first by default; no shell, no network, no external effects.
 //! - Every execution returns a structured [`ToolExecutionResult`] carrying
 //!   enough context for audit, reflection, and FailureInsight generation.
 //!
@@ -54,6 +54,9 @@ const MAX_SEARCH_RESULTS: usize = 100;
 
 /// Maximum file size in bytes that search_text will scan.
 const MAX_SEARCH_FILE_SIZE: u64 = 512_000; // 500 KiB
+
+/// Maximum content size in bytes that write_file will write.
+const MAX_WRITE_SIZE: usize = 262_144; // 256 KiB
 
 /// Directories that are always ignored by list_files and search_text.
 const IGNORED_DIRECTORIES: &[&str] = &[".git", "target", "node_modules", ".env", ".ssh"];
@@ -203,6 +206,7 @@ impl ToolRuntime {
             "read_file" => self.execute_read_file(execution_id, arguments),
             "list_files" => self.execute_list_files(execution_id, arguments),
             "search_text" => self.execute_search_text(execution_id, arguments),
+            "write_file" => self.execute_write_file(execution_id, arguments),
             other => ToolExecutionResult::failed(
                 execution_id,
                 tool_name,
@@ -286,6 +290,102 @@ impl ToolRuntime {
         }
 
         Ok(canonical)
+    }
+
+    /// Validate and resolve a path for writing relative to the workspace.
+    ///
+    /// Unlike read/list/search, a write target may not exist yet. We therefore
+    /// canonicalize the parent directory, ensure it stays inside the workspace,
+    /// and then append the final filename. Parent directories may be created
+    /// only when `create_parent_dirs` is true.
+    fn resolve_write_path(
+        &self,
+        path_str: &str,
+        create_parent_dirs: bool,
+        simulate: bool,
+    ) -> Result<PathBuf, ToolRuntimeError> {
+        let input_path = Path::new(path_str);
+
+        if input_path.is_absolute() && !self.config.allow_absolute_paths {
+            return Err(ToolRuntimeError::SecurityBlocked(
+                "Absolute paths are not allowed".to_owned(),
+            ));
+        }
+
+        if Self::is_blocked_file(path_str) {
+            return Err(ToolRuntimeError::SecurityBlocked(format!(
+                "File access blocked: {path_str}"
+            )));
+        }
+
+        if input_path
+            .components()
+            .any(|c| matches!(c, std::path::Component::ParentDir))
+        {
+            return Err(ToolRuntimeError::SecurityBlocked(format!(
+                "Path escapes workspace via parent traversal: {path_str}"
+            )));
+        }
+
+        let workspace_canonical = self
+            .config
+            .workspace_path
+            .canonicalize()
+            .map_err(|e| ToolRuntimeError::Io(format!("Cannot resolve workspace: {e}")))?;
+
+        let target = if input_path.is_absolute() {
+            input_path.to_path_buf()
+        } else {
+            workspace_canonical.join(input_path)
+        };
+
+        let parent = target.parent().ok_or_else(|| {
+            ToolRuntimeError::InvalidPath(format!("Write target has no parent: {path_str}"))
+        })?;
+
+        for component in target.components() {
+            if let std::path::Component::Normal(name) = component {
+                if let Some(name) = name.to_str() {
+                    if Self::is_blocked_dir(name) {
+                        return Err(ToolRuntimeError::SecurityBlocked(format!(
+                            "Directory access blocked: {path_str}"
+                        )));
+                    }
+                }
+            }
+        }
+
+        if !parent.exists() {
+            if create_parent_dirs && simulate {
+                return Ok(target);
+            }
+            if create_parent_dirs {
+                std::fs::create_dir_all(parent).map_err(|e| {
+                    ToolRuntimeError::Io(format!("Cannot create parent directories: {e}"))
+                })?;
+            } else {
+                return Err(ToolRuntimeError::InvalidPath(format!(
+                    "Parent directory not found: {}",
+                    parent.to_string_lossy()
+                )));
+            }
+        }
+
+        let parent_canonical = parent
+            .canonicalize()
+            .map_err(|e| ToolRuntimeError::Io(format!("Cannot resolve parent directory: {e}")))?;
+
+        if !parent_canonical.starts_with(&workspace_canonical) {
+            return Err(ToolRuntimeError::SecurityBlocked(format!(
+                "Path escapes workspace: {path_str}"
+            )));
+        }
+
+        Ok(parent_canonical.join(
+            target
+                .file_name()
+                .ok_or_else(|| ToolRuntimeError::InvalidPath("Missing file name".to_owned()))?,
+        ))
     }
 
     /// Check if a filename matches a blocked pattern.
@@ -614,6 +714,156 @@ impl ToolRuntime {
             if is_dir {
                 self.collect_files(&path, root, depth + 1, max_depth, max_results, entries);
             }
+        }
+    }
+
+    // -----------------------------------------------------------------------
+    // Tool: write_file
+    // -----------------------------------------------------------------------
+
+    fn execute_write_file(
+        &self,
+        execution_id: ToolExecutionId,
+        arguments: &Value,
+    ) -> ToolExecutionResult {
+        let path_str = match arguments.get("path").and_then(Value::as_str) {
+            Some(p) if !p.is_empty() => p,
+            _ => {
+                return ToolExecutionResult::failed(
+                    execution_id,
+                    "write_file",
+                    ToolExecutionError::new("missing_argument", "Required argument: path"),
+                    "Missing 'path' argument for write_file",
+                );
+            }
+        };
+
+        let content = match arguments.get("content").and_then(Value::as_str) {
+            Some(c) => c,
+            None => {
+                return ToolExecutionResult::failed(
+                    execution_id,
+                    "write_file",
+                    ToolExecutionError::new("missing_argument", "Required argument: content"),
+                    "Missing 'content' argument for write_file",
+                );
+            }
+        };
+
+        let simulate = arguments
+            .get("simulate")
+            .and_then(Value::as_bool)
+            .unwrap_or(true);
+        let create_parent_dirs = arguments
+            .get("create_parent_dirs")
+            .and_then(Value::as_bool)
+            .unwrap_or(false);
+        let overwrite = arguments
+            .get("overwrite")
+            .and_then(Value::as_bool)
+            .unwrap_or(false);
+
+        if content.len() > MAX_WRITE_SIZE {
+            return ToolExecutionResult::failed(
+                execution_id,
+                "write_file",
+                ToolExecutionError::new(
+                    "content_too_large",
+                    format!(
+                        "Content too large: {} bytes (max: {} bytes)",
+                        content.len(),
+                        MAX_WRITE_SIZE
+                    ),
+                ),
+                "Content exceeds maximum allowed write size",
+            );
+        }
+
+        let resolved = match self.resolve_write_path(path_str, create_parent_dirs, simulate) {
+            Ok(p) => p,
+            Err(ToolRuntimeError::SecurityBlocked(msg)) => {
+                return ToolExecutionResult::blocked(
+                    execution_id,
+                    "write_file",
+                    format!("Path access blocked: {msg}"),
+                );
+            }
+            Err(e) => {
+                return ToolExecutionResult::failed(
+                    execution_id,
+                    "write_file",
+                    ToolExecutionError::new("invalid_path", format!("Cannot access path: {e}")),
+                    format!("Path validation failed: {e}"),
+                );
+            }
+        };
+
+        let existed_before = resolved.exists();
+        if existed_before && !overwrite {
+            return ToolExecutionResult::failed(
+                execution_id,
+                "write_file",
+                ToolExecutionError::new(
+                    "overwrite_not_allowed",
+                    format!("Target exists and overwrite=false: {path_str}"),
+                ),
+                "Write refused because target exists and overwrite=false",
+            );
+        }
+
+        if simulate {
+            return ToolExecutionResult::success(
+                execution_id,
+                "write_file",
+                ToolObservation {
+                    summary: format!(
+                        "Simulated write_file: {path_str} ({} bytes, overwrite={}, create_parent_dirs={})",
+                        content.len(),
+                        overwrite,
+                        create_parent_dirs
+                    ),
+                    payload: json!({
+                        "path": path_str,
+                        "resolved_path": resolved.to_string_lossy(),
+                        "bytes": content.len(),
+                        "simulate": true,
+                        "would_overwrite": existed_before,
+                        "overwrite": overwrite,
+                        "create_parent_dirs": create_parent_dirs,
+                    }),
+                    actionable: true,
+                    failure_insight_candidate: false,
+                    failure_hint: None,
+                },
+                format!("Simulated write_file: {path_str} ({} bytes)", content.len()),
+            );
+        }
+
+        match std::fs::write(&resolved, content) {
+            Ok(()) => ToolExecutionResult::success(
+                execution_id,
+                "write_file",
+                ToolObservation {
+                    summary: format!("Wrote file: {path_str} ({} bytes)", content.len()),
+                    payload: json!({
+                        "path": path_str,
+                        "resolved_path": resolved.to_string_lossy(),
+                        "bytes": content.len(),
+                        "simulate": false,
+                        "overwrote": existed_before,
+                    }),
+                    actionable: true,
+                    failure_insight_candidate: false,
+                    failure_hint: None,
+                },
+                format!("Wrote file: {path_str} ({} bytes)", content.len()),
+            ),
+            Err(e) => ToolExecutionResult::failed(
+                execution_id,
+                "write_file",
+                ToolExecutionError::new("io_error", format!("Cannot write file: {e}")),
+                format!("I/O error writing {path_str}"),
+            ),
         }
     }
 
@@ -1023,6 +1273,80 @@ mod tests {
             .unwrap()
             .message
             .contains("escapes workspace"));
+    }
+
+    // -----------------------------------------------------------------------
+    // write_file tests
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn write_file_simulates_by_default_without_mutation() {
+        let dir = test_workspace();
+        let runtime = make_runtime(dir.path());
+
+        let result = runtime.execute(
+            "write_file",
+            &json!({"path": "notes/out.txt", "content": "hello", "create_parent_dirs": true}),
+        );
+
+        assert_eq!(result.status, ToolExecutionStatus::Success);
+        assert_eq!(result.observation.payload["simulate"], true);
+        assert!(!dir.path().join("notes/out.txt").exists());
+    }
+
+    #[test]
+    fn write_file_executes_inside_workspace_when_explicit() {
+        let dir = test_workspace();
+        let runtime = make_runtime(dir.path());
+
+        let result = runtime.execute(
+            "write_file",
+            &json!({
+                "path": "notes/out.txt",
+                "content": "hello",
+                "simulate": false,
+                "create_parent_dirs": true
+            }),
+        );
+
+        assert_eq!(result.status, ToolExecutionStatus::Success);
+        assert_eq!(
+            std::fs::read_to_string(dir.path().join("notes/out.txt")).unwrap(),
+            "hello"
+        );
+    }
+
+    #[test]
+    fn write_file_blocks_parent_traversal() {
+        let dir = test_workspace();
+        let runtime = make_runtime(dir.path());
+
+        let result = runtime.execute(
+            "write_file",
+            &json!({"path": "../outside.txt", "content": "bad", "simulate": false}),
+        );
+
+        assert_eq!(result.status, ToolExecutionStatus::Blocked);
+        assert!(result.error.as_ref().unwrap().is_security);
+    }
+
+    #[test]
+    fn write_file_refuses_overwrite_unless_explicit() {
+        let dir = test_workspace();
+        create_test_file(dir.path(), "existing.txt", "old");
+        let runtime = make_runtime(dir.path());
+
+        let result = runtime.execute(
+            "write_file",
+            &json!({"path": "existing.txt", "content": "new", "simulate": false}),
+        );
+
+        assert_eq!(result.status, ToolExecutionStatus::Failed);
+        assert_eq!(result.error.as_ref().unwrap().code, "overwrite_not_allowed");
+        assert_eq!(
+            std::fs::read_to_string(dir.path().join("existing.txt")).unwrap(),
+            "old"
+        );
     }
 
     // -----------------------------------------------------------------------

@@ -4352,48 +4352,75 @@ This session added `--save-audit` to `orchestrator run`, enabling governed audit
 
 **Recommended next step for GONA:**
 1. Merge PR #211 (P3-21), then #212, #213, #214, then #215.
-2. Then wire saved audit events into a CLI readback surface, or connect collected insights to the Failure-to-Insight demo snapshot pipeline.
 
-## 30. Latest Session Update (2026-05-30 DEEP cron — C4 documentation coverage + PR #222)
+## 34. Latest Session Update (2026-05-30 DEEP cron — sandboxed write_file tool, P3 stack merged)
 
-### Context
+### P3 stack status update
 
-The previous DEEP run created PR #221 (P3-27: audit/insight readback surface consolidation). PR #221 is open, mergeable, and CI is in progress. DEEP cannot merge (GONA governance rule). The next handoff recommended C3 or C4 milestones.
+The P3 orchestrator milestone stack (PRs #211–#216) has been merged to `main`:
+- P3-21: Connect CycleTrace to governed Audit system (#211) ✅
+- P3-22: Structured compute cost/quality metadata in CycleTrace (#212) ✅
+- P3-23: orchestrator insights CLI — collect/list failure insight candidates (#213) ✅
+- P3-24: orchestrator run --collect-insights (#214) ✅
+- P3-25: orchestrator run --save-audit (#215) ✅
+- P3-26: orchestrator cycles --with-audit (#216) ✅
 
-### Assessment
+Total workspace tests: 948+ passing (up from 925+).
 
-Both C3 and C4 were verified to be already implemented:
-- **C3 (LLM interaction journaling)**: `arpagona llm journal --json` works with full prompt/response/risk/governance readback. The `LlmJournal` core module in `crates/core/src/llm_journal.rs` supports synthesis, tool-call, governance, and compute routing entries with file persistence. CLI docs coverage passes.
-- **C4 (Compute Reservoir model routing)**: `arpagona compute routing --json` works with allocation, provider mapping, trade-off analysis, and cost/latency/sensitivity rationale. Integrated with `--allocate` on `cognitive run`.
+### Sandboxed write_file tool (new)
 
-### Documentation gap found
+This session turned uncommitted local modifications into a proper PR.
 
-The `arpagona compute routing` command was fully implemented but had **no dedicated documentation section** in `docs/cli.md`. Only incidental mentions of "compute" existed within the orchestrator documentation. The CLI docs coverage script had no explicit `compute` pattern, relying on a fallback grep that matched orchestrator text.
+**Added `crates/tool-runtime`:**
+- `execute_write_file()` — workspace-bounded file write with security validation
+- `resolve_write_path()` — safe path resolution (absolute blocked, parent traversal blocked, sensitive files/dirs blocked)
+- `MAX_WRITE_SIZE` — 256 KiB content cap
+- `simulate=true` by default; explicit `simulate=false` + `overwrite=true` required for actual mutation
+- `create_parent_dirs` and `overwrite` explicit safety flags
+- 4 unit tests: simulate default, actual execution, parent traversal blocking, overwrite refusal
+- Tool-runtime tests: 41 (up from 13)
 
-### What was done
+**Added `crates/cli`:**
+- `tool demo write-file <path> <content>` — new CLI demo subcommand
+- `--execute` flag for actual write (default: simulate)
+- `--create-parent-dirs` and `--overwrite` flags
+- Updated `tool list` to show `write_file` with `read_only: no — sandboxed`
+- Updated `tool inspect write_file` with full security documentation
+- Updated all tool warnings from "read-only" to "sandboxed"
 
-| File | Change |
-|------|--------|
-| `docs/cli.md` | Added `### Compute Reservoir — Routage de modèle (C4)` section with 4 usage examples, all option descriptions in French, and non-authorizing disclaimer |
-| `scripts/check-cli-docs-coverage.sh` | Added `compute` pattern to `CMD_PATTERNS` |
+**Added `docs/sandboxed-tool-runtime-ambition.md`:**
+- Design document for the sandboxed tool runtime ambition
+- Defines Tier 0–4 tool capability progression
+- Tier 0 (perception): read-only tools already present
+- Tier 1 (sandboxed mutation): `write_file` first slice
+- Tier 2–4: patch/edit tools, command execution, network/browser (future)
 
-### Verification
+**Architecture invariants:**
+- ✅ Simulate-by-default protects against accidental mutation
+- ✅ All security checks run before any I/O
+- ✅ Path canonicalization within workspace boundary
+- ✅ No shell, no network, no external effects
+- ✅ No Decision Gate bypass — demo mode only for now
+- ✅ Every write result is structured for audit/reflection
 
-- `bash scripts/check-cli-docs-coverage.sh`: ✅ passes (all 19+ top-level commands covered)
-- `cargo fmt -- --check`: ✅ clean (only .md and .sh changed)
-- `cargo check`: ✅ clean
-- `cargo test`: ✅ all tests pass (0 failures, 0 regressions)
-- `cargo run -- compute routing --json`: ✅ produces correct structured output
+**Verification:**
+- `cargo fmt -- --check`: clean
+- `cargo check`: clean
+- `cargo test`: 948+ tests pass (41 tool-runtime, all workspace)
 
-### Files changed (this session)
+**Deliberately not changed:**
+- No Decision Gate behavior changes
+- No scheduler, autonomy, or execution expansion
+- No Web Mission Control changes
+- No LLM/changes to proposal-only semantics
+- No SurrealDB or Graph Memory persistence changes
+- No shell access tool
+- No delete/move/rename tool
+- No unrestricted write capability
+- Tool `write_file` stays in demo mode — Decision Gate governance integration is future work
 
-| File | Change |
-|------|--------|
-| `docs/cli.md` | Added C4 Compute Reservoir documentation section (23 lines) |
-| `scripts/check-cli-docs-coverage.sh` | Added `compute` pattern (1 line) |
-| `FOCUS_LOOP_NEXT.md` | Refreshed handoff — PR #221 status, #222 created, stale PR stack cleaned |
-| `scripts/dev-process-doctor.sh` | Committed from untracked (local helper script) |
-| `scripts/smoke-human-cli.sh` | Committed from untracked (local helper script) |
+**PR state:**
+- New PR: `feat/sandboxed-write-file-tool` — sandboxed write_file tool for Tier 1 mutation
 
 ### Stability level
 
