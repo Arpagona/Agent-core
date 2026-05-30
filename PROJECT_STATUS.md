@@ -4420,57 +4420,56 @@ Stable documentation extension. No crate code changes.
 
 | # | Branch | Title | Status |
 |---|--------|-------|--------|
-| 221 | `feat/p3-27-audit-insight-readback-surface` | P3-27: Audit/insight readback surface consolidation | **Open, mergeable, CI in progress** — awaiting GONA merge |
-| 222 | `docs/c4-compute-routing-cli-docs` | docs: C4 Compute Reservoir CLI documentation coverage | **Open, new** — CI pending |
+| 221 | `feat/p3-27-audit-insight-readback-surface` | P3-27: Audit/insight readback surface consolidation | ✅ Merged by GONA |
+| 222 | `docs/c4-compute-routing-cli-docs` | docs: C4 Compute Reservoir CLI documentation coverage | ✅ Merged by GONA |
+| 223 | `feat/c5-anti-drift-adversarial-tests` | C5: Anti-drift and adversarial tests | ✅ Merged by GONA |
 
 ### Recommended next step for GONA
 
-1. **Merge PR #221** (P3-27 audit/insight readback surface consolidation).
-2. **Merge PR #222** (C4 documentation coverage).
-3. After merge, consider **C5 — Anti-drift and adversarial tests** (protection for C1-C4 model layer against predictable failure modes).
+1. **Merge PR #224** (sandboxed write_file/patch_file — rebased, green, ready).
+2. **Merge PR #225** (orchestrator output improvement — rebased, green, ready).
+3. **Merge PR #226** (P3-18+ efficiency metadata — rebased, CI pending).
+4. After #224 on main: rebase PR #227 (append_file + mkdir — blocked by #224 dependency).
+5. After queue merged, continue steroid-Hermes plan.
 
-## 31. Latest Session Update (2026-05-30 DEEP cron — Rebase C5 tests: PR #223 onto main)
+## 31. Latest Session Update (2026-05-30 DEEP cron — Merge queue maintenance: rebase & status report)
 
-This session rebased PR #223 (`feat/c5-anti-drift-adversarial-tests`) onto current `origin/main` after PR #222 (C4 documentation) was merged by GONA. Resolved conflicts in handoff files (FOCUS_LOOP_NEXT.md, PROJECT_STATUS.md — took main's versions as authoritative).
+This session served as a merge queue maintenance pass:
 
-### C5 code content (carried forward from original branch)
+- Discovered **PR #222 already merged by GONA** (C4 docs coverage) on top of #221.
+- **Rebased PR #223** (C5 anti-drift tests) onto main — resolved handoff conflicts, all 59 llm tests pass, pushed, now MERGEABLE.
+- **Rebased PR #224** (sandboxed write_file + patch_file) onto main — picked 3 code commits, skipped stale handoff commits, verified 964+ tests pass, force-pushed.
+- **Rebased PR #225** (orchestrator output) onto main — clean rebase, MERGEABLE.
+- **Rebased PR #226** (P3-18+ efficiency metadata) onto main — clean rebase, CI pending.
+- **Discovered PR #227** has compile dependency on `MAX_WRITE_SIZE` from #224; cannot rebase until #224 is merged.
+- **GONA merged PR #223** during the session — confirmed on main.
 
-**`crates/llm/src/lib.rs`** — 4 tests (148 lines):
-
-| Test | C5 Family | Purpose |
-|------|-----------|---------|
-| `llm_error_display_all_variants_produce_readable_message` | Provider failure fallback | Validates all 4 `LlmError` variants produce structured, actionable messages |
-| `mock_synthesis_output_never_contains_execution_commands` | Overconfident model claims | Proves synthesis across 3 domains never emits 9 dangerous patterns |
-| `mock_synthesis_output_is_not_valid_json` | Anti-structure boundary | Synthesis output is plain advisory text, never parseable JSON |
-| `run_cognitive_synthesis_openai_missing_key_graceful_failure` | Provider failure fallback | `run_cognitive_synthesis` with "openai" without key returns graceful error, never panics |
-
-### Verification
+### Final verification on main
 
 - `cargo fmt -- --check`: ✅ clean
 - `cargo check`: ✅ clean
-- `cargo test -p arpagona-llm`: ✅ 59+ tests pass
-- Full workspace: ✅ 947 tests pass, 0 failures
-
-### Files changed
-
-| File | Change |
-|------|--------|
-| `crates/llm/src/lib.rs` | 4 new C5 anti-drift tests (148 lines) |
+- `cargo test --workspace`: ✅ 947+ tests pass, 0 failures
+- Conflict marker scan: ✅ clean
+- DAILY_VALIDATION_BACKLOG.md: ✅ no open entries
 
 ### Safety boundaries preserved
 
-- No changes to tool-runtime, decision-gate, CLI, API server, or any other crate
-- No new capabilities, execution paths, permissions, or runtime behavior
-- All tests use mock provider or graceful error paths only
-- No LLM calls, no network access, no secrets
-- No readback-as-authorization behavior
+- ✅ No Decision Gate bypass — DEEP never merges
+- ✅ No new capabilities, execution paths, or runtime behavior added
+- ✅ No shell, network, browser, email, secrets, or autonomy expansion
+- ✅ No readback-as-authorization behavior
+- ✅ All changes are rebases of existing PRs, not new feature work
+
+### Files changed (main)
+
+| File | Change |
+|------|--------|
+| `FOCUS_LOOP_NEXT.md` | Updated merge queue state; #221-#223 merged, #224-#226 rebased, #227 blocked |
+| `PROJECT_STATUS.md` | Updated active PRs and added section 31 |
 
 ### Deliberately not changed
 
-- No existing crate behavior was modified
-- No decision made on uncommitted tool-runtime write_file tool (belongs to PR #224)
-
-### Deliberately not changed
-
-- No existing crate behavior was modified
-- No decision made on uncommitted tool-runtime write_file tool (belongs to PR #224)
+- No crate code on main
+- No new PRs created (rebased existing PRs only)
+- No DV backlog entries (none open)
+- No scheduler, MCP, Web Mission Control, or broad capability expansion
