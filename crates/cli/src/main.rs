@@ -96,6 +96,10 @@ enum Command {
     /// the in-process orchestrator and produces clean, readable output without
     /// internal governance jargon. No API server, no LLM, no persistence needed.
     Run(RunArgs),
+    /// Run a governed local actor mission from a natural language task.
+    /// Uses deterministic (no LLM) parsing to route to bounded file tools.
+    /// Simulates first; execution requires --approve.
+    Actor(ActorCommand),
     /// Run the local API server through cargo.
     Serve,
     /// Start an interactive alpha terminal session.
@@ -145,6 +149,42 @@ pub struct RunArgs {
     /// The objective text to process through the orchestrator cycle.
     /// Example: arpagona run "Analyze the quarterly report"
     pub objective: String,
+}
+
+#[derive(Debug, Args)]
+pub struct ActorCommand {
+    #[command(subcommand)]
+    pub command: ActorSubcommand,
+}
+
+#[derive(Debug, Subcommand)]
+pub enum ActorSubcommand {
+    /// Parse a natural language task and run it through the governed
+    /// simulation -> approval -> execution -> readback loop.
+    Run(ActorRunArgs),
+}
+
+#[derive(Debug, Args)]
+pub struct ActorRunArgs {
+    /// Natural language task description.
+    /// Examples:
+    ///   "append meeting notes to docs/log.md"
+    ///   "read docs/README.md"
+    ///   "list files in src/"
+    ///   "search for FIXME in lib/"
+    pub task: String,
+
+    /// Explicitly approve the simulated proposal and execute.
+    #[arg(long)]
+    pub approve: bool,
+
+    /// Emit structured JSON instead of human-oriented text.
+    #[arg(long)]
+    pub json: bool,
+
+    /// Workspace root for file tools (default: current directory).
+    #[arg(long, default_value = ".")]
+    pub workspace: String,
 }
 
 #[derive(Debug, Args)]
@@ -2207,6 +2247,9 @@ async fn run() -> Result<(), Box<dyn Error>> {
             OrchestratorSubcommand::InsightsList(args) => orchestrator_insights_list(args)?,
         },
         Command::Run(args) => handle_run(args)?,
+        Command::Actor(actor) => match actor.command {
+            ActorSubcommand::Run(args) => actor_run(args)?,
+        },
     }
 
     Ok(())
@@ -10827,6 +10870,422 @@ fn cognitive_print_readback(result: &CognitiveCycleResult, assess: bool) {
     println!();
 }
 
+// ---------------------------------------------------------------------------
+// Actor types
+// ---------------------------------------------------------------------------
+
+/// The tool to invoke and its arguments, parsed from NL.
+#[derive(Debug, Clone, Serialize)]
+struct ActorIntent {
+    tool: String,
+    arguments: serde_json::Value,
+    risk_level: RiskLevel,
+    rationale: String,
+    display_summary: String,
+}
+
+/// Errors from NL intent parsing.
+#[derive(Debug, Clone)]
+enum IntentParseError {
+    UnrecognizedTask(String),
+    MissingArgument(String),
+}
+
+/// Seam for pluggable intent interpretation providers.
+///
+/// Roadmap:
+/// - Current (phase 1): DeterministicIntentInterpreter (std::str parsing) — no deps, no LLM
+/// - Next:   OllamaIntentInterpreter  — local LLM proposes ToolCallIntent via `arpagona-llm`
+/// - Later:  DeepSeekIntentInterpreter — advanced reasoning for self-improvement
+///
+/// LLM providers must never execute tools directly. They may only propose
+/// a structured ToolCallIntent that passes through deterministic validation,
+/// allowed-tool checks, risk labeling, Decision Gate, simulation, explicit
+/// approval, execution, readback, journal.
+trait IntentInterpreter {
+    fn interpret(&self, task: &str) -> Result<ActorIntent, IntentParseError>;
+}
+
+/// Current deterministic interpreter using only std::str operations.
+/// No external dependencies, no LLM, no network.
+struct DeterministicIntentInterpreter;
+
+impl IntentInterpreter for DeterministicIntentInterpreter {
+    fn interpret(&self, task: &str) -> Result<ActorIntent, IntentParseError> {
+        parse_intent(task)
+    }
+}
+
+impl std::fmt::Display for IntentParseError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            IntentParseError::UnrecognizedTask(t) => {
+                write!(f, "Unrecognized task: '{t}'. Supported: append <content> to <path>, read <path>, show <path>, list files [in <path>], list directory <path>, search [for] <pattern> [in <path>], find <pattern> [in <path>].")
+            }
+            IntentParseError::MissingArgument(m) => {
+                write!(f, "Missing argument: {m}")
+            }
+        }
+    }
+}
+
+/// Deterministic NL intent parser using only std::str operations.
+/// No external regex dependency.
+fn parse_intent(task: &str) -> Result<ActorIntent, IntentParseError> {
+    let task = task.trim();
+    let lower = task.to_lowercase();
+
+    // --- Append patterns: "append <content> to <path>", "append <content> at <path>", "add <content> to <path>" ---
+    if let Some(rest) = lower
+        .strip_prefix("append ")
+        .or_else(|| lower.strip_prefix("add "))
+    {
+        if let Some(to_pos) = rest.rfind(" to ").or_else(|| rest.rfind(" at ")) {
+            let prefix_len = if lower.starts_with("append ") { 7 } else { 4 };
+            let content = &task[prefix_len..to_pos + task.len() - rest.len()];
+            let path = &task[to_pos + task.len() - rest.len() + 4..];
+            return Ok(ActorIntent {
+                tool: "append_file".to_owned(),
+                arguments: serde_json::json!({
+                    "content": content.trim(),
+                    "path": path.trim(),
+                    "create_parent_dirs": true,
+                    "create_if_missing": true,
+                }),
+                risk_level: RiskLevel::Low,
+                rationale: format!("Append content to file at {}", path.trim()),
+                display_summary: format!("Append to {}", path.trim()),
+            });
+        }
+    }
+
+    // --- Read patterns: "read <path>", "show <path>" ---
+    if lower.starts_with("read ") || lower.starts_with("show ") {
+        let path = task[5..].trim(); // "read " and "show " are both 5 chars
+        return Ok(ActorIntent {
+            tool: "read_file".to_owned(),
+            arguments: serde_json::json!({ "path": path }),
+            risk_level: RiskLevel::Informational,
+            rationale: format!("Read file at {path}"),
+            display_summary: format!("Read {path}"),
+        });
+    }
+
+    // --- List patterns: "list files", "list files in <path>", "list directory <path>" ---
+    if lower.starts_with("list files") || lower.starts_with("list directory") {
+        let path = if lower.starts_with("list files in ") {
+            task[14..].trim() // "list files in " is 14 chars
+        } else if lower.starts_with("list directory ") {
+            task[15..].trim() // "list directory " is 15 chars
+        } else {
+            ""
+        };
+        return Ok(ActorIntent {
+            tool: "list_files".to_owned(),
+            arguments: serde_json::json!({ "path": path }),
+            risk_level: RiskLevel::Informational,
+            rationale: format!(
+                "List files in {}",
+                if path.is_empty() {
+                    "workspace root"
+                } else {
+                    path
+                }
+            ),
+            display_summary: if path.is_empty() {
+                "List files".to_owned()
+            } else {
+                format!("List files in {path}")
+            },
+        });
+    }
+
+    // --- Search patterns: "search for <pattern> in <path>", "search <pattern> in <path>", "find <pattern> in <path>", "search <pattern>", "find <pattern>" ---
+    if lower.starts_with("search ") || lower.starts_with("find ") {
+        let after_keyword = if lower.starts_with("search for ") {
+            &task[11..]
+        } else if lower.starts_with("search ") {
+            &task[7..]
+        } else if lower.starts_with("find ") {
+            &task[5..]
+        } else {
+            &task[0..]
+        };
+        if let Some(in_pos) = after_keyword.rfind(" in ") {
+            let pattern = after_keyword[..in_pos].trim();
+            let path = after_keyword[in_pos + 4..].trim();
+            return Ok(ActorIntent {
+                tool: "search_text".to_owned(),
+                arguments: serde_json::json!({
+                    "pattern": pattern,
+                    "path": path,
+                }),
+                risk_level: RiskLevel::Informational,
+                rationale: format!("Search for '{pattern}' in {path}"),
+                display_summary: format!("Search for '{pattern}'"),
+            });
+        }
+        // No "in" clause -- search whole workspace
+        return Ok(ActorIntent {
+            tool: "search_text".to_owned(),
+            arguments: serde_json::json!({
+                "pattern": after_keyword.trim(),
+                "path": "",
+            }),
+            risk_level: RiskLevel::Informational,
+            rationale: format!("Search for '{}' in workspace", after_keyword.trim()),
+            display_summary: format!("Search for '{}'", after_keyword.trim()),
+        });
+    }
+
+    Err(IntentParseError::UnrecognizedTask(task.to_owned()))
+}
+
+/// Top-level `arpagona actor run "<task>"` command.
+///
+/// Parses the natural language task, runs it through the governed
+/// simulation -> approval -> execution -> readback -> journal loop.
+const ACTOR_RUN_WARNING: &str = "[WARNING - Actor Run is a sandboxed governed local mission. Simulation first; execution requires --approve.]";
+
+fn actor_run(args: ActorRunArgs) -> Result<(), Box<dyn Error>> {
+    // Currently using the deterministic intent interpreter (phase 1).
+    // To switch to Ollama: construct an OllamaIntentInterpreter (in arpagona-llm) here.
+    let interpreter = DeterministicIntentInterpreter;
+    let intent = interpreter
+        .interpret(&args.task)
+        .map_err(|e| format!("{e}"))?;
+
+    let tool_call_intent = ToolCallIntent {
+        tool: intent.tool.clone(),
+        arguments: intent.arguments.clone(),
+        rationale: intent.rationale.clone(),
+        risk_level: intent.risk_level.clone(),
+    };
+
+    let workspace_path = if args.workspace.is_empty() || args.workspace == "." {
+        ".".to_owned()
+    } else {
+        args.workspace.clone()
+    };
+
+    // --- Phase 1-2: Decision Gate + Simulation ---
+    let (decision, proposed_action) =
+        govern_tool_call(&tool_call_intent, &[Permission::ProposeToolUse]);
+
+    let runtime = ToolRuntime::new(ToolRuntimeConfig::new(&workspace_path));
+
+    let simulate_args = {
+        let mut sim = intent.arguments.clone();
+        sim["simulate"] = serde_json::Value::Bool(true);
+        sim
+    };
+
+    let simulation_result = if decision.status == DecisionStatus::Approved {
+        Some(runtime.execute(&intent.tool, &simulate_args))
+    } else {
+        None
+    };
+
+    let simulation_succeeded = simulation_result
+        .as_ref()
+        .map(|r| r.status == ToolExecutionStatus::Success)
+        .unwrap_or(false);
+
+    // --- Phase 3: Execution (only if --approve) ---
+    // Read intent tools simulate at the decision gate but are informational.
+    // For read-only tools, simulation IS the operation — no separate execution.
+    let is_read_only = matches!(
+        intent.tool.as_str(),
+        "read_file" | "list_files" | "search_text"
+    );
+
+    let execute_args = {
+        let mut exec = intent.arguments.clone();
+        exec["simulate"] = serde_json::Value::Bool(false);
+        exec
+    };
+
+    let execution_result = if args.approve
+        && decision.status == DecisionStatus::Approved
+        && simulation_succeeded
+        && !is_read_only
+    {
+        Some(runtime.execute(&intent.tool, &execute_args))
+    } else {
+        None
+    };
+
+    // --- Phase 4: Readback ---
+    let readback_result = execution_result
+        .as_ref()
+        .filter(|r| r.status == ToolExecutionStatus::Success)
+        .and_then(|_| {
+            // For append_file, read back the modified path
+            let path = intent.arguments.get("path")?.as_str()?;
+            runtime
+                .execute("read_file", &serde_json::json!({ "path": path }))
+                .into()
+        });
+
+    // --- Cognitive observation ---
+    let observed_result = execution_result
+        .as_ref()
+        .or_else(|| simulation_result.as_ref());
+    let cognitive_observation = observed_result.and_then(|r| {
+        let obs = arpagona_agent_core::CognitiveObservation::from_tool_execution(r);
+        Some(obs)
+    });
+    let assessment = cognitive_observation
+        .as_ref()
+        .map(|obs| arpagona_agent_core::assess_observation(obs));
+
+    // --- Phase 5: Journal ---
+    let approval_state = if args.approve && execution_result.is_some() {
+        "approved_and_executed"
+    } else if args.approve {
+        "approved_but_not_executed"
+    } else {
+        "simulation_only_waiting_for_explicit_approval"
+    };
+
+    let journal_entry_id = {
+        let mut journal = global_llm_journal().lock().unwrap();
+        journal.add_direct_tool_call(
+            "actor_run",
+            "cli",
+            None,
+            args.task.clone(),
+            format!(
+                "Actor Run {}: tool={}, decision={:?}, simulation={}, execution={}",
+                approval_state,
+                intent.tool,
+                decision.status,
+                simulation_result
+                    .as_ref()
+                    .map(|r| format!("{:?}", r.status))
+                    .unwrap_or_else(|| "not_run".to_owned()),
+                execution_result
+                    .as_ref()
+                    .map(|r| format!("{:?}", r.status))
+                    .unwrap_or_else(|| "not_run".to_owned()),
+            ),
+            serde_json::json!({
+                "command": "actor_run",
+                "user_task": args.task,
+                "tool": intent.tool,
+                "parsed_intent": intent,
+                "workspace": workspace_path,
+                "approval_flag": args.approve,
+            }),
+            serde_json::json!({
+                "decision_id": decision.id,
+                "decision_status": decision.status,
+                "decision_reason": decision.reason,
+                "proposed_action_id": proposed_action.id,
+                "approval_state": approval_state,
+                "simulation_result": simulation_result,
+                "execution_result": execution_result,
+                "readback_result": readback_result,
+                "cognitive_observation": cognitive_observation,
+                "assessment": assessment,
+            }),
+            Some(intent.risk_level.clone()),
+        )
+    };
+
+    // --- Output ---
+    if args.json {
+        let output = serde_json::json!({
+            "command": "actor-run",
+            "task": args.task,
+            "intent": {
+                "tool": intent.tool,
+                "rationale": intent.rationale,
+                "risk_level": format!("{:?}", intent.risk_level),
+            },
+            "decision": {
+                "id": decision.id,
+                "status": format!("{:?}", decision.status),
+                "reason": decision.reason,
+            },
+            "simulation_result": simulation_result,
+            "approval_state": approval_state,
+            "execution_result": execution_result,
+            "readback_result": readback_result,
+            "cognitive_observation": cognitive_observation,
+            "journal_entry_id": journal_entry_id,
+        });
+        println!("{}", serde_json::to_string_pretty(&output)?);
+    } else {
+        println!("{ACTOR_RUN_WARNING}");
+        println!();
+        println!("=== Actor Run ===");
+        println!("Task: {:?}", args.task);
+        println!();
+        println!("--- 1. Intent interpretation ---");
+        println!("Tool:   {}", intent.tool);
+        println!("Risk:   {:?}", intent.risk_level);
+        println!("Summary: {}", intent.display_summary);
+        println!();
+        println!("--- 2. Decision Gate ---");
+        println!("Decision:    {:?}", decision.status);
+        println!("Decision ID: {}", decision.id);
+        println!("Reason:     {}", decision.reason);
+        println!();
+        println!("--- 3. Simulation / diff preview ---");
+        if let Some(result) = &simulation_result {
+            println!("Status:  {:?}", result.status);
+            println!("Summary: {}", result.output_summary);
+        } else {
+            println!("Status:  not run (governance blocked or no permission)");
+        }
+        println!();
+        println!("--- 4. Approval path ---");
+        if args.approve {
+            println!("Approval: --approve supplied");
+            if execution_result.is_some() {
+                println!("Execution: completed");
+            } else if is_read_only {
+                println!("Execution: read-only tool, no mutate needed");
+            } else {
+                println!("Execution: not run (simulation failed or governance denied)");
+            }
+        } else {
+            println!("Approval: missing -- simulation only");
+            println!("Next step: rerun with --approve to execute");
+            println!("  arpagona actor run {:?} --approve", args.task);
+        }
+        println!();
+        println!("--- 5. Execution + readback ---");
+        if let Some(result) = &execution_result {
+            println!("Execution:   {:?}", result.status);
+            println!("Summary:     {}", result.output_summary);
+            if let Some(readback) = &readback_result {
+                println!("Readback:    {:?}", readback.status);
+                println!("Content:     {}", readback.output_summary);
+            }
+        } else if is_read_only {
+            if let Some(result) = &simulation_result {
+                println!("Result:      {:?}", result.status);
+                println!("Output:      {}", result.output_summary);
+            } else {
+                println!("Execution:   not run");
+            }
+        } else {
+            println!("Execution:   not run");
+        }
+        println!();
+        println!("--- 6. Observation / audit ---");
+        println!(
+            "Observation ID: obs-{}",
+            &decision.id.0[..decision.id.0.len().min(8)]
+        );
+        println!("Journal Entry:  {}", journal_entry_id);
+    }
+
+    Ok(())
+}
+
 /// Run the Neutral Orchestrator deterministic cycle and display the result.
 /// Run an objective through the in-process orchestrator with clean, readable output.
 ///
@@ -15908,5 +16367,239 @@ mod tests {
             }
             _ => panic!("expected orchestrator insights-list --insights-dir"),
         }
+    }
+
+    // -----------------------------------------------------------------------
+    // Actor Run command parse tests
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn actor_run_parses_simple_task() {
+        let cli = Cli::parse_from(["arpagona", "actor", "run", "append hello to test.txt"]);
+        match cli.command {
+            Command::Actor(ActorCommand {
+                command: ActorSubcommand::Run(args),
+            }) => {
+                assert_eq!(args.task, "append hello to test.txt");
+                assert!(!args.approve);
+                assert!(!args.json);
+                assert_eq!(args.workspace, ".");
+            }
+            _ => panic!("expected actor run with task"),
+        }
+    }
+
+    #[test]
+    fn actor_run_parses_with_approve() {
+        let cli = Cli::parse_from(["arpagona", "actor", "run", "read docs/x", "--approve"]);
+        match cli.command {
+            Command::Actor(ActorCommand {
+                command: ActorSubcommand::Run(args),
+            }) => {
+                assert_eq!(args.task, "read docs/x");
+                assert!(args.approve);
+            }
+            _ => panic!("expected actor run with --approve"),
+        }
+    }
+
+    #[test]
+    fn actor_run_parses_with_json() {
+        let cli = Cli::parse_from(["arpagona", "actor", "run", "list files", "--json"]);
+        match cli.command {
+            Command::Actor(ActorCommand {
+                command: ActorSubcommand::Run(args),
+            }) => {
+                assert_eq!(args.task, "list files");
+                assert!(args.json);
+            }
+            _ => panic!("expected actor run with --json"),
+        }
+    }
+
+    #[test]
+    fn actor_run_parses_with_workspace() {
+        let cli = Cli::parse_from([
+            "arpagona",
+            "actor",
+            "run",
+            "search for x",
+            "--workspace",
+            "/tmp/scratch",
+        ]);
+        match cli.command {
+            Command::Actor(ActorCommand {
+                command: ActorSubcommand::Run(args),
+            }) => {
+                assert_eq!(args.task, "search for x");
+                assert_eq!(args.workspace, "/tmp/scratch");
+            }
+            _ => panic!("expected actor run with --workspace"),
+        }
+    }
+
+    // -----------------------------------------------------------------------
+    // Actor intent parsing unit tests
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn parse_intent_append_text_to_path() {
+        let intent = parse_intent("append hello to docs/test.txt").unwrap();
+        assert_eq!(intent.tool, "append_file");
+        assert_eq!(intent.arguments["content"], "hello");
+        assert_eq!(intent.arguments["path"], "docs/test.txt");
+        assert_eq!(format!("{:?}", intent.risk_level), "Low");
+    }
+
+    #[test]
+    fn parse_intent_read_path() {
+        let intent = parse_intent("read docs/notes.md").unwrap();
+        assert_eq!(intent.tool, "read_file");
+        assert_eq!(intent.arguments["path"], "docs/notes.md");
+        assert_eq!(format!("{:?}", intent.risk_level), "Informational");
+    }
+
+    #[test]
+    fn parse_intent_show_path() {
+        let intent = parse_intent("show docs/notes.md").unwrap();
+        assert_eq!(intent.tool, "read_file");
+    }
+
+    #[test]
+    fn parse_intent_list_files_root() {
+        let intent = parse_intent("list files").unwrap();
+        assert_eq!(intent.tool, "list_files");
+    }
+
+    #[test]
+    fn parse_intent_list_files_in_path() {
+        let intent = parse_intent("list files in src/").unwrap();
+        assert_eq!(intent.tool, "list_files");
+        assert_eq!(intent.arguments["path"], "src/");
+    }
+
+    #[test]
+    fn parse_intent_search_for_pattern_in_path() {
+        let intent = parse_intent("search for FIXME in lib/").unwrap();
+        assert_eq!(intent.tool, "search_text");
+        assert_eq!(intent.arguments["pattern"], "FIXME");
+        assert_eq!(intent.arguments["path"], "lib/");
+    }
+
+    #[test]
+    fn parse_intent_search_text_in_path() {
+        let intent = parse_intent("find TODO in src/").unwrap();
+        assert_eq!(intent.tool, "search_text");
+        assert_eq!(intent.arguments["pattern"], "TODO");
+        assert_eq!(intent.arguments["path"], "src/");
+    }
+
+    #[test]
+    fn parse_intent_unrecognized() {
+        let result = parse_intent("do something crazy");
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn parse_intent_case_insensitive() {
+        let intent = parse_intent("APPEND hello TO docs/test.txt").unwrap();
+        assert_eq!(intent.tool, "append_file");
+        assert_eq!(intent.arguments["content"], "hello");
+        assert_eq!(intent.arguments["path"], "docs/test.txt");
+    }
+
+    #[test]
+    fn parse_intent_append_content_multi_word() {
+        let intent = parse_intent("append my multi-word note to docs/log.md").unwrap();
+        assert_eq!(intent.tool, "append_file");
+        assert_eq!(intent.arguments["content"], "my multi-word note");
+        assert_eq!(intent.arguments["path"], "docs/log.md");
+    }
+
+    #[test]
+    fn parse_intent_append_content_containing_to() {
+        let intent = parse_intent("append welcome to the team to docs/notes.md").unwrap();
+        assert_eq!(intent.tool, "append_file");
+        assert_eq!(intent.arguments["content"], "welcome to the team");
+        assert_eq!(intent.arguments["path"], "docs/notes.md");
+    }
+
+    #[test]
+    fn parse_intent_shell_like_task_rejected() {
+        let result = parse_intent("run rm -rf /");
+        assert!(result.is_err());
+        let msg = format!("{}", result.unwrap_err());
+        assert!(
+            msg.contains("Unrecognized task") || msg.contains("unrecognized"),
+            "expected unrecognized task: {msg}"
+        );
+    }
+
+    #[test]
+    fn parse_intent_ambiguous_append_no_content() {
+        // "append to docs" — "append" followed by "to" with no gap -> should be unrecognized
+        let result = parse_intent("append to docs");
+        // The parser finds "append " prefix, then looks for " to " in "to docs" which doesn't exist
+        // because there's no leading space. So it falls through to Err.
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn parse_intent_read_ignores_content_to() {
+        // "read" doesn't use "to" parsing — returns full remainder as path
+        let intent = parse_intent("read file.md to review it").unwrap();
+        assert_eq!(intent.tool, "read_file");
+        assert_eq!(intent.arguments["path"], "file.md to review it");
+    }
+
+    #[test]
+    fn parse_intent_add_works_like_append() {
+        let intent = parse_intent("add my note to docs/notes.md").unwrap();
+        assert_eq!(intent.tool, "append_file");
+        assert_eq!(intent.arguments["content"], "my note");
+        assert_eq!(intent.arguments["path"], "docs/notes.md");
+    }
+
+    #[test]
+    fn parse_intent_append_with_at_preposition() {
+        let intent = parse_intent("append my note at docs/notes.md").unwrap();
+        assert_eq!(intent.tool, "append_file");
+        assert_eq!(intent.arguments["content"], "my note");
+        assert_eq!(intent.arguments["path"], "docs/notes.md");
+    }
+
+    #[test]
+    fn parse_intent_list_directory() {
+        let intent = parse_intent("list directory src/").unwrap();
+        assert_eq!(intent.tool, "list_files");
+        assert_eq!(intent.arguments["path"], "src/");
+    }
+
+    #[test]
+    fn parse_intent_read_preserves_mixed_case_path() {
+        let intent = parse_intent("read Docs/Notes.md").unwrap();
+        assert_eq!(intent.tool, "read_file");
+        assert_eq!(intent.arguments["path"], "Docs/Notes.md");
+    }
+
+    #[test]
+    fn parse_intent_show_preserves_mixed_case_path() {
+        let intent = parse_intent("show Docs/Notes.md").unwrap();
+        assert_eq!(intent.tool, "read_file");
+        assert_eq!(intent.arguments["path"], "Docs/Notes.md");
+    }
+
+    #[test]
+    fn parse_intent_list_files_in_preserves_mixed_case_path() {
+        let intent = parse_intent("list files in Src/App/").unwrap();
+        assert_eq!(intent.tool, "list_files");
+        assert_eq!(intent.arguments["path"], "Src/App/");
+    }
+
+    #[test]
+    fn parse_intent_list_directory_preserves_mixed_case_path() {
+        let intent = parse_intent("list directory Src/App").unwrap();
+        assert_eq!(intent.tool, "list_files");
+        assert_eq!(intent.arguments["path"], "Src/App");
     }
 }
