@@ -210,6 +210,10 @@ pub enum OrchestratorSubcommand {
     Status(OrchestratorStatusArgs),
     /// List saved orchestrator cycle traces from a directory.
     Cycles(OrchestratorCyclesArgs),
+    /// Detect and collect failure insight candidates from a saved CycleTrace.
+    InsightsCollect(OrchestratorInsightsCollectArgs),
+    /// List collected failure insight candidate files.
+    InsightsList(OrchestratorInsightsListArgs),
 }
 
 #[derive(Debug, Args)]
@@ -277,6 +281,30 @@ pub struct OrchestratorCyclesArgs {
     /// Directory containing saved CycleTrace JSON files (default: target/orchestrator-traces).
     #[arg(long)]
     pub trace_dir: Option<String>,
+}
+
+/// Default insights directory.
+const DEFAULT_ORCHESTRATOR_INSIGHTS_DIR: &str = "target/orchestrator-insights";
+
+#[derive(Debug, Args)]
+pub struct OrchestratorInsightsCollectArgs {
+    /// Path to a saved CycleTrace JSON file to analyze for failure insight candidates.
+    pub trace_path: String,
+
+    /// Output as structured JSON.
+    #[arg(long, short = 'j', default_value_t = false)]
+    pub json: bool,
+}
+
+#[derive(Debug, Args)]
+pub struct OrchestratorInsightsListArgs {
+    /// Output as structured JSON.
+    #[arg(long, short = 'j', default_value_t = false)]
+    pub json: bool,
+
+    /// Directory containing collected insight candidate files (default: target/orchestrator-insights).
+    #[arg(long)]
+    pub insights_dir: Option<String>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, clap::ValueEnum)]
@@ -1983,6 +2011,8 @@ async fn run() -> Result<(), Box<dyn Error>> {
             OrchestratorSubcommand::Run(args) => orchestrator_run(args)?,
             OrchestratorSubcommand::Status(args) => orchestrator_status(args)?,
             OrchestratorSubcommand::Cycles(args) => orchestrator_cycles(args)?,
+            OrchestratorSubcommand::InsightsCollect(args) => orchestrator_insights_collect(args)?,
+            OrchestratorSubcommand::InsightsList(args) => orchestrator_insights_list(args)?,
         },
         Command::Run(args) => handle_run(args)?,
     }
@@ -10163,6 +10193,187 @@ fn orchestrator_cycles(args: OrchestratorCyclesArgs) -> Result<(), Box<dyn Error
     Ok(())
 }
 
+/// Detect and collect failure insight candidates from a saved CycleTrace file.
+///
+/// Reads a previously saved CycleTrace JSON (from `orchestrator run --save-trace`),
+/// runs `CycleTrace::detect_failure_candidates()`, and if any candidates are found,
+/// saves them as a structured insights file in the configured insights directory.
+///
+/// This is a read-only, non-authorizing operation. The collected candidates are
+/// advisory signals, not corrective actions.
+fn orchestrator_insights_collect(
+    args: OrchestratorInsightsCollectArgs,
+) -> Result<(), Box<dyn Error>> {
+    let path = std::path::Path::new(&args.trace_path);
+    let content = std::fs::read_to_string(path)
+        .map_err(|e| format!("Failed to read CycleTrace file '{}': {e}", args.trace_path))?;
+
+    let trace: arpagona_agent_core::orchestrator::CycleTrace = serde_json::from_str(&content)
+        .map_err(|e| format!("Failed to parse CycleTrace from '{}': {e}", args.trace_path))?;
+
+    let candidates = trace.detect_failure_candidates();
+
+    let insights_dir = std::path::Path::new(DEFAULT_ORCHESTRATOR_INSIGHTS_DIR);
+    std::fs::create_dir_all(insights_dir).ok();
+
+    // Generate a deterministic filename from the cycle ID
+    let insights_path = insights_dir.join(format!("insights-{}.json", trace.cycle_id));
+
+    let insight_entry = serde_json::json!({
+        "cycle_id": trace.cycle_id,
+        "objective_text": trace.objective_text,
+        "cycle_status": trace.cycle_status,
+        "source_trace_path": args.trace_path,
+        "candidate_count": candidates.len(),
+        "candidates": candidates,
+        "non_authorizing": true,
+        "created_at": chrono::Utc::now().to_rfc3339(),
+    });
+
+    let json = serde_json::to_string_pretty(&insight_entry)?;
+    std::fs::write(&insights_path, &json)?;
+
+    if args.json {
+        println!("{}", json);
+    } else {
+        println!("{}", style_info("Orchestrator Failure Insights — Collect"));
+        println!("{}", "-".repeat(60));
+        if candidates.is_empty() {
+            println!(
+                "  No failure insight candidates detected for cycle {}.",
+                trace.cycle_id
+            );
+            println!("  The cycle trace indicates healthy context assembly and decision state.");
+        } else {
+            println!(
+                "  Detected {} candidate(s) for cycle {}:",
+                candidates.len(),
+                trace.cycle_id
+            );
+            for (i, fc) in candidates.iter().enumerate() {
+                let kind_str = serde_json::to_string(&fc.kind).unwrap_or_default();
+                println!("  {}. kind={}", i + 1, kind_str);
+                println!("     summary: {}", fc.summary);
+                if !fc.reason.is_empty() {
+                    println!("     reason:  {}", fc.reason);
+                }
+            }
+        }
+        println!();
+        println!("  Saved to: {}", insights_path.display());
+        println!();
+        println!(
+            "{}",
+            style_dim("⚠  Advisory — candidates are non-authorizing detection signals.")
+        );
+        println!(
+            "{}",
+            style_dim("   No corrective action is implied or authorized.")
+        );
+    }
+
+    Ok(())
+}
+
+/// List collected orchestrator failure insight files from the configured directory.
+fn orchestrator_insights_list(args: OrchestratorInsightsListArgs) -> Result<(), Box<dyn Error>> {
+    let dir = args
+        .insights_dir
+        .map(std::path::PathBuf::from)
+        .unwrap_or_else(|| std::path::PathBuf::from(DEFAULT_ORCHESTRATOR_INSIGHTS_DIR));
+
+    let mut entries: Vec<(std::path::PathBuf, serde_json::Value)> = vec![];
+
+    if dir.exists() {
+        for entry in std::fs::read_dir(&dir)
+            .map_err(|e| format!("Cannot read directory '{}': {e}", dir.display()))?
+        {
+            let entry = entry?;
+            let entry_path = entry.path();
+            if entry_path.extension().map_or(false, |ext| ext == "json") {
+                if let Ok(content) = std::fs::read_to_string(&entry_path) {
+                    if let Ok(val) = serde_json::from_str::<serde_json::Value>(&content) {
+                        entries.push((entry_path, val));
+                    }
+                }
+            }
+        }
+    }
+
+    // Sort by filename for deterministic order
+    entries.sort_by(|a, b| a.0.file_name().cmp(&b.0.file_name()));
+
+    if args.json {
+        let listings: Vec<&serde_json::Value> = entries.iter().map(|(_, v)| v).collect();
+        println!("{}", serde_json::to_string_pretty(&listings)?);
+    } else {
+        println!(
+            "{}",
+            style_info("Orchestrator Failure Insights — Collected")
+        );
+        println!("{}", "-".repeat(60));
+        if entries.is_empty() {
+            println!("  No collected orchestrator failure insight files found.");
+            println!();
+            println!(
+                "  Run `{}` to collect insights from a saved CycleTrace.",
+                "cargo run -q --bin arpagona -- orchestrator insights-collect <trace-path>"
+            );
+            println!();
+            println!(
+                "  Default insights directory: {}",
+                DEFAULT_ORCHESTRATOR_INSIGHTS_DIR
+            );
+        } else {
+            println!(
+                "Found {} insight file(s) in '{}':\n",
+                entries.len(),
+                dir.display()
+            );
+            for (i, (path, val)) in entries.iter().enumerate() {
+                let cycle_id = val.get("cycle_id").and_then(|v| v.as_str()).unwrap_or("?");
+                let objective = val
+                    .get("objective_text")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("?");
+                let count = val
+                    .get("candidate_count")
+                    .and_then(|v| v.as_u64())
+                    .unwrap_or(0);
+                let created = val
+                    .get("created_at")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("?");
+                println!(
+                    "{}. {}",
+                    i + 1,
+                    path.file_name().unwrap_or_default().to_string_lossy()
+                );
+                println!("   Cycle ID:    {}", cycle_id);
+                println!("   Objective:   {}", objective);
+                println!("   Candidates:  {}", count);
+                println!("   Created:     {}", created);
+                println!();
+            }
+            println!(
+                "  Run `{}` to collect insights from a new trace.",
+                "cargo run -q --bin arpagona -- orchestrator insights-collect <trace-path>"
+            );
+        }
+        println!();
+        println!(
+            "{}",
+            style_dim("⚠  Readback only — collected insights are evidence, not authorization.")
+        );
+        println!(
+            "{}",
+            style_dim("   No execution without explicit Decision Gate approval.")
+        );
+    }
+
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -14007,6 +14218,8 @@ mod tests {
         }
     }
 
+    // ── Run command parser tests ─────────────────────────────────────
+
     #[test]
     fn cli_parses_run_positional() {
         let cli = Cli::try_parse_from(vec!["arpagona", "run", "Review project documentation"])
@@ -14061,5 +14274,103 @@ mod tests {
             std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| handle_run(args).ok()));
         // Should not panic — the function should complete without error
         assert!(result.is_ok(), "handle_run should not panic");
+    }
+
+    // ── Orchestrator insights-collect parser tests ──────────────────────────
+
+    #[test]
+    fn cli_parses_orchestrator_insights_collect_with_path() {
+        let cli = Cli::try_parse_from(vec![
+            "arpagona",
+            "orchestrator",
+            "insights-collect",
+            "target/last-orchestrator-trace.json",
+        ])
+        .expect("orchestrator insights-collect <path> should parse");
+        match cli.command {
+            Command::Orchestrator(OrchestratorCommand {
+                command: OrchestratorSubcommand::InsightsCollect(args),
+            }) => {
+                assert_eq!(args.trace_path, "target/last-orchestrator-trace.json");
+                assert!(!args.json, "default should not be json");
+            }
+            _ => panic!("expected orchestrator insights-collect"),
+        }
+    }
+
+    #[test]
+    fn cli_parses_orchestrator_insights_collect_with_json() {
+        let cli = Cli::try_parse_from(vec![
+            "arpagona",
+            "orchestrator",
+            "insights-collect",
+            "trace.json",
+            "--json",
+        ])
+        .expect("orchestrator insights-collect <path> --json should parse");
+        match cli.command {
+            Command::Orchestrator(OrchestratorCommand {
+                command: OrchestratorSubcommand::InsightsCollect(args),
+            }) => {
+                assert_eq!(args.trace_path, "trace.json");
+                assert!(args.json, "--json should be true");
+            }
+            _ => panic!("expected orchestrator insights-collect --json"),
+        }
+    }
+
+    // ── Orchestrator insights-list parser tests ─────────────────────────────
+
+    #[test]
+    fn cli_parses_orchestrator_insights_list_defaults() {
+        let cli = Cli::try_parse_from(vec!["arpagona", "orchestrator", "insights-list"])
+            .expect("orchestrator insights-list should parse");
+        match cli.command {
+            Command::Orchestrator(OrchestratorCommand {
+                command: OrchestratorSubcommand::InsightsList(args),
+            }) => {
+                assert!(!args.json, "default should not be json");
+                assert_eq!(args.insights_dir, None, "default should use default dir");
+            }
+            _ => panic!("expected orchestrator insights-list"),
+        }
+    }
+
+    #[test]
+    fn cli_parses_orchestrator_insights_list_with_json() {
+        let cli = Cli::try_parse_from(vec!["arpagona", "orchestrator", "insights-list", "--json"])
+            .expect("orchestrator insights-list --json should parse");
+        match cli.command {
+            Command::Orchestrator(OrchestratorCommand {
+                command: OrchestratorSubcommand::InsightsList(args),
+            }) => {
+                assert!(args.json, "--json should be true");
+            }
+            _ => panic!("expected orchestrator insights-list --json"),
+        }
+    }
+
+    #[test]
+    fn cli_parses_orchestrator_insights_list_with_insights_dir() {
+        let cli = Cli::try_parse_from(vec![
+            "arpagona",
+            "orchestrator",
+            "insights-list",
+            "--insights-dir",
+            "custom/insights",
+        ])
+        .expect("orchestrator insights-list --insights-dir should parse");
+        match cli.command {
+            Command::Orchestrator(OrchestratorCommand {
+                command: OrchestratorSubcommand::InsightsList(args),
+            }) => {
+                assert_eq!(
+                    args.insights_dir,
+                    Some("custom/insights".to_owned()),
+                    "--insights-dir should be captured"
+                );
+            }
+            _ => panic!("expected orchestrator insights-list --insights-dir"),
+        }
     }
 }

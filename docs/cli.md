@@ -461,6 +461,36 @@ cargo run -p arpagona-cli -- orchestrator status --json
 
 La trace et son readback restent explicitement non autorisants (`non_authorizing: true`).
 
+#### Orchestrator Insights — Détection et collecte de candidats FailureInsight
+
+```bash
+# 1. Exécuter le cycle et sauvegarder la trace
+cargo run -p arpagona-cli -- orchestrator run \
+  --objective "Analyser le projet" \
+  --trace --save-trace target/last-orchestrator-trace.json
+
+# 2. Analyser la trace pour détecter des candidats FailureInsight
+cargo run -p arpagona-cli -- orchestrator insights-collect target/last-orchestrator-trace.json
+cargo run -p arpagona-cli -- orchestrator insights-collect target/last-orchestrator-trace.json --json
+
+# 3. Lister les insights collectés
+cargo run -p arpagona-cli -- orchestrator insights-list
+cargo run -p arpagona-cli -- orchestrator insights-list --json
+cargo run -p arpagona-cli -- orchestrator insights-list --insights-dir target/orchestrator-insights --json
+```
+
+Options `insights-collect` :
+- `<trace-path>` — (obligatoire) Chemin vers un fichier `CycleTrace` JSON sauvegardé.
+- `--json` — Sortie structurée JSON.
+
+Options `insights-list` :
+- `--json` — Sortie structurée JSON.
+- `--insights-dir <DIR>` — Répertoire contenant les fichiers d'insights (défaut : `target/orchestrator-insights`).
+
+La commande `insights-collect` lit un `CycleTrace` sauvegardé, exécute `detect_failure_candidates()` et sauvegarde les candidats comme fichier JSON dans `target/orchestrator-insights/`. La commande `insights-list` découvre et affiche les fichiers d'insights collectés.
+
+Les candidats FailureInsight sont non autorisants et consultatifs. Ils ne déclenchent aucune action corrective.
+
 ### Graph Memory — Statut et démos
 
 ```bash
