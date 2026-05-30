@@ -4611,3 +4611,65 @@ This session served as a merge queue unblock pass:
 - No new PRs created (rebased existing PRs only)
 - No DV backlog entries (none open)
 - No scheduler, MCP, Web Mission Control, or broad capability expansion
+
+## 33. Latest Session Update (2026-05-30 DEEP cron — sandboxed copy_file + move_file tools) [WIP]
+
+This session added two new sandboxed filesystem tools to the Tool Runtime, completing Tier 2 mutation capabilities (file-level copy and move/rename).
+
+### What was added
+
+**`crates/tool-runtime/src/lib.rs`:**
+- `resolve_dual_paths()` helper -- validates both source and destination paths with same security rules as write_file
+- `execute_copy_file()` -- workspace-bounded copy, simulation-first, max 256 KiB, requires `--overwrite` flag
+- `execute_move_file()` -- workspace-bounded move/rename (alias: `rename`), same security model, supports files and directories
+- Both dispatched from `execute()` under names `copy_file` and `move_file`/`rename`
+
+**`crates/cli/src/main.rs`:**
+- `ToolDemoCopyFileArgs` / `ToolDemoMoveFileArgs` -- args structs with `--execute` and `--overwrite` flags
+- `CopyFile` / `MoveFile` enum variants and dispatch
+- `tool_list` entries, `tool_inspect` entries (with JSON output)
+- `tool_demo_copy_file()` and `tool_demo_move_file()` handler functions
+
+### Tests
+
+14 new tests (6 copy + 7 move + 1 rename alias):
+- copy_file: simulate, execute, destination parent traversal, source parent traversal, overwrite refusal, overwrite accept, missing source
+- move_file: simulate, execute, rename alias, destination parent traversal, overwrite refusal, overwrite accept, missing source
+
+### Verification
+
+- `cargo fmt -- --check`: clean
+- `cargo check`: clean
+- `cargo test --workspace`: 955+ tests pass, 0 failures
+
+### Files changed
+
+| File | Change |
+|------|--------|
+| crates/tool-runtime/src/lib.rs | Added `resolve_dual_paths()`, `execute_copy_file()`, `execute_move_file()`, dispatch entries, 14 tests |
+| crates/cli/src/main.rs | Added args structs, enum variants, dispatch, list/inspect entries, demo handlers for copy_file + move_file |
+| FOCUS_LOOP_NEXT.md | Updated handoff to reflect new tools |
+
+### Safety boundaries preserved
+
+- No Decision Gate bypass -- DEEP never merges
+- No shell, network, browser, email, secrets, or autonomy expansion
+- No readback-as-authorization behavior
+- No existing tool behavior modified
+- All operations simulate by default
+- Both source and destination paths are workspace-bounded and security-checked
+- Blocked file/dir protections apply to both paths
+
+### Deliberately not changed
+
+- No unrestricted shell or arbitrary command execution
+- No MCP integration, scheduler autonomy, or browser automation
+- No Mission Control Web or API endpoint changes
+- No Decision Gate, Graph Memory, or audit system modifications
+- No LLM/provider or runtime loop changes
+- No existing tool behavior modified
+
+### PR state
+
+- PR #229 (docs/sandboxed-tool-documentation): MERGEABLE, green CI -- pending GONA merge
+- PR #230 (feat/copy-move-sandboxed-tools): Created, CI pending -- DEEP cannot merge
