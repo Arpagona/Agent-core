@@ -228,7 +228,7 @@ impl ComputeReservoirResolver {
             ComputeRouteId::new(format!("cr-{}", now.timestamp_nanos_opt().unwrap_or(0)));
 
         // Build a rich label from allocation details
-        let label = match (&allocation.resource_kind, &allocation.selected_node_id) {
+        let route_label = match (&allocation.resource_kind, &allocation.selected_node_id) {
             (Some(kind), Some(node_id)) => format!(
                 "{} ({}, ${}, {}ms)",
                 node_id.as_str(),
@@ -244,6 +244,15 @@ impl ComputeReservoirResolver {
             .nodes
             .iter()
             .any(|n| Some(&n.id) == allocation.selected_node_id.as_ref() && n.is_local);
+
+        // Build structured compute metadata
+        let cost_cents = allocation.expected_cost_cents.unwrap_or(0) as u64;
+        let latency_ms = allocation.expected_latency_ms.unwrap_or(0) as u64;
+        let resource_kind_str = allocation
+            .resource_kind
+            .as_ref()
+            .map(|k| format!("{:?}", k))
+            .unwrap_or_default();
 
         // Build a rich justification from allocation details
         let mut justification_parts: Vec<String> = Vec::new();
@@ -305,10 +314,11 @@ impl ComputeReservoirResolver {
             input.cycle_id.clone(),
             objective.id.clone(),
             bundle_id.clone(),
-            label,
+            route_label,
             local_preferred,
             justification,
         )
+        .with_compute_cost(cost_cents, latency_ms, resource_kind_str)
     }
 }
 

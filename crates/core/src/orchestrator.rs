@@ -344,6 +344,18 @@ pub struct ComputeRouteResult {
     pub advisory_warning: String,
     /// Timestamp of the result.
     pub created_at: DateTime<Utc>,
+    /// Estimated cost in cents for the selected compute route (if available).
+    /// Populated from `ComputeAllocation.expected_cost_cents`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub expected_cost_cents: Option<u64>,
+    /// Estimated latency in milliseconds for the selected compute route (if available).
+    /// Populated from `ComputeAllocation.expected_latency_ms`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub expected_latency_ms: Option<u64>,
+    /// The compute resource kind label (e.g. "LocalLlm", "CloudLlm") for the
+    /// selected route, available when a node was selected.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub compute_resource_kind: Option<String>,
 }
 
 impl ComputeRouteResult {
@@ -367,7 +379,23 @@ impl ComputeRouteResult {
             justification: justification.into(),
             advisory_warning: COMPUTE_ROUTE_ADVISORY_WARNING.to_owned(),
             created_at: Utc::now(),
+            expected_cost_cents: None,
+            expected_latency_ms: None,
+            compute_resource_kind: None,
         }
+    }
+
+    /// Attach structured compute cost metadata to this route result.
+    pub fn with_compute_cost(
+        mut self,
+        cost_cents: u64,
+        latency_ms: u64,
+        resource_kind: impl Into<String>,
+    ) -> Self {
+        self.expected_cost_cents = Some(cost_cents);
+        self.expected_latency_ms = Some(latency_ms);
+        self.compute_resource_kind = Some(resource_kind.into());
+        self
     }
 }
 
@@ -655,6 +683,18 @@ pub struct CycleTrace {
     pub failure_insight_candidates: Vec<FailureInsightCandidate>,
     /// Timestamp of the trace.
     pub created_at: DateTime<Utc>,
+    /// Estimated cost in cents for the selected compute route (if available).
+    /// Provides structured cost visibility for operator inspection.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub expected_cost_cents: Option<u64>,
+    /// Estimated latency in milliseconds for the selected compute route (if available).
+    /// Provides structured latency visibility for operator inspection.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub expected_latency_ms: Option<u64>,
+    /// The compute resource kind (e.g. "LocalLlm", "CloudLlm") for the
+    /// selected compute route.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub compute_resource_kind: Option<String>,
 }
 
 impl CycleTrace {
@@ -683,6 +723,9 @@ impl CycleTrace {
             non_authorizing: true,
             failure_insight_candidates: vec![],
             created_at: Utc::now(),
+            expected_cost_cents: None,
+            expected_latency_ms: None,
+            compute_resource_kind: None,
         }
     }
 
@@ -845,6 +888,29 @@ impl CycleTrace {
             lines.push(format!("Compute:     {}", label));
             if let Some(ref justification) = self.compute_route_justification {
                 lines.push(format!("  Why:       {}", justification));
+            }
+            // Structured compute metadata
+            let cost_str = self
+                .expected_cost_cents
+                .map(|c| format!("${}.{:02}", c / 100, c % 100))
+                .unwrap_or_default();
+            let latency_str = self
+                .expected_latency_ms
+                .map(|l| format!("{}ms", l))
+                .unwrap_or_default();
+            let kind_str = self.compute_resource_kind.as_deref().unwrap_or_default();
+            let mut meta_parts: Vec<&str> = vec![];
+            if !kind_str.is_empty() {
+                meta_parts.push(kind_str);
+            }
+            if !cost_str.is_empty() {
+                meta_parts.push(&cost_str);
+            }
+            if !latency_str.is_empty() {
+                meta_parts.push(&latency_str);
+            }
+            if !meta_parts.is_empty() {
+                lines.push(format!("  Cost:      {}", meta_parts.join(", ")));
             }
         }
 
