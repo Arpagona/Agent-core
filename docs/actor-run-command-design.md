@@ -415,7 +415,7 @@ To switch to an LLM provider, construct a different `IntentInterpreter` implemen
 | `write_file` tool (beyond append) | Not in the allowed tool set for first increment. |
 | `copy_file`, `move_file`, `mkdir`, `patch_file` | Not in the allowed tool set for first increment. |
 
-## 9. Test Plan
+## 10. Test Plan
 
 All tests are CLI parse tests and in-process unit tests (no external dependencies, no network):
 
@@ -450,14 +450,14 @@ All tests are CLI parse tests and in-process unit tests (no external dependencie
    - `parse_intent_unrecognized_ambiguity` — "append to docs" — missing content; should return UnrecognizedTask or an appropriate error because "append" is followed by "to" with no content gap
    - `parse_intent_ambiguous_content_and_path` — "read file.md to review it" — " to " could split the string, but "read" returns the full remainder as path (no "to" parsing for read)
 
-## 10. Estimated Scope
+## 11. Estimated Scope
 
-- **New code**: ~250-350 lines (intent parsing: ~100 lines, actor_run function: ~200 lines, dispatch wiring: ~30 lines)
+- **New code**: ~320-420 lines (trait + impl + existing parsing + actor_run function + dispatch wiring)
 - **Tests**: ~200-300 lines
 - **Files changed**: 1 file (`crates/cli/src/main.rs`)
 - **No new crates, no new dependencies** (uses `std::str` operations for parsing; DecisionGate, ToolRuntime, CognitiveObservation, LlmJournal all already imported)
 
-## 11. Risk Assessment
+## 12. Risk Assessment
 
 | Risk | Mitigation |
 |------|------------|
@@ -467,7 +467,7 @@ All tests are CLI parse tests and in-process unit tests (no external dependencie
 | Merge conflicts with other in-flight branches | Branch from current main. If others merge first, rebase. |
 | Duplicate of existing `tool demo` path | The `tool demo actor-lab` path stays as a demo. `actor run` is the productized evolution. After `actor run` is stable, `tool demo actor-lab` can be kept for backward compat or deprecated with a pointer to `actor run`. |
 
-## 12. Verification Commands
+## 13. Verification Commands
 
 ```bash
 cargo fmt -- --check
