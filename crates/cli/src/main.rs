@@ -205,9 +205,13 @@ pub struct OrchestratorRunArgs {
     #[arg(long, default_value_t = false)]
     pub trace: bool,
 
-    /// Save the CycleTrace as JSON to a file (default: target/last-orchestrator-trace.json).
-    /// Use with --trace to capture the compute-aware breakdown for later orchestrator status.
-    #[arg(long)]
+    /// Save the CycleTrace as JSON to a file.
+    ///
+    /// With an explicit path: save to that file.
+    /// Without a path (--save-trace alone): auto-generate a path in
+    /// target/orchestrator-traces/ using the cycle ID and timestamp.
+    /// Use with --trace to capture the compute-aware breakdown.
+    #[arg(long, num_args = 0..=1, default_missing_value = "auto")]
     pub save_trace: Option<String>,
 
     /// Permissions granted for Decision Gate evaluation (repeatable).
@@ -9590,17 +9594,30 @@ fn orchestrator_run(args: OrchestratorRunArgs) -> Result<(), Box<dyn Error>> {
     }
 
     // ── Save trace to file when --save-trace is provided ──────────────
-    if let Some(ref save_path) = args.save_trace {
+    if let Some(ref save_trace_val) = args.save_trace {
         let trace = cycle.to_cycle_trace();
+        let actual_path = if save_trace_val == "auto" {
+            // Auto-generate a unique path from the cycle ID and timestamp
+            let dir = "target/orchestrator-traces";
+            std::fs::create_dir_all(dir).ok();
+            format!(
+                "{}/cycle-{}-{}.json",
+                dir,
+                trace.cycle_id,
+                trace.created_at.format("%Y%m%dT%H%M%S")
+            )
+        } else {
+            save_trace_val.clone()
+        };
         let json = serde_json::to_string_pretty(&trace)?;
-        if let Some(parent) = std::path::Path::new(save_path).parent() {
+        if let Some(parent) = std::path::Path::new(&actual_path).parent() {
             std::fs::create_dir_all(parent).ok();
         }
-        std::fs::write(save_path, &json)?;
+        std::fs::write(&actual_path, &json)?;
         if !args.json {
             println!(
                 "{}",
-                style_dim(&format!("   Trace saved to: {}", save_path))
+                style_dim(&format!("   Trace saved to: {}", actual_path))
             );
         }
     }
@@ -13436,6 +13453,33 @@ mod tests {
                     "--save-trace path should be captured"
                 );
                 assert_eq!(args.objective, "Save trace test");
+            }
+            _ => panic!("expected orchestrator run"),
+        }
+    }
+
+    #[test]
+    fn cli_parses_orchestrator_run_with_save_trace_auto() {
+        // --save-trace without a path should default to "auto" (auto-naming sentinel)
+        let cli = Cli::try_parse_from(vec![
+            "arpagona",
+            "orchestrator",
+            "run",
+            "--objective",
+            "Auto-name test",
+            "--save-trace",
+        ])
+        .expect("orchestrator run --save-trace (no path) should parse");
+        match cli.command {
+            Command::Orchestrator(OrchestratorCommand {
+                command: OrchestratorSubcommand::Run(args),
+            }) => {
+                assert_eq!(
+                    args.save_trace,
+                    Some("auto".to_owned()),
+                    "--save-trace without path should default to auto sentinel"
+                );
+                assert_eq!(args.objective, "Auto-name test");
             }
             _ => panic!("expected orchestrator run"),
         }

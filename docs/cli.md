@@ -399,7 +399,11 @@ La commande exécute le squelette local du Neutral Orchestrator : objectif → a
 
 Options supplémentaires pour `orchestrator run` :
 
-- `--save-trace <PATH>` — Sauvegarde le `CycleTrace` complet au format JSON dans un fichier. Utilisez cette option pour capturer le breakdown compute-aware (route calculée, items par source de contexte) pour consultation ultérieure via `orchestrator status`.
+- `--save-trace [PATH]` — Sauvegarde le `CycleTrace` complet au format JSON dans un fichier.
+  - Avec un chemin explicite : sauvegarde dans le fichier spécifié.
+  - Sans chemin (`--save-trace` seul) : génère automatiquement un chemin unique dans `target/orchestrator-traces/` basé sur l'ID du cycle et l'horodatage (ex: `target/orchestrator-traces/cycle-oc-1717000000-20260530T060000.json`).
+  - Les traces auto-générées sont découvrables via la commande `orchestrator cycles list` (quand disponible).
+  - Utilisez `--trace` pour capturer le breakdown compute-aware complet (route calculée, items par source de contexte) pour consultation via `orchestrator status`.
 
 #### Orchestrator Status — Lecture du breakdown compute-aware
 
