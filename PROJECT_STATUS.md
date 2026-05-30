@@ -4428,3 +4428,49 @@ Stable documentation extension. No crate code changes.
 1. **Merge PR #221** (P3-27 audit/insight readback surface consolidation).
 2. **Merge PR #222** (C4 documentation coverage).
 3. After merge, consider **C5 — Anti-drift and adversarial tests** (protection for C1-C4 model layer against predictable failure modes).
+
+## 31. Latest Session Update (2026-05-30 DEEP cron — Rebase C5 tests: PR #223 onto main)
+
+This session rebased PR #223 (`feat/c5-anti-drift-adversarial-tests`) onto current `origin/main` after PR #222 (C4 documentation) was merged by GONA. Resolved conflicts in handoff files (FOCUS_LOOP_NEXT.md, PROJECT_STATUS.md — took main's versions as authoritative).
+
+### C5 code content (carried forward from original branch)
+
+**`crates/llm/src/lib.rs`** — 4 tests (148 lines):
+
+| Test | C5 Family | Purpose |
+|------|-----------|---------|
+| `llm_error_display_all_variants_produce_readable_message` | Provider failure fallback | Validates all 4 `LlmError` variants produce structured, actionable messages |
+| `mock_synthesis_output_never_contains_execution_commands` | Overconfident model claims | Proves synthesis across 3 domains never emits 9 dangerous patterns |
+| `mock_synthesis_output_is_not_valid_json` | Anti-structure boundary | Synthesis output is plain advisory text, never parseable JSON |
+| `run_cognitive_synthesis_openai_missing_key_graceful_failure` | Provider failure fallback | `run_cognitive_synthesis` with "openai" without key returns graceful error, never panics |
+
+### Verification
+
+- `cargo fmt -- --check`: ✅ clean
+- `cargo check`: ✅ clean
+- `cargo test -p arpagona-llm`: ✅ 59+ tests pass
+- Full workspace: ✅ 947 tests pass, 0 failures
+
+### Files changed
+
+| File | Change |
+|------|--------|
+| `crates/llm/src/lib.rs` | 4 new C5 anti-drift tests (148 lines) |
+
+### Safety boundaries preserved
+
+- No changes to tool-runtime, decision-gate, CLI, API server, or any other crate
+- No new capabilities, execution paths, permissions, or runtime behavior
+- All tests use mock provider or graceful error paths only
+- No LLM calls, no network access, no secrets
+- No readback-as-authorization behavior
+
+### Deliberately not changed
+
+- No existing crate behavior was modified
+- No decision made on uncommitted tool-runtime write_file tool (belongs to PR #224)
+
+### Deliberately not changed
+
+- No existing crate behavior was modified
+- No decision made on uncommitted tool-runtime write_file tool (belongs to PR #224)
