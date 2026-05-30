@@ -4003,6 +4003,7 @@ let actual_path = if save_trace_val == "auto" {
 3. Then connect CycleTrace to the governed Audit system for persistent trace storage across invocations.
 2. Next: connect CycleTrace metadata to Compute Reservoir cost/quality feedback, or add dedicated CLI surface (`orchestrator insights <trace-path>`).
 
+<<<<<<< HEAD
 ---
 
 ## 29. Latest Session Update (2026-05-30 DEEP cron — CycleTrace-Audit bridge: audit list-traces + audit get-trace)
@@ -4147,3 +4148,56 @@ Why chosen: The handoff proposed Compute Reservoir cost/quality feedback to cycl
 3. **Next Phase 3 increment options:**
    - Connect CycleTrace failure insight candidates to the Failure-to-Insight pipeline (automated FailureInsight record creation from cycle trace candidates)
    - Add `audit list --by-cycle <id>` API endpoint for server-backed filtering
+   - Connect CycleTrace failure insight candidates to the Failure-to-Insight pipeline (automated FailureInsight record creation from cycle trace candidates)
+   - Add `audit list --by-cycle <id>` API endpoint for server-backed filtering
+
+## 31. Latest Session Update (2026-05-30 DEEP — P3-23 orchestrator insights collect + list)
+
+This session added a CLI surface for collecting failure insight candidates from saved CycleTrace files and listing collected insights.
+
+### What was added
+
+**CLI — Two new orchestrator subcommands:**
+
+- `orchestrator insights-collect <trace-path>` — reads a saved CycleTrace JSON file (from `orchestrator run --save-trace`), runs `CycleTrace::detect_failure_candidates()` (P3-14), and saves the detected candidates as a structured JSON file in `target/orchestrator-insights/`
+- `orchestrator insights-list` — discovers and lists collected insight files, showing cycle ID, objective text, candidate count, and creation timestamp
+- Both commands support `--json` for structured programmatic output
+- Guards: all outputs are `non_authorizing: true`, with advisory warnings
+
+**Files changed:**
+
+| File | Change |
+|------|--------|
+| crates/cli/src/main.rs | Added `InsightsCollect`/`InsightsList` enum variants, args structs, dispatch, handler functions, 5 CLI parser tests |
+| docs/cli.md | Added "Orchestrator Insights" documentation section with usage examples |
+| FOCUS_LOOP_NEXT.md | Updated handoff with current state |
+| PROJECT_STATUS.md | This update |
+
+### Verification
+
+- `cargo fmt -- --check`: clean [OK]
+- `cargo check`: clean [OK]
+- `cargo test`: 930+ tests pass (5 new CLI parser tests) [OK]
+- `bash scripts/check-cli-docs-coverage.sh`: "All CLI commands are covered" [OK]
+
+### Safety boundaries preserved
+
+- [OK] Read-only — no tool execution, no state mutation
+- [OK] File-based storage (JSON only), no SurrealDB dependency
+- [OK] Non-authorizing output (`non_authorizing: true`)
+- [OK] Advisory warnings on every output
+- [OK] No Decision Gate bypass
+- [OK] No scheduler, browser, email, shell, secrets, or MCP expansion
+
+### Deliberately not changed
+
+- No changes to CycleTrace, OrchestratorCycle, OrchestratorEngine or any domain types
+- No changes to P3-14's `detect_failure_candidates()` logic
+- No changes to existing CLI subcommands
+- No changes to existing crate boundaries
+- No changes to Decision Gate, Audit, Graph Memory, or any existing functionality
+
+### Recommended next step for GONA
+
+1. Merge PR #211 (CycleTrace-Audit bridge), then #212 (cost/quality metadata), then this branch (P3-23 insights collection).
+2. Then: wire collected insights into the Failure-to-Insight demo snapshot pipeline, or add `orchestrator run --collect-insights` flag for auto-collection during run.
