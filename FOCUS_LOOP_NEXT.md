@@ -4,18 +4,18 @@ This file is the short-lived handoff for the next scheduled focus-loop run.
 
 It must contain one concrete next action only. The runtime milestone queue and long-term rules live in `AGENT_FOCUS_LOOP.md`.
 
-## Current status (DEEP cron 2026-05-29 — P3-14 CycleTrace-to-FailureInsight bridge)
+## Current status (DEEP cron 2026-05-30 — DV-2026-05-30-002 fix)
 
 **main is green:** ✅ Full workspace tests pass.
 
-**PR #201** (`feat/p3-14-cycletrace-failure-insight-bridge`) — **NEW**, CI pending. Contains:
-- P3-14: CycleTrace → FailureInsightCandidate bridge (ContextAssemblyWeak variant + detect_failure_candidates() + CycleTrace field + format display + 7 tests)
-- Wire in OrchestratorCycle.to_cycle_trace()
-- No CLI changes needed — `orchestrator status` already uses `trace.format()` and `trace --json`
+**PR #207** (`fix/dv-2026-05-30-002-cycle-trace-ambiguity`) — **NEW**, CI pending. Contains:
+- Fixed `CycleTrace::detect_failure_candidates()` to distinguish "all sources unavailable" from "mixed availability with zero items"
+- Added `detect_candidates_with_zero_items_and_mixed_source_availability` test proving the fix
+- Updated DAILY_VALIDATION_BACKLOG.md
 
-**DAILY_VALIDATION_BACKLOG.md:** 0 open entries.
+**Stacked PRs still pending GONA merge:** #197, #198, #199, #200, #202, #203, #204, #205, #206
 
 ## Next action
 
-1. **GONA: review and merge PR #201** (once CI is green).
-2. **Then** — advance to connecting orchestrated context assembly metadata to Compute Reservoir cost/quality feedback (e.g., attaching cost estimates or route-quality scores to CycleTrace), or to exposing failure insight candidates via a dedicated CLI surface (`orchestrator insights <trace-path>`).
+1. **GONA: review and merge DV fix PR (currently #207) and the stacked PRs.**
+2. **Then** — address DV-2026-05-30-001 (Local Ollama cognitive beta path grounding), or advance to orchestrator insight CLI surface.

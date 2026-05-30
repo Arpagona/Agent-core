@@ -16,7 +16,25 @@ Rules:
 
 ## Open candidates
 
-*No open candidates.*
+### DV-2026-05-30-001 — Local Ollama cognitive beta path is structured but under-grounded for repository/operator tasks
+- source: daily validation 2026-05-30 Beta Usage Lab
+- category: beta usability / LLM synthesis quality
+- severity: medium
+- status: open
+- evidence: `qwen3.5:9b` was installed and eight `cargo run -q --bin arpagona -- cognitive run --llm --provider ollama --assess --allocate --json --objective ...` scenarios completed through Agent Core. Responses consistently preserved `[STATE]`, `[KEY GAP / RISK]`, and `[RECOMMENDED NEXT STEP]`, but most reported `0 context items` and `1 missing context item`; orientation, planning, code-review and Failure-to-Insight prompts therefore returned generic missing-context guidance rather than scenario-specific operator help.
+- expected behavior: local-model beta scenarios should either consume explicit bounded context supplied by the operator/runtime or make the missing-context requirement precise enough to be actionable, while still refusing secrets and unrestricted shell.
+- suggested fix/tests: add a bounded regression/demo path that injects small safe context via `--context` or a documented local read-only context bridge, then assert the synthesis cites concrete repository/tool evidence for orientation/planning/code-review prompts.
+- do not: call remote model APIs, pull models, read `.env`/secrets, or treat model prose as authorization.
+
+### DV-2026-05-30-002 — CycleTrace failure-candidate detection lacked a regression for zero-item partial-source ambiguity
+- source: daily validation 2026-05-30 code review of latest commit `3cae1c6`
+- category: regression test / observation accuracy
+- severity: low
+- status: **fixed in this PR**
+- evidence: `CycleTrace::detect_failure_candidates()` emitted `All N context source(s) unavailable` whenever `total_context_items == 0 && !unavailable_sources.is_empty()`, even when some sources were available but returned zero items.
+- fix: added per-source availability check via `context_source_summaries` to distinguish "all sources truly unavailable" from "mixed: some available (returned zero), others unavailable." Added targeted unit test `detect_candidates_with_zero_items_and_mixed_source_availability` (c8) that proves the summary does NOT claim "all unavailable" when some sources are actually available.
+- verification: `cargo fmt -- --check` ✅, `cargo check` ✅, `cargo test` — 921+ tests pass including new test.
+- do not: add new Failure-to-Insight mutation paths, bypass Decision Gate, or broaden runtime capabilities.
 
 ## Closed / superseded candidates
 

@@ -715,20 +715,56 @@ impl CycleTrace {
 
         // 1. Zero total context items
         if self.total_context_items == 0 && !self.unavailable_sources.is_empty() {
-            let src_list = self.unavailable_sources.join(", ");
-            candidates.push(FailureInsightCandidate {
-                kind: FailureInsightCandidateKind::ContextAssemblyWeak,
-                summary: format!(
-                    "All {} context source(s) unavailable",
-                    self.unavailable_sources.len()
-                ),
-                reason: format!(
-                    "All context sources unavailable: {}. Cannot assemble context.",
-                    src_list
-                ),
-                tool_name: String::new(),
-                is_positive_signal: false,
+            // Check per-source availability in context_source_summaries to
+            // distinguish "all sources truly unavailable" from "mixed: some
+            // sources available but returned zero items, others unavailable."
+            let all_truly_unavailable = self.context_source_summaries.iter().all(|s| {
+                let src_name: &str = &s.source;
+                self.unavailable_sources.iter().any(|u| u == src_name)
             });
+
+            if all_truly_unavailable {
+                let src_list = self.unavailable_sources.join(", ");
+                candidates.push(FailureInsightCandidate {
+                    kind: FailureInsightCandidateKind::ContextAssemblyWeak,
+                    summary: format!(
+                        "All {} context source(s) unavailable",
+                        self.unavailable_sources.len()
+                    ),
+                    reason: format!(
+                        "All context sources unavailable: {}. Cannot assemble context.",
+                        src_list
+                    ),
+                    tool_name: String::new(),
+                    is_positive_signal: false,
+                });
+            } else {
+                // Mixed: some sources were available but returned zero items,
+                // others were truly unavailable. Avoid overstating the problem.
+                let unavailable_list = self.unavailable_sources.join(", ");
+                let available_count = self
+                    .context_source_summaries
+                    .iter()
+                    .filter(|s| !self.unavailable_sources.iter().any(|u| u == &s.source))
+                    .count();
+                let unavailable_count = self.unavailable_sources.len();
+                candidates.push(FailureInsightCandidate {
+                    kind: FailureInsightCandidateKind::ContextAssemblyWeak,
+                    summary: format!(
+                        "Context assembly weak — {} source(s) unavailable ({}). \
+                         Other sources returned zero items.",
+                        unavailable_count, unavailable_list,
+                    ),
+                    reason: format!(
+                        "Mixed context availability — {} source(s) available but \
+                         returned zero items; {} source(s) unavailable: {}. \
+                         No context items assembled.",
+                        available_count, unavailable_count, unavailable_list,
+                    ),
+                    tool_name: String::new(),
+                    is_positive_signal: false,
+                });
+            }
         } else if self.total_context_items == 0 {
             candidates.push(FailureInsightCandidate {
                 kind: FailureInsightCandidateKind::ContextAssemblyWeak,
@@ -1583,6 +1619,67 @@ mod tests {
             candidates[0].summary.contains("holographic_memory"),
             "should mention the unavailable source: {}",
             candidates[0].summary
+        );
+    }
+
+    #[test]
+    fn detect_candidates_with_zero_items_and_mixed_source_availability() {
+        // When total_context_items == 0, some sources are unavailable,
+        // but other sources were available (returned 0 items), the
+        // summary should NOT claim "all sources unavailable."
+        let mut trace = CycleTrace::new(
+            OrchestratorCycleId::new("c8"),
+            "Mixed zero availability",
+            "NeedsReview",
+            "Mixed: some available, some not, all zero items",
+        );
+        trace.total_context_items = 0;
+        trace.unavailable_sources = vec!["holographic_memory".to_owned()];
+        // Summaries: graph_memory available (but 0 items), holographic unavailable (0 items)
+        trace.context_source_summaries = vec![
+            ContextSourceSummary {
+                source: "graph_memory".to_owned(),
+                item_count: 0,
+                available: true,
+                sample_key: None,
+                sample_value_preview: None,
+            },
+            ContextSourceSummary {
+                source: "holographic_memory".to_owned(),
+                item_count: 0,
+                available: false,
+                sample_key: None,
+                sample_value_preview: None,
+            },
+        ];
+
+        let candidates = trace.detect_failure_candidates();
+        assert_eq!(
+            candidates.len(),
+            1,
+            "should produce 1 candidate for mixed zero-item availability"
+        );
+        assert_eq!(
+            candidates[0].kind,
+            FailureInsightCandidateKind::ContextAssemblyWeak
+        );
+        // Must NOT claim "all sources unavailable"
+        assert!(
+            !candidates[0].summary.contains("All context source"),
+            "should not overstate unavailability when some sources were available: {}",
+            candidates[0].summary
+        );
+        assert!(
+            candidates[0].summary.contains("unavailable"),
+            "should still mention unavailable sources: {}",
+            candidates[0].summary
+        );
+        assert!(
+            candidates[0].summary.contains("other sources")
+                || candidates[0].reason.contains("available but"),
+            "should acknowledge that some sources were available: {} / {}",
+            candidates[0].summary,
+            candidates[0].reason
         );
     }
 }
