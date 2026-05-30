@@ -495,6 +495,76 @@
    493|
    494|Recommended next step: wait for CI to complete on #77, then merge into `main`. After merge, create `scripts/demo-full-loop.sh` for a single-repeatable-command governed FailureInsight demo path.
    495|
+## 29. Latest Session Update (2026-05-30 DEEP cron — Sandboxed tool documentation coverage)
+
+This session completed the operator documentation for the complete sandboxed tool set (7 tools + govern + observe pipeline), addressing the next action from FOCUS_LOOP_NEXT.md: "Add operator readback/docs for the complete sandboxed tool set."
+
+### What was added
+
+**`docs/cli.md`** — Added full `tool` command family documentation (French):
+
+| Section | Content |
+|---------|---------|
+| `tool list` | Catalogue des outils disponibles — lists all 7 tools with cognitive role, risk level, capability, security summary |
+| `tool inspect` | Détails d'un outil spécifique — full tool details with args, required permissions, governance notes |
+| `tool govern` | Évaluation gouvernée d'une intention d'appel outil (C2) — ToolCallIntent → DecisionGate → LLM journaling |
+| `tool demo read-file` | Read-only perception tool — file content preview, line/char count, path resolving |
+| `tool demo list-files` | Read-only perception tool — directory entries, skips .git/target/node_modules/.env/.ssh |
+| `tool demo search-text` | Read-only inspection tool — regex search with file/line/snippet results |
+| `tool demo write-file` | Sandboxed mutation (simulation-first) — `--execute` for real writes, `--overwrite`, `--create-parent-dirs` |
+| `tool demo patch-file` | Sandboxed mutation (simulation-first) — `--execute` for real patches, `--replace-all` for global replacement |
+| `tool demo append-file` | Sandboxed mutation (simulation-first) — `--execute` for real appends, `--create-if-missing` |
+| `tool demo mkdir` | Sandboxed mutation (simulation-first) — `--execute` for real creation, `--parents` for recursive |
+| `tool demo observe` | Pipeline complet: exécution → observation cognitive → assessment (diagnostic) |
+
+**`docs/cognitive-tool-runtime.md`** — Updated completely:
+
+- Status header changed from "read-only tool runtime" to "tool runtime with read-only perception and sandboxed mutation"
+- Architecture diagram updated to show all 7 tools in perception and mutation sections
+- "The three read-only tools" section replaced with "The seven tools" section documenting all 4 mutation tools
+- "Why read-only first" updated to "Why read-only → simulation-first" reflecting the new design principle
+- Updated list of "What remains non-executable" (shell, communication, browser, network, secrets)
+
+### Changed files
+
+| File | Change |
+|------|--------|
+| `docs/cli.md` | Added ~240 lines of tool command documentation (tool list, inspect, govern, 7 demo subcommands, observe pipeline) |
+| `docs/cognitive-tool-runtime.md` | Full rewrite — 137 lines → complete 7-tool documentation with sandboxed mutation design |
+| `FOCUS_LOOP_NEXT.md` | Updated handoff — sandboxed tool docs complete, next: copy/move capability, C3 extension, or E5 positioning |
+| `PROJECT_STATUS.md` | This session update |
+
+### Verification
+
+- `cargo fmt -- --check`: ✅ clean
+- `cargo check`: ✅ clean (0 warnings, 0 errors)
+- `cargo test`: ✅ 941+ tests pass (0 failures across all crates)
+
+### Safety boundaries preserved
+
+- ✅ No code changes to any crate — documentation-only session
+- ✅ No scheduler, autonomy, browser automation, email, secrets, self-modification
+- ✅ No Decision Gate bypass
+- ✅ No unrestricted shell or execution
+- ✅ No merge to main — DEEP governance rule strictly observed
+
+### Deliberately not changed
+
+- No crate-level code changes
+- No CLI, API, Decision Gate, Graph Memory, Tool Runtime, or MCP changes
+- No existing behavior modified or removed
+- No tests added (documentation-only PR)
+- No new capabilities or flags added
+- No `scripts/check-cli-docs-coverage.sh` created (the script was removed in a prior session and is not required for DV-2026-05-28-002 which was already closed)
+
+### Recommended next step for GONA
+
+1. **Merge this PR** (documentation-only, zero risk).
+2. Then advance one of:
+   - Next low-risk bounded filesystem capability (`copy_file`, `move_file`/`rename`), simulation-first
+   - C3 LLM journaling CLI readback extension
+   - E5 product positioning evidence
+
 ## 28. Latest Session Update (2026-05-30 — P3-27: Audit/insight readback surface consolidation)
 
 This session implemented P3-27, the audit/insight readback surface consolidation, closing 5 stale PRs and adding 3 new bounded surfaces.
