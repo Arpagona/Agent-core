@@ -11050,14 +11050,14 @@ Rules:
         let response = tokio::task::block_in_place(|| {
             tokio::runtime::Handle::current()
                 .block_on(async { self.client.post(&self.endpoint).json(&body).send().await })
-                .map_err(|e| IntentParseError::OllamaUnavailable(e.to_string()))
+                .map_err(|e| IntentParseError::OllamaUnavailable(format!("{} — endpoint: {}", e, self.endpoint)))
         })?;
 
         let status = response.status();
         let value: serde_json::Value = tokio::task::block_in_place(|| {
             tokio::runtime::Handle::current()
                 .block_on(async { response.json().await })
-                .map_err(|e| IntentParseError::InvalidOllamaResponse(e.to_string()))
+                .map_err(|e| IntentParseError::InvalidOllamaResponse(format!("{} — endpoint: {}", e, self.endpoint)))
         })?;
 
         if !status.is_success() {
@@ -11065,7 +11065,7 @@ Rules:
                 .get("error")
                 .and_then(|v| v.as_str())
                 .unwrap_or("unknown error");
-            return Err(IntentParseError::OllamaUnavailable(msg.to_owned()));
+            return Err(IntentParseError::OllamaUnavailable(format!("{} (HTTP {}) — endpoint: {}", msg, status, self.endpoint)));
         }
 
         let content = value
@@ -17444,5 +17444,65 @@ mod tests {
             RiskLevel::Low,
             "append_file must always be Low, ignoring Ollama's risk_level"
         );
+    }
+
+    // ─── Edge-case validation tests ─────────────────────────────────────────
+
+    #[test]
+    fn parse_ollama_intent_extra_fields_are_silently_tolerated() {
+        // Ollama may return extra fields beyond the schema — they must be ignored
+        let response = json!({
+            "tool": "read_file",
+            "arguments": {"path": "doc.md"},
+            "rationale": "read the doc",
+            "risk_level": "informational",
+            "extra_field": "should be ignored",
+            "nested_extra": {"unused": true},
+        });
+        let intent = parse_ollama_intent(&response).unwrap();
+        assert_eq!(intent.tool, "read_file");
+        assert_eq!(intent.arguments["path"], "doc.md");
+    }
+
+    #[test]
+    fn parse_ollama_intent_arguments_as_non_object_returns_error() {
+        // If Ollama sends arguments as a string instead of an object
+        let response = json!({
+            "tool": "read_file",
+            "arguments": "not-an-object",
+            "rationale": "read a file",
+            "risk_level": "informational",
+        });
+        let err = parse_ollama_intent(&response).unwrap_err();
+        assert!(matches!(err, IntentParseError::MissingArgument(msg) if msg.contains("path")));
+    }
+
+    #[test]
+    fn parse_ollama_intent_list_files_without_path_succeeds() {
+        // list_files path is optional — defaults to cwd
+        let response = json!({
+            "tool": "list_files",
+            "arguments": {},
+            "rationale": "list current directory",
+            "risk_level": "informational",
+        });
+        let intent = parse_ollama_intent(&response).unwrap();
+        assert_eq!(intent.tool, "list_files");
+        assert_eq!(intent.risk_level, RiskLevel::Informational);
+    }
+
+    #[test]
+    fn parse_ollama_intent_search_text_without_path_succeeds() {
+        // search_text path is optional — defaults to cwd
+        let response = json!({
+            "tool": "search_text",
+            "arguments": {"pattern": "TODO"},
+            "rationale": "search for TODO markers",
+            "risk_level": "informational",
+        });
+        let intent = parse_ollama_intent(&response).unwrap();
+        assert_eq!(intent.tool, "search_text");
+        assert_eq!(intent.arguments["pattern"], "TODO");
+        assert_eq!(intent.risk_level, RiskLevel::Informational);
     }
 }
