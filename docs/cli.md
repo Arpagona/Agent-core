@@ -907,6 +907,39 @@ Tous les outils du Tool Runtime sont **read-only pour la perception, simulation-
 
 Documentation dédiée : [`cognitive-tool-runtime.md`](cognitive-tool-runtime.md).
 
+## Actor Command
+
+### actor run
+
+```bash
+cargo run -p arpagona-cli -- actor run "append meeting notes to docs/log.md"
+cargo run -p arpagona-cli -- actor run "read docs/README.md" --json
+cargo run -p arpagona-cli -- actor run "list files in src/" --approve
+```
+
+Options :
+- `--approve` — Exécute l'action après simulation (nécessaire pour les mutations).
+- `--json` — Sortie structurée JSON.
+- `--workspace <PATH>` — Racine du workspace (défaut : répertoire courant).
+
+La commande parse une tâche en langage naturel, la route vers un outil fichier (append_file, read_file, list_files, search_text), exécute le pipeline Decision Gate -> simulation -> (optionnel --approve) -> exécution -> readback -> journal.
+
+### actor session
+
+```bash
+cargo run -p arpagona-cli -- actor session                                # Interactive stdin loop
+cargo run -p arpagona-cli -- actor session --max 5                        # Max 5 tasks
+cargo run -p arpagona-cli -- actor session --workspace /tmp/project       # Workspace spécifique
+cargo run -p arpagona-cli -- actor session --json                         # JSON envelopes par tâche
+```
+
+Options :
+- `--max <N>` — Nombre maximum de tâches à traiter.
+- `--workspace <PATH>` — Racine du workspace (défaut : répertoire courant).
+- `--json` — Émet un objet JSON compact par ligne pour chaque tâche.
+
+Le session loop lit des tâches depuis stdin, les exécute une par une via le même pipeline gouverné que `actor run`. Simulation-only par défaut (pas d'approval implicite). Commandes internes : `/quit`, `/help`, `/status`.
+
 ## Installation
 
 ```bash
