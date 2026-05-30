@@ -1309,6 +1309,10 @@ enum ToolDemoSubcommand {
     AppendFile(ToolDemoAppendFileArgs),
     /// Demo the sandboxed mkdir tool.
     Mkdir(ToolDemoMkdirArgs),
+    /// Demo the sandboxed copy_file tool.
+    CopyFile(ToolDemoCopyFileArgs),
+    /// Demo the sandboxed move_file tool (alias: rename).
+    MoveFile(ToolDemoMoveFileArgs),
     /// Run the full cognitive observation pipeline: tool execution → observation → assessment.
     Observe(ToolDemoObserveArgs),
 }
@@ -1413,6 +1417,40 @@ struct ToolDemoMkdirArgs {
     /// Create parent directories as needed.
     #[arg(long)]
     parents: bool,
+    /// Emit structured JSON instead of human-oriented text.
+    #[arg(long)]
+    json: bool,
+}
+
+#[derive(Debug, Args)]
+struct ToolDemoCopyFileArgs {
+    /// Source file path (relative to workspace).
+    source: String,
+    /// Destination file path (relative to workspace).
+    destination: String,
+    /// Actually copy. Without this flag, copy_file only simulates.
+    #[arg(long)]
+    execute: bool,
+    /// Allow overwriting an existing destination file.
+    #[arg(long)]
+    overwrite: bool,
+    /// Emit structured JSON instead of human-oriented text.
+    #[arg(long)]
+    json: bool,
+}
+
+#[derive(Debug, Args)]
+struct ToolDemoMoveFileArgs {
+    /// Source file path (relative to workspace).
+    source: String,
+    /// Destination file path (relative to workspace).
+    destination: String,
+    /// Actually move. Without this flag, move_file only simulates.
+    #[arg(long)]
+    execute: bool,
+    /// Allow overwriting an existing destination file.
+    #[arg(long)]
+    overwrite: bool,
     /// Emit structured JSON instead of human-oriented text.
     #[arg(long)]
     json: bool,
@@ -2118,6 +2156,8 @@ async fn run() -> Result<(), Box<dyn Error>> {
                 ToolDemoSubcommand::PatchFile(args) => tool_demo_patch_file(args)?,
                 ToolDemoSubcommand::AppendFile(args) => tool_demo_append_file(args)?,
                 ToolDemoSubcommand::Mkdir(args) => tool_demo_mkdir(args)?,
+                ToolDemoSubcommand::CopyFile(args) => tool_demo_copy_file(args)?,
+                ToolDemoSubcommand::MoveFile(args) => tool_demo_move_file(args)?,
                 ToolDemoSubcommand::Observe(args) => tool_demo_observe(args)?,
             },
         },
@@ -4430,9 +4470,26 @@ fn tool_list(args: ToolListArgs) -> Result<(), Box<dyn Error>> {
             "Create a workspace-bounded directory; simulates by default",
             "Transformation",
         ),
+        (
+            "copy_file",
+            "Copy a file within the workspace; simulates by default",
+            "Transformation",
+        ),
+        (
+            "move_file",
+            "Move/rename a file within the workspace; simulates by default",
+            "Transformation",
+        ),
     ];
 
-    let mutation_tools = ["write_file", "patch_file", "append_file", "mkdir"];
+    let mutation_tools = [
+        "write_file",
+        "patch_file",
+        "append_file",
+        "mkdir",
+        "copy_file",
+        "move_file",
+    ];
 
     if args.json {
         let output: Vec<serde_json::Value> = tools
@@ -4784,6 +4841,75 @@ fn tool_inspect(args: ToolInspectArgs) -> Result<(), Box<dyn Error>> {
                 println!("Security: absolute paths/.. blocked; blocked dirs protected");
             }
         }
+        "copy_file" => {
+            let info = serde_json::json!({
+                "name": "copy_file",
+                "description": "Copy a file within the workspace; simulates by default",
+                "cognitive_role": ["Transformation"],
+                "read_only": false,
+                "sandboxed": true,
+                "alpha": true,
+                "arguments": {
+                    "source": {"type": "string", "description": "Source file path relative to workspace", "required": true},
+                    "destination": {"type": "string", "description": "Destination file path relative to workspace", "required": true},
+                    "simulate": {"type": "boolean", "default": true},
+                    "overwrite": {"type": "boolean", "default": false}
+                },
+                "security": {
+                    "absolute_paths": "blocked",
+                    "parent_traversal": "blocked",
+                    "blocked_dirs": ".git, target, node_modules, .env, .ssh",
+                    "max_file_size": "256 KiB"
+                }
+            });
+            if args.json {
+                println!("{}", serde_json::to_string_pretty(&info)?);
+            } else {
+                println!("{DEMO_TOOL_WARNING}");
+                println!();
+                println!("Tool: copy_file");
+                println!("  Description:   Copy a file within the workspace");
+                println!("  Cognitive role: Transformation");
+                println!("  Read-only:     no — sandboxed; simulate by default");
+                println!("Arguments: source, destination, simulate, overwrite");
+                println!("Security: absolute paths/.. blocked; max file 256 KiB");
+            }
+        }
+        "move_file" | "rename" => {
+            let info = serde_json::json!({
+                "name": "move_file",
+                "aliases": ["rename"],
+                "description": "Move or rename a file within the workspace; simulates by default",
+                "cognitive_role": ["Transformation"],
+                "read_only": false,
+                "sandboxed": true,
+                "alpha": true,
+                "arguments": {
+                    "source": {"type": "string", "description": "Source file path relative to workspace", "required": true},
+                    "destination": {"type": "string", "description": "Destination file path relative to workspace", "required": true},
+                    "simulate": {"type": "boolean", "default": true},
+                    "overwrite": {"type": "boolean", "default": false}
+                },
+                "security": {
+                    "absolute_paths": "blocked",
+                    "parent_traversal": "blocked",
+                    "blocked_dirs": ".git, target, node_modules, .env, .ssh",
+                    "max_file_size": "256 KiB"
+                }
+            });
+            if args.json {
+                println!("{}", serde_json::to_string_pretty(&info)?);
+            } else {
+                println!("{DEMO_TOOL_WARNING}");
+                println!();
+                println!("Tool: move_file (alias: rename)");
+                println!("  Description:   Move or rename a file within the workspace");
+                println!("  Cognitive role: Transformation");
+                println!("  Read-only:     no — sandboxed; simulate by default");
+                println!("Arguments: source, destination, simulate, overwrite");
+                println!("Security: absolute paths/.. blocked; max file 256 KiB");
+            }
+        }
         other => {
             return Err(format!(
                 "Unknown tool: {other}. Use 'arpagona tool list' to see available tools."
@@ -5119,6 +5245,70 @@ fn tool_demo_mkdir(args: ToolDemoMkdirArgs) -> Result<(), Box<dyn Error>> {
         println!("{DEMO_TOOL_WARNING}");
         println!();
         println!("Tool demo: mkdir");
+        println!(
+            "   Mode: {}",
+            if args.execute { "execute" } else { "simulate" }
+        );
+        println!("   Status: {:?}", result.status);
+        println!("   {}", result.output_summary);
+        if let Some(error) = &result.error {
+            println!("   Error: {}", error.message);
+        }
+        println!("Full result available with --json");
+    }
+    Ok(())
+}
+
+fn tool_demo_copy_file(args: ToolDemoCopyFileArgs) -> Result<(), Box<dyn Error>> {
+    let runtime = ToolRuntime::new(ToolRuntimeConfig::new("."));
+    let result = runtime.execute(
+        "copy_file",
+        &serde_json::json!({
+            "source": args.source,
+            "destination": args.destination,
+            "simulate": !args.execute,
+            "overwrite": args.overwrite,
+        }),
+    );
+
+    if args.json {
+        println!("{}", serde_json::to_string_pretty(&result)?);
+    } else {
+        println!("{DEMO_TOOL_WARNING}");
+        println!();
+        println!("Tool demo: copy_file");
+        println!(
+            "   Mode: {}",
+            if args.execute { "execute" } else { "simulate" }
+        );
+        println!("   Status: {:?}", result.status);
+        println!("   {}", result.output_summary);
+        if let Some(error) = &result.error {
+            println!("   Error: {}", error.message);
+        }
+        println!("Full result available with --json");
+    }
+    Ok(())
+}
+
+fn tool_demo_move_file(args: ToolDemoMoveFileArgs) -> Result<(), Box<dyn Error>> {
+    let runtime = ToolRuntime::new(ToolRuntimeConfig::new("."));
+    let result = runtime.execute(
+        "move_file",
+        &serde_json::json!({
+            "source": args.source,
+            "destination": args.destination,
+            "simulate": !args.execute,
+            "overwrite": args.overwrite,
+        }),
+    );
+
+    if args.json {
+        println!("{}", serde_json::to_string_pretty(&result)?);
+    } else {
+        println!("{DEMO_TOOL_WARNING}");
+        println!();
+        println!("Tool demo: move_file");
         println!(
             "   Mode: {}",
             if args.execute { "execute" } else { "simulate" }
