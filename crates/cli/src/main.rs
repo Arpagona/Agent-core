@@ -10960,31 +10960,26 @@ fn parse_intent(task: &str) -> Result<ActorIntent, IntentParseError> {
     }
 
     // --- Read patterns: "read <path>", "show <path>" ---
-    if let Some(path) = lower
-        .strip_prefix("read ")
-        .or_else(|| lower.strip_prefix("show "))
-    {
-        let original_path = if task.to_lowercase().starts_with("read ") {
-            &task[5..]
-        } else {
-            &task[5..]
-        };
+    if lower.starts_with("read ") || lower.starts_with("show ") {
+        let path = task[5..].trim(); // "read " and "show " are both 5 chars
         return Ok(ActorIntent {
             tool: "read_file".to_owned(),
-            arguments: serde_json::json!({ "path": path.trim() }),
+            arguments: serde_json::json!({ "path": path }),
             risk_level: RiskLevel::Informational,
-            rationale: format!("Read file at {}", path.trim()),
-            display_summary: format!("Read {}", original_path.trim()),
+            rationale: format!("Read file at {path}"),
+            display_summary: format!("Read {path}"),
         });
     }
 
     // --- List patterns: "list files", "list files in <path>", "list directory <path>" ---
     if lower.starts_with("list files") || lower.starts_with("list directory") {
-        let path = lower
-            .strip_prefix("list files in ")
-            .or_else(|| lower.strip_prefix("list directory "))
-            .map(|p| p.trim())
-            .unwrap_or("");
+        let path = if lower.starts_with("list files in ") {
+            task[14..].trim() // "list files in " is 14 chars
+        } else if lower.starts_with("list directory ") {
+            task[15..].trim() // "list directory " is 15 chars
+        } else {
+            ""
+        };
         return Ok(ActorIntent {
             tool: "list_files".to_owned(),
             arguments: serde_json::json!({ "path": path }),
@@ -16578,5 +16573,33 @@ mod tests {
         let intent = parse_intent("list directory src/").unwrap();
         assert_eq!(intent.tool, "list_files");
         assert_eq!(intent.arguments["path"], "src/");
+    }
+
+    #[test]
+    fn parse_intent_read_preserves_mixed_case_path() {
+        let intent = parse_intent("read Docs/Notes.md").unwrap();
+        assert_eq!(intent.tool, "read_file");
+        assert_eq!(intent.arguments["path"], "Docs/Notes.md");
+    }
+
+    #[test]
+    fn parse_intent_show_preserves_mixed_case_path() {
+        let intent = parse_intent("show Docs/Notes.md").unwrap();
+        assert_eq!(intent.tool, "read_file");
+        assert_eq!(intent.arguments["path"], "Docs/Notes.md");
+    }
+
+    #[test]
+    fn parse_intent_list_files_in_preserves_mixed_case_path() {
+        let intent = parse_intent("list files in Src/App/").unwrap();
+        assert_eq!(intent.tool, "list_files");
+        assert_eq!(intent.arguments["path"], "Src/App/");
+    }
+
+    #[test]
+    fn parse_intent_list_directory_preserves_mixed_case_path() {
+        let intent = parse_intent("list directory Src/App").unwrap();
+        assert_eq!(intent.tool, "list_files");
+        assert_eq!(intent.arguments["path"], "Src/App");
     }
 }
