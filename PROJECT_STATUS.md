@@ -4003,7 +4003,6 @@ let actual_path = if save_trace_val == "auto" {
 3. Then connect CycleTrace to the governed Audit system for persistent trace storage across invocations.
 2. Next: connect CycleTrace metadata to Compute Reservoir cost/quality feedback, or add dedicated CLI surface (`orchestrator insights <trace-path>`).
 
-<<<<<<< HEAD
 ---
 
 ## 29. Latest Session Update (2026-05-30 DEEP cron — CycleTrace-Audit bridge: audit list-traces + audit get-trace)

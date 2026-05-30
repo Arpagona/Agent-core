@@ -266,10 +266,19 @@ pub struct OrchestratorRunArgs {
     /// Directory for saved failure insight candidate files (default: target/orchestrator-insights/).
     #[arg(long)]
     pub insights_dir: Option<String>,
+
+    /// Save audit events from this cycle as JSON files.
+    ///
+    /// With an explicit path prefix: save to `<prefix>/audit-events-<cycle-id>.json`.
+    /// Without a path (--save-audit alone): auto-generate a path in
+    /// target/orchestrator-audit/ using the cycle ID and timestamp.
+    #[arg(long, num_args = 0..=1, default_missing_value = "auto")]
+    pub save_audit: Option<String>,
 }
 
 const DEFAULT_ORCHESTRATOR_TRACE_PATH: &str = "target/last-orchestrator-trace.json";
 const DEFAULT_ORCHESTRATOR_INSIGHTS_DIR: &str = "target/orchestrator-insights";
+const DEFAULT_ORCHESTRATOR_AUDIT_DIR: &str = "target/orchestrator-audit";
 
 #[derive(Debug, Args)]
 pub struct OrchestratorStatusArgs {
@@ -10041,6 +10050,35 @@ fn orchestrator_run(args: OrchestratorRunArgs) -> Result<(), Box<dyn Error>> {
         }
     }
 
+    // ── Save audit events when --save-audit is provided ──────────────
+    if let Some(ref save_audit_val) = args.save_audit {
+        let actual_dir = if save_audit_val == "auto" {
+            DEFAULT_ORCHESTRATOR_AUDIT_DIR.to_owned()
+        } else {
+            save_audit_val.clone()
+        };
+        let dir = std::path::Path::new(&actual_dir);
+        std::fs::create_dir_all(dir).ok();
+
+        for event in &cycle.audit_events {
+            let file_name = format!("audit-event-{}.json", event.id);
+            let event_path = dir.join(&file_name);
+            let event_json = serde_json::to_string_pretty(event)?;
+            std::fs::write(&event_path, &event_json)?;
+        }
+
+        if !args.json {
+            println!(
+                "{}",
+                style_dim(&format!(
+                    "   Audit events saved to: {}/ ({} event(s))",
+                    actual_dir,
+                    cycle.audit_events.len()
+                ))
+            );
+        }
+    }
+
     Ok(())
 }
 
@@ -14251,6 +14289,94 @@ mod tests {
             matches!(cli.command, Command::Orchestrator(_)),
             "orchestrator status must dispatch to Orchestrator command"
         );
+    }
+
+    #[test]
+    fn cli_parses_orchestrator_run_with_save_audit() {
+        let cli = Cli::try_parse_from(vec![
+            "arpagona",
+            "orchestrator",
+            "run",
+            "--objective",
+            "Save audit test",
+            "--save-audit",
+            "target/my-audit-dir",
+        ])
+        .expect("orchestrator run --save-audit should parse");
+        match cli.command {
+            Command::Orchestrator(OrchestratorCommand {
+                command: OrchestratorSubcommand::Run(args),
+            }) => {
+                assert_eq!(
+                    args.save_audit,
+                    Some("target/my-audit-dir".to_owned()),
+                    "--save-audit path should be captured"
+                );
+                assert_eq!(args.objective, "Save audit test");
+            }
+            _ => panic!("expected orchestrator run"),
+        }
+    }
+
+    #[test]
+    fn cli_parses_orchestrator_run_with_save_audit_auto() {
+        // --save-audit without a path should default to "auto" (auto-naming sentinel)
+        let cli = Cli::try_parse_from(vec![
+            "arpagona",
+            "orchestrator",
+            "run",
+            "--objective",
+            "Auto-name audit test",
+            "--save-audit",
+        ])
+        .expect("orchestrator run --save-audit (no path) should parse");
+        match cli.command {
+            Command::Orchestrator(OrchestratorCommand {
+                command: OrchestratorSubcommand::Run(args),
+            }) => {
+                assert_eq!(
+                    args.save_audit,
+                    Some("auto".to_owned()),
+                    "--save-audit without path should default to auto sentinel"
+                );
+                assert_eq!(args.objective, "Auto-name audit test");
+            }
+            _ => panic!("expected orchestrator run"),
+        }
+    }
+
+    #[test]
+    fn cli_parses_orchestrator_run_with_save_audit_and_save_trace() {
+        // Both --save-audit and --save-trace can be combined
+        let cli = Cli::try_parse_from(vec![
+            "arpagona",
+            "orchestrator",
+            "run",
+            "--objective",
+            "Combined save test",
+            "--save-audit",
+            "target/audit",
+            "--save-trace",
+            "target/trace.json",
+        ])
+        .expect("orchestrator run --save-audit --save-trace should parse");
+        match cli.command {
+            Command::Orchestrator(OrchestratorCommand {
+                command: OrchestratorSubcommand::Run(args),
+            }) => {
+                assert_eq!(
+                    args.save_audit,
+                    Some("target/audit".to_owned()),
+                    "--save-audit should be captured"
+                );
+                assert_eq!(
+                    args.save_trace,
+                    Some("target/trace.json".to_owned()),
+                    "--save-trace should be captured"
+                );
+            }
+            _ => panic!("expected orchestrator run"),
+        }
     }
 
     // ── Orchestrator cycles parser tests ────────────────────────────────

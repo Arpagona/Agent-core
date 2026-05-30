@@ -32,6 +32,19 @@ pub enum AuditEventType {
     OverrideFailed,
     /// An override authorization has expired.
     OverrideExpired,
+    /// A cognitive cycle completed via the Neutral Orchestrator.
+    ///
+    /// This event records that a full orchestrated cognitive cycle ran to
+    /// completion, including context assembly, compute routing, proposal
+    /// generation and decision gate evaluation. It carries the cycle outcome
+    /// summary in its payload (cycle_id, objective_text, cycle_status, etc.).
+    ///
+    /// If the cycle produced a proposal, `proposed_action_id` and `decision_id`
+    /// may be set when the cycle routes through the Decision Gate.
+    ///
+    /// Non-authorizing: this event is an observability record, not an
+    /// approval or authorization for downstream execution.
+    CognitiveCycleCompleted,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
