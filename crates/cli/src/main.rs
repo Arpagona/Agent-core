@@ -303,6 +303,11 @@ pub struct OrchestratorCyclesArgs {
     /// Directory containing saved CycleTrace JSON files (default: target/orchestrator-traces).
     #[arg(long)]
     pub trace_dir: Option<String>,
+
+    /// Also scan the audit event directory and show audit event counts per cycle.
+    /// Audit events are saved by `orchestrator run --save-audit`.
+    #[arg(long, default_value_t = false)]
+    pub with_audit: bool,
 }
 
 #[derive(Debug, Args)]
@@ -10143,8 +10148,12 @@ struct CycleTraceListingEntry {
     pub non_authorizing: bool,
     /// Number of failure insight candidates.
     pub failure_insight_candidate_count: usize,
-    /// Number of audit events.
+    /// Number of audit events recorded inside the trace.
     pub audit_event_count: usize,
+    /// Number of audit event files saved externally (via --save-audit).
+    /// Only populated when --with-audit is set.
+    #[serde(default)]
+    pub external_audit_event_count: usize,
     /// Timestamp of the trace.
     pub created_at: String,
 }
@@ -10209,6 +10218,7 @@ fn list_orchestrator_cycles_in_directory(
             non_authorizing: trace.non_authorizing,
             failure_insight_candidate_count: trace.failure_insight_candidates.len(),
             audit_event_count: trace.audit_event_count,
+            external_audit_event_count: 0,
             created_at: trace.created_at.to_rfc3339(),
         };
 
@@ -10221,6 +10231,78 @@ fn list_orchestrator_cycles_in_directory(
     Ok(entries)
 }
 
+/// Scan a directory of saved audit event JSON files and count how many events
+/// reference each cycle ID.
+///
+/// Audit event files are saved by `orchestrator run --save-audit` as individual
+/// JSON files. This function reads each file, deserializes it as an `AuditEvent`,
+/// and extracts the `cycle_id` from `CognitiveCycleCompleted` event payloads.
+/// Events that cannot be parsed or lack a cycle_id are counted as "unassociated."
+///
+/// Returns a map: cycle_id String → external audit event count.
+///
+/// Non-authorizing: this is a readback surface for operator inspection only.
+fn count_external_audit_events_by_cycle_id(
+    audit_dir: &std::path::Path,
+) -> std::collections::HashMap<String, usize> {
+    use arpagona_agent_core::AuditEvent;
+    use arpagona_agent_core::AuditEventType;
+
+    let mut counts: std::collections::HashMap<String, usize> = std::collections::HashMap::new();
+    let mut unassociated: usize = 0;
+
+    if !audit_dir.exists() {
+        return counts;
+    }
+
+    let read_dir = match std::fs::read_dir(audit_dir) {
+        Ok(rd) => rd,
+        Err(_) => return counts,
+    };
+
+    for entry in read_dir.flatten() {
+        let path = entry.path();
+        if path.extension().and_then(|e| e.to_str()) != Some("json") {
+            continue;
+        }
+        let content = match std::fs::read_to_string(&path) {
+            Ok(c) => c,
+            Err(_) => continue,
+        };
+        let event: AuditEvent = match serde_json::from_str(&content) {
+            Ok(e) => e,
+            Err(_) => continue,
+        };
+
+        if event.event_type == AuditEventType::CognitiveCycleCompleted {
+            // Extract cycle_id from payload — CognitiveCycleCompleted events
+            // carry { "cycle_id": "oc-...", "objective_text": "...", ... }
+            let cycle_id = event
+                .payload
+                .get("cycle_id")
+                .and_then(|v| v.as_str())
+                .map(|s| s.to_string());
+            if let Some(cid) = cycle_id {
+                *counts.entry(cid).or_insert(0) += 1;
+            } else {
+                unassociated += 1;
+            }
+        } else {
+            // Non-CognitiveCycleCompleted events are counted as "other"
+            // and keyed by their event_type for diagnostic purposes
+            *counts
+                .entry(format!("(other: {:?})", event.event_type))
+                .or_insert(0) += 1;
+        }
+    }
+
+    if unassociated > 0 {
+        counts.insert("(unassociated)".to_string(), unassociated);
+    }
+
+    counts
+}
+
 /// List saved orchestrator cycle traces from a directory.
 fn orchestrator_cycles(args: OrchestratorCyclesArgs) -> Result<(), Box<dyn Error>> {
     let dir = args
@@ -10228,7 +10310,17 @@ fn orchestrator_cycles(args: OrchestratorCyclesArgs) -> Result<(), Box<dyn Error
         .map(std::path::PathBuf::from)
         .unwrap_or_else(|| std::path::PathBuf::from(DEFAULT_ORCHESTRATOR_TRACES_DIR));
 
-    let entries = list_orchestrator_cycles_in_directory(&dir)?;
+    let mut entries = list_orchestrator_cycles_in_directory(&dir)?;
+
+    // ── Optional: populate external audit event counts ────────────────
+    if args.with_audit {
+        let audit_dir = std::path::PathBuf::from(DEFAULT_ORCHESTRATOR_AUDIT_DIR);
+        let audit_counts = count_external_audit_events_by_cycle_id(&audit_dir);
+        for (_path, listing) in entries.iter_mut() {
+            let count = audit_counts.get(&listing.cycle_id).copied().unwrap_or(0);
+            listing.external_audit_event_count = count;
+        }
+    }
 
     if args.json {
         let listings: Vec<&CycleTraceListingEntry> =
@@ -10268,7 +10360,10 @@ fn orchestrator_cycles(args: OrchestratorCyclesArgs) -> Result<(), Box<dyn Error
                     "   FI cands:     {}",
                     listing.failure_insight_candidate_count
                 );
-                println!("   Audit events: {}", listing.audit_event_count);
+                println!("   Audit (trace): {}", listing.audit_event_count);
+                if args.with_audit {
+                    println!("   Audit (ext):  {}", listing.external_audit_event_count);
+                }
                 println!("   Created:      {}", listing.created_at);
                 println!("   Summary:      {}", listing.summary_preview);
                 println!();
@@ -14435,21 +14530,57 @@ mod tests {
     }
 
     #[test]
-    fn cli_parses_orchestrator_cycles_with_json_and_trace_dir() {
-        let cli = Cli::try_parse_from(vec![
-            "arpagona",
-            "orchestrator",
-            "cycles",
-            "--json",
-            "--trace-dir",
-            "custom/traces",
-        ])
-        .expect("orchestrator cycles --json --trace-dir should parse");
+    fn cli_parses_orchestrator_cycles_with_audit() {
+        let cli = Cli::try_parse_from(vec!["arpagona", "orchestrator", "cycles", "--with-audit"])
+            .expect("orchestrator cycles --with-audit should parse");
         match cli.command {
             Command::Orchestrator(OrchestratorCommand {
                 command: OrchestratorSubcommand::Cycles(args),
             }) => {
-                assert!(args.json, "cycles --json should be true");
+                assert!(args.with_audit, "cycles --with-audit should be true");
+                assert!(!args.json, "cycles --with-audit should not default to json");
+            }
+            _ => panic!("expected orchestrator cycles"),
+        }
+    }
+
+    #[test]
+    fn cli_parses_orchestrator_cycles_with_audit_and_json() {
+        let cli = Cli::try_parse_from(vec![
+            "arpagona",
+            "orchestrator",
+            "cycles",
+            "--with-audit",
+            "--json",
+        ])
+        .expect("orchestrator cycles --with-audit --json should parse");
+        match cli.command {
+            Command::Orchestrator(OrchestratorCommand {
+                command: OrchestratorSubcommand::Cycles(args),
+            }) => {
+                assert!(args.with_audit, "cycles --with-audit should be true");
+                assert!(args.json, "cycles --with-audit --json should be true");
+            }
+            _ => panic!("expected orchestrator cycles"),
+        }
+    }
+
+    #[test]
+    fn cli_parses_orchestrator_cycles_with_audit_and_trace_dir() {
+        let cli = Cli::try_parse_from(vec![
+            "arpagona",
+            "orchestrator",
+            "cycles",
+            "--with-audit",
+            "--trace-dir",
+            "custom/traces",
+        ])
+        .expect("orchestrator cycles --with-audit --trace-dir should parse");
+        match cli.command {
+            Command::Orchestrator(OrchestratorCommand {
+                command: OrchestratorSubcommand::Cycles(args),
+            }) => {
+                assert!(args.with_audit, "cycles --with-audit should be true");
                 assert_eq!(
                     args.trace_dir,
                     Some("custom/traces".to_owned()),
