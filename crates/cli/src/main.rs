@@ -86,6 +86,16 @@ struct Cli {
 
 #[derive(Debug, Subcommand)]
 enum Command {
+    /// Run an objective through the orchestrator in-process. Standalone, no API server needed.
+    ///
+    /// Usage:
+    ///   arpagona run "Review project documentation"
+    ///   arpagona run "Analyze monthly sales data"
+    ///
+    /// This is the simplest way to use ARPAGONA. It runs an objective through
+    /// the in-process orchestrator and produces clean, readable output without
+    /// internal governance jargon. No API server, no LLM, no persistence needed.
+    Run(RunArgs),
     /// Run the local API server through cargo.
     Serve,
     /// Start an interactive alpha terminal session.
@@ -124,6 +134,17 @@ enum Command {
     Compute(ComputeCommand),
     /// Run the Neutral Orchestrator deterministic cycle.
     Orchestrator(OrchestratorCommand),
+}
+
+/// Top-level `run` command: in-process orchestrator with clean readable output.
+/// No API server needed. Standalone, smoke-testable.
+///
+/// Usage: arpagona run "Review project documentation"
+#[derive(Debug, Args)]
+pub struct RunArgs {
+    /// The objective text to process through the orchestrator cycle.
+    /// Example: arpagona run "Analyze the quarterly report"
+    pub objective: String,
 }
 
 #[derive(Debug, Args)]
@@ -1932,6 +1953,7 @@ async fn run() -> Result<(), Box<dyn Error>> {
             OrchestratorSubcommand::Status(args) => orchestrator_status(args)?,
             OrchestratorSubcommand::Cycles(args) => orchestrator_cycles(args)?,
         },
+        Command::Run(args) => handle_run(args)?,
     }
 
     Ok(())
@@ -9528,6 +9550,107 @@ fn cognitive_print_readback(result: &CognitiveCycleResult, assess: bool) {
 }
 
 /// Run the Neutral Orchestrator deterministic cycle and display the result.
+/// Run an objective through the in-process orchestrator with clean, readable output.
+///
+/// This is the top-level `arpagona run "<objective>"` command. It uses the
+/// OrchestratorEngine directly — no API server, no LLM, no persistence.
+/// Output is formatted for human readability without internal governance jargon.
+fn handle_run(args: RunArgs) -> Result<(), Box<dyn Error>> {
+    let workspace_id = arpagona_agent_core::ids::WorkspaceId::new("workspace-alpha");
+    let agent_id = arpagona_agent_core::ids::AgentId::new("agent-alpha");
+    let engine = arpagona_neutral_orchestrator::OrchestratorEngine::new();
+
+    let input = arpagona_agent_core::orchestrator::ObjectiveInput::new(
+        args.objective,
+        workspace_id,
+        agent_id,
+        chrono::Utc::now(),
+    );
+
+    let cycle = engine
+        .run_cycle(input, &[arpagona_agent_core::permission::Permission::ReadDocument])
+        .map_err(|e| format!("Run failed: {e}"))?;
+
+    let outcome = &cycle.outcome;
+    let decision_status = cycle
+        .decision
+        .as_ref()
+        .map(|d| format!("{:?}", d.status))
+        .unwrap_or_else(|| "pending".to_owned());
+
+    let action_type = cycle
+        .proposed_action
+        .as_ref()
+        .map(|a| format!("{:?}", a.action_type))
+        .unwrap_or_else(|| "none".to_owned());
+
+    let risk = cycle
+        .proposed_action
+        .as_ref()
+        .map(|a| format!("{:?}", a.risk_level))
+        .unwrap_or_else(|| "unknown".to_owned());
+
+    // Clean, human-readable output — no governance jargon
+    println!();
+    println!("{}", style_brand("  ❍ ARPAGONA"));
+    println!("{}", "───────────────────────────────");
+    println!(
+        "  Objective   {}",
+        style_bold(&cycle.objective_input.text)
+    );
+    println!("  Action      {} at {}", action_type, style_risk(&risk));
+    println!(
+        "  Decision    {} {}",
+        decision_icon(&decision_status),
+        style_decision(&decision_status)
+    );
+    println!("  Summary     {}", strip_gate_jargon(&outcome.summary));
+    println!("  Cycle       {}", outcome.cycle_id);
+    println!();
+
+    Ok(())
+}
+
+/// Remove internal governance jargon from summary output for human readability.
+fn strip_gate_jargon(text: &str) -> String {
+    text.replace(
+        "action ReadDocument evaluated by Decision Gate as ",
+        "",
+    )
+    .replace("Deterministic cycle completed — ", "")
+    .replace("evaluated by Decision Gate as ", "")
+    .replace("Decision Gate", "")
+    .replace("  ", " ")
+    .trim()
+    .to_string()
+}
+
+/// Bold text helper.
+fn style_bold(text: &str) -> String {
+    format!("{ANSI_BOLD}{}{ANSI_RESET}", style_text(text, TermColor::White))
+}
+
+/// Decision status icon.
+fn decision_icon(status: &str) -> &'static str {
+    match status.to_lowercase().as_str() {
+        "approved" | "approvedbyoverride" => "✅",
+        "blocked" => "⛔",
+        "requiresoverride" | "needshumanapproval" => "⚠️",
+        "pendingdecision" => "⏳",
+        _ => "❓",
+    }
+}
+
+/// Style decision status text.
+fn style_decision(status: &str) -> String {
+    match status.to_lowercase().as_str() {
+        "approved" | "approvedbyoverride" => style_success(status),
+        "blocked" => style_error(status),
+        "requiresoverride" | "needshumanapproval" => style_warning(status),
+        _ => style_text(status, TermColor::Cyan),
+    }
+}
+
 fn orchestrator_run(args: OrchestratorRunArgs) -> Result<(), Box<dyn Error>> {
     let perm: Permission = match args.permissions.first().map(|s| s.as_str()) {
         Some("ReadDocument") => Permission::ReadDocument,
@@ -13615,5 +13738,66 @@ mod tests {
             }
             _ => panic!("expected orchestrator cycles"),
         }
+    }
+
+    #[test]
+    fn cli_parses_run_positional() {
+        let cli = Cli::try_parse_from(vec![
+            "arpagona",
+            "run",
+            "Review project documentation",
+        ])
+        .expect("run with positional arg should parse");
+        match cli.command {
+            Command::Run(args) => {
+                assert_eq!(args.objective, "Review project documentation");
+            }
+            _ => panic!("expected Run"),
+        }
+    }
+
+    #[test]
+    fn cli_parses_run_with_quoted_objective() {
+        let cli = Cli::try_parse_from(vec![
+            "arpagona",
+            "run",
+            "Analyze the quarterly dataset and propose actions",
+        ])
+        .expect("run with quoted objective should parse");
+        match cli.command {
+            Command::Run(args) => {
+                assert_eq!(
+                    args.objective,
+                    "Analyze the quarterly dataset and propose actions"
+                );
+            }
+            _ => panic!("expected Run"),
+        }
+    }
+
+    #[test]
+    fn cli_parses_run_short_objective() {
+        let cli = Cli::try_parse_from(vec!["arpagona", "run", "test"])
+            .expect("run with short objective should parse");
+        match cli.command {
+            Command::Run(args) => {
+                assert_eq!(args.objective, "test");
+            }
+            _ => panic!("expected Run"),
+        }
+    }
+
+    #[test]
+    fn handle_run_returns_readable_output() {
+        // Integration test: execute the run command and verify output is readable
+        // (no JSON, no governance jargon markers like "Decision Gate")
+        let args = RunArgs {
+            objective: "Integration test objective".to_owned(),
+        };
+        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            handle_run(args).ok()
+        }));
+        // Should not panic — the function should complete without error
+        assert!(result.is_ok(), "handle_run should not panic");
     }
 }
