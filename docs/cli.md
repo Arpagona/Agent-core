@@ -356,6 +356,33 @@ La CLI filtre localement les événements correspondant à `workspace_id`, les o
 
 Ces résumés sont explicitement du readback : ils ne valent pas approbation, autorisation, orchestration ou état d'exécution.
 
+### Audit : découverte de traces d'orchestrateur
+
+```bash
+cargo run -p arpagona-cli -- audit list-traces
+cargo run -p arpagona-cli -- audit list-traces --json
+cargo run -p arpagona-cli -- audit list-traces --trace-dir target/orchestrator-traces
+```
+
+Opération locale (fichiers système, pas de serveur API nécessaire). Liste les fichiers `CycleTrace` sauvegardés dans le répertoire de traces. Utile pour découvrir quels cycles ont été exécutés entre les sessions.
+
+La sortie inclut : ID de cycle, objectif, statut, sources de contexte, état du Decision Gate, nombre d'événements d'audit, et résumé.
+
+```bash
+cargo run -p arpagona-cli -- audit get-trace oc-1234567890
+cargo run -p arpagona-cli -- audit get-trace oc-1234567890 --json
+cargo run -p arpagona-cli -- audit get-trace oc-1234567890 --trace-dir target/orchestrator-traces
+```
+
+Opération locale (fichiers système, pas de serveur API nécessaire). Affiche la trace complète d'un cycle orchestrateur spécifique, avec métadonnées d'assemblage de contexte, route compute, décision Decision Gate, IDs d'événements d'audit et candidats FailureInsight.
+
+Options pour les deux commandes :
+
+- `--json` — Sortie structurée JSON.
+- `--trace-dir <DIR>` — Répertoire contenant les fichiers CycleTrace. Défaut : `target/orchestrator-traces`.
+
+Ces commandes relient le système d'audit aux artefacts `CycleTrace` persistants, offrant une lecture inter-sessions sans dépendre du serveur API.
+
 ### Cognitive Work Loop V0 (P4 — Working Memory / P5 — Compute Reservoir)
 
 ```bash

@@ -1341,6 +1341,28 @@ struct ListAuditArgs {
     json: bool,
 }
 
+#[derive(Debug, Args)]
+struct ListTracesArgs {
+    /// Emit structured JSON output instead of human-oriented text.
+    #[arg(long)]
+    json: bool,
+    /// Directory containing saved CycleTrace JSON files.
+    #[arg(long, default_value = DEFAULT_ORCHESTRATOR_TRACES_DIR)]
+    trace_dir: String,
+}
+
+#[derive(Debug, Args)]
+struct GetTraceArgs {
+    /// Orchestrator cycle ID to inspect (e.g., "oc-1234567890").
+    cycle_id: String,
+    /// Emit structured JSON output instead of human-oriented text.
+    #[arg(long)]
+    json: bool,
+    /// Directory containing saved CycleTrace JSON files.
+    #[arg(long, default_value = DEFAULT_ORCHESTRATOR_TRACES_DIR)]
+    trace_dir: String,
+}
+
 #[derive(Debug, Subcommand)]
 enum AuditSubcommand {
     /// List audit events.
@@ -1354,6 +1376,13 @@ enum AuditSubcommand {
     /// Show a read-only workspace-scoped audit summary.
     /// Includes causal links, event boundaries and readback-only safety flags.
     WorkspaceSummary(WorkspaceSummaryArgs),
+    /// List saved CycleTrace files (local filesystem, no API server needed).
+    /// Connects the audit system to orchestrator cycle traces for cross-session readback.
+    ListTraces(ListTracesArgs),
+    /// Read and display a specific CycleTrace by cycle ID (local filesystem, no API server needed).
+    /// Shows the full cycle trace with context assembly metadata, compute route,
+    /// decision outcome, audit event IDs and failure insight candidates.
+    GetTrace(GetTraceArgs),
 }
 
 #[derive(Debug, Args)]
@@ -1896,6 +1925,8 @@ async fn run() -> Result<(), Box<dyn Error>> {
             AuditSubcommand::WorkspaceSummary(args) => {
                 audit_workspace_summary(&client, &api_url, args).await?
             }
+            AuditSubcommand::ListTraces(args) => audit_list_traces(args)?,
+            AuditSubcommand::GetTrace(args) => audit_get_trace(args)?,
         },
         Command::Insight(insight) => match insight.command {
             InsightSubcommand::Schema(args) => insight_schema(args)?,
@@ -6125,6 +6156,165 @@ async fn list_audit(
                 metadata.suggested_next_action.as_deref().unwrap_or("-")
             );
         }
+    }
+
+    Ok(())
+}
+
+// ─── Audit cycle trace discovery (local filesystem, no API server needed) ───
+
+/// List saved CycleTrace files from the trace directory.
+///
+/// This is a local filesystem operation — no API server needed. It reuses the
+/// same `list_orchestrator_cycles_in_directory` function that powers
+/// `orchestrator cycles list`, making cycle traces discoverable from the audit
+/// namespace.
+///
+/// # Safety
+///
+/// All output is readback only. No trace entry may be interpreted as approval,
+/// authorization, or execution permission.
+fn audit_list_traces(args: ListTracesArgs) -> Result<(), Box<dyn Error>> {
+    let dir = std::path::PathBuf::from(&args.trace_dir);
+
+    let entries = list_orchestrator_cycles_in_directory(&dir)?;
+
+    if args.json {
+        let listings: Vec<&CycleTraceListingEntry> =
+            entries.iter().map(|(_, listing)| listing).collect();
+        println!("{}", serde_json::to_string_pretty(&listings)?);
+    } else {
+        println!("{}", style_info("Audit: Orchestrator Cycle Traces"));
+        println!("{}", "-".repeat(60));
+        if entries.is_empty() {
+            println!("{}", style_dim("No orchestrator cycle traces found."));
+            println!();
+            println!(
+                "  Run `{}` first to save a trace.",
+                "cargo run -q --bin arpagona -- orchestrator run --objective \"...\" --save-trace auto"
+            );
+            println!();
+            println!(
+                "  Default trace directory: {}",
+                DEFAULT_ORCHESTRATOR_TRACES_DIR
+            );
+        } else {
+            println!(
+                "Found {} cycle trace(s) in '{}':\n",
+                entries.len(),
+                dir.display()
+            );
+            for (i, (_path, listing)) in entries.iter().enumerate() {
+                println!("{}. \x1b[1m{}\x1b[0m", i + 1, listing.file_name);
+                println!("   Cycle ID:     {}", listing.cycle_id);
+                println!("   Objective:    {}", listing.objective_preview);
+                println!("   Status:       {}", listing.cycle_status);
+                println!("   Context srcs: {}", listing.context_source_count);
+                println!("   Gate applied: {}", listing.gate_was_applied);
+                println!("   Non-auth:     {}", listing.non_authorizing);
+                println!(
+                    "   FI cands:     {}",
+                    listing.failure_insight_candidate_count
+                );
+                println!("   Audit events: {}", listing.audit_event_count);
+                println!("   Created:      {}", listing.created_at);
+                println!("   Summary:      {}", listing.summary_preview);
+                println!();
+            }
+            println!(
+                "Use `{} <cycle-id>` to inspect a specific trace.",
+                "cargo run -q --bin arpagona -- audit get-trace"
+            );
+        }
+        println!();
+        println!(
+            "{}",
+            style_dim("⚠  Readback only — trace entries are evidence, not authorization.")
+        );
+        println!(
+            "{}",
+            style_dim("   No execution without explicit Decision Gate approval.")
+        );
+    }
+
+    Ok(())
+}
+
+/// Read and display a specific CycleTrace by cycle ID.
+///
+/// Searches the trace directory for a file whose cycle_id matches the given
+/// cycle ID, then displays it using the CycleTrace format method (human) or
+/// as pretty-printed JSON.
+///
+/// # Safety
+///
+/// All output is readback only. No trace entry may be interpreted as approval,
+/// authorization, or execution permission.
+fn audit_get_trace(args: GetTraceArgs) -> Result<(), Box<dyn Error>> {
+    use arpagona_agent_core::orchestrator::CycleTrace;
+
+    let dir = std::path::PathBuf::from(&args.trace_dir);
+
+    let entries = list_orchestrator_cycles_in_directory(&dir)?;
+
+    // Find the first trace matching the requested cycle ID
+    let matched: Vec<_> = entries
+        .into_iter()
+        .filter(|(_, listing)| listing.cycle_id == args.cycle_id)
+        .collect();
+
+    if matched.is_empty() {
+        if args.json {
+            println!("{{}}");
+        } else {
+            println!(
+                "{}",
+                style_dim(&format!(
+                    "No cycle trace found with cycle ID '{}' in '{}'",
+                    args.cycle_id,
+                    dir.display()
+                ))
+            );
+            println!();
+            println!("Available traces:");
+            let all_entries = list_orchestrator_cycles_in_directory(&dir)?;
+            for (_path, listing) in &all_entries {
+                println!("  - {}", listing.cycle_id);
+            }
+        }
+        return Ok(());
+    }
+
+    let (path, _listing) = &matched[0];
+
+    // Read and deserialize the full trace
+    let content = std::fs::read_to_string(path)
+        .map_err(|e| format!("Failed to read '{}': {e}", path.display()))?;
+    let trace: CycleTrace = serde_json::from_str(&content)
+        .map_err(|e| format!("Failed to parse CycleTrace from '{}': {e}", path.display()))?;
+
+    if args.json {
+        println!("{}", serde_json::to_string_pretty(&trace)?);
+    } else {
+        println!(
+            "{}",
+            style_info(&format!("Cycle Trace: {}", trace.cycle_id))
+        );
+        println!("{}", "-".repeat(60));
+        println!("{}", trace.format());
+        println!();
+        println!(
+            "{}",
+            style_dim("⚠  Readback only — this trace is evidence, not authorization.")
+        );
+        println!(
+            "{}",
+            style_dim("   No execution without explicit Decision Gate approval.")
+        );
+        println!(
+            "{}",
+            style_dim(&format!("   Non-authorizing: {}", trace.non_authorizing))
+        );
     }
 
     Ok(())
@@ -11026,6 +11216,79 @@ mod tests {
                 assert!(args.json);
             }
             _ => panic!("expected audit list --json"),
+        }
+    }
+
+    #[test]
+    fn cli_parses_audit_list_traces_without_flags() {
+        let cli = Cli::parse_from(["arpagona", "audit", "list-traces"]);
+        match cli.command {
+            Command::Audit(AuditCommand {
+                command: AuditSubcommand::ListTraces(args),
+            }) => {
+                assert!(!args.json);
+                assert_eq!(args.trace_dir, "target/orchestrator-traces");
+            }
+            _ => panic!("expected audit list-traces"),
+        }
+    }
+
+    #[test]
+    fn cli_parses_audit_list_traces_with_flags() {
+        let cli = Cli::parse_from([
+            "arpagona",
+            "audit",
+            "list-traces",
+            "--json",
+            "--trace-dir",
+            "target/custom-traces",
+        ]);
+        match cli.command {
+            Command::Audit(AuditCommand {
+                command: AuditSubcommand::ListTraces(args),
+            }) => {
+                assert!(args.json);
+                assert_eq!(args.trace_dir, "target/custom-traces");
+            }
+            _ => panic!("expected audit list-traces --json --trace-dir"),
+        }
+    }
+
+    #[test]
+    fn cli_parses_audit_get_trace_without_flags() {
+        let cli = Cli::parse_from(["arpagona", "audit", "get-trace", "oc-1234567890"]);
+        match cli.command {
+            Command::Audit(AuditCommand {
+                command: AuditSubcommand::GetTrace(args),
+            }) => {
+                assert_eq!(args.cycle_id, "oc-1234567890");
+                assert!(!args.json);
+                assert_eq!(args.trace_dir, "target/orchestrator-traces");
+            }
+            _ => panic!("expected audit get-trace"),
+        }
+    }
+
+    #[test]
+    fn cli_parses_audit_get_trace_with_flags() {
+        let cli = Cli::parse_from([
+            "arpagona",
+            "audit",
+            "get-trace",
+            "oc-9876543210",
+            "--json",
+            "--trace-dir",
+            "target/custom-traces",
+        ]);
+        match cli.command {
+            Command::Audit(AuditCommand {
+                command: AuditSubcommand::GetTrace(args),
+            }) => {
+                assert_eq!(args.cycle_id, "oc-9876543210");
+                assert!(args.json);
+                assert_eq!(args.trace_dir, "target/custom-traces");
+            }
+            _ => panic!("expected audit get-trace --json --trace-dir"),
         }
     }
 

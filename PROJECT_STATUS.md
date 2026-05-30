@@ -4002,3 +4002,73 @@ let actual_path = if save_trace_val == "auto" {
 2. Review and merge PR #210 (this session's auto-naming).
 3. Then connect CycleTrace to the governed Audit system for persistent trace storage across invocations.
 2. Next: connect CycleTrace metadata to Compute Reservoir cost/quality feedback, or add dedicated CLI surface (`orchestrator insights <trace-path>`).
+
+---
+
+## 29. Latest Session Update (2026-05-30 DEEP cron — CycleTrace-Audit bridge: audit list-traces + audit get-trace)
+
+This session connected CycleTrace to the governed Audit system, implementing the next Phase 3 increment from FOCUS_LOOP_NEXT.md.
+
+### What was added
+
+**`audit list-traces` subcommand** — local filesystem operation (no API server needed):
+- Lists saved CycleTrace JSON files from the standard trace directory
+- Reuses `list_orchestrator_cycles_in_directory()` and `CycleTraceListingEntry` types
+- Supports `--json` and `--trace-dir <dir>` (default: `target/orchestrator-traces`)
+- Human-readable output with cycle ID, objective, status, context sources, audit event count, failure insight candidates
+
+**`audit get-trace <cycle-id>` subcommand** — local filesystem operation (no API server needed):
+- Searches the trace directory for a CycleTrace file matching the given cycle ID
+- Displays the full trace using `CycleTrace::format()` (human) or pretty-printed JSON (`--json`)
+- Shows context assembly metadata, compute route, Decision Gate outcome, audit event IDs and failure insight candidates
+- Shows available cycle IDs when the requested ID is not found
+
+### Changed files
+
+| File | Change |
+|------|--------|
+| `crates/cli/src/main.rs` | Added `ListTracesArgs`, `GetTraceArgs` structs; `ListTraces`/`GetTrace` variants to `AuditSubcommand`; dispatch handler entries; `audit_list_traces()` and `audit_get_trace()` handler functions; 4 new CLI parser tests |
+| `docs/cli.md` | Documented both new audit trace commands with usage examples and options |
+| `FOCUS_LOOP_NEXT.md` | Updated handoff — PR #210 confirmed merged, this session's work captured, next action proposed |
+
+### Verification
+
+| Check | Result |
+|-------|--------|
+| `cargo fmt -- --check` | ✅ Clean |
+| `cargo check` | ✅ Clean (only pre-existing E0670 edition linter noise) |
+| `cargo test` | ✅ Full workspace passes — CLI crate grew from 135 to 139 tests (+4 new parser tests) |
+
+### Safety boundaries preserved
+
+- ✅ No API server changes — both commands are local filesystem operations
+- ✅ No new capabilities: read-only CycleTrace discovery and display
+- ✅ No Decision Gate bypass — readback is evidence only, not authorization
+- ✅ No scheduler, autonomy, browser, email, MCP, secrets, or write tools
+- ✅ No changes to existing crate boundaries, governance logic, or runtime behavior
+- ✅ No existing tests modified — only 4 new tests added
+- ✅ No CycleTrace struct definition changed — reuses existing type
+- ✅ `list_orchestrator_cycles_in_directory` is reused (not duplicated)
+
+### Deliberately not changed
+
+- No API server endpoint added (server-backed `audit list --by-cycle` deferred)
+- No Failure-to-Insight integration from cycle trace candidates (deferred)
+- No changes to `orchestrator cycles list` or `orchestrator status` commands
+- No changes to `CycleTrace`, `OrchestratorOutcome`, or any core domain type
+- No scheduler, autonomy, browser, email, MCP, secrets, Decision Gate bypass
+
+### PR state
+
+- **NEW PR: `feat/p3-audit-cycle-trace-bridge`** — this session's work, CI pending
+- PR #209 — ✅ MERGED
+- PR #210 — ✅ MERGED (confirmed HEAD commit on main)
+- Stacked PRs #197-#208 — still pending GONA merge
+
+### Recommended next step for GONA
+
+1. Merge this PR to establish the CycleTrace-Audit bridge.
+2. Next Phase 3 increment options (GONA decides priority):
+   - Add `audit list --by-cycle <id>` API endpoint for server-backed filtering
+   - Connect CycleTrace failure insight candidates to the Failure-to-Insight pipeline
+   - Add Compute Reservoir cost/quality feedback to cycle traces
