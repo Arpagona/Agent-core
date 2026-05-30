@@ -4201,3 +4201,58 @@ This session added a CLI surface for collecting failure insight candidates from 
 
 1. Merge PR #211 (CycleTrace-Audit bridge), then #212 (cost/quality metadata), then this branch (P3-23 insights collection).
 2. Then: wire collected insights into the Failure-to-Insight demo snapshot pipeline, or add `orchestrator run --collect-insights` flag for auto-collection during run.
+
+## 32. Latest Session Update (2026-05-30 DEEP cron — P3-24: orchestrator run --collect-insights flag)
+
+This session added automatic failure insight candidate collection to `orchestrator run`.
+
+### What was added
+
+**`crates/cli/src/main.rs`** — `OrchestratorRunArgs`:
+- `--collect-insights` — bool flag to enable automatic detection and saving of failure insight candidates
+- `--insights-dir <PATH>` — custom directory for insight files (default: `target/orchestrator-insights/`)
+
+**`orchestrator_run()` logic:**
+- After cycle completion, calls `CycleTrace::detect_failure_candidates()` when `--collect-insights` is set
+- Saves results as structured JSON: `target/orchestrator-insights/insights-<cycle-id>.json`
+- Displays candidate count in human-readable output
+- Works alongside `--save-trace` (both can be used together)
+- All candidates have `non_authorizing: true` invariant preserved
+
+**Tests:** 2 new parser tests:
+- `cli_parses_orchestrator_run_with_collect_insights`
+- `cli_parses_orchestrator_run_with_collect_insights_and_custom_dir`
+
+**Docs:** Updated `docs/cli.md` with French documentation for both flags.
+
+### Verification
+| Check | Result |
+|---|---|
+| `cargo fmt -- --check` | [OK] Clean |
+| `cargo check` | [OK] Clean (0 new warnings) |
+| `cargo test --workspace` | [OK] 935+ tests pass (0 regressions) |
+
+### Files changed
+
+| File | Change |
+|------|--------|
+| `crates/cli/src/main.rs` | Added `collect_insights`/`insights_dir` fields to `OrchestratorRunArgs`, insight collection block in `orchestrator_run()`, 2 parser tests |
+| `docs/cli.md` | Added French documentation for `--collect-insights` and `--insights-dir` |
+| `FOCUS_LOOP_NEXT.md` | Updated handoff with P3-24 state and next actions |
+| `PROJECT_STATUS.md` | Added this section |
+
+### Safety boundaries preserved
+- No execution, scheduler, autonomy, browser, email, shell, secrets, or MCP expansion
+- No Decision Gate bypass
+- No readback-as-authorization behavior
+- Candidates are read-only detection signals with `non_authorizing: true`
+- All insight files are advisory — no implied corrective action
+
+### What was NOT changed
+- No changes to any core domain types, Decision Gate, audit, compute, orchestrator engine, or existing crate boundaries
+- No new capabilities beyond the CLI flag and file write
+- No LLM calls, API endpoints, or runtime behavior changes
+- No existing test modified or removed
+
+### PR
+PR #214: `feat/p3-24-orchestrator-run-collect-insights`

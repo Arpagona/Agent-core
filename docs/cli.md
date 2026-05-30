@@ -432,6 +432,12 @@ Options supplémentaires pour `orchestrator run` :
   - Les traces auto-générées sont découvrables via la commande `orchestrator cycles list` (quand disponible).
   - Utilisez `--trace` pour capturer le breakdown compute-aware complet (route calculée, items par source de contexte) pour consultation via `orchestrator status`.
 
+- `--collect-insights` — Détecte et sauvegarde automatiquement les candidats d'insight d'échec (`FailureInsightCandidate`) à partir du `CycleTrace` généré pendant l'exécution du cycle.
+  - Les candidats sont détectés par `CycleTrace::detect_failure_candidates()` : contexte vide, sources indisponibles, décision bloquée.
+  - Les résultats sont sauvegardés dans `target/orchestrator-insights/insights-<cycle-id>.json`.
+  - Utilisez `--insights-dir <PATH>` pour personnaliser le répertoire de sauvegarde.
+  - Les fichiers sauvegardés sont découvrables via `orchestrator insights-list` (quand disponible).
+
 #### Orchestrator Status — Lecture du breakdown compute-aware
 
 ```bash
