@@ -11070,7 +11070,11 @@ const ACTOR_SESSION_WARNING: &str = "[WARNING - Actor Session is a governed loca
 /// Core actor run logic: returns a structured JSON value with all result fields.
 /// Does NOT print anything — used by both `actor_run` and `actor_session`.
 /// `approve` controls whether execution follows simulation (session always passes false).
-fn actor_run_core(task: &str, workspace: &str, approve: bool) -> Result<serde_json::Value, Box<dyn Error>> {
+fn actor_run_core(
+    task: &str,
+    workspace: &str,
+    approve: bool,
+) -> Result<serde_json::Value, Box<dyn Error>> {
     let interpreter = DeterministicIntentInterpreter;
     let intent = interpreter.interpret(task).map_err(|e| format!("{e}"))?;
 
@@ -11261,7 +11265,10 @@ fn print_actor_run_text(output: &serde_json::Value, task: &str) {
     println!("--- 3. Simulation / diff preview ---");
     if let Some(sim) = output["simulation_result"].as_object() {
         let sim_status = sim.get("status").and_then(|v| v.as_str()).unwrap_or("?");
-        let sim_summary = sim.get("output_summary").and_then(|v| v.as_str()).unwrap_or("");
+        let sim_summary = sim
+            .get("output_summary")
+            .and_then(|v| v.as_str())
+            .unwrap_or("");
         println!("Status:  {:?}", sim_status);
         println!("Summary: {}", sim_summary);
     } else if output["simulation_result"].is_null() {
@@ -11284,19 +11291,31 @@ fn print_actor_run_text(output: &serde_json::Value, task: &str) {
     println!("--- 5. Execution + readback ---");
     if let Some(exec) = output["execution_result"].as_object() {
         let exec_status = exec.get("status").and_then(|v| v.as_str()).unwrap_or("?");
-        let exec_summary = exec.get("output_summary").and_then(|v| v.as_str()).unwrap_or("");
+        let exec_summary = exec
+            .get("output_summary")
+            .and_then(|v| v.as_str())
+            .unwrap_or("");
         println!("Execution:   {:?}", exec_status);
         println!("Summary:     {}", exec_summary);
         if let Some(readback) = output["readback_result"].as_object() {
-            let rb_status = readback.get("status").and_then(|v| v.as_str()).unwrap_or("?");
-            let rb_summary = readback.get("output_summary").and_then(|v| v.as_str()).unwrap_or("");
+            let rb_status = readback
+                .get("status")
+                .and_then(|v| v.as_str())
+                .unwrap_or("?");
+            let rb_summary = readback
+                .get("output_summary")
+                .and_then(|v| v.as_str())
+                .unwrap_or("");
             println!("Readback:    {:?}", rb_status);
             println!("Content:     {}", rb_summary);
         }
     } else if is_read_only {
         if let Some(sim) = output["simulation_result"].as_object() {
             let sim_status = sim.get("status").and_then(|v| v.as_str()).unwrap_or("?");
-            let sim_summary = sim.get("output_summary").and_then(|v| v.as_str()).unwrap_or("");
+            let sim_summary = sim
+                .get("output_summary")
+                .and_then(|v| v.as_str())
+                .unwrap_or("");
             println!("Result:      {:?}", sim_status);
             println!("Output:      {}", sim_summary);
         } else {
@@ -11327,7 +11346,7 @@ fn actor_run(args: ActorRunArgs) -> Result<(), Box<dyn Error>> {
 }
 
 /// Start an interactive acquisition loop reading tasks from stdin.
-/// Each task goes through the governed actor_run pipeline (simulation-only, no implicit approval).
+/// Each task goes through the governed actor_run_core pipeline (simulation-only, no implicit approval).
 fn actor_session(args: ActorSessionArgs) -> Result<(), Box<dyn Error>> {
     let max_tasks = args.max.unwrap_or(u32::MAX);
     let mut task_count: u32 = 0;

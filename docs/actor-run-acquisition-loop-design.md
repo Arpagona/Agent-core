@@ -14,12 +14,12 @@ The existing `arpagona actor run "<task>"` is a **one-shot command**: it accepts
 The **acquisition loop** wraps this one-shot command into a **persistent interactive loop** that:
 
 1. Acquires tasks from a local input source (V0: stdin prompt)
-2. Feeds each task through the existing governed pipeline (`actor_run()`)
+2. Feeds each task through the existing governed pipeline (`actor_run_core()`)
 3. Shows readback
 4. Acquires the next task
 5. Repeats until explicit exit condition
 
-**Key constraint:** The acquisition loop itself has **no governance authority**. It is a pure orchestration shell. Every individual task still goes through the full Decision Gate pipeline inside `actor_run()`. The loop cannot approve, skip, or accelerate any tool execution.
+**Key constraint:** The acquisition loop itself has **no governance authority**. It is a pure orchestration shell. Every individual task still goes through the full Decision Gate pipeline inside `actor_run_core()`. The loop cannot approve, skip, or accelerate any tool execution.
 
 ---
 
@@ -210,7 +210,7 @@ Prefer clap parse tests (verify `ActorSessionArgs` parsing for `--max`, `--works
 
 | Feature | Rationale |
 |---------|-----------|
-| Ollama `IntentInterpreter` | Separate design decision. Needs Thibaud approval. The acquisition loop calls `actor_run()` which already has the `IntentInterpreter` seam — Ollama can be added independently. |
+| Ollama `IntentInterpreter` | Separate design decision. Needs Thibaud approval. The acquisition loop calls `actor_run_core()` which already has the `IntentInterpreter` seam — Ollama can be added independently. |
 | File/batch input (`--file`) | Can run outside the loop via shell piping. Add only if user demand emerges. |
 | MCP task acquisition | Depends on Neutral Orchestrator V0 being stable first. |
 | Websocket/realtime task stream | Requires scheduler governance review. Blocked by AGENT_FOCUS_LOOP.md scheduler deferral. |
