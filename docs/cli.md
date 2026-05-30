@@ -671,6 +671,242 @@ La sortie inclut : le nœud de calcul sélectionné, le fournisseur résolu (loc
 
 Cette commande est une surface de supervision alpha read-only. Le routage affiché est un aperçu informatif et non autorisant : il ne réserve pas de ressource, n'exécute pas de modèle et ne remplace pas le Decision Gate.
 
+### Tool Runtime — Exécution sandboxée d'outils (alpha)
+
+```bash
+cargo run -p arpagona-cli -- tool list
+cargo run -p arpagona-cli -- tool inspect read_file --json
+cargo run -p arpagona-cli -- tool govern read_file '{"path": "Cargo.toml"}' --risk-level informational
+```
+
+Le sous-ensemble `tool` expose le Tool Runtime : catalogue, inspection, gouvernance et démonstration sandboxée des outils disponibles.
+
+#### `tool list` — Catalogue des outils disponibles
+
+```bash
+cargo run -p arpagona-cli -- tool list
+cargo run -p arpagona-cli -- tool list --json
+```
+
+Affiche les outils enregistrés avec leur nom, rôle cognitif, niveau de risque, capacité et résumé de sécurité. La sortie inclut un avertissement non-autorisant (`Readback only...`).
+
+Options :
+- `--json` — Sortie structurée JSON.
+
+#### `tool inspect` — Détails d'un outil spécifique
+
+```bash
+cargo run -p arpagona-cli -- tool inspect read_file
+cargo run -p arpagona-cli -- tool inspect read_file --json
+```
+
+Affiche les détails complets d'un outil : description, arguments attendus, capacité, rôle cognitif, permissions requises, niveau de risque et notes de gouvernance.
+
+Premier argument obligatoire : nom de l'outil (`read_file`, `list_files`, `search_text`, `write_file`, `patch_file`, `append_file`, `mkdir`).
+
+Options :
+- `--json` — Sortie structurée JSON.
+
+#### `tool govern` — Évaluation gouvernée d'une intention d'appel outil (C2)
+
+```bash
+cargo run -p arpagona-cli -- tool govern read_file '{"path": "Cargo.toml"}' --risk-level informational --rationale "Lire la configuration du projet"
+cargo run -p arpagona-cli -- tool govern write_file '{"path": "test.txt", "content": "data"}' --risk-level low --json
+```
+
+Crée un `ToolCallIntent` à partir du nom d'outil et des arguments JSON, l'évalue via `govern_tool_call()` du Decision Gate, journalise le résultat dans le journal LLM (C3) et retourne la décision (approved/blocked/requires human approval).
+
+Arguments positionnels :
+- `<tool>` — Nom de l'outil appelé.
+- `<args>` — Arguments JSON pour l'appel.
+
+Options :
+- `--risk-level <NIVEAU>` — Niveau de risque (`informational`, `low`, `medium`, `high`, `critical` ; défaut : `informational`).
+- `--rationale <TEXTE>` — Justification de l'appel outil.
+- `--json` — Sortie structurée JSON incluant décision, blocage éventuel, action proposée et avertissement non-autorisant.
+
+#### `tool demo` — Exécution sandboxée démo
+
+Le sous-ensemble `tool demo` permet d'exécuter chaque outil en mode sandboxé. Tous les outils de mutation (`write_file`, `patch_file`, `append_file`, `mkdir`) sont **simulation-first** : par défaut, ils ne font que simuler l'opération et retourner ce qui serait écrit, sans modifier le disque. Le flag `--execute` est requis pour toute modification réelle.
+
+##### Outils de perception read-only
+
+**`tool demo read-file <PATH>`** — Lit un fichier texte dans le workspace.
+
+```bash
+cargo run -p arpagona-cli -- tool demo read-file Cargo.toml
+cargo run -p arpagona-cli -- tool demo read-file Cargo.toml --json
+```
+
+Arguments :
+- `path` — Chemin du fichier (relatif au workspace).
+
+Retourne : contenu (preview 500 caractères), nombre de lignes, nombre de caractères, chemin résolu.
+
+Sécurité : chemins absolus bloqués, traversal `..` bloqué, fichiers sensibles (`.env`, `.ssh/`, clés) bloqués, fichiers > 1 Mio rejetés.
+
+---
+
+**`tool demo list-files [PATH]`** — Liste les entrées d'un répertoire.
+
+```bash
+cargo run -p arpagona-cli -- tool demo list-files
+cargo run -p arpagona-cli -- tool demo list-files src --json
+```
+
+Arguments :
+- `path` — Chemin du répertoire (défaut : `.`).
+
+Retourne : liste des entrées avec nom, chemin, type (fichier/répertoire). Ignore `.git`, `target`, `node_modules`, `.env`, `.ssh`. Profondeur max : 5. Résultats max : 200.
+
+---
+
+**`tool demo search-text <QUERY> [PATH]`** — Recherche un motif textuel dans les fichiers du workspace.
+
+```bash
+cargo run -p arpagona-cli -- tool demo search-text "Decision Gate"
+cargo run -p arpagona-cli -- tool demo search-text "Decision Gate" src --json
+```
+
+Arguments :
+- `query` — Texte à rechercher.
+- `path` — Chemin de recherche (défaut : `.`).
+
+Retourne : résultats avec chemin fichier, numéro de ligne, snippet. Taille max fichier scruté : 500 Kio. Résultats max : 100.
+
+---
+
+##### Outils de mutation sandboxés (simulation-first)
+
+**`tool demo write-file <PATH> <CONTENT>`** — Écriture sandboxée d'un fichier.
+
+```bash
+# Simulation (aucune écriture réelle)
+cargo run -p arpagona-cli -- tool demo write-file output.txt "Hello, world"
+
+# Écriture réelle
+cargo run -p arpagona-cli -- tool demo write-file output.txt "Hello, world" --execute
+
+# Écriture réelle avec création des répertoires parents
+cargo run -p arpagona-cli -- tool demo write-file data/output.txt "Content" --execute --create-parent-dirs
+
+# Surcharge d'un fichier existant
+cargo run -p arpagona-cli -- tool demo write-file existing.txt "New content" --execute --overwrite
+```
+
+Arguments :
+- `path` — Chemin du fichier (relatif au workspace).
+- `content` — Contenu à écrire.
+
+Options :
+- `--execute` — Effectue l'écriture réelle. Sans ce flag, le résultat indique ce qui serait écrit mais ne modifie rien.
+- `--create-parent-dirs` — Crée les répertoires parents manquants.
+- `--overwrite` — Permet de surcharger un fichier existant (interdit par défaut).
+
+Sécurité : chemins absolus bloqués, traversal `..` bloqué, fichiers sensibles (`.env`, `.ssh`, blocs) bloqués, répertoires système bloqués, taille max contenu : 256 Kio. La simulation produit une sortie structurée sans aucun effet de bord.
+
+---
+
+**`tool demo patch-file <PATH> <OLD_STRING> <NEW_STRING>`** — Remplacement textuel sandboxé.
+
+```bash
+# Simulation (aucune modification réelle)
+cargo run -p arpagona-cli -- tool demo patch-file data.txt "ancien texte" "nouveau texte"
+
+# Application réelle
+cargo run -p arpagona-cli -- tool demo patch-file data.txt "ancien" "nouveau" --execute
+
+# Remplacement global de toutes les occurrences
+cargo run -p arpagona-cli -- tool demo patch-file data.txt "foo" "bar" --execute --replace-all
+```
+
+Arguments :
+- `path` — Chemin du fichier (relatif au workspace).
+- `old_string` — Texte exact à trouver.
+- `new_string` — Texte de remplacement.
+
+Options :
+- `--execute` — Applique le patch réellement.
+- `--replace-all` — Remplace toutes les occurrences (défaut : première uniquement).
+
+---
+
+**`tool demo append-file <PATH> <CONTENT>`** — Ajout sandboxé à un fichier.
+
+```bash
+# Simulation (aucune modification réelle)
+cargo run -p arpagona-cli -- tool demo append-file log.txt "Nouvelle entrée de log"
+
+# Ajout réel
+cargo run -p arpagona-cli -- tool demo append-file log.txt "Nouvelle entrée" --execute
+
+# Création du fichier s'il n'existe pas (activé par défaut)
+cargo run -p arpagona-cli -- tool demo append-file notes.txt "Note" --execute --create-if-missing true
+# Création du fichier seulement s'il existe déjà
+cargo run -p arpagona-cli -- tool demo append-file notes.txt "Note" --execute --create-if-missing false
+```
+
+Arguments :
+- `path` — Chemin du fichier (relatif au workspace).
+- `content` — Contenu à ajouter.
+
+Options :
+- `--execute` — Effectue l'ajout réel.
+- `--create-parent-dirs` — Crée les répertoires parents manquants.
+- `--create-if-missing` — Crée le fichier s'il n'existe pas (défaut : `true`).
+
+---
+
+**`tool demo mkdir <PATH>`** — Création sandboxée de répertoire.
+
+```bash
+# Simulation (aucune création réelle)
+cargo run -p arpagona-cli -- tool demo mkdir data/notes
+
+# Création réelle
+cargo run -p arpagona-cli -- tool demo mkdir data/notes --execute
+
+# Création avec les répertoires parents
+cargo run -p arpagona-cli -- tool demo mkdir data/project/2026/notes --execute --parents
+```
+
+Arguments :
+- `path` — Chemin du répertoire (relatif au workspace).
+
+Options :
+- `--execute` — Crée le répertoire réellement.
+- `--parents` — Crée les répertoires parents manquants.
+
+Sécurité : chemins absolus bloqués, traversal `..` bloqué, noms de répertoires système (`.git`, `target`, etc.) bloqués.
+
+---
+
+##### Pipeline d'observation cognitive
+
+**`tool demo observe <TOOL_NAME> <JSON_ARGS>`** — Pipeline complet : exécution outil → observation cognitive → assessment.
+
+```bash
+cargo run -p arpagona-cli -- tool demo observe read_file '{"path": "Cargo.toml"}'
+cargo run -p arpagona-cli -- tool demo observe search_text '{"query": "ToolRuntime", "path": "."}' --json
+```
+
+Arguments :
+- `tool_name` — Nom de l'outil à exécuter.
+- `json_args` — Arguments JSON pour l'outil.
+
+Options :
+- `--json` — Sortie structurée JSON des 3 étapes du pipeline.
+
+Exécute l'outil demandé, transforme le résultat en `CognitiveObservation`, puis exécute `assess_observation()` pour évaluer l'utilité cognitive et détecter les candidats FailureInsight. Affiche les 3 étapes du pipeline : exécution → observation → assessment.
+
+Cette commande est éducative et diagnostique. Elle n'enregistre aucun état persistant.
+
+---
+
+Tous les outils du Tool Runtime sont **read-only pour la perception, simulation-first pour la mutation**. Les mutations réelles nécessitent le flag `--execute` explicite. Aucun outil n'a accès au shell, au réseau, au browser, ou aux secrets. Aucune sortie du Tool Runtime ne constitue une autorisation.
+
+Documentation dédiée : [`cognitive-tool-runtime.md`](cognitive-tool-runtime.md).
+
 ## Installation
 
 ```bash
