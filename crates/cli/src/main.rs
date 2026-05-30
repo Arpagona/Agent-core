@@ -2143,7 +2143,11 @@ fn print_chat_banner(api_url: &str, provider: &str, workspace_id: &str, task_id:
         "{}",
         style_brand("/_/  |_/_/ |_/_/   /_/  |\\____/ \\____/_/ |_/_/  |_|")
     );
-    println!("{}{}", style_dim("        "), style_info("Cognitive Runtime Alpha"));
+    println!(
+        "{}{}",
+        style_dim("        "),
+        style_info("Cognitive Runtime Alpha")
+    );
     println!();
     println!(
         "{} {} | {} {} | {} {} | {} {}",
