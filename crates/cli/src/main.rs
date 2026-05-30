@@ -11056,7 +11056,9 @@ fn actor_run(args: ActorRunArgs) -> Result<(), Box<dyn Error>> {
     // Currently using the deterministic intent interpreter (phase 1).
     // To switch to Ollama: construct an OllamaIntentInterpreter (in arpagona-llm) here.
     let interpreter = DeterministicIntentInterpreter;
-    let intent = interpreter.interpret(&args.task).map_err(|e| format!("{e}"))?;
+    let intent = interpreter
+        .interpret(&args.task)
+        .map_err(|e| format!("{e}"))?;
 
     let tool_call_intent = ToolCallIntent {
         tool: intent.tool.clone(),
