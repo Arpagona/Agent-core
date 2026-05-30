@@ -187,6 +187,8 @@ pub enum OrchestratorSubcommand {
     Run(OrchestratorRunArgs),
     /// Display orchestrator status and last cycle trace.
     Status(OrchestratorStatusArgs),
+    /// List saved orchestrator cycle traces from a directory.
+    Cycles(OrchestratorCyclesArgs),
 }
 
 #[derive(Debug, Args)]
@@ -236,6 +238,20 @@ pub struct OrchestratorStatusArgs {
     /// Path to a saved CycleTrace JSON file (default: target/last-orchestrator-trace.json).
     #[arg(long)]
     pub trace_path: Option<String>,
+}
+
+/// Default trace directory for the cycles list command.
+const DEFAULT_ORCHESTRATOR_TRACES_DIR: &str = "target/orchestrator-traces";
+
+#[derive(Debug, Args)]
+pub struct OrchestratorCyclesArgs {
+    /// Output as structured JSON.
+    #[arg(long, short = 'j', default_value_t = false)]
+    pub json: bool,
+
+    /// Directory containing saved CycleTrace JSON files (default: target/orchestrator-traces).
+    #[arg(long)]
+    pub trace_dir: Option<String>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, clap::ValueEnum)]
@@ -1910,6 +1926,7 @@ async fn run() -> Result<(), Box<dyn Error>> {
         Command::Orchestrator(orchestrator) => match orchestrator.command {
             OrchestratorSubcommand::Run(args) => orchestrator_run(args)?,
             OrchestratorSubcommand::Status(args) => orchestrator_status(args)?,
+            OrchestratorSubcommand::Cycles(args) => orchestrator_cycles(args)?,
         },
     }
 
@@ -9631,6 +9648,176 @@ fn orchestrator_status(args: OrchestratorStatusArgs) -> Result<(), Box<dyn Error
     Ok(())
 }
 
+/// A lightweight listing entry for a single orchestrator cycle trace file.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct CycleTraceListingEntry {
+    /// File name (e.g., "cycle-abc123.json").
+    pub file_name: String,
+    /// The cycle ID as displayed in the trace.
+    pub cycle_id: String,
+    /// Objective text (truncated for preview).
+    pub objective_preview: String,
+    /// Cycle status.
+    pub cycle_status: String,
+    /// Summary (truncated for preview).
+    pub summary_preview: String,
+    /// Number of context sources assembled.
+    pub context_source_count: usize,
+    /// Whether the Decision Gate was applied.
+    pub gate_was_applied: bool,
+    /// Whether the trace claims non-authorizing status.
+    pub non_authorizing: bool,
+    /// Number of failure insight candidates.
+    pub failure_insight_candidate_count: usize,
+    /// Number of audit events.
+    pub audit_event_count: usize,
+    /// Timestamp of the trace.
+    pub created_at: String,
+}
+
+/// Scan a directory for `.json` files, deserialize valid CycleTrace instances,
+/// and return sorted listing metadata.
+///
+/// Invalid or non-CycleTrace `.json` files are silently skipped.
+fn list_orchestrator_cycles_in_directory(
+    dir: &std::path::Path,
+) -> Result<Vec<(std::path::PathBuf, CycleTraceListingEntry)>, Box<dyn Error>> {
+    use arpagona_agent_core::orchestrator::CycleTrace;
+
+    let mut entries: Vec<(std::path::PathBuf, CycleTraceListingEntry)> = Vec::new();
+
+    if !dir.exists() {
+        return Ok(entries);
+    }
+
+    let mut read_dir = std::fs::read_dir(dir)
+        .map_err(|e| format!("Failed to read directory '{}': {e}", dir.display()))?;
+
+    while let Some(entry) = read_dir.next().transpose()? {
+        let path = entry.path();
+        if path.extension().map_or(true, |ext| ext != "json") {
+            continue;
+        }
+
+        let content = match std::fs::read_to_string(&path) {
+            Ok(c) => c,
+            Err(_) => continue,
+        };
+
+        let trace: CycleTrace = match serde_json::from_str(&content) {
+            Ok(t) => t,
+            Err(_) => continue,
+        };
+
+        let objective_preview = if trace.objective_text.len() > 60 {
+            format!("{}...", &trace.objective_text[..57])
+        } else {
+            trace.objective_text.clone()
+        };
+
+        let summary_preview = if trace.summary.len() > 80 {
+            format!("{}...", &trace.summary[..77])
+        } else {
+            trace.summary.clone()
+        };
+
+        let listing = CycleTraceListingEntry {
+            file_name: path
+                .file_name()
+                .map(|n| n.to_string_lossy().to_string())
+                .unwrap_or_default(),
+            cycle_id: trace.cycle_id.to_string(),
+            objective_preview,
+            cycle_status: trace.cycle_status,
+            summary_preview,
+            context_source_count: trace.context_source_summaries.len(),
+            gate_was_applied: trace.gate_was_applied,
+            non_authorizing: trace.non_authorizing,
+            failure_insight_candidate_count: trace.failure_insight_candidates.len(),
+            audit_event_count: trace.audit_event_count,
+            created_at: trace.created_at.to_rfc3339(),
+        };
+
+        entries.push((path, listing));
+    }
+
+    // Sort by created_at descending (newest first)
+    entries.sort_by(|a, b| b.1.created_at.cmp(&a.1.created_at));
+
+    Ok(entries)
+}
+
+/// List saved orchestrator cycle traces from a directory.
+fn orchestrator_cycles(args: OrchestratorCyclesArgs) -> Result<(), Box<dyn Error>> {
+    let dir = args
+        .trace_dir
+        .map(std::path::PathBuf::from)
+        .unwrap_or_else(|| std::path::PathBuf::from(DEFAULT_ORCHESTRATOR_TRACES_DIR));
+
+    let entries = list_orchestrator_cycles_in_directory(&dir)?;
+
+    if args.json {
+        let listings: Vec<&CycleTraceListingEntry> =
+            entries.iter().map(|(_, listing)| listing).collect();
+        println!("{}", serde_json::to_string_pretty(&listings)?);
+    } else {
+        println!("{}", style_info("Orchestrator Cycle Traces"));
+        println!("{}", "-".repeat(60));
+        if entries.is_empty() {
+            println!("No orchestrator cycle traces found.");
+            println!();
+            println!(
+                "  Run `{}` first to save a trace, then run `{}` to list it.",
+                "cargo run -q --bin arpagona -- orchestrator run --objective \"...\" --save-trace <path>",
+                "cargo run -q --bin arpagona -- orchestrator cycles"
+            );
+            println!();
+            println!(
+                "  Default trace directory: {}",
+                DEFAULT_ORCHESTRATOR_TRACES_DIR
+            );
+        } else {
+            println!(
+                "Found {} cycle trace(s) in '{}':\n",
+                entries.len(),
+                dir.display()
+            );
+            for (i, (_path, listing)) in entries.iter().enumerate() {
+                println!("{}. \x1b[1m{}\x1b[0m", i + 1, listing.file_name);
+                println!("   Cycle ID:     {}", listing.cycle_id);
+                println!("   Objective:    {}", listing.objective_preview);
+                println!("   Status:       {}", listing.cycle_status);
+                println!("   Context srcs: {}", listing.context_source_count);
+                println!("   Gate applied: {}", listing.gate_was_applied);
+                println!("   Non-auth:     {}", listing.non_authorizing);
+                println!(
+                    "   FI cands:     {}",
+                    listing.failure_insight_candidate_count
+                );
+                println!("   Audit events: {}", listing.audit_event_count);
+                println!("   Created:      {}", listing.created_at);
+                println!("   Summary:      {}", listing.summary_preview);
+                println!();
+            }
+            println!(
+                "Use `{} <file>` to inspect a specific trace in detail.",
+                "cargo run -q --bin arpagona -- orchestrator status --trace-path"
+            );
+        }
+        println!();
+        println!(
+            "{}",
+            style_dim("⚠  Readback only — trace entries are evidence, not authorization.")
+        );
+        println!(
+            "{}",
+            style_dim("   No execution without explicit Decision Gate approval.")
+        );
+    }
+
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -13292,5 +13479,86 @@ mod tests {
             matches!(cli.command, Command::Orchestrator(_)),
             "orchestrator status must dispatch to Orchestrator command"
         );
+    }
+
+    // ── Orchestrator cycles parser tests ────────────────────────────────
+
+    #[test]
+    fn cli_parses_orchestrator_cycles_defaults() {
+        let cli = Cli::try_parse_from(vec!["arpagona", "orchestrator", "cycles"])
+            .expect("orchestrator cycles should parse");
+        match cli.command {
+            Command::Orchestrator(OrchestratorCommand {
+                command: OrchestratorSubcommand::Cycles(args),
+            }) => {
+                assert!(!args.json, "default cycles should not be json");
+                assert_eq!(args.trace_dir, None, "default should use default dir");
+            }
+            _ => panic!("expected orchestrator cycles"),
+        }
+    }
+
+    #[test]
+    fn cli_parses_orchestrator_cycles_with_json() {
+        let cli = Cli::try_parse_from(vec!["arpagona", "orchestrator", "cycles", "--json"])
+            .expect("orchestrator cycles --json should parse");
+        match cli.command {
+            Command::Orchestrator(OrchestratorCommand {
+                command: OrchestratorSubcommand::Cycles(args),
+            }) => {
+                assert!(args.json, "cycles --json should be true");
+            }
+            _ => panic!("expected orchestrator cycles"),
+        }
+    }
+
+    #[test]
+    fn cli_parses_orchestrator_cycles_with_trace_dir() {
+        let cli = Cli::try_parse_from(vec![
+            "arpagona",
+            "orchestrator",
+            "cycles",
+            "--trace-dir",
+            "custom/traces",
+        ])
+        .expect("orchestrator cycles --trace-dir should parse");
+        match cli.command {
+            Command::Orchestrator(OrchestratorCommand {
+                command: OrchestratorSubcommand::Cycles(args),
+            }) => {
+                assert_eq!(
+                    args.trace_dir,
+                    Some("custom/traces".to_owned()),
+                    "--trace-dir should be captured"
+                );
+            }
+            _ => panic!("expected orchestrator cycles"),
+        }
+    }
+
+    #[test]
+    fn cli_parses_orchestrator_cycles_with_json_and_trace_dir() {
+        let cli = Cli::try_parse_from(vec![
+            "arpagona",
+            "orchestrator",
+            "cycles",
+            "--json",
+            "--trace-dir",
+            "custom/traces",
+        ])
+        .expect("orchestrator cycles --json --trace-dir should parse");
+        match cli.command {
+            Command::Orchestrator(OrchestratorCommand {
+                command: OrchestratorSubcommand::Cycles(args),
+            }) => {
+                assert!(args.json, "cycles --json should be true");
+                assert_eq!(
+                    args.trace_dir,
+                    Some("custom/traces".to_owned()),
+                    "--trace-dir should be captured"
+                );
+            }
+            _ => panic!("expected orchestrator cycles"),
+        }
     }
 }
