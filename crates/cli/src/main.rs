@@ -318,6 +318,11 @@ pub struct OrchestratorInsightsCollectArgs {
     /// Output as structured JSON.
     #[arg(long, short = 'j', default_value_t = false)]
     pub json: bool,
+
+    /// Optional path to write collected insights as a FailureInsightDemoSnapshot
+    /// (for discoverability via `memory demo snapshot-list`).
+    #[arg(long)]
+    pub snapshot_path: Option<String>,
 }
 
 #[derive(Debug, Args)]
@@ -1415,10 +1420,23 @@ struct GetTraceArgs {
     trace_dir: String,
 }
 
+#[derive(Debug, Args)]
+struct ListEventsFromDirArgs {
+    /// Directory containing saved audit event JSON files.
+    from_dir: String,
+    /// Emit structured JSON output instead of human-oriented text.
+    #[arg(long)]
+    json: bool,
+}
+
 #[derive(Debug, Subcommand)]
 enum AuditSubcommand {
     /// List audit events.
     List(ListAuditArgs),
+    /// List saved audit event files from a directory (local filesystem, no API server needed).
+    /// Reads individual JSON audit event files saved by `orchestrator run --save-audit`
+    /// and displays each event with its type, timestamp, and payload preview.
+    ListEventsFromDir(ListEventsFromDirArgs),
     /// Show a read-only decision-scoped audit summary.
     /// Includes causal links, decision status, risk level and policies applied.
     DecisionSummary(DecisionSummaryArgs),
@@ -1979,6 +1997,7 @@ async fn run() -> Result<(), Box<dyn Error>> {
             }
             AuditSubcommand::ListTraces(args) => audit_list_traces(args)?,
             AuditSubcommand::GetTrace(args) => audit_get_trace(args)?,
+            AuditSubcommand::ListEventsFromDir(args) => audit_list_events_from_dir(args)?,
         },
         Command::Insight(insight) => match insight.command {
             InsightSubcommand::Schema(args) => insight_schema(args)?,
@@ -6374,6 +6393,117 @@ fn audit_get_trace(args: GetTraceArgs) -> Result<(), Box<dyn Error>> {
     Ok(())
 }
 
+/// List saved audit event files from a directory and display each event.
+///
+/// Reads individual JSON audit event files saved by `orchestrator run --save-audit`
+/// and displays each event with its type, timestamp, and payload preview.
+///
+/// # Safety
+///
+/// All output is readback only. No event content may be interpreted as approval,
+/// authorization, or execution permission.
+fn audit_list_events_from_dir(args: ListEventsFromDirArgs) -> Result<(), Box<dyn Error>> {
+    let dir = std::path::Path::new(&args.from_dir);
+
+    if !dir.exists() {
+        if args.json {
+            println!("[]");
+        } else {
+            println!(
+                "{}",
+                style_dim(&format!(
+                    "Audit event directory '{}' does not exist.",
+                    args.from_dir
+                ))
+            );
+            println!();
+            println!(
+                "  Run `{}` to save audit events first.",
+                "cargo run -q --bin arpagona -- orchestrator run --objective \"...\" --save-audit"
+            );
+            println!();
+        }
+        return Ok(());
+    }
+
+    // Read and parse all JSON files in the directory
+    let mut events: Vec<(std::path::PathBuf, AuditEvent)> = Vec::new();
+    for entry in std::fs::read_dir(dir)
+        .map_err(|e| format!("Cannot read directory '{}': {e}", args.from_dir))?
+    {
+        let entry = entry?;
+        let path = entry.path();
+        if path.extension().and_then(|e| e.to_str()) != Some("json") {
+            continue;
+        }
+        if let Ok(content) = std::fs::read_to_string(&path) {
+            if let Ok(event) = serde_json::from_str::<AuditEvent>(&content) {
+                events.push((path, event));
+            }
+        }
+    }
+
+    // Sort by event id for deterministic output
+    events.sort_by(|a, b| a.1.id.0.cmp(&b.1.id.0));
+
+    if args.json {
+        let json_events: Vec<&AuditEvent> = events.iter().map(|(_, e)| e).collect();
+        println!("{}", serde_json::to_string_pretty(&json_events)?);
+    } else {
+        println!("{}", style_info("Audit Events (from saved files)"));
+        println!("{}", "-".repeat(60));
+        if events.is_empty() {
+            println!(
+                "{}",
+                style_dim("No valid audit event files found in the directory.")
+            );
+        } else {
+            println!(
+                "Found {} audit event file(s) in '{}':\n",
+                events.len(),
+                args.from_dir
+            );
+            for (i, (path, event)) in events.iter().enumerate() {
+                let file_name = path.file_name().and_then(|n| n.to_str()).unwrap_or("?");
+                let event_type_str = format!("{:?}", event.event_type);
+                let created_at_str = event.created_at.format("%Y-%m-%d %H:%M:%S UTC").to_string();
+                let payload_preview = serde_json::to_string(&event.payload)
+                    .unwrap_or_default()
+                    .chars()
+                    .take(120)
+                    .collect::<String>();
+
+                println!("{}. \x1b[1m{}\x1b[0m", i + 1, file_name);
+                println!("   Event ID:    {}", event.id);
+                println!("   Type:        {}", event_type_str);
+                println!("   Actor:       {:?}", event.actor);
+                println!("   Timestamp:   {}", created_at_str);
+                if let Some(ws) = &event.workspace_id {
+                    println!("   Workspace:   {}", ws);
+                }
+                if let Some(pa_id) = &event.proposed_action_id {
+                    println!("   Proposed:    {}", pa_id);
+                }
+                if let Some(d_id) = &event.decision_id {
+                    println!("   Decision:    {}", d_id);
+                }
+                println!("   Payload:     {}", payload_preview);
+                println!();
+            }
+        }
+        println!(
+            "{}",
+            style_dim("⚠  Readback only — audit events are evidence, not authorization.")
+        );
+        println!(
+            "{}",
+            style_dim("   No execution without explicit Decision Gate approval.")
+        );
+    }
+
+    Ok(())
+}
+
 async fn audit_decision_summary(
     client: &Client,
     api_url: &str,
@@ -10154,6 +10284,11 @@ struct CycleTraceListingEntry {
     /// Only populated when --with-audit is set.
     #[serde(default)]
     pub external_audit_event_count: usize,
+    /// Breakdown of audit event types from saved audit event files.
+    /// Only populated when --with-audit is set.
+    /// Maps audit event type label → count.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub audit_event_type_breakdown: Option<std::collections::HashMap<String, usize>>,
     /// Timestamp of the trace.
     pub created_at: String,
 }
@@ -10220,6 +10355,7 @@ fn list_orchestrator_cycles_in_directory(
             audit_event_count: trace.audit_event_count,
             external_audit_event_count: 0,
             created_at: trace.created_at.to_rfc3339(),
+            audit_event_type_breakdown: None,
         };
 
         entries.push((path, listing));
@@ -10303,6 +10439,64 @@ fn count_external_audit_events_by_cycle_id(
     counts
 }
 
+/// Scan a directory of saved audit event JSON files and collect audit event
+/// type breakdowns per cycle ID.
+///
+/// Returns a map: cycle_id String → HashMap<event_type_label, count>.
+///
+/// Non-authorizing: this is a readback surface for operator inspection only.
+fn collect_external_audit_type_breakdowns(
+    audit_dir: &std::path::Path,
+) -> std::collections::HashMap<String, std::collections::HashMap<String, usize>> {
+    use arpagona_agent_core::AuditEvent;
+
+    let mut breakdowns: std::collections::HashMap<
+        String,
+        std::collections::HashMap<String, usize>,
+    > = std::collections::HashMap::new();
+
+    if !audit_dir.exists() {
+        return breakdowns;
+    }
+
+    let read_dir = match std::fs::read_dir(audit_dir) {
+        Ok(rd) => rd,
+        Err(_) => return breakdowns,
+    };
+
+    for entry in read_dir.flatten() {
+        let path = entry.path();
+        if path.extension().and_then(|e| e.to_str()) != Some("json") {
+            continue;
+        }
+        let content = match std::fs::read_to_string(&path) {
+            Ok(c) => c,
+            Err(_) => continue,
+        };
+        let event: AuditEvent = match serde_json::from_str(&content) {
+            Ok(e) => e,
+            Err(_) => continue,
+        };
+
+        // Determine which cycle this event belongs to
+        let cycle_id = event
+            .payload
+            .get("cycle_id")
+            .and_then(|v| v.as_str())
+            .map(|s| s.to_string())
+            .unwrap_or_else(|| "(unassociated)".to_owned());
+
+        let type_label = format!("{:?}", event.event_type);
+        *breakdowns
+            .entry(cycle_id)
+            .or_default()
+            .entry(type_label)
+            .or_insert(0) += 1;
+    }
+
+    breakdowns
+}
+
 /// List saved orchestrator cycle traces from a directory.
 fn orchestrator_cycles(args: OrchestratorCyclesArgs) -> Result<(), Box<dyn Error>> {
     let dir = args
@@ -10312,13 +10506,16 @@ fn orchestrator_cycles(args: OrchestratorCyclesArgs) -> Result<(), Box<dyn Error
 
     let mut entries = list_orchestrator_cycles_in_directory(&dir)?;
 
-    // ── Optional: populate external audit event counts ────────────────
+    // ── Optional: populate external audit event counts and type breakdown ──
     if args.with_audit {
         let audit_dir = std::path::PathBuf::from(DEFAULT_ORCHESTRATOR_AUDIT_DIR);
         let audit_counts = count_external_audit_events_by_cycle_id(&audit_dir);
+        // Also build audit event type breakdown from saved audit files
+        let audit_breakdowns = collect_external_audit_type_breakdowns(&audit_dir);
         for (_path, listing) in entries.iter_mut() {
             let count = audit_counts.get(&listing.cycle_id).copied().unwrap_or(0);
             listing.external_audit_event_count = count;
+            listing.audit_event_type_breakdown = audit_breakdowns.get(&listing.cycle_id).cloned();
         }
     }
 
@@ -10426,6 +10623,40 @@ fn orchestrator_insights_collect(
 
     let json = serde_json::to_string_pretty(&insight_entry)?;
     std::fs::write(&insights_path, &json)?;
+
+    // ── Optional: write as FailureInsightDemoSnapshot for snapshot pipeline ──
+    if let Some(ref snapshot_path_str) = args.snapshot_path {
+        let snapshot_path = std::path::Path::new(snapshot_path_str);
+        if let Some(parent) = snapshot_path.parent() {
+            std::fs::create_dir_all(parent).ok();
+        }
+        let snapshot = FailureInsightDemoSnapshot::new(
+            insight_entry.clone(),
+            vec![
+                format!("insights-collect: cycle {}", trace.cycle_id),
+                format!("objective: {}", trace.objective_text),
+                format!("candidates: {}", candidates.len()),
+                "orchestrator failure insight collection".to_owned(),
+                "written as FailureInsightDemoSnapshot for snapshot-list discoverability"
+                    .to_owned(),
+            ],
+        );
+        snapshot.write_to_file(snapshot_path).map_err(|e| {
+            format!(
+                "Failed to write demo snapshot to '{}': {e}",
+                snapshot_path_str
+            )
+        })?;
+        if !args.json {
+            println!(
+                "{}",
+                style_dim(&format!(
+                    "   Demo snapshot written to: {}",
+                    snapshot_path_str
+                ))
+            );
+        }
+    }
 
     if args.json {
         println!("{}", json);

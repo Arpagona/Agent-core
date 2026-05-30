@@ -495,9 +495,70 @@
    493|
    494|Recommended next step: wait for CI to complete on #77, then merge into `main`. After merge, create `scripts/demo-full-loop.sh` for a single-repeatable-command governed FailureInsight demo path.
    495|
-## 27. Latest Session Update (2026-05-29 — Phase 2 completion verification + handoff correction)
+## 28. Latest Session Update (2026-05-30 — P3-27: Audit/insight readback surface consolidation)
 
-This session verified the C1 milestone (Real LLM integration in proposal-only mode) and confirmed Phase 2 is fully delivered. C1 was already implemented and tested (integration test `cognitive_llm_mock_provides_proposal_only_synthesis` passes) but the handoff file still pointed to it as "next action."
+This session implemented P3-27, the audit/insight readback surface consolidation, closing 5 stale PRs and adding 3 new bounded surfaces.
+
+### What was added
+
+**`audit list-events --from-dir <DIR>`** — new CLI command that reads a directory of saved audit event JSON files (from `orchestrator run --save-audit`) and displays each event with event type, actor, timestamp, causal links and payload preview. Supports `--json` for structured output.
+
+**`orchestrator insights-collect --snapshot-path <PATH>`** — new optional flag that writes collected FailureInsight candidates as a `FailureInsightDemoSnapshot`, making them discoverable via `memory demo snapshot-list` and `snapshot-read`. Bridges the orchestrator insights pipeline with the demo snapshot pipeline.
+
+**`orchestrator cycles --json --with-audit` audit event type breakdown** — `CycleTraceListingEntry` now carries `audit_event_type_breakdown: Option<HashMap<String, usize>>`, populated when `--with-audit` is set. The breakdown maps audit event type labels (e.g. `CognitiveCycleCompleted`, `DecisionCreated`) to their count for each cycle.
+
+### Hygiene
+
+Closed 5 stale/superseded PRs with evidence notes:
+- #197 (P3-15: cycle trace to failure insight) — superseded by merged P3-23/24
+- #198 (P3-16: compute efficiency feedback) — superseded by merged P3-22
+- #199 (P3-17: efficiency context assembly) — superseded by merged P3-14
+- #202 (P3-15: cost/quality metadata) — superseded by merged P3-22
+- #204 (orchestrator status UX) — superseded by merged P3 stack behavior
+
+### Files changed
+
+| File | Change |
+|------|--------|
+| crates/cli/src/main.rs | Added `ListEventsFromDirArgs`, `ListEventsFromDir` variant, `audit_list_events_from_dir()` handler, `collect_external_audit_type_breakdowns()`, `audit_event_type_breakdown` field on `CycleTraceListingEntry`, `--snapshot-path` on `OrchestratorInsightsCollectArgs` + snapshot write logic, dispatch wiring |
+| FOCUS_LOOP_NEXT.md | Updated for P3-27 state, stale PR closures, next action |
+| PROJECT_STATUS.md | This session update |
+
+### Verification
+
+- `cargo fmt -- --check`: clean
+- `cargo check`: clean
+- `cargo test`: all 925+ tests pass (0 failures, 0 regressions)
+
+### Stability level
+
+Alpha CLI supervision surface. All new code is filesystem-only (read/write to `target/`), serde-backed, with no new dependencies, no SurrealDB changes, no API endpoints, no Decision Gate changes.
+
+### Safety boundaries preserved
+
+- ✅ No scheduler, autonomy, browser automation, email, secrets, self-modification
+- ✅ No Decision Gate bypass
+- ✅ No unrestricted shell or execution
+- ✅ All readback output labeled as evidence-only, non-authorizing
+- ✅ New `FailureInsightDemoSnapshot` writes carry `evidence_only_token`
+- ✅ No merge to main — DEEP governance rule strictly observed
+
+### Limits
+
+- No new crate-level code outside `crates/cli/src/main.rs`
+- No SurrealDB, API server, MCP, or LLM changes
+- No Graph Memory schema or persistence changes
+- No existing behavior modified or removed
+
+### Deliberately not changed
+
+- No broad capabilities disguised as audit additions
+- No `docs/cli.md` update (existing documentation covers the `audit list-traces` family; the new `list-events` and `--snapshot-path` should be added in a subsequent pass)
+- No parser tests for the new commands (existing test pattern covers dispatch; parser tests deferred to avoid bloating the single-run PR scope)
+
+### Recommended next step for GONA
+
+Merge PR #221. Then advance **C3** (LLM interaction journaling — `arpagona llm journal` CLI readback for recent model interactions), or **C4** (Compute Reservoir model routing — integrate Compute Reservoir with local/cloud provider selection).
 
 ### Verification performed
 
