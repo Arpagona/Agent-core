@@ -4611,3 +4611,105 @@ This session served as a merge queue unblock pass:
 - No new PRs created (rebased existing PRs only)
 - No DV backlog entries (none open)
 - No scheduler, MCP, Web Mission Control, or broad capability expansion
+
+## 33. Latest Session Update (2026-05-30 DEEP cron — sandboxed copy_file + move_file tools) [WIP]
+
+This session added two new sandboxed filesystem tools to the Tool Runtime, completing Tier 2 mutation capabilities (file-level copy and move/rename).
+
+### What was added
+
+**`crates/tool-runtime/src/lib.rs`:**
+- `resolve_dual_paths()` helper -- validates both source and destination paths with same security rules as write_file
+- `execute_copy_file()` -- workspace-bounded copy, simulation-first, max 256 KiB, requires `--overwrite` flag
+- `execute_move_file()` -- workspace-bounded move/rename (alias: `rename`), same security model, supports files and directories
+- Both dispatched from `execute()` under names `copy_file` and `move_file`/`rename`
+
+**`crates/cli/src/main.rs`:**
+- `ToolDemoCopyFileArgs` / `ToolDemoMoveFileArgs` -- args structs with `--execute` and `--overwrite` flags
+- `CopyFile` / `MoveFile` enum variants and dispatch
+- `tool_list` entries, `tool_inspect` entries (with JSON output)
+- `tool_demo_copy_file()` and `tool_demo_move_file()` handler functions
+
+### Tests
+
+14 new tests (6 copy + 7 move + 1 rename alias):
+- copy_file: simulate, execute, destination parent traversal, source parent traversal, overwrite refusal, overwrite accept, missing source
+- move_file: simulate, execute, rename alias, destination parent traversal, overwrite refusal, overwrite accept, missing source
+
+### Verification
+
+- `cargo fmt -- --check`: clean
+- `cargo check`: clean
+- `cargo test --workspace`: 955+ tests pass, 0 failures
+
+### Files changed
+
+| File | Change |
+|------|--------|
+| crates/tool-runtime/src/lib.rs | Added `resolve_dual_paths()`, `execute_copy_file()`, `execute_move_file()`, dispatch entries, 14 tests |
+| crates/cli/src/main.rs | Added args structs, enum variants, dispatch, list/inspect entries, demo handlers for copy_file + move_file |
+| FOCUS_LOOP_NEXT.md | Updated handoff to reflect new tools |
+
+### Safety boundaries preserved
+
+- No Decision Gate bypass -- DEEP never merges
+- No shell, network, browser, email, secrets, or autonomy expansion
+- No readback-as-authorization behavior
+- No existing tool behavior modified
+- All operations simulate by default
+- Both source and destination paths are workspace-bounded and security-checked
+- Blocked file/dir protections apply to both paths
+
+### Deliberately not changed
+
+- No unrestricted shell or arbitrary command execution
+- No MCP integration, scheduler autonomy, or browser automation
+- No Mission Control Web or API endpoint changes
+- No Decision Gate, Graph Memory, or audit system modifications
+- No LLM/provider or runtime loop changes
+## 34. Latest Session Update (2026-05-30 DEEP cron — sandboxed sync_file/fsync tool)
+
+This session added `sync_file` (alias: `fsync`) to the sandboxed Tool Runtime.
+
+### What was added
+
+**`crates/tool-runtime/src/lib.rs`:**
+- Added `"sync_file" | "fsync"` dispatch entry
+- Added `execute_sync_file()` — opens file, calls `sync_all()`, also syncs parent directory
+- Security: absolute paths blocked, parent-traversal blocked (SecurityBlocked), blocked files/dirs protected
+- Max file size: 1 MiB (bounded by `MAX_FILE_SIZE`)
+- Simulation-first by default (`simulate=true` unless `simulate=false` is passed)
+- 11 unit tests: simulate default, execute fsync, absolute path block, parent traversal block, nonexistent file, directory path, fsync alias, blocked file pattern, missing argument, workspace file success
+
+**`crates/cli/src/main.rs`:**
+- Added `SyncFile(ToolDemoSyncFileArgs)` enum variant to `ToolDemoSubcommand`
+- Added `ToolDemoSyncFileArgs` struct with `path` (string), `execute` (--long), `json` (--long)
+- Added dispatch line in tool demo match
+- Added `tool_demo_sync_file()` handler function
+- Added tool-list entry and mutation_tools entry
+- Added `tool inspect sync_file` / `fsync` entry with JSON schema and human display
+
+### Files changed
+
+| File | Change |
+|------|--------|
+| crates/tool-runtime/src/lib.rs | Added sync_file dispatch, execute_sync_file(), 11 unit tests |
+| crates/cli/src/main.rs | Added SyncFile variant, args, dispatch, list, inspect, demo handler |
+
+### Verification
+
+- `cargo fmt -- --check`: clean
+- `cargo check`: clean
+- `cargo test --workspace`: 987+ tests pass, 0 failures
+
+### Safety boundaries preserved
+
+- No unrestricted shell, browser, network, secrets access, email
+- No Decision Gate bypass
+- No readback-as-authorization
+- Sandboxed to workspace, simulation-first by default
+- Security-blocked for absolute paths, parent traversal, blocked files/dirs
+
+### PR state
+
+- PR #230 (feat/copy-move-sandboxed-tools): Updated with sync_file commit, force-pushed, mergeable -- pending GONA merge

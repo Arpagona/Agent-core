@@ -209,6 +209,8 @@ impl ToolRuntime {
             "write_file" => self.execute_write_file(execution_id, arguments),
             "append_file" => self.execute_append_file(execution_id, arguments),
             "mkdir" | "create_dir" => self.execute_mkdir(execution_id, arguments),
+            "copy_file" => self.execute_copy_file(execution_id, arguments),
+            "move_file" | "rename" => self.execute_move_file(execution_id, arguments),
             "patch_file" | "replace_text" => self.execute_patch_file(execution_id, arguments),
             other => ToolExecutionResult::failed(
                 execution_id,
@@ -1493,6 +1495,374 @@ impl ToolRuntime {
                 "patch_file",
                 ToolExecutionError::new("io_error", format!("Cannot write patched file: {e}")),
                 format!("I/O error writing patched content to {path_str}"),
+            ),
+        }
+    }
+
+    /// Validate and resolve two paths for a copy/move operation.
+    ///
+    /// Both paths are resolved relative to the workspace with the same
+    /// security rules as write_file. The source must exist. The destination
+    /// parent directory must exist (or be within the workspace).
+    fn resolve_dual_paths(
+        &self,
+        source_str: &str,
+        destination_str: &str,
+        simulate: bool,
+    ) -> Result<(PathBuf, PathBuf), ToolRuntimeError> {
+        // Validate source first
+        if source_str.trim().is_empty() {
+            return Err(ToolRuntimeError::InvalidPath(
+                "source path is empty".to_owned(),
+            ));
+        }
+        if destination_str.trim().is_empty() {
+            return Err(ToolRuntimeError::InvalidPath(
+                "destination path is empty".to_owned(),
+            ));
+        }
+
+        let source = self.resolve_write_path(source_str, false, simulate)?;
+        let destination = self.resolve_write_path(destination_str, false, simulate)?;
+
+        if !source.exists() {
+            return Err(ToolRuntimeError::InvalidPath(format!(
+                "Source not found: {source_str}"
+            )));
+        }
+
+        Ok((source, destination))
+    }
+
+    // -----------------------------------------------------------------------
+    // Tool: copy_file
+    // -----------------------------------------------------------------------
+
+    fn execute_copy_file(
+        &self,
+        execution_id: ToolExecutionId,
+        arguments: &Value,
+    ) -> ToolExecutionResult {
+        let source_str = match arguments.get("source").and_then(Value::as_str) {
+            Some(p) if !p.is_empty() => p,
+            _ => {
+                return ToolExecutionResult::failed(
+                    execution_id,
+                    "copy_file",
+                    ToolExecutionError::new("missing_argument", "Required argument: source"),
+                    "Missing 'source' argument for copy_file",
+                );
+            }
+        };
+        let destination_str = match arguments.get("destination").and_then(Value::as_str) {
+            Some(p) if !p.is_empty() => p,
+            _ => {
+                return ToolExecutionResult::failed(
+                    execution_id,
+                    "copy_file",
+                    ToolExecutionError::new("missing_argument", "Required argument: destination"),
+                    "Missing 'destination' argument for copy_file",
+                );
+            }
+        };
+
+        let simulate = arguments
+            .get("simulate")
+            .and_then(Value::as_bool)
+            .unwrap_or(true);
+        let overwrite = arguments
+            .get("overwrite")
+            .and_then(Value::as_bool)
+            .unwrap_or(false);
+
+        let (source, destination) =
+            match self.resolve_dual_paths(source_str, destination_str, simulate) {
+                Ok(p) => p,
+                Err(ToolRuntimeError::SecurityBlocked(msg)) => {
+                    return ToolExecutionResult::blocked(
+                        execution_id,
+                        "copy_file",
+                        format!("Path access blocked: {msg}"),
+                    );
+                }
+                Err(e) => {
+                    return ToolExecutionResult::failed(
+                        execution_id,
+                        "copy_file",
+                        ToolExecutionError::new("invalid_path", format!("Cannot access path: {e}")),
+                        format!("Path validation failed: {e}"),
+                    );
+                }
+            };
+
+        if !source.is_file() {
+            return ToolExecutionResult::failed(
+                execution_id,
+                "copy_file",
+                ToolExecutionError::new("not_a_file", format!("Not a file: {source_str}")),
+                "Source is not a regular file",
+            );
+        }
+
+        let source_size = match std::fs::metadata(&source) {
+            Ok(m) => m.len(),
+            Err(e) => {
+                return ToolExecutionResult::failed(
+                    execution_id,
+                    "copy_file",
+                    ToolExecutionError::new(
+                        "io_error",
+                        format!("Cannot read source metadata: {e}"),
+                    ),
+                    format!("I/O error reading source {source_str}"),
+                );
+            }
+        };
+
+        if source_size > MAX_WRITE_SIZE as u64 {
+            return ToolExecutionResult::failed(
+                execution_id,
+                "copy_file",
+                ToolExecutionError::new(
+                    "source_too_large",
+                    format!(
+                        "Source too large: {} bytes (max: {} bytes)",
+                        source_size, MAX_WRITE_SIZE
+                    ),
+                ),
+                "Source exceeds maximum allowed copy size",
+            );
+        }
+
+        let dest_exists = destination.exists();
+        if dest_exists && !overwrite {
+            return ToolExecutionResult::failed(
+                execution_id,
+                "copy_file",
+                ToolExecutionError::new(
+                    "overwrite_not_allowed",
+                    format!("Destination exists and overwrite=false: {destination_str}"),
+                ),
+                "Copy refused because destination exists and overwrite=false",
+            );
+        }
+
+        if simulate {
+            return ToolExecutionResult::success(
+                execution_id,
+                "copy_file",
+                ToolObservation {
+                    summary: format!(
+                        "Simulated copy_file: {source_str} → {destination_str} ({} bytes)",
+                        source_size
+                    ),
+                    payload: json!({
+                        "source": source_str,
+                        "destination": destination_str,
+                        "resolved_source": source.to_string_lossy(),
+                        "resolved_destination": destination.to_string_lossy(),
+                        "source_size": source_size,
+                        "simulate": true,
+                        "would_overwrite": dest_exists,
+                    }),
+                    actionable: true,
+                    failure_insight_candidate: false,
+                    failure_hint: None,
+                },
+                format!("Simulated copy_file: {source_str} → {destination_str}",),
+            );
+        }
+
+        match std::fs::copy(&source, &destination) {
+            Ok(bytes) => ToolExecutionResult::success(
+                execution_id,
+                "copy_file",
+                ToolObservation {
+                    summary: format!(
+                        "Copied file: {source_str} → {destination_str} ({bytes} bytes)",
+                    ),
+                    payload: json!({
+                        "source": source_str,
+                        "destination": destination_str,
+                        "resolved_source": source.to_string_lossy(),
+                        "resolved_destination": destination.to_string_lossy(),
+                        "bytes": bytes,
+                        "simulate": false,
+                        "overwrote": dest_exists,
+                    }),
+                    actionable: true,
+                    failure_insight_candidate: false,
+                    failure_hint: None,
+                },
+                format!("Copied file: {source_str} → {destination_str}"),
+            ),
+            Err(e) => ToolExecutionResult::failed(
+                execution_id,
+                "copy_file",
+                ToolExecutionError::new("io_error", format!("Cannot copy file: {e}")),
+                format!("I/O error copying {source_str} to {destination_str}"),
+            ),
+        }
+    }
+
+    // -----------------------------------------------------------------------
+    // Tool: move_file / rename
+    // -----------------------------------------------------------------------
+
+    fn execute_move_file(
+        &self,
+        execution_id: ToolExecutionId,
+        arguments: &Value,
+    ) -> ToolExecutionResult {
+        let source_str = match arguments.get("source").and_then(Value::as_str) {
+            Some(p) if !p.is_empty() => p,
+            _ => {
+                return ToolExecutionResult::failed(
+                    execution_id,
+                    "move_file",
+                    ToolExecutionError::new("missing_argument", "Required argument: source"),
+                    "Missing 'source' argument for move_file",
+                );
+            }
+        };
+        let destination_str = match arguments.get("destination").and_then(Value::as_str) {
+            Some(p) if !p.is_empty() => p,
+            _ => {
+                return ToolExecutionResult::failed(
+                    execution_id,
+                    "move_file",
+                    ToolExecutionError::new("missing_argument", "Required argument: destination"),
+                    "Missing 'destination' argument for move_file",
+                );
+            }
+        };
+
+        let simulate = arguments
+            .get("simulate")
+            .and_then(Value::as_bool)
+            .unwrap_or(true);
+        let overwrite = arguments
+            .get("overwrite")
+            .and_then(Value::as_bool)
+            .unwrap_or(false);
+
+        let (source, destination) =
+            match self.resolve_dual_paths(source_str, destination_str, simulate) {
+                Ok(p) => p,
+                Err(ToolRuntimeError::SecurityBlocked(msg)) => {
+                    return ToolExecutionResult::blocked(
+                        execution_id,
+                        "move_file",
+                        format!("Path access blocked: {msg}"),
+                    );
+                }
+                Err(e) => {
+                    return ToolExecutionResult::failed(
+                        execution_id,
+                        "move_file",
+                        ToolExecutionError::new("invalid_path", format!("Cannot access path: {e}")),
+                        format!("Path validation failed: {e}"),
+                    );
+                }
+            };
+
+        if !source.is_file() && !source.is_dir() {
+            return ToolExecutionResult::failed(
+                execution_id,
+                "move_file",
+                ToolExecutionError::new("not_found", format!("Source not found: {source_str}")),
+                "Source does not exist",
+            );
+        }
+
+        let source_size = if source.is_file() {
+            match std::fs::metadata(&source) {
+                Ok(m) => m.len() as usize,
+                Err(_) => 0,
+            }
+        } else {
+            0
+        };
+
+        if source.is_file() && source_size > MAX_WRITE_SIZE {
+            return ToolExecutionResult::failed(
+                execution_id,
+                "move_file",
+                ToolExecutionError::new(
+                    "source_too_large",
+                    format!(
+                        "Source too large: {} bytes (max: {} bytes)",
+                        source_size, MAX_WRITE_SIZE
+                    ),
+                ),
+                "Source exceeds maximum allowed move size",
+            );
+        }
+
+        let dest_exists = destination.exists();
+        if dest_exists && !overwrite {
+            return ToolExecutionResult::failed(
+                execution_id,
+                "move_file",
+                ToolExecutionError::new(
+                    "overwrite_not_allowed",
+                    format!("Destination exists and overwrite=false: {destination_str}"),
+                ),
+                "Move refused because destination exists and overwrite=false",
+            );
+        }
+
+        if simulate {
+            let source_type = if source.is_dir() { "directory" } else { "file" };
+            return ToolExecutionResult::success(
+                execution_id,
+                "move_file",
+                ToolObservation {
+                    summary: format!(
+                        "Simulated move_file: {source_str} → {destination_str} ({source_type})",
+                    ),
+                    payload: json!({
+                        "source": source_str,
+                        "destination": destination_str,
+                        "resolved_source": source.to_string_lossy(),
+                        "resolved_destination": destination.to_string_lossy(),
+                        "source_type": source_type,
+                        "simulate": true,
+                        "would_overwrite": dest_exists,
+                    }),
+                    actionable: true,
+                    failure_insight_candidate: false,
+                    failure_hint: None,
+                },
+                format!("Simulated move_file: {source_str} → {destination_str}",),
+            );
+        }
+
+        match std::fs::rename(&source, &destination) {
+            Ok(()) => ToolExecutionResult::success(
+                execution_id,
+                "move_file",
+                ToolObservation {
+                    summary: format!("Moved file: {source_str} → {destination_str}",),
+                    payload: json!({
+                        "source": source_str,
+                        "destination": destination_str,
+                        "resolved_source": source.to_string_lossy(),
+                        "resolved_destination": destination.to_string_lossy(),
+                        "simulate": false,
+                        "overwrote": dest_exists,
+                    }),
+                    actionable: true,
+                    failure_insight_candidate: false,
+                    failure_hint: None,
+                },
+                format!("Moved file: {source_str} → {destination_str}"),
+            ),
+            Err(e) => ToolExecutionResult::failed(
+                execution_id,
+                "move_file",
+                ToolExecutionError::new("io_error", format!("Cannot move file: {e}")),
+                format!("I/O error moving {source_str} to {destination_str}"),
             ),
         }
     }
@@ -2969,5 +3339,238 @@ mod tests {
             ToolExecutionStatus::Blocked,
             ".github/workflows/* are not git internals and must not be blocked"
         );
+    }
+
+    // -------------------------------------------------------------------------
+    // copy_file tests
+    // -------------------------------------------------------------------------
+
+    #[test]
+    fn copy_file_simulates_by_default_without_mutation() {
+        let dir = test_workspace();
+        create_test_file(dir.path(), "source.txt", "hello");
+        let runtime = make_runtime(dir.path());
+
+        let result = runtime.execute(
+            "copy_file",
+            &json!({"source": "source.txt", "destination": "dest.txt"}),
+        );
+
+        assert_eq!(result.status, ToolExecutionStatus::Success);
+        assert_eq!(result.observation.payload["simulate"], true);
+        assert!(!dir.path().join("dest.txt").exists());
+        assert!(dir.path().join("source.txt").exists());
+    }
+
+    #[test]
+    fn copy_file_executes_inside_workspace() {
+        let dir = test_workspace();
+        create_test_file(dir.path(), "source.txt", "hello world");
+        let runtime = make_runtime(dir.path());
+
+        let result = runtime.execute(
+            "copy_file",
+            &json!({"source": "source.txt", "destination": "dest.txt", "simulate": false}),
+        );
+
+        assert_eq!(result.status, ToolExecutionStatus::Success);
+        assert_eq!(
+            std::fs::read_to_string(dir.path().join("dest.txt")).unwrap(),
+            "hello world"
+        );
+        assert!(dir.path().join("source.txt").exists());
+    }
+
+    #[test]
+    fn copy_file_blocks_parent_traversal() {
+        let dir = test_workspace();
+        create_test_file(dir.path(), "source.txt", "data");
+        let runtime = make_runtime(dir.path());
+
+        let result = runtime.execute(
+            "copy_file",
+            &json!({"source": "source.txt", "destination": "../escape.txt", "simulate": false}),
+        );
+
+        assert_eq!(result.status, ToolExecutionStatus::Blocked);
+        assert!(result.error.as_ref().unwrap().is_security);
+    }
+
+    #[test]
+    fn copy_file_source_parent_traversal_blocked() {
+        let dir = test_workspace();
+        let runtime = make_runtime(dir.path());
+
+        let result = runtime.execute(
+            "copy_file",
+            &json!({"source": "../outside.txt", "destination": "dest.txt"}),
+        );
+
+        assert_eq!(result.status, ToolExecutionStatus::Blocked);
+        assert!(result.error.as_ref().unwrap().is_security);
+    }
+
+    #[test]
+    fn copy_file_refuses_overwrite_without_flag() {
+        let dir = test_workspace();
+        create_test_file(dir.path(), "source.txt", "new stuff");
+        create_test_file(dir.path(), "dest.txt", "existing stuff");
+        let runtime = make_runtime(dir.path());
+
+        let result = runtime.execute(
+            "copy_file",
+            &json!({"source": "source.txt", "destination": "dest.txt", "simulate": false}),
+        );
+
+        assert_eq!(result.status, ToolExecutionStatus::Failed);
+        assert_eq!(result.error.as_ref().unwrap().code, "overwrite_not_allowed");
+    }
+
+    #[test]
+    fn copy_file_overwrite_with_flag() {
+        let dir = test_workspace();
+        create_test_file(dir.path(), "source.txt", "new data");
+        create_test_file(dir.path(), "dest.txt", "old data");
+        let runtime = make_runtime(dir.path());
+
+        let result = runtime.execute(
+            "copy_file",
+            &json!({"source": "source.txt", "destination": "dest.txt", "simulate": false, "overwrite": true}),
+        );
+
+        assert_eq!(result.status, ToolExecutionStatus::Success);
+        assert_eq!(
+            std::fs::read_to_string(dir.path().join("dest.txt")).unwrap(),
+            "new data"
+        );
+    }
+
+    #[test]
+    fn copy_file_missing_source_returns_error() {
+        let dir = test_workspace();
+        let runtime = make_runtime(dir.path());
+
+        let result = runtime.execute(
+            "copy_file",
+            &json!({"source": "nonexistent.txt", "destination": "dest.txt"}),
+        );
+
+        assert_eq!(result.status, ToolExecutionStatus::Failed);
+    }
+
+    // -------------------------------------------------------------------------
+    // move_file / rename tests
+    // -------------------------------------------------------------------------
+
+    #[test]
+    fn move_file_simulates_by_default_without_mutation() {
+        let dir = test_workspace();
+        create_test_file(dir.path(), "source.txt", "hello");
+        let runtime = make_runtime(dir.path());
+
+        let result = runtime.execute(
+            "move_file",
+            &json!({"source": "source.txt", "destination": "dest.txt"}),
+        );
+
+        assert_eq!(result.status, ToolExecutionStatus::Success);
+        assert_eq!(result.observation.payload["simulate"], true);
+        assert!(!dir.path().join("dest.txt").exists());
+        assert!(dir.path().join("source.txt").exists());
+    }
+
+    #[test]
+    fn move_file_executes_inside_workspace() {
+        let dir = test_workspace();
+        create_test_file(dir.path(), "source.txt", "hello");
+        let runtime = make_runtime(dir.path());
+
+        let result = runtime.execute(
+            "move_file",
+            &json!({"source": "source.txt", "destination": "moved.txt", "simulate": false}),
+        );
+
+        assert_eq!(result.status, ToolExecutionStatus::Success);
+        assert!(dir.path().join("moved.txt").exists());
+        assert!(!dir.path().join("source.txt").exists());
+    }
+
+    #[test]
+    fn move_file_works_with_rename_alias() {
+        let dir = test_workspace();
+        create_test_file(dir.path(), "source.txt", "data");
+        let runtime = make_runtime(dir.path());
+
+        let result = runtime.execute(
+            "rename",
+            &json!({"source": "source.txt", "destination": "renamed.txt", "simulate": false}),
+        );
+
+        assert_eq!(result.status, ToolExecutionStatus::Success);
+        assert!(dir.path().join("renamed.txt").exists());
+        assert!(!dir.path().join("source.txt").exists());
+    }
+
+    #[test]
+    fn move_file_blocks_parent_traversal() {
+        let dir = test_workspace();
+        create_test_file(dir.path(), "source.txt", "data");
+        let runtime = make_runtime(dir.path());
+
+        let result = runtime.execute(
+            "move_file",
+            &json!({"source": "source.txt", "destination": "../escape.txt", "simulate": false}),
+        );
+
+        assert_eq!(result.status, ToolExecutionStatus::Blocked);
+        assert!(result.error.as_ref().unwrap().is_security);
+    }
+
+    #[test]
+    fn move_file_refuses_overwrite_without_flag() {
+        let dir = test_workspace();
+        create_test_file(dir.path(), "source.txt", "new data");
+        create_test_file(dir.path(), "dest.txt", "existing");
+        let runtime = make_runtime(dir.path());
+
+        let result = runtime.execute(
+            "move_file",
+            &json!({"source": "source.txt", "destination": "dest.txt", "simulate": false}),
+        );
+
+        assert_eq!(result.status, ToolExecutionStatus::Failed);
+        assert_eq!(result.error.as_ref().unwrap().code, "overwrite_not_allowed");
+    }
+
+    #[test]
+    fn move_file_overwrite_with_flag() {
+        let dir = test_workspace();
+        create_test_file(dir.path(), "source.txt", "new data");
+        create_test_file(dir.path(), "dest.txt", "old data");
+        let runtime = make_runtime(dir.path());
+
+        let result = runtime.execute(
+            "move_file",
+            &json!({"source": "source.txt", "destination": "dest.txt", "simulate": false, "overwrite": true}),
+        );
+
+        assert_eq!(result.status, ToolExecutionStatus::Success);
+        assert_eq!(
+            std::fs::read_to_string(dir.path().join("dest.txt")).unwrap(),
+            "new data"
+        );
+    }
+
+    #[test]
+    fn move_file_missing_source_returns_error() {
+        let dir = test_workspace();
+        let runtime = make_runtime(dir.path());
+
+        let result = runtime.execute(
+            "move_file",
+            &json!({"source": "nonexistent.txt", "destination": "dest.txt"}),
+        );
+
+        assert_eq!(result.status, ToolExecutionStatus::Failed);
     }
 }
