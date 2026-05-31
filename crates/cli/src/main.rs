@@ -169,6 +169,15 @@ pub enum ActorSubcommand {
     /// Start an interactive acquisition loop that reads tasks from stdin
     /// and runs each through the governed actor_run pipeline.
     Session(ActorSessionArgs),
+    /// Show read-only actor status readback: agent info, executor state,
+    /// journal summary, and session state.
+    Status(ActorStatusArgs),
+    /// Show read-only actor memory readback: graph memory state,
+    /// facts, episodes, and observations. No mutation paths.
+    Memory(ActorMemoryArgs),
+    /// Show read-only actor journal readback: LLM journal entries
+    /// from actor-run and actor-session interactions.
+    Journal(ActorJournalArgs),
 }
 
 #[derive(Debug, Args)]
@@ -223,6 +232,33 @@ pub struct ActorSessionArgs {
     /// Ollama model name (only used with --intent-provider ollama).
     #[arg(long)]
     pub ollama_model: Option<String>,
+}
+
+#[derive(Debug, Args)]
+pub struct ActorStatusArgs {
+    /// Emit structured JSON instead of human-readable text.
+    #[arg(long)]
+    pub json: bool,
+}
+
+#[derive(Debug, Args)]
+pub struct ActorMemoryArgs {
+    /// Emit structured JSON instead of human-readable text.
+    #[arg(long)]
+    pub json: bool,
+}
+
+#[derive(Debug, Args)]
+pub struct ActorJournalArgs {
+    /// Maximum number of recent entries to show (default: 10).
+    #[arg(long, default_value_t = 10)]
+    pub limit: usize,
+    /// Filter by interaction type (synthesis, tool_call_intent, direct_tool_call).
+    #[arg(long)]
+    pub interaction_type: Option<String>,
+    /// Emit structured JSON instead of human-readable text.
+    #[arg(long)]
+    pub json: bool,
 }
 
 #[derive(Debug, Args)]
@@ -2305,6 +2341,9 @@ async fn run() -> Result<(), Box<dyn Error>> {
         Command::Actor(actor) => match actor.command {
             ActorSubcommand::Run(args) => actor_run(args)?,
             ActorSubcommand::Session(args) => actor_session(args)?,
+            ActorSubcommand::Status(args) => actor_status_readback(args)?,
+            ActorSubcommand::Memory(args) => actor_memory_readback(args)?,
+            ActorSubcommand::Journal(args) => actor_journal_readback(args)?,
         },
     }
 
@@ -9577,8 +9616,8 @@ fn llm_journal_list(args: LlmJournalArgs) -> Result<(), Box<dyn Error>> {
                 "model": e.model,
                 "objective": e.objective,
                 "proposed_actions": e.proposed_actions,
-                "tool_call_intents": e.tool_call_intents,
-                "decision_gate_outcomes": e.decision_gate_outcomes,
+                "tool_call_intents": e.tool_call_intents.as_ref().map(|v| redact_journal_value(v.clone())),
+                "decision_gate_outcomes": e.decision_gate_outcomes.as_ref().map(|v| redact_journal_value(v.clone())),
                 "risk_level": e.risk_level,
                 "compute_routing": e.compute_routing,
             })).collect::<Vec<_>>(),
@@ -9701,8 +9740,8 @@ fn action_supervise(args: ActionSuperviseArgs) -> Result<(), Box<dyn Error>> {
                     "prompt_summary": e.prompt_summary,
                     "response_summary": e.response_summary,
                     "proposed_actions": e.proposed_actions,
-                    "tool_call_intents": e.tool_call_intents,
-                    "decision_gate_outcomes": e.decision_gate_outcomes,
+                    "tool_call_intents": e.tool_call_intents.as_ref().map(|v| redact_journal_value(v.clone())),
+                    "decision_gate_outcomes": e.decision_gate_outcomes.as_ref().map(|v| redact_journal_value(v.clone())),
                     "risk_level": e.risk_level,
                 })
             })
@@ -11712,6 +11751,311 @@ fn actor_session(args: ActorSessionArgs) -> Result<(), Box<dyn Error>> {
 
     Ok(())
 }
+
+/// Show read-only actor status readback: agent info, executor state,
+/// journal summary, and session state. Pure readback — no mutation paths.
+fn actor_status_readback(args: ActorStatusArgs) -> Result<(), Box<dyn Error>> {
+    // Gather agent info from constants/env
+    let agent_id = env::var("ARPAGONA_AGENT_ID").unwrap_or_else(|_| DEFAULT_AGENT_ID.to_owned());
+    let workspace_id =
+        env::var("ARPAGONA_WORKSPACE_ID").unwrap_or_else(|_| DEFAULT_WORKSPACE_ID.to_owned());
+    let api_url = env::var("ARPAGONA_API_URL").unwrap_or_else(|_| DEFAULT_API_URL.to_owned());
+
+    // Check agent-kind env var (optional)
+    let agent_kind = env::var("ARPAGONA_AGENT_KIND")
+        .ok()
+        .unwrap_or_else(|| "unknown".to_owned());
+
+    // Gather journal summary
+    let journal = global_llm_journal().lock().unwrap();
+    let journal_total = journal.len();
+    let direct_tool_calls = journal
+        .all_entries()
+        .iter()
+        .filter(|e| {
+            e.interaction_type
+                == arpagona_agent_core::llm_journal::LlmInteractionType::DirectToolCall
+        })
+        .count();
+    let governance_entries = journal
+        .all_entries()
+        .iter()
+        .filter(|e| e.decision_gate_outcomes.is_some())
+        .count();
+    drop(journal);
+
+    let readback = serde_json::json!({
+        "actor_status": {
+            "agent_id": agent_id,
+            "agent_kind": agent_kind,
+            "workspace_id": workspace_id,
+            "api_url": api_url,
+        },
+        "journal_summary": {
+            "total_entries": journal_total,
+            "direct_tool_calls": direct_tool_calls,
+            "governance_entries": governance_entries,
+        },
+        "readback_warning": "NON_AUTHORIZING_READBACK: This is a read-only actor status summary. It carries no authority to execute or approve actions. No Decision Gate boundaries were crossed."
+    });
+
+    if args.json {
+        println!("{}", serde_json::to_string_pretty(&readback)?);
+    } else {
+        let status = &readback["actor_status"];
+        let journal_summary = &readback["journal_summary"];
+        println!("[Actor Status Readback]");
+        println!(
+            "  agent_id:       {}",
+            status["agent_id"].as_str().unwrap_or("?")
+        );
+        println!(
+            "  agent_kind:     {}",
+            status["agent_kind"].as_str().unwrap_or("?")
+        );
+        println!(
+            "  workspace_id:   {}",
+            status["workspace_id"].as_str().unwrap_or("?")
+        );
+        println!(
+            "  api_url:        {}",
+            status["api_url"].as_str().unwrap_or("?")
+        );
+        println!();
+        println!("[LLM Journal Summary]");
+        println!(
+            "  total_entries:      {}",
+            journal_summary["total_entries"].as_u64().unwrap_or(0)
+        );
+        println!(
+            "  direct_tool_calls:  {}",
+            journal_summary["direct_tool_calls"].as_u64().unwrap_or(0)
+        );
+        println!(
+            "  governance_entries: {}",
+            journal_summary["governance_entries"].as_u64().unwrap_or(0)
+        );
+        println!();
+        println!("NON_AUTHORIZING_READBACK: This is a read-only actor status summary.");
+        println!("It carries no authority to execute or approve actions.");
+    }
+
+    Ok(())
+}
+
+/// Show read-only actor memory readback: graph memory state,
+/// facts, episodes, and observations. No mutation paths.
+fn actor_memory_readback(args: ActorMemoryArgs) -> Result<(), Box<dyn Error>> {
+    // Graph memory is in-memory only unless SURREALDB is configured.
+    // Read the memory store's alpha status rather than mutating anything.
+    let configured_backend = env::var("ARPAGONA_GRAPH_MEMORY_BACKEND")
+        .ok()
+        .map(|v| v.trim().to_ascii_lowercase())
+        .filter(|v| !v.is_empty());
+
+    // Memory is configured only if ARPAGONA_GRAPH_MEMORY_BACKEND is set to surrealdb
+    let memory_active = configured_backend.as_deref() == Some("surrealdb");
+
+    let readback = serde_json::json!({
+        "actor_memory": {
+            "graph_memory_support_compiled": true,
+            "configured_backend": configured_backend,
+            "memory_active": memory_active,
+            "alpha_limits": [
+                "No persistent graph memory by default (in-memory only)",
+                "Use ARPAGONA_GRAPH_MEMORY_BACKEND=surrealdb for persistence",
+                "Facts, episodes, and observations are in-memory only",
+            ],
+            "not_implemented": [
+                "Remote graph memory queries (no API server required for local readback)",
+                "Multi-actor memory scope isolation",
+            ],
+        },
+        "access_methods": [
+            "arpagona memory status -- show alpha graph memory status",
+            "arpagona audit list -- list audit events (requires API server)",
+            "arpagona audit decision-summary <id> -- show decision audit trace",
+            "arpagona audit task-summary <id> -- show task-scoped audit summary",
+        ],
+        "readback_warning": "NON_AUTHORIZING_READBACK: This is a read-only actor memory overview. It inspects configured memory state without mutating facts, episodes, or observations. No Decision Gate boundaries were crossed."
+    });
+
+    if args.json {
+        println!("{}", serde_json::to_string_pretty(&readback)?);
+    } else {
+        let memory = &readback["actor_memory"];
+        println!("[Actor Memory Readback]");
+        println!(
+            "  graph_memory_support_compiled: {}",
+            memory["graph_memory_support_compiled"]
+                .as_bool()
+                .unwrap_or(false)
+        );
+        let backend = memory["configured_backend"]
+            .as_str()
+            .unwrap_or("not configured");
+        println!(
+            "  configured_backend:           {}",
+            if backend.is_empty() {
+                "not configured"
+            } else {
+                backend
+            }
+        );
+        println!(
+            "  memory_active:                {}",
+            memory["memory_active"].as_bool().unwrap_or(false)
+        );
+        println!();
+        println!("[Alpha Limits]");
+        for limit in memory["alpha_limits"].as_array().unwrap() {
+            println!("  - {}", limit.as_str().unwrap_or("?"));
+        }
+        println!();
+        println!("[Access Methods]");
+        for method in readback["access_methods"].as_array().unwrap() {
+            println!("  - {}", method.as_str().unwrap_or("?"));
+        }
+        println!();
+        println!("NON_AUTHORIZING_READBACK: This is a read-only actor memory overview.");
+        println!("It inspects configured memory state without mutating facts, episodes, or observations.");
+    }
+
+    Ok(())
+}
+
+/// Recursively redact sensitive fields from a journal Value for display.
+/// Replaces `content_preview` and `payload` keys at any nesting depth
+/// with a redacted marker, preventing secret exposure through readback JSON.
+fn redact_journal_value(v: serde_json::Value) -> serde_json::Value {
+    const REDACTED: &str = "[REDACTED: journal readback — use raw journal file for full detail]";
+    match v {
+        serde_json::Value::Object(map) => {
+            let mut redacted = serde_json::Map::new();
+            for (k, val) in map {
+                let key_lower = k.to_lowercase();
+                if key_lower == "content_preview"
+                    || key_lower == "payload"
+                    || key_lower == "simulation_payload"
+                    || key_lower == "raw_content"
+                {
+                    redacted.insert(k, serde_json::Value::String(REDACTED.to_owned()));
+                } else {
+                    redacted.insert(k, redact_journal_value(val));
+                }
+            }
+            serde_json::Value::Object(redacted)
+        }
+        serde_json::Value::Array(arr) => {
+            serde_json::Value::Array(arr.into_iter().map(redact_journal_value).collect())
+        }
+        other => other,
+    }
+}
+
+/// Show read-only actor journal readback: LLM journal entries
+/// from actor-run and actor-session interactions.
+fn actor_journal_readback(args: ActorJournalArgs) -> Result<(), Box<dyn Error>> {
+    let journal = global_llm_journal().lock().unwrap();
+    let all_entries = journal.all_entries();
+
+    // Filter by interaction type if specified
+    let filtered: Vec<_> = if let Some(ref filter_type) = args.interaction_type {
+        let filter_lower = filter_type.to_lowercase();
+        all_entries
+            .iter()
+            .filter(|e| {
+                let type_str = format!("{:?}", e.interaction_type).to_lowercase();
+                type_str.contains(&filter_lower)
+            })
+            .collect()
+    } else {
+        // Default: show actor-run entries (direct_tool_call with objective=actor_run)
+        all_entries
+            .iter()
+            .filter(|e| {
+                e.interaction_type
+                    == arpagona_agent_core::llm_journal::LlmInteractionType::DirectToolCall
+                    && e.objective.as_deref() == Some("actor_run")
+            })
+            .collect()
+    };
+
+    let limit = args.limit.min(filtered.len());
+    let entries: Vec<_> = filtered.iter().rev().take(limit).collect();
+
+    if args.json {
+        let json_entries: Vec<serde_json::Value> = entries
+            .iter()
+            .map(|e| {
+                serde_json::json!({
+                    "id": e.id,
+                    "created_at": e.created_at,
+                    "interaction_type": format!("{:?}", e.interaction_type),
+                    "provider": e.provider,
+                    "model": e.model,
+                    "objective": e.objective,
+                    "prompt_summary": e.prompt_summary,
+                    "response_summary": e.response_summary,
+                    "tool_call_intents": e.tool_call_intents.as_ref().map(|v| redact_journal_value(v.clone())),
+                    "decision_gate_outcomes": e.decision_gate_outcomes.as_ref().map(|v| redact_journal_value(v.clone())),
+                    "risk_level": e.risk_level,
+                })
+            })
+            .collect();
+        let output = serde_json::json!({
+            "total_entries": journal.len(),
+            "displayed_entries": entries.len(),
+            "filter": args.interaction_type,
+            "entries": json_entries,
+            "readback_warning": "NON_AUTHORIZING_READBACK: Read-only LLM journal readback. No Decision Gate boundaries crossed."
+        });
+        println!("{}", serde_json::to_string_pretty(&output)?);
+    } else {
+        println!("[Actor Journal Readback] — {} entries total", journal.len());
+        println!("Showing {} most recent actor-run entries:", entries.len());
+        println!();
+        for (i, entry) in entries.iter().enumerate() {
+            let created = entry.created_at.format("%Y-%m-%d %H:%M:%S");
+            println!(
+                "  #{:<4} | {:<12} | {}",
+                entries.len() - i,
+                format!("{:?}", entry.interaction_type),
+                created
+            );
+            println!("        | provider: {}", entry.provider);
+            if let Some(ref model) = entry.model {
+                println!("        | model: {}", model);
+            }
+            if let Some(ref obj) = entry.objective {
+                let preview: &str = &obj[..obj.len().min(80)];
+                println!("        | objective: {}", preview);
+            }
+            println!(
+                "        | prompt: {}",
+                &entry.prompt_summary[..entry.prompt_summary.len().min(120)]
+            );
+            println!(
+                "        | response: {}",
+                &entry.response_summary[..entry.response_summary.len().min(120)]
+            );
+            if let Some(ref dg) = entry.decision_gate_outcomes {
+                println!(
+                    "        | decision_gate: {}",
+                    serde_json::to_string(&redact_journal_value(dg.clone())).unwrap_or_default()
+                );
+            }
+            if let Some(ref rl) = entry.risk_level {
+                println!("        | risk_level: {:?}", rl);
+            }
+            println!();
+        }
+        println!("NON_AUTHORIZING_READBACK: Read-only LLM journal readback.");
+    }
+
+    Ok(())
+}
+
 /// Run the Neutral Orchestrator deterministic cycle and display the result.
 /// Run an objective through the in-process orchestrator with clean, readable output.
 ///
@@ -16818,6 +17162,144 @@ mod tests {
             std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| handle_run(args).ok()));
         // Should not panic — the function should complete without error
         assert!(result.is_ok(), "handle_run should not panic");
+    }
+
+    // ── Actor Readback parse tests ──────────────────────────────────
+
+    #[test]
+    fn actor_status_parses_with_defaults() {
+        let cli = Cli::parse_from(["arpagona", "actor", "status"]);
+        match cli.command {
+            Command::Actor(ActorCommand {
+                command: ActorSubcommand::Status(args),
+            }) => {
+                assert!(!args.json);
+            }
+            _ => panic!("expected actor status"),
+        }
+    }
+
+    #[test]
+    fn actor_status_parses_with_json() {
+        let cli = Cli::parse_from(["arpagona", "actor", "status", "--json"]);
+        match cli.command {
+            Command::Actor(ActorCommand {
+                command: ActorSubcommand::Status(args),
+            }) => {
+                assert!(args.json);
+            }
+            _ => panic!("expected actor status --json"),
+        }
+    }
+
+    #[test]
+    fn actor_memory_parses_with_defaults() {
+        let cli = Cli::parse_from(["arpagona", "actor", "memory"]);
+        match cli.command {
+            Command::Actor(ActorCommand {
+                command: ActorSubcommand::Memory(args),
+            }) => {
+                assert!(!args.json);
+            }
+            _ => panic!("expected actor memory"),
+        }
+    }
+
+    #[test]
+    fn actor_memory_parses_with_json() {
+        let cli = Cli::parse_from(["arpagona", "actor", "memory", "--json"]);
+        match cli.command {
+            Command::Actor(ActorCommand {
+                command: ActorSubcommand::Memory(args),
+            }) => {
+                assert!(args.json);
+            }
+            _ => panic!("expected actor memory --json"),
+        }
+    }
+
+    #[test]
+    fn actor_journal_parses_with_defaults() {
+        let cli = Cli::parse_from(["arpagona", "actor", "journal"]);
+        match cli.command {
+            Command::Actor(ActorCommand {
+                command: ActorSubcommand::Journal(args),
+            }) => {
+                assert_eq!(args.limit, 10);
+                assert!(args.interaction_type.is_none());
+                assert!(!args.json);
+            }
+            _ => panic!("expected actor journal"),
+        }
+    }
+
+    #[test]
+    fn actor_journal_parses_with_limit() {
+        let cli = Cli::parse_from(["arpagona", "actor", "journal", "--limit", "5"]);
+        match cli.command {
+            Command::Actor(ActorCommand {
+                command: ActorSubcommand::Journal(args),
+            }) => {
+                assert_eq!(args.limit, 5);
+            }
+            _ => panic!("expected actor journal --limit"),
+        }
+    }
+
+    #[test]
+    fn actor_journal_parses_with_interaction_type() {
+        let cli = Cli::parse_from([
+            "arpagona",
+            "actor",
+            "journal",
+            "--interaction-type",
+            "direct_tool_call",
+        ]);
+        match cli.command {
+            Command::Actor(ActorCommand {
+                command: ActorSubcommand::Journal(args),
+            }) => {
+                assert_eq!(args.interaction_type.as_deref(), Some("direct_tool_call"));
+            }
+            _ => panic!("expected actor journal --interaction-type"),
+        }
+    }
+
+    #[test]
+    fn actor_journal_parses_with_json() {
+        let cli = Cli::parse_from(["arpagona", "actor", "journal", "--json"]);
+        match cli.command {
+            Command::Actor(ActorCommand {
+                command: ActorSubcommand::Journal(args),
+            }) => {
+                assert!(args.json);
+            }
+            _ => panic!("expected actor journal --json"),
+        }
+    }
+
+    #[test]
+    fn actor_journal_parses_with_all_options() {
+        let cli = Cli::parse_from([
+            "arpagona",
+            "actor",
+            "journal",
+            "--limit",
+            "3",
+            "--interaction-type",
+            "synthesis",
+            "--json",
+        ]);
+        match cli.command {
+            Command::Actor(ActorCommand {
+                command: ActorSubcommand::Journal(args),
+            }) => {
+                assert_eq!(args.limit, 3);
+                assert_eq!(args.interaction_type.as_deref(), Some("synthesis"));
+                assert!(args.json);
+            }
+            _ => panic!("expected actor journal with all options"),
+        }
     }
 
     // ── Orchestrator insights-collect parser tests ──────────────────────────
