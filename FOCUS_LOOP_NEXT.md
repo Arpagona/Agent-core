@@ -1,11 +1,12 @@
 # ARPAGONA Agent Core — Next Focus Loop Handoff
 
-## Current status (DEEP 2026-05-31T04:53 UTC — process plan V0 implemented)
+## Current status (GONA 2026-05-31T07:45 UTC — process plan V0 merged)
 
 - GitHub/source of truth: `/home/thibaud/arpagona-agent-core`, branch `main`, remote `git@github.com:Arpagona/Agent-core.git`.
-- Local `main` is synced with `origin/main` at `845661caefb00f024e3ae8ea5b132bb99ee341f4`.
-- Open PR list is empty (PR #244 auto-merged).
+- Local `main` is synced with `origin/main` at `733d4b4c8c8456a70582d39e9aa151da3fb5e41f`.
+- Open PR list was empty immediately after merging PR #245.
 - PR #244 merged: process run journal/status V0 — durable, inspectable run records with run IDs, persisted journal, and status readback.
+- PR #245 merged: `arpagona process plan daily-validation` — read-only inspection of the daily-validation process.
 
 ## Functional capability now available
 
@@ -17,14 +18,13 @@
 - `arpagona process run daily-validation` runs a Babysitter-inspired quality-gated V0 workflow: doctor → `cargo fmt -- --check` → `cargo check` → `cargo test`.
 - Every `process run` invocation gets a deterministic run ID and persists a durable JSON journal at `~/.arpagona/process-journal/<run_id>.json`.
 - `arpagona process status --last` and `arpagona process status <run-id>` provide readback of past run records.
+- `arpagona process plan daily-validation` shows the process steps without executing doctor/cargo or writing journals.
 
 ## Latest local verification
 
-- `git log --oneline -1`: `4d91060 feat: process run journal/status V0 — durable, inspectable run records`
-- Working tree clean: `git status --porcelain` is empty.
-- `cargo fmt -- --check`: clean.
-- `cargo check`: clean.
-- `cargo test --package arpagona-cli`: 232 tests pass (219 unit + 6 process integration + 10 snapshot).
+- `arpagona process plan daily-validation --json`: valid JSON, `total_steps: 4`, read-only description.
+- PR #245 CI: green before merge.
+- Repository state after sync: `main...origin/main`, clean.
 
 ## Constraints still active
 
@@ -37,20 +37,9 @@
 - No hidden external effects; local-only except Ollama readiness checks already covered by doctor.
 - Auto-merge clean/green/scope-exact PRs; stop/report on CI red, scope drift, or governance doubt.
 
-## Recommended next brick
+## Recommended next priorities
 
-Process run V1 options, still bounded:
-
-1. `arpagona process plan daily-validation` — inspect the quality-gated process without running it.
-2. A second hardcoded process (e.g. `bugfix-red-baseline`).
-3. Process run resume semantics (continue from blocked step after fix).
-4. `arpagona process list` — show all past run journals.
-
-## Active brick — PR #245
-
-- Brick: `arpagona process plan daily-validation` — inspect the quality-gated process without running it.
-- Status: implemented, open PR for governance review.
-- Scope: read-only process inspection, no doctor/cargo/journal writes.
-- Branch: `feat/process-plan-v0`
-
-Do not start DeepSeek or self-improvement until the process runtime has durable journal/status/resume semantics.
+1. Process observability V1: add `arpagona process list` to enumerate journaled process runs.
+2. Process recovery V0: design/implement bounded resume semantics for blocked process runs.
+3. Product validation: run the full local Beta Usage Lab with `qwen3.5:9b` through the new process/doctor surfaces.
+4. Only after the above: evaluate next provider/self-improvement bricks. Do not start DeepSeek or self-improvement until process list/status/resume are solid.
