@@ -108,6 +108,18 @@ fn ensure_journal_dir() -> Result<PathBuf, Box<dyn Error>> {
     Ok(dir)
 }
 
+/// Return the path to the process journal directory WITHOUT creating it.
+fn journal_dir_path() -> Result<PathBuf, Box<dyn Error>> {
+    let home = std::env::home_dir()
+        .ok_or_else(|| "Could not determine home directory".to_owned())?
+        .to_string_lossy()
+        .to_string();
+    let dir = PathBuf::from(home)
+        .join(ARPAGONA_STATE_DIR)
+        .join(PROCESS_JOURNAL_DIR);
+    Ok(dir)
+}
+
 /// Generate a deterministic run ID for a process run.
 fn generate_run_id(process_name: &str) -> String {
     let now = Utc::now();
@@ -3366,8 +3378,10 @@ fn process_plan(args: ProcessPlanArgs) -> Result<(), Box<dyn Error>> {
 ///
 /// Reads the journal directory and returns a summary of each run,
 /// newest first. Read-only — no doctor, no cargo, no journal writes.
+/// Does NOT create the journal directory — if it doesn't exist the
+/// result is an empty list.
 fn process_list(args: ProcessListArgs) -> Result<(), Box<dyn Error>> {
-    let dir = ensure_journal_dir()?;
+    let dir = journal_dir_path()?;
     let json_output = args.json;
 
     // Read journal files and deserialize each

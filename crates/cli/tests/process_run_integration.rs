@@ -662,3 +662,85 @@ fn process_list_corrupt_journal_does_not_panic() {
         stdout
     );
 }
+
+/// process list does NOT create the journal directory — read-only means
+/// no state creation, not even the parent directory.
+#[test]
+fn process_list_does_not_create_journal_dir() {
+    let test_id = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_nanos();
+    let home_dir = std::env::temp_dir().join(format!("arpagona-test-{test_id}"));
+
+    // Run `process list` against a pristine HOME (no .arpagona exists)
+    let output = std::process::Command::new(ARPAGONA_BIN)
+        .args(["process", "list"])
+        .env("HOME", &home_dir)
+        .output()
+        .expect("failed to run process list");
+
+    // Must exit successfully
+    assert!(
+        output.status.success(),
+        "process list on empty HOME should exit successfully.\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    // Must NOT have created the journal directory
+    let journal_dir = home_dir.join(".arpagona").join("process-journal");
+    assert!(
+        !journal_dir.exists(),
+        "process list must not create the journal directory. Found: {}",
+        journal_dir.display()
+    );
+
+    let _ = std::fs::remove_dir_all(&home_dir);
+}
+
+/// process list --json does NOT create the journal directory either.
+#[test]
+fn process_list_json_does_not_create_journal_dir() {
+    let test_id = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_nanos();
+    let home_dir = std::env::temp_dir().join(format!("arpagona-test-{test_id}"));
+
+    let output = std::process::Command::new(ARPAGONA_BIN)
+        .args(["process", "list", "--json"])
+        .env("HOME", &home_dir)
+        .output()
+        .expect("failed to run process list --json");
+
+    assert!(
+        output.status.success(),
+        "process list --json on empty HOME should exit successfully.\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    // Must NOT have created the journal directory
+    let journal_dir = home_dir.join(".arpagona").join("process-journal");
+    assert!(
+        !journal_dir.exists(),
+        "process list --json must not create the journal directory. Found: {}",
+        journal_dir.display()
+    );
+
+    // Also verify the JSON output is valid and shows total=0
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let parsed: serde_json::Value =
+        serde_json::from_str(&stdout).expect("process list --json output should be valid JSON");
+    assert_eq!(
+        parsed.get("command").and_then(|v| v.as_str()),
+        Some("process_list"),
+        "JSON should have command=process_list"
+    );
+    assert_eq!(
+        parsed.get("total").and_then(|v| v.as_u64()),
+        Some(0),
+        "JSON should have total=0 for empty journal"
+    );
+
+    let _ = std::fs::remove_dir_all(&home_dir);
+}
