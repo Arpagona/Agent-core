@@ -1,25 +1,20 @@
 # ARPAGONA Agent Core — Next Focus Loop Handoff
 
-This file is the short-lived handoff for the next supervised work run.
+## Current status (DEEP 2026-05-31T03:58 UTC — Babysitter doctor/preflight V0)
 
-## Current status (DEEP 2026-05-30T20:30 UTC — actor readback surfaces implementation)
-
-- DEEP implemented `arpagona actor status`, `arpagona actor memory`, `arpagona actor journal` on branch `feat/actor-readback-surfaces`:
-  - 3 new `ActorSubcommand` variants: `Status`, `Memory`, `Journal`
-  - 3 new args structs with `--json`, `--limit`, `--interaction-type`
-  - 3 read-only readback functions: `actor_status_readback()`, `actor_memory_readback()`, `actor_journal_readback()`
-  - All produce `NON_AUTHORIZING_READBACK` output — pure readback, no mutation paths
-  - 9 new clap parse tests (all passing, 226 total)
-  - Docs: `docs/actor-readback-surfaces-design.md`
-- Branch: `feat/actor-readback-surfaces`
-- PR opened; awaiting Thibaud approval for merge
+- DEEP implemented `arpagona doctor` — a local preflight diagnostic command (Babysitter-inspired)
+- Checks: git state, CLI binary, API server binary, Ollama reachability, qwen3.5:9b model, tool runtime smoke, stale secondary workspace copy
+- Supports both human-readable and `--json` output
+- Baseline validation: all tests pass, CI green, CLI working, safety boundaries intact
+- DV-2026-05-31-001 (API server binary discovery) marked as fixed in PR #238
+- Branch: `feat/doctor-preflight-v0`
+- PR opened; auto-merge if CI green and scope-clear
 
 ## Next action
 
-Wait for Thibaud review and approval. If approved:
-1. Merge PR
-2. Verify CI on main
-3. Plan next roadmap brick
+Wait for PR CI and auto-merge. If merged:
+1. Propose next Babysitter-inspired brick (likely process run V0 / quality-gated workflow skeleton) 
+2. See GONA directive for detailed Phase 2 proposal
 
 ## Constraints (per GONA direction)
 
@@ -28,5 +23,5 @@ Wait for Thibaud review and approval. If approved:
 - No autonomy escalation
 - No Decision Gate bypass
 - No secrets exposure
-- No file writes
-- All output includes NON_AUTHORIZING_READBACK warning
+- Keep PR tight — one brick at a time
+- Doctor/preflight precedes process-as-code work
