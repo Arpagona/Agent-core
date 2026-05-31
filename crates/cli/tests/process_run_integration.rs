@@ -269,6 +269,12 @@ fn process_plan_daily_validation_shows_planned_steps() {
         .output()
         .expect("failed to run process plan daily-validation");
 
+    // Validate that process plan created NO .arpagona state before cleanup
+    assert!(
+        !home_dir.join(".arpagona").exists(),
+        "process plan must not create .arpagona state directory"
+    );
+
     let _ = std::fs::remove_dir_all(&home_dir);
 
     assert!(
