@@ -46,7 +46,7 @@ Process run V1 options, still bounded:
 3. Process run resume semantics (continue from blocked step after fix).
 4. `arpagona process list` — show all past run journals.
 
-## Active brick — PR #[TO BE ASSIGNED]
+## Active brick — PR #245
 
 - Brick: `arpagona process plan daily-validation` — inspect the quality-gated process without running it.
 - Status: implemented, open PR for governance review.
