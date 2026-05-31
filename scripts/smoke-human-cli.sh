@@ -97,6 +97,23 @@ echo "--- Run Command ---"
 run_test "run (basic)"   "$BINARY run 'Test objective' > /dev/null"
 
 echo ""
+echo "--- Actor Commands ---"
+run_test "actor help"        "$BINARY actor --help > /dev/null"
+run_test "actor status"      "$BINARY actor status > /dev/null"
+run_test "actor run (deterministic)" "$BINARY actor run 'read README.md' > /dev/null"
+run_test "actor run --json"  "$BINARY actor run 'list files' --json > /dev/null"
+run_test "actor session --help" "$BINARY actor session --help > /dev/null"
+
+# Ollama intent provider: test Ollama integration if available
+if command -v curl &>/dev/null && curl -s --connect-timeout 1 http://localhost:11434/api/tags >/dev/null 2>&1; then
+  run_test "actor run --intent-provider ollama" "$BINARY actor run 'list files' --intent-provider ollama > /dev/null 2>&1"
+else
+  SKIPPED=$((SKIPPED + 1))
+  TOTAL=$((TOTAL + 1))
+  echo -e "  ${YELLOW}SKIP${NC} actor run --intent-provider ollama (Ollama not reachable on localhost:11434)"
+fi
+
+echo ""
 echo "--- Orchestrator ---"
 run_test "orchestrator help" "$BINARY orchestrator --help > /dev/null"
 
