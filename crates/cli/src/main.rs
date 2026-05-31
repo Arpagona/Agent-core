@@ -12966,20 +12966,42 @@ fn actor_session(args: ActorSessionArgs) -> Result<(), Box<dyn Error>> {
                 break;
             }
             if line == "/help" {
-                println!("Commands:");
-                println!("  /quit or /exit  Exit session");
-                println!("  /help           Show this help");
-                println!("  /status         Show session state");
-                println!("  <task>          Run a task through the governed pipeline");
+                let provider_name = match args.intent_provider {
+                    IntentProviderArg::Deterministic => "deterministic",
+                    IntentProviderArg::Ollama => "ollama",
+                };
+                let mut help_lines = vec![
+                    "Commands:".to_owned(),
+                    "  /quit or /exit  Exit session".to_owned(),
+                    "  /help           Show this help".to_owned(),
+                    "  /status         Show session state".to_owned(),
+                    "  <task>          Run a task through the governed pipeline".to_owned(),
+                    String::new(),
+                    format!("Intent provider: {}", provider_name),
+                ];
+                if let Some(model) = &args.ollama_model {
+                    help_lines.push(format!("Ollama model:     {}", model));
+                }
+                for line in &help_lines {
+                    println!("{}", line);
+                }
                 println!();
                 continue;
             }
             if line == "/status" {
-                println!("Task count: {}", task_count);
+                println!("Task count:      {}", task_count);
                 if let Some(max) = args.max {
-                    println!("Max tasks:  {}", max);
+                    println!("Max tasks:       {}", max);
                 }
-                println!("Session state: active");
+                let provider_name = match args.intent_provider {
+                    IntentProviderArg::Deterministic => "deterministic",
+                    IntentProviderArg::Ollama => "ollama",
+                };
+                println!("Intent provider: {}", provider_name);
+                if let Some(model) = &args.ollama_model {
+                    println!("Ollama model:    {}", model);
+                }
+                println!("Session state:   active");
                 println!();
                 continue;
             }
