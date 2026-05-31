@@ -441,18 +441,70 @@ fn offline_executor_state_file_produces_ready_executor() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
-#[test]
-fn cognitive_propose_pipeline_produces_governed_proposals() {
-    // ── Start API server ──────────────────────────────────────────────────
-    let api_bin = std::env::current_exe()
+/// Resolve or build the `arpagona-api-server` binary needed by this test.
+///
+/// The test binary lives in `target/<profile>/deps/`; the API server binary
+/// lives at `target/<profile>/arpagona-api-server`.  If it hasn't been built
+/// yet (e.g. `cargo test -p arpagona-cli` does not build sibling binaries),
+/// this function runs `cargo build -p arpagona-api-server` as a preflight
+/// step so the test never silently assumes a missing binary.
+fn resolve_api_server_binary() -> std::path::PathBuf {
+    // Compute the expected path from the current test binary location.
+    let expected = std::env::current_exe()
         .ok()
         .and_then(|p| p.parent().map(|p| p.to_owned()))
         .map(|p| {
-            // The test binary lives in target/debug/deps/; the API server
-            // binary is one level up at target/debug/arpagona-api-server
+            // The test binary lives in target/<profile>/deps/; the API server
+            // binary is one level up at target/<profile>/arpagona-api-server
             p.parent().expect("deps parent").join("arpagona-api-server")
         })
-        .expect("api server path");
+        .expect("cannot compute API server binary path from current_exe");
+
+    if expected.exists() {
+        return expected;
+    }
+
+    // Binary not present — build it as a preflight step.
+    eprintln!(
+        "Preflight: API server binary not found at {}, building now...",
+        expected.display()
+    );
+    let status = std::process::Command::new("cargo")
+        .args([
+            "build",
+            "--package",
+            "arpagona-api-server",
+            "--bin",
+            "arpagona-api-server",
+        ])
+        .stdout(std::process::Stdio::inherit())
+        .stderr(std::process::Stdio::inherit())
+        .status()
+        .expect("failed to run cargo build for arpagona-api-server");
+
+    assert!(
+        status.success(),
+        "Preflight: cargo build -p arpagona-api-server failed (exit code: {})\n\
+         The arpagona-api-server binary is required by this integration test.\n\
+         Run `cargo build -p arpagona-api-server` manually to diagnose build errors.",
+        status
+    );
+
+    if !expected.exists() {
+        panic!(
+            "Preflight: cargo build -p arpagona-api-server succeeded but the binary \
+             still does not exist at {}. Check CARGO_TARGET_DIR or build profile.",
+            expected.display()
+        );
+    }
+
+    expected
+}
+
+#[test]
+fn cognitive_propose_pipeline_produces_governed_proposals() {
+    // ── Start API server ──────────────────────────────────────────────────
+    let api_bin = resolve_api_server_binary();
 
     let mut server = std::process::Command::new(&api_bin)
         .stdout(std::process::Stdio::null())
