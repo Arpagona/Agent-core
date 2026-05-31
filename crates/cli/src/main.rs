@@ -60,6 +60,59 @@ fn global_llm_journal() -> &'static Mutex<LlmJournal> {
 }
 
 const DEFAULT_API_URL: &str = "http://127.0.0.1:3000";
+
+// ---------------------------------------------------------------------------
+// Process run journal — durable, inspectable run record
+// ---------------------------------------------------------------------------
+
+/// Directory name under $HOME for ARPAGONA local state.
+const ARPAGONA_STATE_DIR: &str = ".arpagona";
+/// Subdirectory for process run journals.
+const PROCESS_JOURNAL_DIR: &str = "process-journal";
+
+/// Per-step result recorded in a process run journal.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct JournalStepResult {
+    step: usize,
+    name: String,
+    status: String, // "PASSED" | "FAILED"
+    #[serde(skip_serializing_if = "Option::is_none")]
+    detail: Option<String>,
+}
+
+/// Complete process run journal persisted to disk.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct ProcessRunJournal {
+    run_id: String,
+    process: String,
+    started_at: String,
+    ended_at: String,
+    planned_steps: Vec<String>,
+    step_results: Vec<JournalStepResult>,
+    overall_status: String, // "PASSED" | "BLOCKED"
+    #[serde(skip_serializing_if = "Option::is_none")]
+    blocked_at_step: Option<usize>,
+    next_action: String,
+}
+
+/// Return the path to the process journal directory, creating it if needed.
+fn ensure_journal_dir() -> Result<PathBuf, Box<dyn Error>> {
+    let home = std::env::home_dir()
+        .ok_or_else(|| "Could not determine home directory".to_owned())?
+        .to_string_lossy()
+        .to_string();
+    let dir = PathBuf::from(home)
+        .join(ARPAGONA_STATE_DIR)
+        .join(PROCESS_JOURNAL_DIR);
+    std::fs::create_dir_all(&dir)?;
+    Ok(dir)
+}
+
+/// Generate a deterministic run ID for a process run.
+fn generate_run_id(process_name: &str) -> String {
+    let now = Utc::now();
+    format!("{}-{}", process_name, now.format("%Y%m%dT%H%M%S"))
+}
 const DEFAULT_WORKSPACE_ID: &str = "workspace-alpha";
 const DEFAULT_AGENT_ID: &str = "agent-alpha";
 const DEFAULT_TASK_ID: &str = "task-1";
@@ -162,12 +215,27 @@ pub struct DoctorArgs {
 pub enum ProcessCmd {
     /// Run a validation process by name. V0 supports only `daily-validation`.
     Run(ProcessRunArgs),
+    /// Show status of a previous process run. Use --last for most recent
+    /// or pass a specific run ID.
+    Status(ProcessStatusArgs),
 }
 
 #[derive(Debug, Args)]
 pub struct ProcessRunArgs {
     /// Name of the process to run.
     pub name: String,
+    /// Emit structured JSON instead of human-readable text.
+    #[arg(long)]
+    pub json: bool,
+}
+
+#[derive(Debug, Args)]
+pub struct ProcessStatusArgs {
+    /// Show the most recent process run status.
+    #[arg(long)]
+    pub last: bool,
+    /// Optional specific run ID to inspect.
+    pub run_id: Option<String>,
     /// Emit structured JSON instead of human-readable text.
     #[arg(long)]
     pub json: bool,
@@ -2377,6 +2445,7 @@ async fn run() -> Result<(), Box<dyn Error>> {
         Command::Doctor(args) => doctor(args).await?,
         Command::Process(cmd) => match cmd {
             ProcessCmd::Run(args) => process_run(args).await?,
+            ProcessCmd::Status(args) => process_status(args)?,
         },
     }
 
@@ -2717,7 +2786,9 @@ async fn doctor(args: DoctorArgs) -> Result<(), Box<dyn Error>> {
 
 /// Run a quality-gated validation process (Babysitter-inspired).
 ///
-/// V0 supports only `daily-validation`.
+/// V0 supports only `daily-validation`. Generates a run ID, persists a
+/// durable journal at ~/.arpagona/process-journal/, and supports
+/// readback via `arpagona process status --last`.
 async fn process_run(args: ProcessRunArgs) -> Result<(), Box<dyn Error>> {
     let process_name = args.name.as_str();
     if process_name != "daily-validation" {
@@ -2729,6 +2800,8 @@ async fn process_run(args: ProcessRunArgs) -> Result<(), Box<dyn Error>> {
     }
 
     let json_output = args.json;
+    let run_id = generate_run_id("daily-validation");
+    let started_at = Utc::now().to_rfc3339();
 
     // Plan phase
     let steps = vec![
@@ -2737,17 +2810,20 @@ async fn process_run(args: ProcessRunArgs) -> Result<(), Box<dyn Error>> {
         "cargo check — type-check the workspace",
         "cargo test — run full workspace test suite",
     ];
+    let mut step_results: Vec<JournalStepResult> = Vec::new();
 
     if json_output {
         let plan = json!({
             "command": "process_run",
             "process": "daily-validation",
+            "run_id": run_id,
             "phase": "plan",
             "steps": steps
         });
         println!("{}", serde_json::to_string_pretty(&plan)?);
     } else {
         println!("[ARPAGONA process run] daily-validation");
+        println!("Run ID: {}", run_id);
         println!("{}", "=".repeat(46));
         println!("Planned steps:");
         for (i, step) in steps.iter().enumerate() {
@@ -2765,10 +2841,17 @@ async fn process_run(args: ProcessRunArgs) -> Result<(), Box<dyn Error>> {
     let doctor_args = DoctorArgs { json: json_output };
     if let Err(e) = doctor(doctor_args).await {
         let msg = format!("doctor/preflight failed with error: {}", e);
+        step_results.push(JournalStepResult {
+            step: 1,
+            name: "doctor".into(),
+            status: "FAILED".into(),
+            detail: Some(msg.clone()),
+        });
         if json_output {
             let report = json!({
                 "command": "process_run",
                 "process": "daily-validation",
+                "run_id": run_id,
                 "phase": "step_result",
                 "step": 1,
                 "name": "doctor",
@@ -2783,6 +2866,7 @@ async fn process_run(args: ProcessRunArgs) -> Result<(), Box<dyn Error>> {
             let final_report = json!({
                 "command": "process_run",
                 "process": "daily-validation",
+                "run_id": run_id,
                 "phase": "summary",
                 "overall_status": "BLOCKED",
                 "blocked_at_step": 1,
@@ -2796,8 +2880,27 @@ async fn process_run(args: ProcessRunArgs) -> Result<(), Box<dyn Error>> {
                 "Next action: Fix the issue and re-run `arpagona process run daily-validation`."
             );
         }
+        // Write journal even on BLOCKED
+        let journal = ProcessRunJournal {
+            run_id: run_id.clone(),
+            process: "daily-validation".into(),
+            started_at: started_at.clone(),
+            ended_at: Utc::now().to_rfc3339(),
+            planned_steps: steps.iter().map(|s| s.to_string()).collect(),
+            step_results,
+            overall_status: "BLOCKED".into(),
+            blocked_at_step: Some(1),
+            next_action: "Fix the doctor issue and re-run".into(),
+        };
+        persist_journal(&journal);
         return Ok(());
     }
+    step_results.push(JournalStepResult {
+        step: 1,
+        name: "doctor".into(),
+        status: "PASSED".into(),
+        detail: None,
+    });
     if !json_output {
         println!("[OK] Step 1/4: doctor passed");
         println!();
@@ -2812,10 +2915,17 @@ async fn process_run(args: ProcessRunArgs) -> Result<(), Box<dyn Error>> {
         .output();
     match fmt_result {
         Ok(output) if output.status.success() => {
+            step_results.push(JournalStepResult {
+                step: 2,
+                name: "cargo_fmt".into(),
+                status: "PASSED".into(),
+                detail: None,
+            });
             if json_output {
                 let report = json!({
                     "command": "process_run",
                     "process": "daily-validation",
+                    "run_id": run_id,
                     "phase": "step_result",
                     "step": 2,
                     "name": "cargo_fmt",
@@ -2829,10 +2939,17 @@ async fn process_run(args: ProcessRunArgs) -> Result<(), Box<dyn Error>> {
         Ok(output) => {
             let stderr = String::from_utf8_lossy(&output.stderr);
             let msg = format!("cargo fmt -- --check failed:\n{}", stderr);
+            step_results.push(JournalStepResult {
+                step: 2,
+                name: "cargo_fmt".into(),
+                status: "FAILED".into(),
+                detail: Some(msg.clone()),
+            });
             if json_output {
                 let report = json!({
                     "command": "process_run",
                     "process": "daily-validation",
+                    "run_id": run_id,
                     "phase": "step_result",
                     "step": 2,
                     "name": "cargo_fmt",
@@ -2847,6 +2964,7 @@ async fn process_run(args: ProcessRunArgs) -> Result<(), Box<dyn Error>> {
                 let final_report = json!({
                     "command": "process_run",
                     "process": "daily-validation",
+                    "run_id": run_id,
                     "phase": "summary",
                     "overall_status": "BLOCKED",
                     "blocked_at_step": 2,
@@ -2858,14 +2976,33 @@ async fn process_run(args: ProcessRunArgs) -> Result<(), Box<dyn Error>> {
                 println!("[BLOCKED] Process stopped at step 2 (cargo fmt).");
                 println!("Next action: Run `cargo fmt` to fix formatting, then re-run.");
             }
+            let journal = ProcessRunJournal {
+                run_id: run_id.clone(),
+                process: "daily-validation".into(),
+                started_at: started_at.clone(),
+                ended_at: Utc::now().to_rfc3339(),
+                planned_steps: steps.iter().map(|s| s.to_string()).collect(),
+                step_results,
+                overall_status: "BLOCKED".into(),
+                blocked_at_step: Some(2),
+                next_action: "Run `cargo fmt` and re-run".into(),
+            };
+            persist_journal(&journal);
             return Ok(());
         }
         Err(e) => {
             let msg = format!("Failed to run cargo fmt: {}", e);
+            step_results.push(JournalStepResult {
+                step: 2,
+                name: "cargo_fmt".into(),
+                status: "FAILED".into(),
+                detail: Some(msg.clone()),
+            });
             if json_output {
                 let report = json!({
                     "command": "process_run",
                     "process": "daily-validation",
+                    "run_id": run_id,
                     "phase": "step_result",
                     "step": 2,
                     "name": "cargo_fmt",
@@ -2890,10 +3027,17 @@ async fn process_run(args: ProcessRunArgs) -> Result<(), Box<dyn Error>> {
     let check_result = ProcessCommand::new("cargo").args(["check"]).output();
     match check_result {
         Ok(output) if output.status.success() => {
+            step_results.push(JournalStepResult {
+                step: 3,
+                name: "cargo_check".into(),
+                status: "PASSED".into(),
+                detail: None,
+            });
             if json_output {
                 let report = json!({
                     "command": "process_run",
                     "process": "daily-validation",
+                    "run_id": run_id,
                     "phase": "step_result",
                     "step": 3,
                     "name": "cargo_check",
@@ -2907,10 +3051,17 @@ async fn process_run(args: ProcessRunArgs) -> Result<(), Box<dyn Error>> {
         Ok(output) => {
             let stderr = String::from_utf8_lossy(&output.stderr);
             let msg = format!("cargo check failed:\n{}", stderr);
+            step_results.push(JournalStepResult {
+                step: 3,
+                name: "cargo_check".into(),
+                status: "FAILED".into(),
+                detail: Some(msg.clone()),
+            });
             if json_output {
                 let report = json!({
                     "command": "process_run",
                     "process": "daily-validation",
+                    "run_id": run_id,
                     "phase": "step_result",
                     "step": 3,
                     "name": "cargo_check",
@@ -2925,6 +3076,7 @@ async fn process_run(args: ProcessRunArgs) -> Result<(), Box<dyn Error>> {
                 let final_report = json!({
                     "command": "process_run",
                     "process": "daily-validation",
+                    "run_id": run_id,
                     "phase": "summary",
                     "overall_status": "BLOCKED",
                     "blocked_at_step": 3,
@@ -2936,14 +3088,33 @@ async fn process_run(args: ProcessRunArgs) -> Result<(), Box<dyn Error>> {
                 println!("[BLOCKED] Process stopped at step 3 (cargo check).");
                 println!("Next action: Fix type-check errors and re-run.");
             }
+            let journal = ProcessRunJournal {
+                run_id: run_id.clone(),
+                process: "daily-validation".into(),
+                started_at: started_at.clone(),
+                ended_at: Utc::now().to_rfc3339(),
+                planned_steps: steps.iter().map(|s| s.to_string()).collect(),
+                step_results,
+                overall_status: "BLOCKED".into(),
+                blocked_at_step: Some(3),
+                next_action: "Fix type errors and re-run".into(),
+            };
+            persist_journal(&journal);
             return Ok(());
         }
         Err(e) => {
             let msg = format!("Failed to run cargo check: {}", e);
+            step_results.push(JournalStepResult {
+                step: 3,
+                name: "cargo_check".into(),
+                status: "FAILED".into(),
+                detail: Some(msg.clone()),
+            });
             if json_output {
                 let report = json!({
                     "command": "process_run",
                     "process": "daily-validation",
+                    "run_id": run_id,
                     "phase": "step_result",
                     "step": 3,
                     "name": "cargo_check",
@@ -2970,11 +3141,18 @@ async fn process_run(args: ProcessRunArgs) -> Result<(), Box<dyn Error>> {
     match test_result {
         Ok(output) if output.status.success() => {
             let stdout = String::from_utf8_lossy(&output.stdout);
+            step_results.push(JournalStepResult {
+                step: 4,
+                name: "cargo_test".into(),
+                status: "PASSED".into(),
+                detail: None,
+            });
             if json_output {
                 let lines: Vec<&str> = stdout.lines().collect();
                 let report = json!({
                     "command": "process_run",
                     "process": "daily-validation",
+                    "run_id": run_id,
                     "phase": "step_result",
                     "step": 4,
                     "name": "cargo_test",
@@ -2994,10 +3172,17 @@ async fn process_run(args: ProcessRunArgs) -> Result<(), Box<dyn Error>> {
                 "cargo test had failures.\nstdout:\n{}\nstderr:\n{}",
                 stdout, stderr
             );
+            step_results.push(JournalStepResult {
+                step: 4,
+                name: "cargo_test".into(),
+                status: "FAILED".into(),
+                detail: Some(msg.clone()),
+            });
             if json_output {
                 let report = json!({
                     "command": "process_run",
                     "process": "daily-validation",
+                    "run_id": run_id,
                     "phase": "step_result",
                     "step": 4,
                     "name": "cargo_test",
@@ -3012,6 +3197,7 @@ async fn process_run(args: ProcessRunArgs) -> Result<(), Box<dyn Error>> {
                 let final_report = json!({
                     "command": "process_run",
                     "process": "daily-validation",
+                    "run_id": run_id,
                     "phase": "summary",
                     "overall_status": "BLOCKED",
                     "blocked_at_step": 4,
@@ -3023,14 +3209,33 @@ async fn process_run(args: ProcessRunArgs) -> Result<(), Box<dyn Error>> {
                 println!("[BLOCKED] Process stopped at step 4 (cargo test).");
                 println!("Next action: Fix failing tests and re-run.");
             }
+            let journal = ProcessRunJournal {
+                run_id: run_id.clone(),
+                process: "daily-validation".into(),
+                started_at: started_at.clone(),
+                ended_at: Utc::now().to_rfc3339(),
+                planned_steps: steps.iter().map(|s| s.to_string()).collect(),
+                step_results,
+                overall_status: "BLOCKED".into(),
+                blocked_at_step: Some(4),
+                next_action: "Fix failing tests and re-run".into(),
+            };
+            persist_journal(&journal);
             return Ok(());
         }
         Err(e) => {
             let msg = format!("Failed to run cargo test: {}", e);
+            step_results.push(JournalStepResult {
+                step: 4,
+                name: "cargo_test".into(),
+                status: "FAILED".into(),
+                detail: Some(msg.clone()),
+            });
             if json_output {
                 let report = json!({
                     "command": "process_run",
                     "process": "daily-validation",
+                    "run_id": run_id,
                     "phase": "step_result",
                     "step": 4,
                     "name": "cargo_test",
@@ -3048,11 +3253,25 @@ async fn process_run(args: ProcessRunArgs) -> Result<(), Box<dyn Error>> {
         println!();
     }
 
-    // Summary
+    // Summary — all passed
+    let journal = ProcessRunJournal {
+        run_id: run_id.clone(),
+        process: "daily-validation".into(),
+        started_at: started_at.clone(),
+        ended_at: Utc::now().to_rfc3339(),
+        planned_steps: steps.iter().map(|s| s.to_string()).collect(),
+        step_results,
+        overall_status: "PASSED".into(),
+        blocked_at_step: None,
+        next_action: "No issues found. System is healthy.".into(),
+    };
+    persist_journal(&journal);
+
     if json_output {
         let final_report = json!({
             "command": "process_run",
             "process": "daily-validation",
+            "run_id": run_id,
             "phase": "summary",
             "overall_status": "PASSED",
             "next_action": "No issues found. System is healthy."
@@ -3061,8 +3280,103 @@ async fn process_run(args: ProcessRunArgs) -> Result<(), Box<dyn Error>> {
     } else {
         println!("{}", "=".repeat(46));
         println!("[ARPAGONA process run] daily-validation — PASSED");
+        println!("Run ID: {}", run_id);
         println!("All 4 steps completed successfully.");
         println!("Next action: No issues found. System is healthy.");
+    }
+
+    Ok(())
+}
+
+/// Persist a process run journal to disk.
+fn persist_journal(journal: &ProcessRunJournal) {
+    let dir = match ensure_journal_dir() {
+        Ok(d) => d,
+        Err(e) => {
+            eprintln!("[WARN] Could not create process journal dir: {}", e);
+            return;
+        }
+    };
+    let path = dir.join(format!("{}.json", journal.run_id));
+    let json = match serde_json::to_string_pretty(journal) {
+        Ok(j) => j,
+        Err(e) => {
+            eprintln!("[WARN] Could not serialize process journal: {}", e);
+            return;
+        }
+    };
+    if let Err(e) = std::fs::write(&path, &json) {
+        eprintln!(
+            "[WARN] Could not write process journal: {}: {}",
+            path.display(),
+            e
+        );
+    }
+}
+
+/// Show status of a previous process run.
+fn process_status(args: ProcessStatusArgs) -> Result<(), Box<dyn Error>> {
+    let dir = ensure_journal_dir()?;
+
+    // Determine which journal file to read
+    let journal_path = if let Some(run_id) = &args.run_id {
+        let path = dir.join(format!("{}.json", run_id));
+        if !path.exists() {
+            eprintln!("[ERROR] No journal found for run ID '{}'.", run_id);
+            eprintln!("        Looked in: {}", dir.display());
+            eprintln!("        Use --last to see the most recent run.");
+            std::process::exit(1);
+        }
+        path
+    } else if args.last {
+        // Find the most recent .json file in the journal dir
+        let mut entries: Vec<_> = std::fs::read_dir(&dir)?
+            .filter_map(|e| e.ok())
+            .filter(|e| e.path().extension().map_or(false, |ext| ext == "json"))
+            .collect();
+        entries
+            .sort_by_key(|e| std::cmp::Reverse(e.metadata().ok().and_then(|m| m.modified().ok())));
+        match entries.into_iter().next() {
+            Some(entry) => entry.path(),
+            None => {
+                eprintln!("[ERROR] No process run journals found in {}", dir.display());
+                eprintln!("        Run `arpagona process run daily-validation` first.");
+                std::process::exit(1);
+            }
+        }
+    } else {
+        eprintln!("[ERROR] Specify --last or a run ID.");
+        eprintln!("        Examples:");
+        eprintln!("          arpagona process status --last");
+        eprintln!("          arpagona process status daily-validation-20260531T043751");
+        std::process::exit(1);
+    };
+
+    let content = std::fs::read_to_string(&journal_path)?;
+    let journal: ProcessRunJournal = serde_json::from_str(&content)?;
+
+    if args.json {
+        println!("{}", serde_json::to_string_pretty(&journal)?);
+    } else {
+        println!("Process run status");
+        println!("{}", "=".repeat(46));
+        println!("Run ID:      {}", journal.run_id);
+        println!("Process:     {}", journal.process);
+        println!("Started:     {}", journal.started_at);
+        println!("Ended:       {}", journal.ended_at);
+        println!("Status:      {}", journal.overall_status);
+        if let Some(step) = journal.blocked_at_step {
+            println!("Blocked at:  Step {}", step);
+        }
+        println!();
+        println!("Steps:");
+        for (i, step_name) in journal.planned_steps.iter().enumerate() {
+            let result = journal.step_results.iter().find(|r| r.step == i + 1);
+            let status = result.map(|r| r.status.as_str()).unwrap_or("PENDING");
+            println!("  {}. {} — [{}]", i + 1, step_name, status);
+        }
+        println!();
+        println!("Next action: {}", journal.next_action);
     }
 
     Ok(())
