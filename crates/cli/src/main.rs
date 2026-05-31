@@ -142,6 +142,16 @@ enum Command {
     Compute(ComputeCommand),
     /// Run the Neutral Orchestrator deterministic cycle.
     Orchestrator(OrchestratorCommand),
+    /// Run a local system preflight / diagnostic check (Babysitter-inspired doctor).
+    /// Checks repo state, binary availability, Ollama, tool runtime, and stale workspace copies.
+    Doctor(DoctorArgs),
+}
+
+#[derive(Debug, Args)]
+pub struct DoctorArgs {
+    /// Emit structured JSON instead of human-readable text.
+    #[arg(long)]
+    pub json: bool,
 }
 
 /// Top-level `run` command: in-process orchestrator with clean readable output.
@@ -2345,6 +2355,7 @@ async fn run() -> Result<(), Box<dyn Error>> {
             ActorSubcommand::Memory(args) => actor_memory_readback(args)?,
             ActorSubcommand::Journal(args) => actor_journal_readback(args)?,
         },
+        Command::Doctor(args) => doctor(args).await?,
     }
 
     Ok(())
@@ -2357,6 +2368,258 @@ fn serve() -> Result<(), Box<dyn Error>> {
 
     if !status.success() {
         return Err(format!("arpagona-api-server exited with {status}").into());
+    }
+
+    Ok(())
+}
+
+/// Run local system preflight / diagnostic checks (Babysitter-inspired doctor).
+///
+/// Checks:
+///   1. Git repo state — clean working tree, HEAD matches origin/main
+///   2. arpagona CLI binary availability
+///   3. arpagona-api-server binary availability
+///   4. Ollama endpoint reachability
+///   5. qwen3.5:9b model availability via Ollama
+///   6. Tool runtime safety smoke — can read a known workspace file
+///   7. Stale secondary workspace copy warning
+///
+/// Output is human-readable by default; `--json` emits structured JSON.
+async fn doctor(args: DoctorArgs) -> Result<(), Box<dyn Error>> {
+    let mut checks: Vec<(String, String, bool)> = Vec::new();
+
+    // 1. Git repo state
+    let head = ProcessCommand::new("git")
+        .args(["rev-parse", "HEAD"])
+        .output()
+        .ok()
+        .and_then(|o| {
+            if o.status.success() {
+                String::from_utf8(o.stdout).ok()
+            } else {
+                None
+            }
+        })
+        .map(|s| s.trim().to_owned());
+    let status_out = ProcessCommand::new("git")
+        .args(["status", "--porcelain"])
+        .output()
+        .ok()
+        .map(|o| String::from_utf8(o.stdout).unwrap_or_default());
+    let clean = status_out
+        .as_ref()
+        .map(|s| s.trim().is_empty())
+        .unwrap_or(false);
+    let behind = ProcessCommand::new("git")
+        .args(["rev-list", "--count", "HEAD..origin/main"])
+        .output()
+        .ok()
+        .and_then(|o| {
+            if o.status.success() {
+                String::from_utf8(o.stdout).ok()
+            } else {
+                None
+            }
+        })
+        .map(|s| s.trim().parse::<usize>().unwrap_or(0))
+        .unwrap_or(0);
+    let git_detail = format!(
+        "HEAD: {} | clean: {} | behind origin/main: {}",
+        head.as_deref().unwrap_or("unknown"),
+        if clean { "yes" } else { "NO" },
+        behind
+    );
+    checks.push(("git_state".into(), git_detail, clean && behind == 0));
+
+    // 2. CLI binary
+    let cli_path = PathBuf::from("target/debug/arpagona");
+    let cli_ok = cli_path.exists();
+    checks.push((
+        "cli_binary".into(),
+        format!(
+            "target/debug/arpagona: {}",
+            if cli_ok { "found" } else { "MISSING" }
+        ),
+        cli_ok,
+    ));
+
+    // 3. API server binary
+    let api_path = PathBuf::from("target/debug/arpagona-api-server");
+    let api_ok = api_path.exists();
+    checks.push((
+        "api_server_binary".into(),
+        format!(
+            "target/debug/arpagona-api-server: {}",
+            if api_ok { "found" } else { "MISSING" }
+        ),
+        api_ok,
+    ));
+
+    // 4. Ollama endpoint reachability
+    let ollama_endpoint =
+        std::env::var("OLLAMA_ENDPOINT").unwrap_or_else(|_| "http://localhost:11434".to_owned());
+    let ollama_reachable = check_ollama_reachable(&ollama_endpoint).await;
+    checks.push((
+        "ollama".into(),
+        format!(
+            "endpoint: {} | reachable: {}",
+            ollama_endpoint,
+            if ollama_reachable { "yes" } else { "NO" }
+        ),
+        ollama_reachable,
+    ));
+
+    // 5. qwen3.5:9b model availability
+    let model_ok = if ollama_reachable {
+        let url = format!("{}/api/tags", ollama_endpoint.trim_end_matches('/'));
+        let client = reqwest::Client::builder()
+            .timeout(std::time::Duration::from_secs(5))
+            .build()?;
+        let resp = client.get(&url).send().await;
+        match resp {
+            Ok(r) if r.status().is_success() => {
+                let body: serde_json::Value = r.json().await.unwrap_or(serde_json::Value::Null);
+                let models = body["models"]
+                    .as_array()
+                    .map(|arr| {
+                        arr.iter()
+                            .filter_map(|m| m["name"].as_str())
+                            .collect::<Vec<_>>()
+                    })
+                    .unwrap_or_default();
+                models
+                    .iter()
+                    .any(|m| m.contains("qwen3.5:9b") || m.contains("qwen3.5:9b"))
+            }
+            _ => false,
+        }
+    } else {
+        false
+    };
+    checks.push((
+        "qwen3.5:9b_model".into(),
+        if model_ok {
+            "available".into()
+        } else {
+            "not found or unreachable".into()
+        },
+        model_ok,
+    ));
+
+    // 6. Tool runtime safety smoke
+    let tool_ok = {
+        let config = ToolRuntimeConfig::default();
+        let rt = ToolRuntime::new(config);
+        let result = rt.execute("read_file", &json!({"path": "Cargo.toml"}));
+        match result.status {
+            ToolExecutionStatus::Success | ToolExecutionStatus::Warning => true,
+            _ => false,
+        }
+    };
+    checks.push((
+        "tool_runtime_smoke".into(),
+        format!("read Cargo.toml: {}", if tool_ok { "ok" } else { "FAILED" }),
+        tool_ok,
+    ));
+
+    // 7. Stale secondary workspace copy
+    let secondary = PathBuf::from("/home/thibaud/.openclaw/workspace/arpagona-agent-core");
+    let stale_warning = if secondary.exists() {
+        let secondary_head = ProcessCommand::new("git")
+            .args([
+                "-C",
+                "/home/thibaud/.openclaw/workspace/arpagona-agent-core",
+                "rev-parse",
+                "HEAD",
+            ])
+            .output()
+            .ok()
+            .and_then(|o| {
+                if o.status.success() {
+                    String::from_utf8(o.stdout).ok()
+                } else {
+                    None
+                }
+            })
+            .map(|s| s.trim().to_owned());
+        let secondary_behind = ProcessCommand::new("git")
+            .args([
+                "-C",
+                "/home/thibaud/.openclaw/workspace/arpagona-agent-core",
+                "rev-list",
+                "--count",
+                "HEAD..origin/main",
+            ])
+            .output()
+            .ok()
+            .and_then(|o| {
+                if o.status.success() {
+                    String::from_utf8(o.stdout).ok()
+                } else {
+                    None
+                }
+            })
+            .map(|s| s.trim().parse::<usize>().unwrap_or(0))
+            .unwrap_or(0);
+        if secondary_behind > 0 || secondary_head != head {
+            format!("WARNING: secondary copy at ~/.openclaw/workspace/arpagona-agent-core is {} commits behind origin/main (HEAD: {})",
+                secondary_behind, secondary_head.as_deref().unwrap_or("unknown"))
+        } else {
+            "secondary copy at ~/.openclaw/workspace/arpagona-agent-core is current".to_owned()
+        }
+    } else {
+        "no secondary copy found".to_owned()
+    };
+    let stale_ok = !stale_warning.contains("WARNING");
+    checks.push(("secondary_copy".into(), stale_warning, stale_ok));
+
+    // Output
+    if args.json {
+        let json_results: Vec<serde_json::Value> = checks
+            .iter()
+            .map(|(name, detail, pass)| {
+                json!({
+                    "check": name,
+                    "detail": detail,
+                    "pass": pass
+                })
+            })
+            .collect();
+        let all_pass = checks.iter().all(|(_, _, pass)| *pass);
+        let summary = json!({
+            "command": "doctor",
+            "timestamp": Utc::now().to_rfc3339(),
+            "all_pass": all_pass,
+            "checks": json_results
+        });
+        println!("{}", serde_json::to_string_pretty(&summary)?);
+    } else {
+        let pass_count = checks.iter().filter(|(_, _, pass)| *pass).count();
+        let total = checks.len();
+        println!(
+            "[ARPAGONA doctor] preflight diagnostic — {} / {} checks passing",
+            pass_count, total
+        );
+        println!();
+        for (name, detail, pass) in &checks {
+            let status = if *pass { "[OK]" } else { "[FAIL]" };
+            println!("  {} {}: {}", status, name, detail);
+        }
+        println!();
+        if pass_count == total {
+            println!("All checks pass. System is healthy.");
+        } else {
+            let failing: Vec<&str> = checks
+                .iter()
+                .filter(|(_, _, pass)| !*pass)
+                .map(|(name, _, _)| name.as_str())
+                .collect();
+            println!(
+                "{} check(s) failing: {}",
+                total - pass_count,
+                failing.join(", ")
+            );
+        }
     }
 
     Ok(())
