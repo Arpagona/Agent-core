@@ -1,18 +1,11 @@
 # ARPAGONA Agent Core — Next Focus Loop Handoff
 
-## Current status (GONA 2026-05-31T04:31 UTC — process run V0 merged)
+## Current status (DEEP 2026-05-31T04:44 UTC — process journal/status V0 merged)
 
 - GitHub/source of truth: `/home/thibaud/arpagona-agent-core`, branch `main`, remote `git@github.com:Arpagona/Agent-core.git`.
-- Local `main` is synced with `origin/main` at `125b8c020eaeaedad7a08ae13e20546f9886184c`.
-- Open PR list was empty immediately after merging PR #242.
-- PR #235 merged: Ollama Intent Provider for `actor run/session`.
-- PR #236 merged: Ollama provider hardening / UX / edge-case tests.
-- PR #237 merged: actor memory/status/journal readback surfaces with journal redaction.
-- PR #238 merged: DV-2026-05-31-001 snapshot integration harness now builds/locates `arpagona-api-server` before spawning it.
-- PR #239 merged: `arpagona doctor` local preflight diagnostic.
-- PR #240 merged: canonical handoff/backlog update after doctor merge.
-- PR #241 merged: doctor severity fix + `arpagona process run daily-validation` V0.
-- PR #242 merged: regression tests for doctor blocker semantics and process-run blocking behavior.
+- Local `main` is synced with `origin/main` at `4d91060818697fe0301b75781d15ece8fe1f044d`.
+- Open PR list is empty (PR #244 auto-merged).
+- PR #244 merged: process run journal/status V0 — durable, inspectable run records with run IDs, persisted journal, and status readback.
 
 ## Functional capability now available
 
@@ -22,12 +15,16 @@
 - `arpagona doctor` performs a local preflight across git state, CLI/API binaries, Ollama/qwen3.5:9b readiness, tool runtime smoke, and stale secondary workspace copy detection.
 - Doctor warnings are non-blocking: stale secondary workspace copy reports `severity: "warn"`, while true blockers return errors.
 - `arpagona process run daily-validation` runs a Babysitter-inspired quality-gated V0 workflow: doctor → `cargo fmt -- --check` → `cargo check` → `cargo test`.
+- Every `process run` invocation gets a deterministic run ID and persists a durable JSON journal at `~/.arpagona/process-journal/<run_id>.json`.
+- `arpagona process status --last` and `arpagona process status <run-id>` provide readback of past run records.
 
 ## Latest local verification
 
-- `arpagona doctor --json`: `all_pass: true`; stale secondary copy is present but correctly reported as `severity: "warn"`.
-- `arpagona process run daily-validation --json`: completed with `overall_status: "PASSED"` and `next_action: "No issues found. System is healthy."`
-- Repository state after sync: `main...origin/main`, clean.
+- `git log --oneline -1`: `4d91060 feat: process run journal/status V0 — durable, inspectable run records`
+- Working tree clean: `git status --porcelain` is empty.
+- `cargo fmt -- --check`: clean.
+- `cargo check`: clean.
+- `cargo test --package arpagona-cli`: 232 tests pass (219 unit + 6 process integration + 10 snapshot).
 
 ## Constraints still active
 
@@ -42,10 +39,11 @@
 
 ## Recommended next brick
 
-`process run` V1, still bounded. Preferred options:
+Process run V1 options, still bounded:
 
-1. Add `arpagona process plan daily-validation` so operators can inspect the quality-gated process without running it.
-2. Add a second hardcoded process only if it is clearly useful and bounded, e.g. `bugfix-red-baseline`.
-3. Improve process-run journal/readback integration so every process run has a durable run id and concise status surface.
+1. `arpagona process plan daily-validation` — inspect the quality-gated process without running it.
+2. A second hardcoded process (e.g. `bugfix-red-baseline`).
+3. Process run resume semantics (continue from blocked step after fix).
+4. `arpagona process list` — show all past run journals.
 
 Do not start DeepSeek or self-improvement until the process runtime has durable journal/status/resume semantics.
