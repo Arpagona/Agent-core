@@ -2695,7 +2695,24 @@ async fn doctor(args: DoctorArgs) -> Result<(), Box<dyn Error>> {
         }
     }
 
-    Ok(())
+    // Return an error if any fail-severity check failed — process-run depends on this.
+    let has_fail = checks
+        .iter()
+        .any(|(_, _, pass, sev)| !*pass && sev == "fail");
+    if has_fail {
+        let failing_names: Vec<&str> = checks
+            .iter()
+            .filter(|(_, _, pass, sev)| !*pass && sev == "fail")
+            .map(|(name, _, _, _)| name.as_str())
+            .collect();
+        Err(format!(
+            "Doctor found blocker(s): {} — fix these before proceeding",
+            failing_names.join(", ")
+        )
+        .into())
+    } else {
+        Ok(())
+    }
 }
 
 /// Run a quality-gated validation process (Babysitter-inspired).
