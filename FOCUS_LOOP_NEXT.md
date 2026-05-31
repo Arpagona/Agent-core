@@ -18,21 +18,11 @@
 - Snapshot integration baseline no longer depends on a manually prebuilt API server binary.
 - `arpagona doctor` performs a local preflight across git state, CLI/API binaries, Ollama/qwen3.5:9b readiness, tool runtime smoke, and stale secondary workspace copy detection.
 
-## Active brick launched to DEEP
+## Active brick
 
-Topic: `arpagona-process-run-v0`
-Message: `20260531T040712494142Z-1c1a84`
-
-Required first correction:
-- `arpagona doctor` currently reports stale secondary workspace copy as `[FAIL] secondary_copy` and `all_pass=false`.
-- This should be a WARN/non-blocker unless the canonical repo/product validation is actually blocked.
-- DEEP must fix severity semantics before or inside the next tight PR.
-
-Next implementation target:
-- Babysitter-inspired `process run` V0 / quality-gated workflow skeleton.
-- Preferred command: `arpagona process run daily-validation`.
-- One hardcoded process only for V0.
-- Steps should be explicit/local: doctor/preflight, `cargo fmt -- --check`, `cargo check`, focused snapshot integration test if appropriate, `cargo test`, structured report.
+PR #241 `feat/doctor-severity-and-process-run-v0` (open):
+1. **Doctor severity fix**: `secondary_copy` stale state now `[WARN]` (not `[FAIL]`). JSON includes `severity` field. `all_pass` only considers FAIL checks.
+2. **`process run daily-validation` V0**: Quality-gated 4-step workflow (doctor → cargo fmt → cargo check → cargo test). Stops on blocker. Supports human/JSON output.
 
 ## Constraints
 
@@ -45,6 +35,6 @@ Next implementation target:
 - No hidden external effects; local-only except Ollama readiness checks already covered by doctor.
 - Auto-merge clean/green/scope-exact PRs; stop/report on CI red, scope drift, or governance doubt.
 
-## Next action
+## Next action (after PR #241 merges)
 
-Read DEEP mail for `arpagona-process-run-v0`, verify any open PR live on GitHub, auto-merge if clean/green/scope-exact, then sync `main` and update this file again.
+Propose next Babysitter-inspired brick: likely `process run` V1 with additional hardcoded processes, or a `process plan` subcommand. See GONA directive for detailed next steps.
