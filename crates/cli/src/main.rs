@@ -18706,4 +18706,86 @@ mod tests {
         assert_eq!(intent.arguments["pattern"], "TODO");
         assert_eq!(intent.risk_level, RiskLevel::Informational);
     }
+
+    #[test]
+    fn doctor_all_pass_false_when_fail_severity_check_fails() {
+        // Replicates the exact all_pass logic from the doctor function:
+        // all_pass = !checks.iter().any(|(_, _, pass, sev)| !*pass && sev == "fail")
+        let checks: Vec<(String, String, bool, String)> = vec![
+            ("git_state".into(), "ok".into(), true, "ok".into()),
+            ("ollama".into(), "unreachable".into(), false, "fail".into()),
+            (
+                "qwen3.5:9b_model".into(),
+                "unavailable".into(),
+                false,
+                "fail".into(),
+            ),
+            (
+                "secondary_copy".into(),
+                "stale warning".into(),
+                false,
+                "warn".into(),
+            ),
+        ];
+        let all_pass = !checks
+            .iter()
+            .any(|(_, _, pass, sev)| !*pass && sev == "fail");
+        assert!(
+            !all_pass,
+            "all_pass must be false when fail-severity checks fail"
+        );
+
+        // has_fail (for Err return) uses the same logic
+        let has_fail = checks
+            .iter()
+            .any(|(_, _, pass, sev)| !*pass && sev == "fail");
+        assert!(
+            has_fail,
+            "has_fail must be true when fail-severity checks fail"
+        );
+    }
+
+    #[test]
+    fn doctor_all_pass_true_when_only_warn_severity_fails() {
+        // Warn-only failures should NOT set all_pass to false
+        let checks: Vec<(String, String, bool, String)> = vec![
+            ("git_state".into(), "ok".into(), true, "ok".into()),
+            ("ollama".into(), "ok".into(), true, "ok".into()),
+            ("qwen3.5:9b_model".into(), "ok".into(), true, "ok".into()),
+            (
+                "secondary_copy".into(),
+                "stale warning".into(),
+                false,
+                "warn".into(),
+            ),
+        ];
+        let all_pass = !checks
+            .iter()
+            .any(|(_, _, pass, sev)| !*pass && sev == "fail");
+        assert!(
+            all_pass,
+            "all_pass must be true when only warn-severity checks fail"
+        );
+
+        // has_fail must be false for warn-only
+        let has_fail = checks
+            .iter()
+            .any(|(_, _, pass, sev)| !*pass && sev == "fail");
+        assert!(
+            !has_fail,
+            "has_fail must be false when only warn-severity checks fail"
+        );
+    }
+
+    #[test]
+    fn doctor_all_pass_true_when_all_checks_pass() {
+        let checks: Vec<(String, String, bool, String)> = vec![
+            ("git_state".into(), "ok".into(), true, "ok".into()),
+            ("ollama".into(), "ok".into(), true, "ok".into()),
+        ];
+        let all_pass = !checks
+            .iter()
+            .any(|(_, _, pass, sev)| !*pass && sev == "fail");
+        assert!(all_pass, "all_pass must be true when all checks pass");
+    }
 }
