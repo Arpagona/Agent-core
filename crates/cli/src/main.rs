@@ -108,6 +108,18 @@ fn ensure_journal_dir() -> Result<PathBuf, Box<dyn Error>> {
     Ok(dir)
 }
 
+/// Return the path to the process journal directory WITHOUT creating it.
+fn journal_dir_path() -> Result<PathBuf, Box<dyn Error>> {
+    let home = std::env::home_dir()
+        .ok_or_else(|| "Could not determine home directory".to_owned())?
+        .to_string_lossy()
+        .to_string();
+    let dir = PathBuf::from(home)
+        .join(ARPAGONA_STATE_DIR)
+        .join(PROCESS_JOURNAL_DIR);
+    Ok(dir)
+}
+
 /// Generate a deterministic run ID for a process run.
 fn generate_run_id(process_name: &str) -> String {
     let now = Utc::now();
@@ -221,6 +233,10 @@ pub enum ProcessCmd {
     /// Show what steps a process would execute, without running anything.
     /// Read-only process inspection — no doctor, no cargo, no journal writes.
     Plan(ProcessPlanArgs),
+    /// List persisted process run journals. Shows all run records
+    /// from ~/.arpagona/process-journal/, newest first.
+    /// Read-only — no doctor, no cargo, no journal writes.
+    List(ProcessListArgs),
 }
 
 #[derive(Debug, Args)]
@@ -248,6 +264,13 @@ pub struct ProcessStatusArgs {
 pub struct ProcessPlanArgs {
     /// Name of the process to plan. V0 supports only `daily-validation`.
     pub name: String,
+    /// Emit structured JSON instead of human-readable text.
+    #[arg(long)]
+    pub json: bool,
+}
+
+#[derive(Debug, Args)]
+pub struct ProcessListArgs {
     /// Emit structured JSON instead of human-readable text.
     #[arg(long)]
     pub json: bool,
@@ -2459,6 +2482,7 @@ async fn run() -> Result<(), Box<dyn Error>> {
             ProcessCmd::Run(args) => process_run(args).await?,
             ProcessCmd::Status(args) => process_status(args)?,
             ProcessCmd::Plan(args) => process_plan(args)?,
+            ProcessCmd::List(args) => process_list(args)?,
         },
     }
 
@@ -3345,6 +3369,151 @@ fn process_plan(args: ProcessPlanArgs) -> Result<(), Box<dyn Error>> {
         println!();
         println!("Total: {} steps", steps.len());
         println!("Mode:  read-only (no doctor, no cargo, no journal writes)");
+    }
+
+    Ok(())
+}
+
+/// List persisted process run journals.
+///
+/// Reads the journal directory and returns a summary of each run,
+/// newest first. Read-only — no doctor, no cargo, no journal writes.
+/// Does NOT create the journal directory — if it doesn't exist the
+/// result is an empty list.
+fn process_list(args: ProcessListArgs) -> Result<(), Box<dyn Error>> {
+    let dir = journal_dir_path()?;
+    let json_output = args.json;
+
+    // Read journal files and deserialize each
+    let mut entries: Vec<(PathBuf, ProcessRunJournal)> = Vec::new();
+    let mut corrupt_count = 0usize;
+    let mut warn_count = 0usize;
+
+    if let Ok(read_dir) = std::fs::read_dir(&dir) {
+        for entry in read_dir.flatten() {
+            let path = entry.path();
+            if path.extension().map_or(true, |ext| ext != "json") {
+                continue;
+            }
+            match std::fs::read_to_string(&path) {
+                Ok(content) => match serde_json::from_str::<ProcessRunJournal>(&content) {
+                    Ok(journal) => entries.push((path, journal)),
+                    Err(_) => {
+                        warn_count += 1;
+                        // Try to infer run_id from filename
+                        if let Some(stem) = path.file_stem().and_then(|s| s.to_str()) {
+                            let fallback = ProcessRunJournal {
+                                run_id: stem.to_owned(),
+                                process: "unknown".to_owned(),
+                                started_at: String::new(),
+                                ended_at: String::new(),
+                                planned_steps: Vec::new(),
+                                step_results: Vec::new(),
+                                overall_status: "CORRUPT".to_owned(),
+                                blocked_at_step: None,
+                                next_action: String::new(),
+                            };
+                            entries.push((path, fallback));
+                            corrupt_count += 1;
+                        }
+                    }
+                },
+                Err(_) => {
+                    warn_count += 1;
+                    if let Some(stem) = path.file_stem().and_then(|s| s.to_str()) {
+                        let fallback = ProcessRunJournal {
+                            run_id: stem.to_owned(),
+                            process: "unknown".to_owned(),
+                            started_at: String::new(),
+                            ended_at: String::new(),
+                            planned_steps: Vec::new(),
+                            step_results: Vec::new(),
+                            overall_status: "UNREADABLE".to_owned(),
+                            blocked_at_step: None,
+                            next_action: String::new(),
+                        };
+                        entries.push((path, fallback));
+                    }
+                }
+            }
+        }
+    }
+
+    // Sort newest first by modification time (use started_at when available)
+    entries.sort_by(|a, b| {
+        // Prefer started_at timestamp if both have it
+        let a_time = if !a.1.started_at.is_empty() {
+            a.1.started_at.clone()
+        } else {
+            "".to_owned()
+        };
+        let b_time = if !b.1.started_at.is_empty() {
+            b.1.started_at.clone()
+        } else {
+            "".to_owned()
+        };
+        if !a_time.is_empty() && !b_time.is_empty() {
+            b_time.cmp(&a_time)
+        } else {
+            // Fall back to mtime
+            let a_mtime = a.0.metadata().ok().and_then(|m| m.modified().ok());
+            let b_mtime = b.0.metadata().ok().and_then(|m| m.modified().ok());
+            b_mtime.cmp(&a_mtime)
+        }
+    });
+
+    if json_output {
+        let list: Vec<serde_json::Value> = entries
+            .iter()
+            .map(|(_, j)| {
+                serde_json::json!({
+                    "run_id": j.run_id,
+                    "process": j.process,
+                    "started_at": j.started_at,
+                    "ended_at": j.ended_at,
+                    "overall_status": j.overall_status,
+                    "next_action": j.next_action,
+                })
+            })
+            .collect();
+        let result = serde_json::json!({
+            "command": "process_list",
+            "total": list.len(),
+            "runs": list,
+            "warnings": if warn_count > 0 { serde_json::Value::Number(serde_json::Number::from(warn_count)) } else { serde_json::Value::Null },
+            "corrupt_entries": if corrupt_count > 0 { serde_json::Value::Number(serde_json::Number::from(corrupt_count)) } else { serde_json::Value::Null },
+        });
+        println!("{}", serde_json::to_string_pretty(&result)?);
+    } else {
+        if entries.is_empty() {
+            println!("No process runs found in {}", dir.display());
+            println!();
+            println!("  Run `arpagona process run daily-validation` to create the first journal.");
+        } else {
+            println!("ARPAGONA process run journals");
+            println!("{}", "=".repeat(46));
+            println!("Directory: {}", dir.display());
+            println!("Total:     {} run(s)", entries.len());
+            if warn_count > 0 {
+                println!("Warnings:  {} (corrupt/unreadable entries)", warn_count);
+            }
+            println!();
+
+            for (i, (_, j)) in entries.iter().enumerate() {
+                println!("  {}. {} — [{}]", i + 1, j.run_id, j.overall_status);
+                println!("     Process:   {}", j.process);
+                if !j.started_at.is_empty() {
+                    println!("     Started:   {}", j.started_at);
+                }
+                if !j.ended_at.is_empty() {
+                    println!("     Ended:     {}", j.ended_at);
+                }
+                if !j.next_action.is_empty() {
+                    println!("     Next:      {}", j.next_action);
+                }
+                println!();
+            }
+        }
     }
 
     Ok(())
