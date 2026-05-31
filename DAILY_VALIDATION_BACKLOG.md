@@ -16,7 +16,15 @@ Rules:
 
 ## Open candidates
 
-*No open candidates.*
+### DV-2026-05-31-001 — Workspace `cargo test` fails because snapshot integration cannot start `arpagona-api-server`
+- source: daily validation 2026-05-31 baseline health
+- category: test reliability / integration harness
+- severity: high
+- status: open
+- evidence: `cargo test` failed in `crates/cli/tests/snapshot_integration.rs::cognitive_propose_pipeline_produces_governed_proposals` with `failed to start API server: Os { code: 2, kind: NotFound, message: "No such file or directory" }` at line 461. The test computes `target/debug/arpagona-api-server`, but no such binary was present after the workspace test build in this local run.
+- expected behavior: the integration test should either reliably build/locate the API server binary in local and CI test environments or skip/fail with a clearer prerequisite diagnostic that does not make a clean baseline impossible.
+- suggested fix/tests: make the harness use Cargo-provided binary discovery or explicitly build the API server binary before spawning it, then rerun `cargo test -p arpagona-cli --test snapshot_integration cognitive_propose_pipeline_produces_governed_proposals` and full `cargo test`.
+- do not: weaken governance assertions, ignore the test, require secrets, call remote providers, or add broad process/scheduler capability while repairing the harness.
 
 ## Closed / superseded candidates
 
