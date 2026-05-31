@@ -218,6 +218,9 @@ pub enum ProcessCmd {
     /// Show status of a previous process run. Use --last for most recent
     /// or pass a specific run ID.
     Status(ProcessStatusArgs),
+    /// Show what steps a process would execute, without running anything.
+    /// Read-only process inspection — no doctor, no cargo, no journal writes.
+    Plan(ProcessPlanArgs),
 }
 
 #[derive(Debug, Args)]
@@ -236,6 +239,15 @@ pub struct ProcessStatusArgs {
     pub last: bool,
     /// Optional specific run ID to inspect.
     pub run_id: Option<String>,
+    /// Emit structured JSON instead of human-readable text.
+    #[arg(long)]
+    pub json: bool,
+}
+
+#[derive(Debug, Args)]
+pub struct ProcessPlanArgs {
+    /// Name of the process to plan. V0 supports only `daily-validation`.
+    pub name: String,
     /// Emit structured JSON instead of human-readable text.
     #[arg(long)]
     pub json: bool,
@@ -2446,6 +2458,7 @@ async fn run() -> Result<(), Box<dyn Error>> {
         Command::Process(cmd) => match cmd {
             ProcessCmd::Run(args) => process_run(args).await?,
             ProcessCmd::Status(args) => process_status(args)?,
+            ProcessCmd::Plan(args) => process_plan(args)?,
         },
     }
 
@@ -3283,6 +3296,55 @@ async fn process_run(args: ProcessRunArgs) -> Result<(), Box<dyn Error>> {
         println!("Run ID: {}", run_id);
         println!("All 4 steps completed successfully.");
         println!("Next action: No issues found. System is healthy.");
+    }
+
+    Ok(())
+}
+
+/// Show what steps a process would execute, without running anything.
+///
+/// Read-only process inspection — no doctor, no cargo, no journal writes.
+/// V0 supports only `daily-validation`.
+fn process_plan(args: ProcessPlanArgs) -> Result<(), Box<dyn Error>> {
+    let process_name = args.name.as_str();
+    if process_name != "daily-validation" {
+        eprintln!(
+            "[ERROR] Unknown process '{}'. V0 supports only 'daily-validation'.",
+            process_name
+        );
+        std::process::exit(1);
+    }
+
+    let steps = vec![
+        "doctor — local preflight diagnostic (git state, binaries, Ollama, tool runtime)",
+        "cargo fmt -- --check — formatting compliance",
+        "cargo check — type-check the workspace",
+        "cargo test — run full workspace test suite",
+    ];
+
+    let json_output = args.json;
+
+    if json_output {
+        let plan = serde_json::json!({
+            "command": "process_plan",
+            "process": "daily-validation",
+            "description": "Read-only process plan — no execution, no journal writes",
+            "steps": steps,
+            "total_steps": steps.len(),
+        });
+        println!("{}", serde_json::to_string_pretty(&plan)?);
+    } else {
+        println!("[ARPAGONA process plan] daily-validation");
+        println!("{}", "=".repeat(46));
+        println!("Read-only process plan — no execution, no journal writes.");
+        println!();
+        println!("Planned steps:");
+        for (i, step) in steps.iter().enumerate() {
+            println!("  {}. {}", i + 1, step);
+        }
+        println!();
+        println!("Total: {} steps", steps.len());
+        println!("Mode:  read-only (no doctor, no cargo, no journal writes)");
     }
 
     Ok(())
