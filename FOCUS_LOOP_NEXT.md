@@ -4,8 +4,8 @@
 
 - GitHub/source of truth: `/home/thibaud/arpagona-agent-core`, branch `feat/ollama-ux-smoke-hardening`, remote `git@github.com:Arpagona/Agent-core.git`.
 - Local `main` is synced with `origin/main` at `3c0cef33...`.
-- PR #235 merged: `feat: isolate process journals from integration tests (#248)` is merged on main.
-- Open PR list: PR pending — `feat/ollama-ux-smoke-hardening` — Ollama provider UX/smoke-test hardening.
+- PR #248 merged: `feat: isolate process journals from integration tests (#248)` is merged on main.
+- Open PR list: PR #249 — `feat/ollama-ux-smoke-hardening` — Ollama provider UX/smoke-test hardening.
 
 ## Changes in this PR
 
