@@ -2,6 +2,8 @@
 //!
 //! Proves that doctor fail-severity checks correctly block the process
 //! at step 1, while warn-only checks are non-blocking.
+//!
+//! Also verifies process journal creation and status readback.
 
 /// Path to the compiled arpagona binary, resolved by Cargo at compile time.
 const ARPAGONA_BIN: &str = env!("CARGO_BIN_EXE_arpagona");
@@ -123,6 +125,124 @@ fn doctor_returns_blocking_failures_via_connection_refused() {
     assert!(
         !output.status.success(),
         "doctor should exit with non-zero status when Ollama is unreachable.\nstdout:\n{}",
+        stdout
+    );
+}
+
+/// Process run JSON output must include a `run_id` field in plan and summary phases.
+#[test]
+fn process_run_json_includes_run_id() {
+    let output = std::process::Command::new(ARPAGONA_BIN)
+        .args(["process", "run", "daily-validation", "--json"])
+        .env("OLLAMA_ENDPOINT", "http://127.0.0.1:9")
+        .output()
+        .expect("failed to run process run daily-validation --json");
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+
+    // Plan phase must include run_id
+    assert!(
+        stdout.contains("\"run_id\": \"daily-validation-"),
+        "JSON output should contain a run_id in the plan phase.\nstdout:\n{}",
+        stdout
+    );
+
+    // Summary phase must include run_id
+    assert!(
+        stdout.contains("\"run_id\""),
+        "JSON output should contain run_id in the summary phase.\nstdout:\n{}",
+        stdout
+    );
+}
+
+/// Process run creates a durable journal file for inspection.
+#[test]
+fn process_run_creates_journal_file() {
+    let output = std::process::Command::new(ARPAGONA_BIN)
+        .args(["process", "run", "daily-validation", "--json"])
+        .env("OLLAMA_ENDPOINT", "http://127.0.0.1:9")
+        .output()
+        .expect("failed to run process run daily-validation --json");
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+
+    // Extract the run_id from the JSON output (it appears in the plan phase)
+    let run_id_marker = "\"run_id\": \"daily-validation-";
+    if let Some(start) = stdout.find(run_id_marker) {
+        let after_prefix = &stdout[start + run_id_marker.len()..];
+        if let Some(end) = after_prefix.find('"') {
+            let run_id = format!("daily-validation-{}", &after_prefix[..end]);
+
+            // Check that the journal file exists
+            let home =
+                std::env::home_dir().expect("home_dir should be available in test environment");
+            let journal_path = home
+                .join(".arpagona")
+                .join("process-journal")
+                .join(format!("{}.json", run_id));
+
+            assert!(
+                journal_path.exists(),
+                "Journal file should exist at: {:?}\nrun_id: {}",
+                journal_path,
+                run_id
+            );
+
+            // Read and verify the journal content
+            let content = std::fs::read_to_string(&journal_path).expect("should read journal file");
+            assert!(
+                content.contains(&run_id),
+                "Journal should contain the run_id"
+            );
+            assert!(
+                content.contains("\"overall_status\": \"BLOCKED\""),
+                "Journal should contain overall_status BLOCKED"
+            );
+            assert!(
+                content.contains("\"next_action\""),
+                "Journal should contain next_action"
+            );
+        }
+    }
+}
+
+/// Process status --last reads back the most recent journal.
+#[test]
+fn process_status_last_reads_back_journal() {
+    // First, run process to ensure at least one journal exists
+    let _run = std::process::Command::new(ARPAGONA_BIN)
+        .args(["process", "run", "daily-validation", "--json"])
+        .env("OLLAMA_ENDPOINT", "http://127.0.0.1:9")
+        .output()
+        .expect("failed to run process run daily-validation --json");
+
+    // Now read back the last status
+    let output = std::process::Command::new(ARPAGONA_BIN)
+        .args(["process", "status", "--last", "--json"])
+        .output()
+        .expect("failed to run process status --last --json");
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+
+    // Must be valid JSON with expected fields
+    assert!(
+        output.status.success(),
+        "process status --last should exit successfully.\nstdout:\n{}",
+        stdout
+    );
+    assert!(
+        stdout.contains("\"run_id\""),
+        "Status output should contain a run_id.\nstdout:\n{}",
+        stdout
+    );
+    assert!(
+        stdout.contains("\"overall_status\""),
+        "Status output should contain overall_status.\nstdout:\n{}",
+        stdout
+    );
+    assert!(
+        stdout.contains("\"next_action\""),
+        "Status output should contain next_action.\nstdout:\n{}",
         stdout
     );
 }
