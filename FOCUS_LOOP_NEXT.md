@@ -1,15 +1,14 @@
 # ARPAGONA Agent Core — Next Focus Loop Handoff
 
-## Current status (DEEP 2026-05-31T18:15 UTC — post PR #249 merge refresh)
+## Current status (DEEP 2026-05-31T20:04 UTC — PR #250 open)
 
 - GitHub/source of truth: `/home/thibaud/arpagona-agent-core`, branch `main`, remote `git@github.com:Arpagona/Agent-core.git`.
-- Local `main` is synced with `origin/main` at `b20815d1eecbc700ed16b87f219ec1dd4601406c`.
-- PR #249 merged at `b20815d1`: **feat: add Ollama provider UX/smoke-test hardening** — smoke tests (6 deterministic actor-command tests + 5 Ollama integration tests via `smoke-human-cli.sh`), session help/status provider display, bounded hardening only. Main is clean — no open PRs.
-- PR #248 merged: **feat: isolate process journals from integration tests** — journals no longer leak into integration-test assertion output.
+- Local `main` is synced with `origin/main` at `3a9313cd272fa124944fe44ea8eaa66fd369964d`.
+- PR #250 open on `feat/ollama-provider-argument-schema`: **fix: add explicit per-tool argument schemas to Ollama system prompt** — qwen3.5:9b was returning `file_path` instead of `path` for `read_file`, causing `Missing argument: read_file requires non-empty string 'path'` on Ollama provider. Fixed by adding explicit argument schemas in the prompt. Smoke test verified: `actor run --intent-provider ollama --json "read Cargo.toml"` now passes with proper `path` argument.
 
 ## Completed recently
 
-- **Ollama UX/smoke hardening (PR #249)** — shipped 11 smoke tests (deterministic + Ollama), `/help` and `/status` now show intent-provider and Ollama model context. All bounded hardening, no new providers/tools/autonomy.
+- **Ollama argument schema fix (PR #250)** — qwen3.5:9b inferred `file_path` as the read_file argument because the system prompt only said "arguments must be valid for the chosen tool" without specifying field names. Added per-tool argument schemas (`path`, `content`, `pattern`) to the prompt. All 1042 workspace tests pass. No new providers/tools/autonomy.
 
 ## Planned next priorities
 

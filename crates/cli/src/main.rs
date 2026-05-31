@@ -12324,9 +12324,14 @@ Rules:
 - ALLOWED tools only: append_file, read_file, list_files, search_text
 - "read_file" and "list_files" and "search_text" are informational risk
 - "append_file" is low risk
-- arguments must be valid for the chosen tool
-- Never claim to execute, approve, or bypass governance
-- Return ONLY the JSON object, nothing else"#;
+- Return ONLY the JSON object, nothing else
+
+Per-tool argument schemas (use EXACTLY these field names):
+- "read_file" arguments: {"path": "/path/to/file"}
+- "append_file" arguments: {"path": "/path/to/file", "content": "text to append"}
+- "list_files" arguments: {"path": "/optional/directory"} (path is optional, omit to list cwd)
+- "search_text" arguments: {"pattern": "search term", "path": "/optional/file-or-dir"} (path is optional)
+- Never claim to execute, approve, or bypass governance"#;
 
         let body = serde_json::json!({
             "model": self.model,
