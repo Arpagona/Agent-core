@@ -411,3 +411,254 @@ fn process_plan_unknown_process_reports_error() {
         stderr
     );
 }
+
+// ---------------------------------------------------------------------------
+// process list integration tests
+// ---------------------------------------------------------------------------
+
+/// process list with empty journal dir shows graceful message.
+#[test]
+fn process_list_empty_journal_is_graceful() {
+    // Use isolated HOME so we have zero pre-existing journals
+    let test_id = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_nanos();
+    let home_dir = std::env::temp_dir().join(format!("arpagona-test-{test_id}"));
+
+    let output = std::process::Command::new(ARPAGONA_BIN)
+        .args(["process", "list"])
+        .env("HOME", &home_dir)
+        .output()
+        .expect("failed to run process list");
+
+    let _ = std::fs::remove_dir_all(&home_dir);
+
+    assert!(
+        output.status.success(),
+        "process list with empty journal should exit successfully.\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        stdout.contains("No process runs found"),
+        "Empty journal should show 'No process runs found'.\nstdout:\n{}",
+        stdout
+    );
+}
+
+/// process list --json with empty journal returns well-formed JSON.
+#[test]
+fn process_list_empty_journal_json_is_well_formed() {
+    let test_id = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_nanos();
+    let home_dir = std::env::temp_dir().join(format!("arpagona-test-{test_id}"));
+
+    let output = std::process::Command::new(ARPAGONA_BIN)
+        .args(["process", "list", "--json"])
+        .env("HOME", &home_dir)
+        .output()
+        .expect("failed to run process list --json");
+
+    let _ = std::fs::remove_dir_all(&home_dir);
+
+    assert!(
+        output.status.success(),
+        "process list --json should exit successfully.\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let parsed: serde_json::Value =
+        serde_json::from_str(&stdout).expect("process list --json output should be valid JSON");
+
+    assert_eq!(
+        parsed.get("command").and_then(|v| v.as_str()),
+        Some("process_list"),
+        "JSON should have command=process_list"
+    );
+    assert_eq!(
+        parsed.get("total").and_then(|v| v.as_u64()),
+        Some(0),
+        "JSON should have total=0 for empty journal"
+    );
+    assert!(
+        parsed.get("runs").and_then(|v| v.as_array()).is_some(),
+        "JSON should have 'runs' array"
+    );
+    assert_eq!(
+        parsed.get("runs").and_then(|v| v.as_array()).unwrap().len(),
+        0,
+        "runs array should be empty"
+    );
+}
+
+/// process list shows journal entries after a process run.
+#[test]
+fn process_list_shows_journal_entries() {
+    // First, run process to create at least one journal
+    let _run = std::process::Command::new(ARPAGONA_BIN)
+        .args(["process", "run", "daily-validation", "--json"])
+        .env("OLLAMA_ENDPOINT", "http://127.0.0.1:9")
+        .output()
+        .expect("failed to run process run daily-validation --json");
+
+    // Now list the journals
+    let output = std::process::Command::new(ARPAGONA_BIN)
+        .args(["process", "list"])
+        .output()
+        .expect("failed to run process list");
+
+    assert!(
+        output.status.success(),
+        "process list should exit successfully.\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        stdout.contains("ARPAGONA process run journals"),
+        "Should show header 'ARPAGONA process run journals'.\nstdout:\n{}",
+        stdout
+    );
+    assert!(
+        stdout.contains("Total:"),
+        "Should show total run count.\nstdout:\n{}",
+        stdout
+    );
+    assert!(
+        stdout.contains("daily-validation-"),
+        "Should show the daily-validation run ID.\nstdout:\n{}",
+        stdout
+    );
+}
+
+/// process list --json returns well-formed JSON with runs.
+#[test]
+fn process_list_json_is_well_formed() {
+    // Run process to create journals
+    let _run = std::process::Command::new(ARPAGONA_BIN)
+        .args(["process", "run", "daily-validation", "--json"])
+        .env("OLLAMA_ENDPOINT", "http://127.0.0.1:9")
+        .output()
+        .expect("failed to run process run daily-validation --json");
+
+    // Now list with JSON
+    let output = std::process::Command::new(ARPAGONA_BIN)
+        .args(["process", "list", "--json"])
+        .output()
+        .expect("failed to run process list --json");
+
+    assert!(
+        output.status.success(),
+        "process list --json should exit successfully.\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let parsed: serde_json::Value =
+        serde_json::from_str(&stdout).expect("process list --json output should be valid JSON");
+
+    assert_eq!(
+        parsed.get("command").and_then(|v| v.as_str()),
+        Some("process_list"),
+        "JSON should have command=process_list"
+    );
+    assert!(
+        parsed.get("total").and_then(|v| v.as_u64()).unwrap_or(0) >= 1,
+        "JSON should have total >= 1 run"
+    );
+
+    let runs = parsed
+        .get("runs")
+        .and_then(|v| v.as_array())
+        .expect("JSON should have 'runs' array");
+    assert!(!runs.is_empty(), "runs array should not be empty");
+
+    // Each run must have required fields
+    for run in runs {
+        assert!(
+            run.get("run_id").and_then(|v| v.as_str()).is_some(),
+            "Each run should have a run_id. Got: {:?}",
+            run
+        );
+        assert!(
+            run.get("overall_status").and_then(|v| v.as_str()).is_some(),
+            "Each run should have overall_status. Got: {:?}",
+            run
+        );
+    }
+
+    // Runs should be sorted newest first (human output)
+    assert!(
+        stdout.contains("daily-validation-"),
+        "JSON output should contain run IDs.\nstdout:\n{}",
+        stdout
+    );
+}
+
+/// process list handles a corrupt journal file without panicking.
+#[test]
+fn process_list_corrupt_journal_does_not_panic() {
+    let test_id = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_nanos();
+    let home_dir = std::env::temp_dir().join(format!("arpagona-test-{test_id}"));
+    let journal_dir = home_dir.join(".arpagona").join("process-journal");
+    std::fs::create_dir_all(&journal_dir).expect("failed to create journal dir");
+
+    // Write a corrupt "journal" file (invalid JSON)
+    let corrupt_path = journal_dir.join("corrupt-run.json");
+    std::fs::write(&corrupt_path, "This is not valid JSON {{")
+        .expect("failed to write corrupt file");
+
+    // Write a legitimate journal file
+    let valid_path = journal_dir.join("valid-run.json");
+    let valid_journal = serde_json::json!({
+        "run_id": "valid-run",
+        "process": "daily-validation",
+        "started_at": "2026-05-31T12:00:00Z",
+        "ended_at": "2026-05-31T12:05:00Z",
+        "planned_steps": ["doctor"],
+        "step_results": [{"step": 1, "name": "doctor", "status": "PASSED"}],
+        "overall_status": "PASSED",
+        "next_action": "none"
+    });
+    std::fs::write(&valid_path, valid_journal.to_string()).expect("failed to write valid file");
+
+    // Run process list --json (read-only, no side effects)
+    let output = std::process::Command::new(ARPAGONA_BIN)
+        .args(["process", "list", "--json"])
+        .env("HOME", &home_dir)
+        .output()
+        .expect("failed to run process list --json with corrupt journal");
+
+    let _ = std::fs::remove_dir_all(&home_dir);
+
+    assert!(
+        output.status.success(),
+        "process list should not panic with corrupt journals.\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let parsed: serde_json::Value =
+        serde_json::from_str(&stdout).expect("process list --json output should be valid JSON");
+
+    // Should have both the valid and corrupt entry in total
+    let total = parsed.get("total").and_then(|v| v.as_u64()).unwrap_or(0);
+    assert!(
+        total >= 2,
+        "JSON should list all journal files (valid + corrupt). Got total={}",
+        total
+    );
+    assert!(
+        stdout.contains("CORRUPT") || stdout.contains("corrupt_entries"),
+        "Output should indicate corruption. stdout:\n{}",
+        stdout
+    );
+}
