@@ -177,7 +177,7 @@ fn process_run_creates_journal_file() {
             let home =
                 std::env::home_dir().expect("home_dir should be available in test environment");
             let journal_path = home
-                .join(".arpagona")
+               .join(".arpagona")
                 .join("process-journal")
                 .join(format!("{}.json", run_id));
 
@@ -244,5 +244,149 @@ fn process_status_last_reads_back_journal() {
         stdout.contains("\"next_action\""),
         "Status output should contain next_action.\nstdout:\n{}",
         stdout
+    );
+}
+
+// ---------------------------------------------------------------------------
+// process plan integration tests
+// ---------------------------------------------------------------------------
+
+/// process plan daily-validation (human-readable) shows planned steps.
+#[test]
+fn process_plan_daily_validation_shows_planned_steps() {
+    let output = std::process::Command::new(ARPAGONA_BIN)
+        .args(["process", "plan", "daily-validation"])
+        .output()
+        .expect("failed to run process plan daily-validation");
+
+    assert!(
+        output.status.success(),
+        "process plan should exit successfully.\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+
+    // Must show the plan header
+    assert!(
+        stdout.contains("ARPAGONA process plan"),
+        "Output should contain process plan header.\nstdout:\n{}",
+        stdout
+    );
+
+    // Must list the 4 expected steps
+    assert!(
+        stdout.contains("doctor"),
+        "Plan should list doctor step.\nstdout:\n{}",
+        stdout
+    );
+    assert!(
+        stdout.contains("cargo fmt"),
+        "Plan should list cargo fmt step.\nstdout:\n{}",
+        stdout
+    );
+    assert!(
+        stdout.contains("cargo check"),
+        "Plan should list cargo check step.\nstdout:\n{}",
+        stdout
+    );
+    assert!(
+        stdout.contains("cargo test"),
+        "Plan should list cargo test step.\nstdout:\n{}",
+        stdout
+    );
+
+    // Must show read-only mode indicator
+    assert!(
+        stdout.contains("read-only"),
+        "Plan should indicate read-only mode.\nstdout:\n{}",
+        stdout
+    );
+
+    // Must NOT contain any execution or journal references
+    assert!(
+        !stdout.contains("Starting execution"),
+        "Plan must NOT start execution.\nstdout:\n{}",
+        stdout
+    );
+    assert!(
+        !stdout.contains("journal"),
+        "Plan must NOT reference journals.\nstdout:\n{}",
+        stdout
+    );
+}
+
+/// process plan daily-validation --json outputs structured JSON.
+#[test]
+fn process_plan_daily_validation_json_is_well_formed() {
+    let output = std::process::Command::new(ARPAGONA_BIN)
+        .args(["process", "plan", "daily-validation", "--json"])
+        .output()
+        .expect("failed to run process plan daily-validation --json");
+
+    assert!(
+        output.status.success(),
+        "process plan --json should exit successfully.\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+
+    // Must be valid JSON
+    let parsed: serde_json::Value = serde_json::from_str(&stdout)
+        .expect("process plan --json output should be valid JSON");
+
+    // Must contain expected fields
+    assert_eq!(
+        parsed.get("command").and_then(|v| v.as_str()),
+        Some("process_plan"),
+        "JSON should have command=process_plan"
+    );
+    assert_eq!(
+        parsed.get("process").and_then(|v| v.as_str()),
+        Some("daily-validation"),
+        "JSON should have process=daily-validation"
+    );
+    assert_eq!(
+        parsed.get("total_steps").and_then(|v| v.as_u64()),
+        Some(4),
+        "JSON should have total_steps=4"
+    );
+
+    // Steps should be an array of 4 strings
+    let steps = parsed.get("steps").and_then(|v| v.as_array()).expect("should have steps array");
+    assert_eq!(steps.len(), 4, "should have 4 steps");
+    assert!(
+        steps.iter().any(|s| s.as_str().map_or(false, |s| s.contains("doctor"))),
+        "steps should include doctor"
+    );
+
+    // Must indicate read-only no-execution mode
+    let description = parsed.get("description").and_then(|v| v.as_str()).unwrap_or("");
+    assert!(
+        description.contains("read-only") || description.contains("no execution"),
+        "description should indicate read-only mode. Got: {}",
+        description
+    );
+}
+
+/// process plan with unknown process name should error.
+#[test]
+fn process_plan_unknown_process_reports_error() {
+    let output = std::process::Command::new(ARPAGONA_BIN)
+        .args(["process", "plan", "nonexistent"])
+        .output()
+        .expect("failed to run process plan nonexistent");
+
+    assert!(
+        !output.status.success(),
+        "process plan with unknown process should exit with non-zero status"
+    );
+
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("Unknown process") && stderr.contains("V0 supports only"),
+        "stderr should report unknown process error.\nstderr:\n{}",
+        stderr
     );
 }

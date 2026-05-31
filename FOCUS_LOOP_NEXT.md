@@ -1,9 +1,9 @@
 # ARPAGONA Agent Core — Next Focus Loop Handoff
 
-## Current status (DEEP 2026-05-31T04:44 UTC — process journal/status V0 merged)
+## Current status (DEEP 2026-05-31T04:53 UTC — process plan V0 implemented)
 
 - GitHub/source of truth: `/home/thibaud/arpagona-agent-core`, branch `main`, remote `git@github.com:Arpagona/Agent-core.git`.
-- Local `main` is synced with `origin/main` at `4d91060818697fe0301b75781d15ece8fe1f044d`.
+- Local `main` is synced with `origin/main` at `845661caefb00f024e3ae8ea5b132bb99ee341f4`.
 - Open PR list is empty (PR #244 auto-merged).
 - PR #244 merged: process run journal/status V0 — durable, inspectable run records with run IDs, persisted journal, and status readback.
 
@@ -45,5 +45,12 @@ Process run V1 options, still bounded:
 2. A second hardcoded process (e.g. `bugfix-red-baseline`).
 3. Process run resume semantics (continue from blocked step after fix).
 4. `arpagona process list` — show all past run journals.
+
+## Active brick — PR #[TO BE ASSIGNED]
+
+- Brick: `arpagona process plan daily-validation` — inspect the quality-gated process without running it.
+- Status: implemented, open PR for governance review.
+- Scope: read-only process inspection, no doctor/cargo/journal writes.
+- Branch: `feat/process-plan-v0`
 
 Do not start DeepSeek or self-improvement until the process runtime has durable journal/status/resume semantics.
