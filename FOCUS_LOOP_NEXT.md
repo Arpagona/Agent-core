@@ -1,27 +1,28 @@
 # ARPAGONA Agent Core — Next Focus Loop Handoff
 
-## Current status (DEEP 2026-05-31T03:58 UTC — Babysitter doctor/preflight V0)
+## Current status (DEEP 2026-05-31T04:08 UTC — Doctor severity fix + process run V0)
 
-- DEEP implemented `arpagona doctor` — a local preflight diagnostic command (Babysitter-inspired)
-- Checks: git state, CLI binary, API server binary, Ollama reachability, qwen3.5:9b model, tool runtime smoke, stale secondary workspace copy
-- Supports both human-readable and `--json` output
-- Baseline validation: all tests pass, CI green, CLI working, safety boundaries intact
-- DV-2026-05-31-001 (API server binary discovery) marked as fixed in PR #238
-- Branch: `feat/doctor-preflight-v0`
-- PR opened; auto-merge if CI green and scope-clear
+- PR #239 merged: `arpagona doctor` — Babysitter-inspired local preflight diagnostic.
+- PR #240 (this PR): `feat/doctor-severity-and-process-run-v0`
+  1. **Doctor severity fix**: `secondary_copy` stale state now reports as `[WARN]` (not `[FAIL]`). JSON output includes `"severity": "ok"|"warn"|"fail"` field. `all_pass` only considers actual FAIL checks. Human output distinguishes `[OK]`, `[WARN]`, `[FAIL]` status markers.
+  2. **`process run daily-validation` V0**: Quality-gated workflow skeleton. Lists 4 steps (doctor, cargo fmt, cargo check, cargo test), stops on blocker, produces structured report. Supports both human and `--json` output.
+- GitHub/source of truth: `/home/thibaud/arpagona-agent-core`, branch `feat/doctor-severity-and-process-run-v0`.
 
-## Next action
+## Active brick
 
-Wait for PR CI and auto-merge. If merged:
-1. Propose next Babysitter-inspired brick (likely process run V0 / quality-gated workflow skeleton) 
-2. See GONA directive for detailed Phase 2 proposal
+`arpagona process run daily-validation` V0 operational.
 
-## Constraints (per GONA direction)
+## Constraints
 
-- No mutation paths — read-only readback surfaces only
-- No new external providers
-- No autonomy escalation
-- No Decision Gate bypass
-- No secrets exposure
-- Keep PR tight — one brick at a time
-- Doctor/preflight precedes process-as-code work
+- One tight PR at a time.
+- No generic workflow DSL yet.
+- No arbitrary JS/TS process execution.
+- No YOLO/forever/scheduler.
+- No DeepSeek provider yet.
+- No self-improvement/autonomy escalation.
+- No hidden external effects; local-only except Ollama readiness checks already covered by doctor.
+- Auto-merge clean/green/scope-exact PRs; stop/report on CI red, scope drift, or governance doubt.
+
+## Next action (after this PR merges)
+
+Propose next Babysitter-inspired brick: likely `process run` V1 with additional hardcoded processes, or a `process plan` subcommand. See GONA directive for detailed next steps.

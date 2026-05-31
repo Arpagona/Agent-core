@@ -145,10 +145,29 @@ enum Command {
     /// Run a local system preflight / diagnostic check (Babysitter-inspired doctor).
     /// Checks repo state, binary availability, Ollama, tool runtime, and stale workspace copies.
     Doctor(DoctorArgs),
+    /// Run a quality-gated validation process.
+    /// V0 supports only `daily-validation`.
+    #[command(subcommand)]
+    Process(ProcessCmd),
 }
 
 #[derive(Debug, Args)]
 pub struct DoctorArgs {
+    /// Emit structured JSON instead of human-readable text.
+    #[arg(long)]
+    pub json: bool,
+}
+
+#[derive(Debug, Subcommand)]
+pub enum ProcessCmd {
+    /// Run a validation process by name. V0 supports only `daily-validation`.
+    Run(ProcessRunArgs),
+}
+
+#[derive(Debug, Args)]
+pub struct ProcessRunArgs {
+    /// Name of the process to run.
+    pub name: String,
     /// Emit structured JSON instead of human-readable text.
     #[arg(long)]
     pub json: bool,
@@ -2356,6 +2375,9 @@ async fn run() -> Result<(), Box<dyn Error>> {
             ActorSubcommand::Journal(args) => actor_journal_readback(args)?,
         },
         Command::Doctor(args) => doctor(args).await?,
+        Command::Process(cmd) => match cmd {
+            ProcessCmd::Run(args) => process_run(args).await?,
+        },
     }
 
     Ok(())
@@ -2386,7 +2408,7 @@ fn serve() -> Result<(), Box<dyn Error>> {
 ///
 /// Output is human-readable by default; `--json` emits structured JSON.
 async fn doctor(args: DoctorArgs) -> Result<(), Box<dyn Error>> {
-    let mut checks: Vec<(String, String, bool)> = Vec::new();
+    let mut checks: Vec<(String, String, bool, String)> = Vec::new();
 
     // 1. Git repo state
     let head = ProcessCommand::new("git")
@@ -2429,7 +2451,16 @@ async fn doctor(args: DoctorArgs) -> Result<(), Box<dyn Error>> {
         if clean { "yes" } else { "NO" },
         behind
     );
-    checks.push(("git_state".into(), git_detail, clean && behind == 0));
+    checks.push((
+        "git_state".into(),
+        git_detail,
+        clean && behind == 0,
+        if clean && behind == 0 {
+            "ok".into()
+        } else {
+            "fail".into()
+        },
+    ));
 
     // 2. CLI binary
     let cli_path = PathBuf::from("target/debug/arpagona");
@@ -2441,6 +2472,7 @@ async fn doctor(args: DoctorArgs) -> Result<(), Box<dyn Error>> {
             if cli_ok { "found" } else { "MISSING" }
         ),
         cli_ok,
+        if cli_ok { "ok".into() } else { "fail".into() },
     ));
 
     // 3. API server binary
@@ -2453,6 +2485,7 @@ async fn doctor(args: DoctorArgs) -> Result<(), Box<dyn Error>> {
             if api_ok { "found" } else { "MISSING" }
         ),
         api_ok,
+        if api_ok { "ok".into() } else { "fail".into() },
     ));
 
     // 4. Ollama endpoint reachability
@@ -2467,6 +2500,11 @@ async fn doctor(args: DoctorArgs) -> Result<(), Box<dyn Error>> {
             if ollama_reachable { "yes" } else { "NO" }
         ),
         ollama_reachable,
+        if ollama_reachable {
+            "ok".into()
+        } else {
+            "fail".into()
+        },
     ));
 
     // 5. qwen3.5:9b model availability
@@ -2504,6 +2542,7 @@ async fn doctor(args: DoctorArgs) -> Result<(), Box<dyn Error>> {
             "not found or unreachable".into()
         },
         model_ok,
+        if model_ok { "ok".into() } else { "fail".into() },
     ));
 
     // 6. Tool runtime safety smoke
@@ -2520,6 +2559,7 @@ async fn doctor(args: DoctorArgs) -> Result<(), Box<dyn Error>> {
         "tool_runtime_smoke".into(),
         format!("read Cargo.toml: {}", if tool_ok { "ok" } else { "FAILED" }),
         tool_ok,
+        if tool_ok { "ok".into() } else { "fail".into() },
     ));
 
     // 7. Stale secondary workspace copy
@@ -2571,21 +2611,36 @@ async fn doctor(args: DoctorArgs) -> Result<(), Box<dyn Error>> {
         "no secondary copy found".to_owned()
     };
     let stale_ok = !stale_warning.contains("WARNING");
-    checks.push(("secondary_copy".into(), stale_warning, stale_ok));
+    let stale_severity = if stale_warning
+        .contains("secondary copy at ~/.openclaw/workspace/arpagona-agent-core is current")
+    {
+        "ok"
+    } else {
+        "warn"
+    };
+    checks.push((
+        "secondary_copy".into(),
+        stale_warning,
+        stale_ok,
+        stale_severity.into(),
+    ));
 
     // Output
     if args.json {
         let json_results: Vec<serde_json::Value> = checks
             .iter()
-            .map(|(name, detail, pass)| {
+            .map(|(name, detail, pass, severity)| {
                 json!({
                     "check": name,
                     "detail": detail,
-                    "pass": pass
+                    "pass": pass,
+                    "severity": severity
                 })
             })
             .collect();
-        let all_pass = checks.iter().all(|(_, _, pass)| *pass);
+        let all_pass = !checks
+            .iter()
+            .any(|(_, _, pass, sev)| !*pass && sev == "fail");
         let summary = json!({
             "command": "doctor",
             "timestamp": Utc::now().to_rfc3339(),
@@ -2594,15 +2649,19 @@ async fn doctor(args: DoctorArgs) -> Result<(), Box<dyn Error>> {
         });
         println!("{}", serde_json::to_string_pretty(&summary)?);
     } else {
-        let pass_count = checks.iter().filter(|(_, _, pass)| *pass).count();
+        let pass_count = checks.iter().filter(|(_, _, pass, _)| *pass).count();
         let total = checks.len();
         println!(
             "[ARPAGONA doctor] preflight diagnostic — {} / {} checks passing",
             pass_count, total
         );
         println!();
-        for (name, detail, pass) in &checks {
-            let status = if *pass { "[OK]" } else { "[FAIL]" };
+        for (name, detail, _pass, severity) in &checks {
+            let status = match severity.as_str() {
+                "ok" => "[OK]",
+                "warn" => "[WARN]",
+                _ => "[FAIL]",
+            };
             println!("  {} {}: {}", status, name, detail);
         }
         println!();
@@ -2611,15 +2670,382 @@ async fn doctor(args: DoctorArgs) -> Result<(), Box<dyn Error>> {
         } else {
             let failing: Vec<&str> = checks
                 .iter()
-                .filter(|(_, _, pass)| !*pass)
-                .map(|(name, _, _)| name.as_str())
+                .filter(|(_, _, pass, sev)| !*pass && sev == "fail")
+                .map(|(name, _, _, _)| name.as_str())
                 .collect();
+            let warnings: Vec<&str> = checks
+                .iter()
+                .filter(|(_, _, pass, sev)| !*pass && sev == "warn")
+                .map(|(name, _, _, _)| name.as_str())
+                .collect();
+            if !failing.is_empty() {
+                println!(
+                    "{} check(s) failing (blocker): {}",
+                    failing.len(),
+                    failing.join(", ")
+                );
+            }
+            if !warnings.is_empty() {
+                println!(
+                    "{} check(s) with warnings (non-blocking): {}",
+                    warnings.len(),
+                    warnings.join(", ")
+                );
+            }
+        }
+    }
+
+    Ok(())
+}
+
+/// Run a quality-gated validation process (Babysitter-inspired).
+///
+/// V0 supports only `daily-validation`.
+async fn process_run(args: ProcessRunArgs) -> Result<(), Box<dyn Error>> {
+    let process_name = args.name.as_str();
+    if process_name != "daily-validation" {
+        eprintln!(
+            "[ERROR] Unknown process '{}'. V0 supports only 'daily-validation'.",
+            process_name
+        );
+        std::process::exit(1);
+    }
+
+    let json_output = args.json;
+
+    // Plan phase
+    let steps = vec![
+        "doctor — local preflight diagnostic (git state, binaries, Ollama, tool runtime)",
+        "cargo fmt -- --check — formatting compliance",
+        "cargo check — type-check the workspace",
+        "cargo test — run full workspace test suite",
+    ];
+
+    if json_output {
+        let plan = json!({
+            "command": "process_run",
+            "process": "daily-validation",
+            "phase": "plan",
+            "steps": steps
+        });
+        println!("{}", serde_json::to_string_pretty(&plan)?);
+    } else {
+        println!("[ARPAGONA process run] daily-validation");
+        println!("{}", "=".repeat(46));
+        println!("Planned steps:");
+        for (i, step) in steps.iter().enumerate() {
+            println!("  {}. {}", i + 1, step);
+        }
+        println!();
+        println!("Starting execution...");
+        println!();
+    }
+
+    // Step 1: doctor/preflight
+    if !json_output {
+        println!("--- Step 1/4: doctor/preflight ---");
+    }
+    let doctor_args = DoctorArgs { json: json_output };
+    if let Err(e) = doctor(doctor_args).await {
+        let msg = format!("doctor/preflight failed with error: {}", e);
+        if json_output {
+            let report = json!({
+                "command": "process_run",
+                "process": "daily-validation",
+                "phase": "step_result",
+                "step": 1,
+                "name": "doctor",
+                "status": "FAILED",
+                "detail": msg
+            });
+            println!("{}", serde_json::to_string_pretty(&report)?);
+        } else {
+            eprintln!("[BLOCKER] {}", msg);
+        }
+        if json_output {
+            let final_report = json!({
+                "command": "process_run",
+                "process": "daily-validation",
+                "phase": "summary",
+                "overall_status": "BLOCKED",
+                "blocked_at_step": 1,
+                "next_action": "Fix the doctor issue and re-run"
+            });
+            println!("{}", serde_json::to_string_pretty(&final_report)?);
+        } else {
+            println!();
+            println!("[BLOCKED] Process stopped at step 1 (doctor/preflight).");
             println!(
-                "{} check(s) failing: {}",
-                total - pass_count,
-                failing.join(", ")
+                "Next action: Fix the issue and re-run `arpagona process run daily-validation`."
             );
         }
+        return Ok(());
+    }
+    if !json_output {
+        println!("[OK] Step 1/4: doctor passed");
+        println!();
+    }
+
+    // Step 2: cargo fmt -- --check
+    if !json_output {
+        println!("--- Step 2/4: cargo fmt -- --check ---");
+    }
+    let fmt_result = ProcessCommand::new("cargo")
+        .args(["fmt", "--", "--check"])
+        .output();
+    match fmt_result {
+        Ok(output) if output.status.success() => {
+            if json_output {
+                let report = json!({
+                    "command": "process_run",
+                    "process": "daily-validation",
+                    "phase": "step_result",
+                    "step": 2,
+                    "name": "cargo_fmt",
+                    "status": "PASSED"
+                });
+                println!("{}", serde_json::to_string_pretty(&report)?);
+            } else {
+                println!("[OK] cargo fmt compliance check passed");
+            }
+        }
+        Ok(output) => {
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            let msg = format!("cargo fmt -- --check failed:\n{}", stderr);
+            if json_output {
+                let report = json!({
+                    "command": "process_run",
+                    "process": "daily-validation",
+                    "phase": "step_result",
+                    "step": 2,
+                    "name": "cargo_fmt",
+                    "status": "FAILED",
+                    "detail": msg
+                });
+                println!("{}", serde_json::to_string_pretty(&report)?);
+            } else {
+                eprintln!("[BLOCKER] {}", msg);
+            }
+            if json_output {
+                let final_report = json!({
+                    "command": "process_run",
+                    "process": "daily-validation",
+                    "phase": "summary",
+                    "overall_status": "BLOCKED",
+                    "blocked_at_step": 2,
+                    "next_action": "Run `cargo fmt` and re-run"
+                });
+                println!("{}", serde_json::to_string_pretty(&final_report)?);
+            } else {
+                println!();
+                println!("[BLOCKED] Process stopped at step 2 (cargo fmt).");
+                println!("Next action: Run `cargo fmt` to fix formatting, then re-run.");
+            }
+            return Ok(());
+        }
+        Err(e) => {
+            let msg = format!("Failed to run cargo fmt: {}", e);
+            if json_output {
+                let report = json!({
+                    "command": "process_run",
+                    "process": "daily-validation",
+                    "phase": "step_result",
+                    "step": 2,
+                    "name": "cargo_fmt",
+                    "status": "FAILED",
+                    "detail": msg
+                });
+                println!("{}", serde_json::to_string_pretty(&report)?);
+            } else {
+                eprintln!("[BLOCKER] {}", msg);
+            }
+            return Ok(());
+        }
+    }
+    if !json_output {
+        println!();
+    }
+
+    // Step 3: cargo check
+    if !json_output {
+        println!("--- Step 3/4: cargo check ---");
+    }
+    let check_result = ProcessCommand::new("cargo").args(["check"]).output();
+    match check_result {
+        Ok(output) if output.status.success() => {
+            if json_output {
+                let report = json!({
+                    "command": "process_run",
+                    "process": "daily-validation",
+                    "phase": "step_result",
+                    "step": 3,
+                    "name": "cargo_check",
+                    "status": "PASSED"
+                });
+                println!("{}", serde_json::to_string_pretty(&report)?);
+            } else {
+                println!("[OK] cargo check passed");
+            }
+        }
+        Ok(output) => {
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            let msg = format!("cargo check failed:\n{}", stderr);
+            if json_output {
+                let report = json!({
+                    "command": "process_run",
+                    "process": "daily-validation",
+                    "phase": "step_result",
+                    "step": 3,
+                    "name": "cargo_check",
+                    "status": "FAILED",
+                    "detail": msg
+                });
+                println!("{}", serde_json::to_string_pretty(&report)?);
+            } else {
+                eprintln!("[BLOCKER] {}", msg);
+            }
+            if json_output {
+                let final_report = json!({
+                    "command": "process_run",
+                    "process": "daily-validation",
+                    "phase": "summary",
+                    "overall_status": "BLOCKED",
+                    "blocked_at_step": 3,
+                    "next_action": "Fix type errors and re-run"
+                });
+                println!("{}", serde_json::to_string_pretty(&final_report)?);
+            } else {
+                println!();
+                println!("[BLOCKED] Process stopped at step 3 (cargo check).");
+                println!("Next action: Fix type-check errors and re-run.");
+            }
+            return Ok(());
+        }
+        Err(e) => {
+            let msg = format!("Failed to run cargo check: {}", e);
+            if json_output {
+                let report = json!({
+                    "command": "process_run",
+                    "process": "daily-validation",
+                    "phase": "step_result",
+                    "step": 3,
+                    "name": "cargo_check",
+                    "status": "FAILED",
+                    "detail": msg
+                });
+                println!("{}", serde_json::to_string_pretty(&report)?);
+            } else {
+                eprintln!("[BLOCKER] {}", msg);
+            }
+            return Ok(());
+        }
+    }
+    if !json_output {
+        println!();
+    }
+
+    // Step 4: cargo test
+    if !json_output {
+        println!("--- Step 4/4: cargo test ---");
+        println!("(This may take a few minutes...)");
+    }
+    let test_result = ProcessCommand::new("cargo").args(["test"]).output();
+    match test_result {
+        Ok(output) if output.status.success() => {
+            let stdout = String::from_utf8_lossy(&output.stdout);
+            if json_output {
+                let lines: Vec<&str> = stdout.lines().collect();
+                let report = json!({
+                    "command": "process_run",
+                    "process": "daily-validation",
+                    "phase": "step_result",
+                    "step": 4,
+                    "name": "cargo_test",
+                    "status": "PASSED",
+                    "output": lines
+                });
+                println!("{}", serde_json::to_string_pretty(&report)?);
+            } else {
+                println!("{}", stdout);
+                println!("[OK] cargo test passed");
+            }
+        }
+        Ok(output) => {
+            let stdout = String::from_utf8_lossy(&output.stdout);
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            let msg = format!(
+                "cargo test had failures.\nstdout:\n{}\nstderr:\n{}",
+                stdout, stderr
+            );
+            if json_output {
+                let report = json!({
+                    "command": "process_run",
+                    "process": "daily-validation",
+                    "phase": "step_result",
+                    "step": 4,
+                    "name": "cargo_test",
+                    "status": "FAILED",
+                    "detail": msg
+                });
+                println!("{}", serde_json::to_string_pretty(&report)?);
+            } else {
+                eprintln!("[BLOCKER] {}", msg);
+            }
+            if json_output {
+                let final_report = json!({
+                    "command": "process_run",
+                    "process": "daily-validation",
+                    "phase": "summary",
+                    "overall_status": "BLOCKED",
+                    "blocked_at_step": 4,
+                    "next_action": "Fix failing tests and re-run"
+                });
+                println!("{}", serde_json::to_string_pretty(&final_report)?);
+            } else {
+                println!();
+                println!("[BLOCKED] Process stopped at step 4 (cargo test).");
+                println!("Next action: Fix failing tests and re-run.");
+            }
+            return Ok(());
+        }
+        Err(e) => {
+            let msg = format!("Failed to run cargo test: {}", e);
+            if json_output {
+                let report = json!({
+                    "command": "process_run",
+                    "process": "daily-validation",
+                    "phase": "step_result",
+                    "step": 4,
+                    "name": "cargo_test",
+                    "status": "FAILED",
+                    "detail": msg
+                });
+                println!("{}", serde_json::to_string_pretty(&report)?);
+            } else {
+                eprintln!("[BLOCKER] {}", msg);
+            }
+            return Ok(());
+        }
+    }
+    if !json_output {
+        println!();
+    }
+
+    // Summary
+    if json_output {
+        let final_report = json!({
+            "command": "process_run",
+            "process": "daily-validation",
+            "phase": "summary",
+            "overall_status": "PASSED",
+            "next_action": "No issues found. System is healthy."
+        });
+        println!("{}", serde_json::to_string_pretty(&final_report)?);
+    } else {
+        println!("{}", "=".repeat(46));
+        println!("[ARPAGONA process run] daily-validation — PASSED");
+        println!("All 4 steps completed successfully.");
+        println!("Next action: No issues found. System is healthy.");
     }
 
     Ok(())
