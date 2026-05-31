@@ -14,9 +14,11 @@ const ARPAGONA_BIN: &str = env!("CARGO_BIN_EXE_arpagona");
 /// cargo_fmt, cargo_check, or cargo_test.
 #[test]
 fn process_run_blocks_at_step_1_when_doctor_has_blocking_failures() {
+    let journal_dir = temp_journal_dir();
     let output = std::process::Command::new(ARPAGONA_BIN)
         .args(["process", "run", "daily-validation", "--json"])
         .env("OLLAMA_ENDPOINT", "http://127.0.0.1:9")
+        .env("ARPAGONA_PROCESS_JOURNAL_DIR", &journal_dir)
         .output()
         .expect("failed to run process run daily-validation --json");
 
@@ -49,6 +51,30 @@ fn process_run_blocks_at_step_1_when_doctor_has_blocking_failures() {
         "doctor step should be reported as FAILED.\nstdout:\n{}",
         stdout
     );
+}
+
+/// Test helper: create a unique temp dir for journal isolation.
+/// Returns the temp directory path. The caller MUST set
+/// `ARPAGONA_PROCESS_JOURNAL_DIR` env on the Command to this path.
+fn temp_journal_dir() -> std::path::PathBuf {
+    let test_id = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_nanos();
+    let dir = std::env::temp_dir().join(format!("arpagona-journal-test-{test_id}"));
+    std::fs::create_dir_all(&dir).expect("failed to create temp journal dir");
+    dir
+}
+
+/// Test helper: create a unique temp HOME directory for isolation tests.
+/// The caller can set HOME=<result> and ARPAGONA_PROCESS_JOURNAL_DIR=<another dir>
+/// to verify that process run does not write to the default $HOME/.arpagona/process-journal.
+fn temp_home_dir() -> std::path::PathBuf {
+    let test_id = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_nanos();
+    std::env::temp_dir().join(format!("arpagona-home-test-{test_id}"))
 }
 
 /// Run doctor in --json mode with a dead Ollama endpoint.
@@ -132,9 +158,11 @@ fn doctor_returns_blocking_failures_via_connection_refused() {
 /// Process run JSON output must include a `run_id` field in plan and summary phases.
 #[test]
 fn process_run_json_includes_run_id() {
+    let journal_dir = temp_journal_dir();
     let output = std::process::Command::new(ARPAGONA_BIN)
         .args(["process", "run", "daily-validation", "--json"])
         .env("OLLAMA_ENDPOINT", "http://127.0.0.1:9")
+        .env("ARPAGONA_PROCESS_JOURNAL_DIR", &journal_dir)
         .output()
         .expect("failed to run process run daily-validation --json");
 
@@ -158,9 +186,11 @@ fn process_run_json_includes_run_id() {
 /// Process run creates a durable journal file for inspection.
 #[test]
 fn process_run_creates_journal_file() {
+    let journal_dir = temp_journal_dir();
     let output = std::process::Command::new(ARPAGONA_BIN)
         .args(["process", "run", "daily-validation", "--json"])
         .env("OLLAMA_ENDPOINT", "http://127.0.0.1:9")
+        .env("ARPAGONA_PROCESS_JOURNAL_DIR", &journal_dir)
         .output()
         .expect("failed to run process run daily-validation --json");
 
@@ -173,13 +203,9 @@ fn process_run_creates_journal_file() {
         if let Some(end) = after_prefix.find('"') {
             let run_id = format!("daily-validation-{}", &after_prefix[..end]);
 
-            // Check that the journal file exists
-            let home =
-                std::env::home_dir().expect("home_dir should be available in test environment");
-            let journal_path = home
-                .join(".arpagona")
-                .join("process-journal")
-                .join(format!("{}.json", run_id));
+            // Resolve the journal path — must match process_journal_dir_resolved()
+            // in main.rs. Also check ARPAGONA_PROCESS_JOURNAL_DIR first.
+            let journal_path = journal_dir.join(format!("{}.json", run_id));
 
             assert!(
                 journal_path.exists(),
@@ -209,16 +235,19 @@ fn process_run_creates_journal_file() {
 /// Process status --last reads back the most recent journal.
 #[test]
 fn process_status_last_reads_back_journal() {
+    let journal_dir = temp_journal_dir();
     // First, run process to ensure at least one journal exists
     let _run = std::process::Command::new(ARPAGONA_BIN)
         .args(["process", "run", "daily-validation", "--json"])
         .env("OLLAMA_ENDPOINT", "http://127.0.0.1:9")
+        .env("ARPAGONA_PROCESS_JOURNAL_DIR", &journal_dir)
         .output()
         .expect("failed to run process run daily-validation --json");
 
     // Now read back the last status
     let output = std::process::Command::new(ARPAGONA_BIN)
         .args(["process", "status", "--last", "--json"])
+        .env("ARPAGONA_PROCESS_JOURNAL_DIR", &journal_dir)
         .output()
         .expect("failed to run process status --last --json");
 
@@ -499,16 +528,19 @@ fn process_list_empty_journal_json_is_well_formed() {
 /// process list shows journal entries after a process run.
 #[test]
 fn process_list_shows_journal_entries() {
+    let journal_dir = temp_journal_dir();
     // First, run process to create at least one journal
     let _run = std::process::Command::new(ARPAGONA_BIN)
         .args(["process", "run", "daily-validation", "--json"])
         .env("OLLAMA_ENDPOINT", "http://127.0.0.1:9")
+        .env("ARPAGONA_PROCESS_JOURNAL_DIR", &journal_dir)
         .output()
         .expect("failed to run process run daily-validation --json");
 
     // Now list the journals
     let output = std::process::Command::new(ARPAGONA_BIN)
         .args(["process", "list"])
+        .env("ARPAGONA_PROCESS_JOURNAL_DIR", &journal_dir)
         .output()
         .expect("failed to run process list");
 
@@ -539,16 +571,19 @@ fn process_list_shows_journal_entries() {
 /// process list --json returns well-formed JSON with runs.
 #[test]
 fn process_list_json_is_well_formed() {
+    let journal_dir = temp_journal_dir();
     // Run process to create journals
     let _run = std::process::Command::new(ARPAGONA_BIN)
         .args(["process", "run", "daily-validation", "--json"])
         .env("OLLAMA_ENDPOINT", "http://127.0.0.1:9")
+        .env("ARPAGONA_PROCESS_JOURNAL_DIR", &journal_dir)
         .output()
         .expect("failed to run process run daily-validation --json");
 
     // Now list with JSON
     let output = std::process::Command::new(ARPAGONA_BIN)
         .args(["process", "list", "--json"])
+        .env("ARPAGONA_PROCESS_JOURNAL_DIR", &journal_dir)
         .output()
         .expect("failed to run process list --json");
 
@@ -743,4 +778,66 @@ fn process_list_json_does_not_create_journal_dir() {
     );
 
     let _ = std::fs::remove_dir_all(&home_dir);
+}
+
+// ---------------------------------------------------------------------------
+// Regression: process run must NOT pollute the real user journal directory
+// ---------------------------------------------------------------------------
+
+/// Verifies that running `process run` with ARPAGONA_PROCESS_JOURNAL_DIR
+/// isolation does NOT create or modify files under the default
+/// $HOME/.arpagona/process-journal path.
+///
+/// Uses a temp HOME sentinel so the test is fully portable and does not
+/// depend on any real user's home directory.
+#[test]
+fn process_run_does_not_pollute_default_journal_dir() {
+    // Create a temp HOME with known state (no .arpagona exists)
+    let home_dir = temp_home_dir();
+    std::fs::create_dir_all(&home_dir).expect("failed to create isolated HOME");
+
+    // Separate temp dir for the overridden ARPAGONA_PROCESS_JOURNAL_DIR
+    let override_dir = temp_journal_dir();
+
+    // Run process with both HOME (so default path resolves to temp) and
+    // ARPAGONA_PROCESS_JOURNAL_DIR (so journal writes to override dir)
+    let output = std::process::Command::new(ARPAGONA_BIN)
+        .args(["process", "run", "daily-validation", "--json"])
+        .env("OLLAMA_ENDPOINT", "http://127.0.0.1:9")
+        .env("HOME", &home_dir)
+        .env("ARPAGONA_PROCESS_JOURNAL_DIR", &override_dir)
+        .output()
+        .expect("failed to run process run daily-validation --json");
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+
+    // Verify the process run itself behaves correctly (BLOCKED at step 1)
+    assert!(
+        stdout.contains("\"overall_status\": \"BLOCKED\""),
+        "process run should be BLOCKED. stdout:\n{}",
+        stdout
+    );
+
+    // Verify the journal was written to the override dir, NOT the default path
+    let default_journal_dir = home_dir.join(".arpagona").join("process-journal");
+    assert!(
+        !default_journal_dir.exists(),
+        "Default journal dir under temp HOME must NOT be created: {}",
+        default_journal_dir.display()
+    );
+
+    // Verify the override dir contains the journal
+    let isolated_files: Vec<_> = std::fs::read_dir(&override_dir)
+        .expect("should read override journal dir")
+        .filter_map(|e| e.ok())
+        .filter(|e| e.file_name().to_string_lossy().ends_with(".json"))
+        .collect();
+    assert!(
+        !isolated_files.is_empty(),
+        "Override journal dir should contain at least one journal file"
+    );
+
+    // Cleanup
+    let _ = std::fs::remove_dir_all(&home_dir);
+    let _ = std::fs::remove_dir_all(&override_dir);
 }

@@ -95,29 +95,32 @@ struct ProcessRunJournal {
     next_action: String,
 }
 
+/// Resolve the process journal directory path.
+///
+/// Checks `ARPAGONA_PROCESS_JOURNAL_DIR` environment variable first (used by
+/// tests to isolate journal writes to a temp directory). Falls back to
+/// `$HOME/.arpagona/process-journal/` for production use.
+fn process_journal_dir_resolved() -> PathBuf {
+    if let Ok(override_dir) = std::env::var("ARPAGONA_PROCESS_JOURNAL_DIR") {
+        return PathBuf::from(override_dir);
+    }
+    let home =
+        std::env::home_dir().expect("HOME must be set for production use of process journals");
+    PathBuf::from(home)
+        .join(ARPAGONA_STATE_DIR)
+        .join(PROCESS_JOURNAL_DIR)
+}
+
 /// Return the path to the process journal directory, creating it if needed.
 fn ensure_journal_dir() -> Result<PathBuf, Box<dyn Error>> {
-    let home = std::env::home_dir()
-        .ok_or_else(|| "Could not determine home directory".to_owned())?
-        .to_string_lossy()
-        .to_string();
-    let dir = PathBuf::from(home)
-        .join(ARPAGONA_STATE_DIR)
-        .join(PROCESS_JOURNAL_DIR);
+    let dir = process_journal_dir_resolved();
     std::fs::create_dir_all(&dir)?;
     Ok(dir)
 }
 
 /// Return the path to the process journal directory WITHOUT creating it.
 fn journal_dir_path() -> Result<PathBuf, Box<dyn Error>> {
-    let home = std::env::home_dir()
-        .ok_or_else(|| "Could not determine home directory".to_owned())?
-        .to_string_lossy()
-        .to_string();
-    let dir = PathBuf::from(home)
-        .join(ARPAGONA_STATE_DIR)
-        .join(PROCESS_JOURNAL_DIR);
-    Ok(dir)
+    Ok(process_journal_dir_resolved())
 }
 
 /// Generate a deterministic run ID for a process run.
