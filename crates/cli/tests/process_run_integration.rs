@@ -66,9 +66,16 @@ fn temp_journal_dir() -> std::path::PathBuf {
     dir
 }
 
-/// The real user-level process journal directory for ARPAGONA.
-/// Used by the regression test to verify that integration tests do NOT pollute it.
-const REAL_PROCESS_JOURNAL_DIR: &str = "/home/thibaud/.arpagona/process-journal";
+/// Test helper: create a unique temp HOME directory for isolation tests.
+/// The caller can set HOME=<result> and ARPAGONA_PROCESS_JOURNAL_DIR=<another dir>
+/// to verify that process run does not write to the default $HOME/.arpagona/process-journal.
+fn temp_home_dir() -> std::path::PathBuf {
+    let test_id = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_nanos();
+    std::env::temp_dir().join(format!("arpagona-home-test-{test_id}"))
+}
 
 /// Run doctor in --json mode with a dead Ollama endpoint.
 /// Verifies that doctor exits with non-zero exit code and emits
@@ -778,28 +785,27 @@ fn process_list_json_does_not_create_journal_dir() {
 // ---------------------------------------------------------------------------
 
 /// Verifies that running `process run` with ARPAGONA_PROCESS_JOURNAL_DIR
-/// isolation does NOT create or modify files under the real journal dir.
+/// isolation does NOT create or modify files under the default
+/// $HOME/.arpagona/process-journal path.
+///
+/// Uses a temp HOME sentinel so the test is fully portable and does not
+/// depend on any real user's home directory.
 #[test]
-fn process_run_does_not_pollute_real_journal_dir() {
-    // Snapshot the real journal directory before and after.
-    let real_dir = std::path::Path::new(REAL_PROCESS_JOURNAL_DIR);
-    let before: std::collections::BTreeSet<String> = if real_dir.exists() {
-        std::fs::read_dir(real_dir)
-            .expect("should read real journal dir")
-            .filter_map(|e| e.ok())
-            .filter_map(|e| e.file_name().into_string().ok())
-            .collect()
-    } else {
-        std::collections::BTreeSet::new()
-    };
-    let before_count = before.len();
+fn process_run_does_not_pollute_default_journal_dir() {
+    // Create a temp HOME with known state (no .arpagona exists)
+    let home_dir = temp_home_dir();
+    std::fs::create_dir_all(&home_dir).expect("failed to create isolated HOME");
 
-    // Run process with isolated journal dir
-    let journal_dir = temp_journal_dir();
+    // Separate temp dir for the overridden ARPAGONA_PROCESS_JOURNAL_DIR
+    let override_dir = temp_journal_dir();
+
+    // Run process with both HOME (so default path resolves to temp) and
+    // ARPAGONA_PROCESS_JOURNAL_DIR (so journal writes to override dir)
     let output = std::process::Command::new(ARPAGONA_BIN)
         .args(["process", "run", "daily-validation", "--json"])
         .env("OLLAMA_ENDPOINT", "http://127.0.0.1:9")
-        .env("ARPAGONA_PROCESS_JOURNAL_DIR", &journal_dir)
+        .env("HOME", &home_dir)
+        .env("ARPAGONA_PROCESS_JOURNAL_DIR", &override_dir)
         .output()
         .expect("failed to run process run daily-validation --json");
 
@@ -812,39 +818,26 @@ fn process_run_does_not_pollute_real_journal_dir() {
         stdout
     );
 
-    // Verify the journal was written to the isolated dir, NOT the real dir
-    let after: std::collections::BTreeSet<String> = if real_dir.exists() {
-        std::fs::read_dir(real_dir)
-            .expect("should read real journal dir")
-            .filter_map(|e| e.ok())
-            .filter_map(|e| e.file_name().into_string().ok())
-            .collect()
-    } else {
-        std::collections::BTreeSet::new()
-    };
-    let after_count = after.len();
-
-    assert_eq!(
-        before_count,
-        after_count,
-        "Real journal dir was polluted! Before: {} files, after: {} files.\n\
-         New files: {:?}",
-        before_count,
-        after_count,
-        after.difference(&before).collect::<Vec<_>>()
+    // Verify the journal was written to the override dir, NOT the default path
+    let default_journal_dir = home_dir.join(".arpagona").join("process-journal");
+    assert!(
+        !default_journal_dir.exists(),
+        "Default journal dir under temp HOME must NOT be created: {}",
+        default_journal_dir.display()
     );
 
-    // Verify the isolated dir contains the journal
-    let isolated_files: Vec<_> = std::fs::read_dir(&journal_dir)
-        .expect("should read isolated journal dir")
+    // Verify the override dir contains the journal
+    let isolated_files: Vec<_> = std::fs::read_dir(&override_dir)
+        .expect("should read override journal dir")
         .filter_map(|e| e.ok())
         .filter(|e| e.file_name().to_string_lossy().ends_with(".json"))
         .collect();
     assert!(
         !isolated_files.is_empty(),
-        "Isolated journal dir should contain at least one journal file"
+        "Override journal dir should contain at least one journal file"
     );
 
     // Cleanup
-    let _ = std::fs::remove_dir_all(&journal_dir);
+    let _ = std::fs::remove_dir_all(&home_dir);
+    let _ = std::fs::remove_dir_all(&override_dir);
 }
