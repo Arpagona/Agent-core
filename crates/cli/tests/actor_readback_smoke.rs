@@ -430,6 +430,69 @@ fn actor_history_text_limit_1_produces_output() {
     );
 }
 
+/// actor history (text mode, no --limit, no --json) with an isolated
+/// fresh/empty journal.
+///
+/// Proves that `arpagona actor history` text mode is safe and clear
+/// when there is no persisted actor history: exit 0, header present,
+/// zero matching entries reported, NON_AUTHORIZING_READBACK warning
+/// emitted, and no contamination from any default local journal state.
+#[test]
+fn actor_history_text_empty_journal() {
+    let path = temp_isolated_journal_path("actor_history_text_empty_journal");
+    let _ = std::fs::remove_file(&path);
+
+    let output = std::process::Command::new(ARPAGONA_BIN)
+        .args(["actor", "history"])
+        .env("ARPAGONA_LLM_JOURNAL_PATH", &path)
+        .output()
+        .expect("failed to run actor history (text) with empty journal");
+    assert!(
+        output.status.success(),
+        "actor history (text) with empty journal must exit 0:\nstdout: {}\nstderr: {}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr),
+    );
+
+    let stdout = String::from_utf8(output.stdout).expect("valid utf-8");
+
+    // Header must be present
+    assert!(
+        stdout.contains("Actor Run History"),
+        "text output should contain 'Actor Run History' header, got: {stdout}"
+    );
+
+    // Must report zero matching entries
+    assert!(
+        stdout.contains("0 most recent run"),
+        "empty journal should report '0 most recent run(s)', got: {stdout}"
+    );
+
+    // NON_AUTHORIZING_READBACK warning must be present
+    assert!(
+        stdout.contains("NON_AUTHORIZING_READBACK"),
+        "text output must contain NON_AUTHORIZING_READBACK warning, got: {stdout}"
+    );
+
+    // Not JSON (text mode)
+    assert!(
+        !stdout.trim().starts_with('{'),
+        "text mode should not emit JSON, got: {stdout}"
+    );
+
+    // No default-journal contamination: the temp path is unique per
+    // invocation (process-id-scoped) and was explicitly removed before
+    // the command ran. If contamination occurred, the temp file would
+    // exist after the command; verify it does NOT (it should remain
+    // absent because actor history is read-only).
+    assert!(
+        !path.exists(),
+        "isolated journal path must NOT be created by read-only actor history"
+    );
+
+    let _ = std::fs::remove_file(&path);
+}
+
 // ---------------------------------------------------------------------------
 // actor journal -- non-ASCII readback regression (char-boundary safety)
 // ---------------------------------------------------------------------------
