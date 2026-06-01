@@ -528,3 +528,184 @@ fn actor_journal_non_ascii_truncation_does_not_panic() {
     // Clean up
     let _ = std::fs::remove_file(&path);
 }
+
+// ---------------------------------------------------------------------------
+// llm journal + action supervise — non-ASCII readback live smoke (PR #256)
+// ---------------------------------------------------------------------------
+
+/// Live smoke test: `arpagona llm journal` and `arpagona action supervise`
+/// must display non-ASCII objectives/prompts/action JSON without panic,
+/// exercised through a cross-process readback from a pre-seeded journal.
+///
+/// Covers the 80-char, 120-char, and 200-char truncation boundaries that
+/// PR #256 (#406a4c2) hardened with char-boundary-safe slicing:
+///   - llm journal list: objective (80), prompt/response (120),
+///     compute_routing justification (120)
+///   - action supervise: objective (80), proposed_actions (200),
+///     tool_call_intents (200), decision_gate_outcomes (200)
+#[test]
+fn llm_journal_and_action_supervise_non_ascii_readback() {
+    let sparkle = "\u{2728}"; // ✨ — 3 bytes in UTF-8
+
+    // Build an objective that crosses the 80-char truncation boundary
+    // with a multi-byte character at position ~78-80.
+    let mut objective = "o".repeat(78);
+    objective.push_str(sparkle);
+    objective.push_str(" end");
+
+    // Build prompt/response that cross the 120-char boundary
+    let mut prompt = "p".repeat(118);
+    prompt.push_str(sparkle);
+    prompt.push_str(" end");
+
+    let mut response = "r".repeat(118);
+    response.push_str(sparkle);
+    response.push_str(" end");
+
+    // Build a justification that crosses the 120-char boundary
+    let mut justification = "j".repeat(118);
+    justification.push_str(sparkle);
+    justification.push_str(" end");
+
+    // Build proposed_actions JSON that crosses the 200-char boundary
+    let mut action_text = "action payload ".repeat(12); // ~168 chars
+    action_text.push_str(sparkle);
+    action_text.push_str(" end marker end marker"); // pushes past 200
+
+    // Build tool_call_intents JSON that crosses the 200-char boundary
+    let mut tci_text = "tool intent ".repeat(12); // ~156 chars
+    tci_text.push_str(sparkle);
+    tci_text.push_str(" end marker end marker end marker"); // pushes past 200
+
+    // Build decision_gate_outcomes JSON that crosses the 200-char boundary
+    let mut dg_text = "decision gate outcome ".repeat(9); // ~198 chars
+    dg_text.push_str(sparkle);
+    dg_text.push_str(" final"); // pushes past 200
+
+    let entry = serde_json::json!({
+        "id": "non-ascii-llm-smoke-001",
+        "created_at": "2026-06-01T07:30:00Z",
+        "interaction_type": "direct_tool_call",
+        "provider": "live-smoke-test",
+        "model": null,
+        "objective": objective,
+        "prompt_summary": prompt,
+        "response_summary": response,
+        "proposed_actions": [{"action": action_text, "rationale": "smoke proof"}],
+        "tool_call_intents": [{"tool": "smoke_test", "arguments": {"input": tci_text}}],
+        "decision_gate_outcomes": [{"decision": {"status": "approved"}, "outcome": dg_text}],
+        "risk_level": "low",
+        "compute_routing": {
+            "selected_node_id": "test-node",
+            "justification": justification,
+            "routing_note": sparkle
+        },
+    });
+
+    let journal_line = serde_json::to_string(&entry).expect("valid json");
+    let path = temp_isolated_journal_path("non_ascii_llm_supervise_smoke");
+    let _ = std::fs::remove_file(&path);
+    std::fs::write(&path, format!("{journal_line}\n")).expect("write journal file");
+
+    // ── 1. arpagona llm journal (text mode) ─────────────────────────────
+    let llm_text = std::process::Command::new(ARPAGONA_BIN)
+        .args(["llm", "journal"])
+        .env("ARPAGONA_LLM_JOURNAL_PATH", &path)
+        .output()
+        .expect("failed to run llm journal (text) with non-ASCII data");
+
+    assert!(
+        llm_text.status.success(),
+        "llm journal (text) with non-ASCII must not panic:\nstdout: {}\nstderr: {}",
+        String::from_utf8_lossy(&llm_text.stdout),
+        String::from_utf8_lossy(&llm_text.stderr),
+    );
+
+    let llm_stdout = String::from_utf8(llm_text.stdout).expect("valid utf-8");
+    assert!(
+        llm_stdout.contains(sparkle),
+        "llm journal (text) must display non-ASCII sparkle in output:\n{}",
+        llm_stdout
+    );
+    assert!(
+        llm_stdout.contains("LLM Interaction Journal"),
+        "llm journal (text) must show header"
+    );
+
+    // ── 2. arpagona llm journal --json ──────────────────────────────────
+    let llm_json = std::process::Command::new(ARPAGONA_BIN)
+        .args(["llm", "journal", "--json", "--limit", "10"])
+        .env("ARPAGONA_LLM_JOURNAL_PATH", &path)
+        .output()
+        .expect("failed to run llm journal --json with non-ASCII data");
+
+    assert!(
+        llm_json.status.success(),
+        "llm journal --json with non-ASCII must not panic:\nstdout: {}\nstderr: {}",
+        String::from_utf8_lossy(&llm_json.stdout),
+        String::from_utf8_lossy(&llm_json.stderr),
+    );
+
+    let llm_json_stdout = String::from_utf8(llm_json.stdout).expect("valid utf-8");
+    let parsed: serde_json::Value =
+        serde_json::from_str(&llm_json_stdout).expect("llm journal --json should be valid JSON");
+    let entries = parsed.get("entries").and_then(|v| v.as_array()).unwrap();
+    assert!(
+        !entries.is_empty(),
+        "llm journal --json should have entries"
+    );
+    assert!(
+        parsed
+            .get("total_entries")
+            .and_then(|v| v.as_u64())
+            .unwrap_or(0)
+            >= 1,
+        "total_entries should be >= 1"
+    );
+
+    // ── 3. arpagona action supervise (text mode) ────────────────────────
+    let supervise_text = std::process::Command::new(ARPAGONA_BIN)
+        .args(["action", "supervise"])
+        .env("ARPAGONA_LLM_JOURNAL_PATH", &path)
+        .output()
+        .expect("failed to run action supervise (text) with non-ASCII data");
+
+    assert!(
+        supervise_text.status.success(),
+        "action supervise (text) with non-ASCII must not panic:\nstdout: {}\nstderr: {}",
+        String::from_utf8_lossy(&supervise_text.stdout),
+        String::from_utf8_lossy(&supervise_text.stderr),
+    );
+
+    let supervise_stdout = String::from_utf8(supervise_text.stdout).expect("valid utf-8");
+    assert!(
+        supervise_stdout.contains(sparkle),
+        "action supervise (text) must display non-ASCII sparkle in output:\n{}",
+        supervise_stdout
+    );
+    assert!(
+        supervise_stdout.contains("Action Supervision Surface"),
+        "action supervise (text) must show header"
+    );
+
+    // ── 4. arpagona action supervise --json ─────────────────────────────
+    let supervise_json = std::process::Command::new(ARPAGONA_BIN)
+        .args(["action", "supervise", "--json"])
+        .env("ARPAGONA_LLM_JOURNAL_PATH", &path)
+        .output()
+        .expect("failed to run action supervise --json with non-ASCII data");
+
+    assert!(
+        supervise_json.status.success(),
+        "action supervise --json with non-ASCII must not panic:\nstdout: {}\nstderr: {}",
+        String::from_utf8_lossy(&supervise_json.stdout),
+        String::from_utf8_lossy(&supervise_json.stderr),
+    );
+
+    let supervise_json_stdout = String::from_utf8(supervise_json.stdout).expect("valid utf-8");
+    let _parsed: serde_json::Value = serde_json::from_str(&supervise_json_stdout)
+        .expect("action supervise --json should be valid JSON");
+
+    // Clean up
+    let _ = std::fs::remove_file(&path);
+}
