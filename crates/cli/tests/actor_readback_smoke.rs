@@ -1031,12 +1031,70 @@ fn actor_journal_json_isolated_multiple_persisted_entries() {
         );
     }
 
-    // Entry 0 (first in list) should be the most recent (newer-first ordering)
-    let first_id = entries[0].get("id").and_then(|v| v.as_str()).unwrap_or("");
+    // Full ordered id sequence: newer-first (multi-003, multi-002, multi-001)
+    let ids: Vec<&str> = entries
+        .iter()
+        .filter_map(|e| e.get("id").and_then(|v| v.as_str()))
+        .collect();
     assert_eq!(
-        first_id, "multi-003",
-        "first entry should be the most recent (multi-003@08:02Z), got: {first_id}"
+        ids,
+        vec!["multi-003", "multi-002", "multi-001"],
+        "entries should be newer-first ordered, got: {ids:?}"
     );
+
+    // Verify persisted content fields survive readback for each entry.
+    // The expected ordering is newer-first: multi-003 (08:02Z), multi-002
+    // (08:01Z), multi-001 (08:00Z).
+    let content_expectations: Vec<(&str, &str, &str)> = vec![
+        // (prompt_summary, response_summary, objective)
+        (
+            "Evaluate code quality of the agent-core library",
+            "Code quality looks solid with good test coverage",
+            "actor_run",
+        ),
+        (
+            "Read the project README for setup instructions",
+            "README shows build steps and dependencies",
+            "actor_run",
+        ),
+        (
+            "Find all markdown files in the project",
+            "Found 15 .md files under docs/ and root",
+            "actor_run",
+        ),
+    ];
+    for (i, (entry, (exp_prompt, exp_response, exp_obj))) in
+        entries.iter().zip(content_expectations.iter()).enumerate()
+    {
+        let got_prompt = entry
+            .get("prompt_summary")
+            .and_then(|v| v.as_str())
+            .unwrap_or("");
+        let got_response = entry
+            .get("response_summary")
+            .and_then(|v| v.as_str())
+            .unwrap_or("");
+        let got_obj = entry
+            .get("objective")
+            .and_then(|v| v.as_str())
+            .unwrap_or("");
+        let entry_id = entry
+            .get("id")
+            .and_then(|v| v.as_str())
+            .unwrap_or("unknown");
+        assert_eq!(
+            got_prompt, *exp_prompt,
+            "entry[{i}] id={entry_id}: prompt_summary mismatch"
+        );
+        assert_eq!(
+            got_response, *exp_response,
+            "entry[{i}] id={entry_id}: response_summary mismatch"
+        );
+        assert_eq!(
+            got_obj, *exp_obj,
+            "entry[{i}] id={entry_id}: objective mismatch"
+        );
+    }
 
     // NON_AUTHORIZING_READBACK warning
     let warning = parsed
