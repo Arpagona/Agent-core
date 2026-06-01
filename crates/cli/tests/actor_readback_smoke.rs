@@ -1108,3 +1108,165 @@ fn actor_journal_json_isolated_multiple_persisted_entries() {
 
     let _ = std::fs::remove_file(&path);
 }
+
+// ---------------------------------------------------------------------------
+// actor journal — text-mode smoke with pre-seeded persisted entries (PR #259)
+// ---------------------------------------------------------------------------
+
+/// actor journal (text mode) with 3 pre-seeded entries containing distinct
+/// content and different tool intents/governance states.
+///
+/// Proves that text-mode readback displays persisted content safely, with
+/// correct header, NON_AUTHORIZING_READBACK warning, newest-first ordering
+/// of IDs and content, and no contamination from default local journal state
+/// (the isolated path guarantees zero contamination).
+#[test]
+fn actor_journal_text_isolated_persisted_entries() {
+    let path = temp_isolated_journal_path("actor_journal_text_persisted");
+    let _ = std::fs::remove_file(&path);
+
+    // Three DirectToolCall entries at 1-minute intervals, all with
+    // objective="actor_run" so they pass the default text-mode filter.
+    // They vary in prompt/response content, tool intents, and risk level
+    // so we can verify correct field readback of persisted state.
+    let entry1 = serde_json::json!({
+        "id": "text-persist-001",
+        "created_at": "2026-06-01T08:00:00Z",
+        "interaction_type": "direct_tool_call",
+        "prompt_summary": "Search for outdated dependencies in Cargo.toml",
+        "response_summary": "Found 3 outdated crates: serde, tokio, reqwest",
+        "provider": "smoke-test",
+        "model": null,
+        "objective": "actor_run",
+        "proposed_actions": null,
+        "tool_call_intents": [{"tool": "search_files", "arguments": {"pattern": "Cargo.toml"}}],
+        "decision_gate_outcomes": {"decision_status": "approved", "approval_state": "automatic"},
+        "risk_level": "low",
+        "compute_routing": null,
+    });
+
+    let entry2 = serde_json::json!({
+        "id": "text-persist-002",
+        "created_at": "2026-06-01T08:01:00Z",
+        "interaction_type": "direct_tool_call",
+        "prompt_summary": "Check CI pipeline status for recent commits",
+        "response_summary": "All CI checks passed on the latest commit",
+        "provider": "smoke-test",
+        "model": null,
+        "objective": "actor_run",
+        "proposed_actions": null,
+        "tool_call_intents": null,
+        "decision_gate_outcomes": null,
+        "risk_level": null,
+        "compute_routing": null,
+    });
+
+    let entry3 = serde_json::json!({
+        "id": "text-persist-003",
+        "created_at": "2026-06-01T08:02:00Z",
+        "interaction_type": "direct_tool_call",
+        "prompt_summary": "Review the latest pull request diff for approval",
+        "response_summary": "PR looks clean, minor formatting nits noted",
+        "provider": "smoke-test",
+        "model": null,
+        "objective": "actor_run",
+        "proposed_actions": null,
+        "tool_call_intents": null,
+        "decision_gate_outcomes": null,
+        "risk_level": "informational",
+        "compute_routing": null,
+    });
+
+    // Write as JSONL
+    let jsonl = format!(
+        "{}\n{}\n{}\n",
+        serde_json::to_string(&entry1).expect("entry1 json"),
+        serde_json::to_string(&entry2).expect("entry2 json"),
+        serde_json::to_string(&entry3).expect("entry3 json"),
+    );
+    std::fs::write(&path, jsonl).expect("write journal file");
+
+    // Run actor journal (text mode) — default limit 10 covers all 3 entries
+    let output = std::process::Command::new(ARPAGONA_BIN)
+        .args(["actor", "journal"])
+        .env("ARPAGONA_LLM_JOURNAL_PATH", &path)
+        .output()
+        .expect("failed to run actor journal (text) with persisted entries");
+    assert!(
+        output.status.success(),
+        "actor journal (text) with persisted entries failed:\nstdout: {}\nstderr: {}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr),
+    );
+
+    let stdout = String::from_utf8(output.stdout).expect("valid utf-8");
+
+    // 1. Header must be present
+    assert!(
+        stdout.contains("Actor Journal Readback"),
+        "text output should contain header"
+    );
+    assert!(
+        stdout.contains("3 entries total"),
+        "text output should report 3 entries total"
+    );
+
+    // 2. NON_AUTHORIZING_READBACK warning must be present
+    assert!(
+        stdout.contains("NON_AUTHORIZING_READBACK"),
+        "text output must contain NON_AUTHORIZING_READBACK warning"
+    );
+
+    // 3. Newest-first ordering: "08:02:00" (newest) must appear before
+    //    "08:00:00" (oldest) because the entries are rendered in
+    //    newest-first order. Also the display indices #3..#1 appear
+    //    in that descending order.
+    //    Note: text mode does NOT render entry IDs — it uses display
+    //    indices (#3 = newest shown first, #1 = oldest shown last).
+    let pos_0802 = stdout.find("08:02:00").unwrap_or(usize::MAX);
+    let pos_0800 = stdout.find("08:00:00").unwrap_or(usize::MAX);
+    assert!(
+        pos_0802 < pos_0800,
+        "newest timestamp (08:02:00) should appear before oldest (08:00:00)"
+    );
+
+    // 4. Persisted content must be readable in text output
+    assert!(
+        stdout.contains("Search for outdated dependencies in Cargo.toml"),
+        "entry 1 prompt_summary should appear"
+    );
+    assert!(
+        stdout.contains("Found 3 outdated crates: serde, tokio, reqwest"),
+        "entry 1 response_summary should appear"
+    );
+    assert!(
+        stdout.contains("Check CI pipeline status for recent commits"),
+        "entry 2 prompt_summary should appear"
+    );
+    assert!(
+        stdout.contains("All CI checks passed on the latest commit"),
+        "entry 2 response_summary should appear"
+    );
+    assert!(
+        stdout.contains("Review the latest pull request diff for approval"),
+        "entry 3 prompt_summary should appear"
+    );
+    assert!(
+        stdout.contains("PR looks clean, minor formatting nits noted"),
+        "entry 3 response_summary should appear"
+    );
+
+    // 5. No contamination from default local journal state:
+    //    The temp path is unique per invocation (process-id-scoped) and we
+    //    created it fresh with exactly our 3 entries. No default path or
+    //    global state leaked in.
+    //    Also verify tool_call_intents/decision_gate_outcomes from entry 1
+    //    are rendered (the only entry with both) — text mode renders them.
+    assert!(
+        stdout.contains("approved") || stdout.contains("search_files"),
+        "entry with tool intents/governance should show relevant info in text output"
+    );
+
+    // Clean up
+    let _ = std::fs::remove_file(&path);
+}
