@@ -1397,3 +1397,184 @@ fn actor_journal_text_isolated_persisted_entries() {
     // Clean up
     let _ = std::fs::remove_file(&path);
 }
+
+// ---------------------------------------------------------------------------
+// actor memory -- isolated HOME smoke (regression: no default state)
+// ---------------------------------------------------------------------------
+
+/// Smoke: `arpagona actor memory` with an isolated HOME temp dir and no
+/// `ARPAGONA_LLM_JOURNAL_PATH` set.
+///
+/// Proves that actor memory readback is non-authorizing, local-only, and
+/// does NOT create a default `~/.arpagona` directory or journal file
+/// under the isolated HOME.
+#[test]
+fn actor_memory_text_isolated_home_does_not_create_state() {
+    let home_path = std::env::temp_dir().join(format!(
+        "arpagona-test-home-actor-memory-text-{}",
+        std::process::id(),
+    ));
+    let _ = std::fs::remove_dir_all(&home_path);
+    std::fs::create_dir_all(&home_path).expect("create temp HOME directory");
+    let journal_path = temp_isolated_journal_path("actor_memory_isolated_home");
+
+    // Ensure the journal path does NOT exist (it shouldn't be used since we
+    // are *not* setting ARPAGONA_LLM_JOURNAL_PATH, but leftover state from
+    // prior test runs must not interfere).
+    let _ = std::fs::remove_file(&journal_path);
+
+    let output = std::process::Command::new(ARPAGONA_BIN)
+        .args(["actor", "memory"])
+        .env("HOME", &home_path)
+        .env_remove("ARPAGONA_LLM_JOURNAL_PATH")
+        .output()
+        .expect("failed to run actor memory with isolated HOME");
+
+    assert!(
+        output.status.success(),
+        "actor memory (text) with isolated HOME must exit 0:\nstdout: {}\nstderr: {}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr),
+    );
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+
+    // 1. Header must be present
+    assert!(
+        stdout.contains("Actor Memory Readback"),
+        "text output should contain 'Actor Memory Readback' header, got: {stdout}"
+    );
+
+    // 2. NON_AUTHORIZING_READBACK warning must be present
+    assert!(
+        stdout.contains("NON_AUTHORIZING_READBACK"),
+        "text output must contain NON_AUTHORIZING_READBACK warning, got: {stdout}"
+    );
+
+    // 3. Must expose expected content sections
+    assert!(
+        stdout.contains("Alpha Limits"),
+        "text output should show Alpha Limits section"
+    );
+    assert!(
+        stdout.contains("Access Methods"),
+        "text output should show Access Methods section"
+    );
+
+    // 4. Not JSON (text mode)
+    assert!(
+        !stdout.trim().starts_with('{'),
+        "text mode should not emit JSON, got: {stdout}"
+    );
+
+    // 5. No default-state contamination: isolated HOME must not have
+    //    ~/.arpagona or a journal file created by the read-only operation.
+    let arpagona_state_dir = home_path.join(".arpagona");
+    assert!(
+        !arpagona_state_dir.exists(),
+        "isolated HOME must NOT have .arpagona state directory created by read-only actor memory"
+    );
+    assert!(
+        !journal_path.exists(),
+        "isolated journal path must NOT be created by read-only actor memory"
+    );
+
+    // Clean up
+    let _ = std::fs::remove_file(&journal_path);
+    let _ = std::fs::remove_dir_all(&home_path);
+}
+
+/// Smoke: `arpagona actor memory --json` with an isolated HOME and no
+/// `ARPAGONA_LLM_JOURNAL_PATH`.
+///
+/// Proves that JSON-mode actor memory readback returns valid JSON with
+/// expected fields and NON_AUTHORIZING_READBACK, and does not create
+/// isolated-HOME state.
+#[test]
+fn actor_memory_json_isolated_home_does_not_create_state() {
+    let home_path = std::env::temp_dir().join(format!(
+        "arpagona-test-home-actor-memory-json-{}",
+        std::process::id(),
+    ));
+    let _ = std::fs::remove_dir_all(&home_path);
+    std::fs::create_dir_all(&home_path).expect("create temp HOME directory");
+    let journal_path = temp_isolated_journal_path("actor_memory_json_isolated_home");
+
+    // Ensure clean slate
+    let _ = std::fs::remove_file(&journal_path);
+
+    let output = std::process::Command::new(ARPAGONA_BIN)
+        .args(["actor", "memory", "--json"])
+        .env("HOME", &home_path)
+        .env_remove("ARPAGONA_LLM_JOURNAL_PATH")
+        .output()
+        .expect("failed to run actor memory --json with isolated HOME");
+
+    assert!(
+        output.status.success(),
+        "actor memory --json with isolated HOME must exit 0:\nstdout: {}\nstderr: {}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr),
+    );
+
+    let stdout = String::from_utf8(output.stdout).expect("valid utf-8");
+    let parsed: serde_json::Value =
+        serde_json::from_str(&stdout).expect("actor memory --json should be valid JSON");
+
+    // 1. Top-level actor_memory section
+    let memory = parsed
+        .get("actor_memory")
+        .expect("JSON should contain 'actor_memory'");
+    assert!(
+        memory.get("graph_memory_support_compiled").is_some(),
+        "actor_memory should contain graph_memory_support_compiled"
+    );
+    assert!(
+        memory.get("configured_backend").is_some(),
+        "actor_memory should contain configured_backend"
+    );
+    assert!(
+        memory.get("memory_active").is_some(),
+        "actor_memory should contain memory_active"
+    );
+    let alpha_limits = memory
+        .get("alpha_limits")
+        .and_then(|v| v.as_array())
+        .expect("actor_memory should contain alpha_limits array");
+    assert!(!alpha_limits.is_empty(), "alpha_limits should not be empty");
+
+    // 2. Access methods
+    let access_methods = parsed
+        .get("access_methods")
+        .and_then(|v| v.as_array())
+        .expect("JSON should contain access_methods array");
+    assert!(
+        !access_methods.is_empty(),
+        "access_methods should not be empty"
+    );
+
+    // 3. NON_AUTHORIZING_READBACK warning
+    let warning = parsed
+        .get("readback_warning")
+        .and_then(|v| v.as_str())
+        .unwrap_or("");
+    assert!(
+        warning.contains("NON_AUTHORIZING_READBACK"),
+        "JSON output must contain NON_AUTHORIZING_READBACK warning, got: {warning}"
+    );
+
+    // 4. No default-state contamination
+    let arpagona_state_dir = home_path.join(".arpagona");
+    assert!(
+        !arpagona_state_dir.exists(),
+        "isolated HOME must NOT have .arpagona state directory created by JSON read-only actor memory"
+    );
+    assert!(
+        !journal_path.exists(),
+        "isolated journal path must NOT be created by JSON read-only actor memory"
+    );
+
+    // Clean up
+    let _ = std::fs::remove_file(&journal_path);
+    let _ = std::fs::remove_dir_all(&home_path);
+}
