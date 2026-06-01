@@ -1114,7 +1114,7 @@ fn actor_journal_json_isolated_multiple_persisted_entries() {
 // ---------------------------------------------------------------------------
 
 /// actor journal (text mode) with 3 pre-seeded entries containing distinct
-/// content and different tool intents/governance states.
+/// content and different governance states.
 ///
 /// Proves that text-mode readback displays persisted content safely, with
 /// correct header, NON_AUTHORIZING_READBACK warning, newest-first ordering
@@ -1260,11 +1260,16 @@ fn actor_journal_text_isolated_persisted_entries() {
     //    The temp path is unique per invocation (process-id-scoped) and we
     //    created it fresh with exactly our 3 entries. No default path or
     //    global state leaked in.
-    //    Also verify tool_call_intents/decision_gate_outcomes from entry 1
-    //    are rendered (the only entry with both) — text mode renders them.
+    //    Also verify decision_gate and risk_level from entry 1 are rendered
+    //    (the only entry with decision_gate_outcomes) — text mode renders
+    //    decision_gate outcomes and risk_level for entries that have them.
     assert!(
-        stdout.contains("approved") || stdout.contains("search_files"),
-        "entry with tool intents/governance should show relevant info in text output"
+        stdout.contains("decision_gate"),
+        "entry with decision_gate_outcomes should render 'decision_gate' in text output"
+    );
+    assert!(
+        stdout.contains("approved"),
+        "entry with decision_status=approved should render 'approved' in text output"
     );
 
     // Clean up
