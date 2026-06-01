@@ -13324,16 +13324,16 @@ fn actor_journal_readback(args: ActorJournalArgs) -> Result<(), Box<dyn Error>> 
                 println!("        | model: {}", model);
             }
             if let Some(ref obj) = entry.objective {
-                let preview: &str = &obj[..obj.len().min(80)];
+                let preview: String = obj.chars().take(80).collect();
                 println!("        | objective: {}", preview);
             }
             println!(
                 "        | prompt: {}",
-                &entry.prompt_summary[..entry.prompt_summary.len().min(120)]
+                entry.prompt_summary.chars().take(120).collect::<String>()
             );
             println!(
                 "        | response: {}",
-                &entry.response_summary[..entry.response_summary.len().min(120)]
+                entry.response_summary.chars().take(120).collect::<String>()
             );
             if let Some(ref dg) = entry.decision_gate_outcomes {
                 println!(
