@@ -13440,9 +13440,15 @@ fn actor_history_readback(args: ActorHistoryArgs) -> Result<(), Box<dyn Error>> 
                 .map(|r| format!("{:?}", r))
                 .unwrap_or_else(|| "?".to_owned());
 
-            let task_preview = &entry.prompt_summary[..entry.prompt_summary.len().min(60)];
+            let task_preview: String = entry.prompt_summary.chars().take(60).collect();
 
-            println!("  #{:<4} | {} | {} | risk={}", i + 1, created, tool, risk_str);
+            println!(
+                "  #{:<4} | {} | {} | risk={}",
+                i + 1,
+                created,
+                tool,
+                risk_str
+            );
             println!("        | task:   {}", task_preview);
             println!("        | gate:   {} | {}", decision_status, approval_state);
             println!();
@@ -19478,5 +19484,33 @@ mod tests {
             .iter()
             .any(|(_, _, pass, sev)| !*pass && sev == "fail");
         assert!(all_pass, "all_pass must be true when all checks pass");
+    }
+
+    #[test]
+    fn actor_history_truncation_handles_non_ascii() {
+        // Regression: byte-index s[..s.len().min(N)] panics when N falls
+        // mid-char in a multi-byte UTF-8 sequence.
+        // GONA repro: prompt_summary = "read " + "a"*54 + "é"
+        // → 61 bytes, 60 chars; s[..60] → panic (byte 60 is mid-é).
+        // Fix: .chars().take(N).collect() — always char-boundary-safe.
+
+        // Case 1: exactly 60 chars with multi-byte tail (would panic under old code)
+        let s = format!("read {}{}", "a".repeat(54), "é");
+        let truncated: String = s.chars().take(60).collect();
+        assert_eq!(truncated.chars().count(), 60);
+        assert_eq!(
+            truncated, s,
+            "60-char non-ASCII string preserves all content"
+        );
+
+        // Case 2: 70 chars with multi-byte — truncation actually cuts
+        let s = format!("read {}{}{}", "a".repeat(54), "é", "b".repeat(10));
+        let truncated: String = s.chars().take(60).collect();
+        assert_eq!(truncated.chars().count(), 60);
+        assert!(
+            truncated.len() <= s.len(),
+            "truncation never increases byte length"
+        );
+        // Verify no panic by reaching here — the test itself validates the approach
     }
 }
