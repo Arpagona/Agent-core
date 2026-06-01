@@ -313,6 +313,9 @@ pub enum ActorSubcommand {
     /// Show read-only actor journal readback: LLM journal entries
     /// from actor-run and actor-session interactions.
     Journal(ActorJournalArgs),
+    /// Show a compact history of recent actor runs (tool, decision, outcome, time).
+    /// Read-only — reads from the in-memory LLM journal. No external effects.
+    History(ActorHistoryArgs),
 }
 
 #[derive(Debug, Args)]
@@ -391,6 +394,17 @@ pub struct ActorJournalArgs {
     /// Filter by interaction type (synthesis, tool_call_intent, direct_tool_call).
     #[arg(long)]
     pub interaction_type: Option<String>,
+    /// Emit structured JSON instead of human-readable text.
+    #[arg(long)]
+    pub json: bool,
+}
+
+/// Compact history of recent actor runs (read-only).
+#[derive(Debug, Args)]
+pub struct ActorHistoryArgs {
+    /// Maximum number of recent actor runs to show (default: 5).
+    #[arg(long, default_value_t = 5)]
+    pub limit: usize,
     /// Emit structured JSON instead of human-readable text.
     #[arg(long)]
     pub json: bool,
@@ -2479,6 +2493,7 @@ async fn run() -> Result<(), Box<dyn Error>> {
             ActorSubcommand::Status(args) => actor_status_readback(args)?,
             ActorSubcommand::Memory(args) => actor_memory_readback(args)?,
             ActorSubcommand::Journal(args) => actor_journal_readback(args)?,
+            ActorSubcommand::History(args) => actor_history_readback(args)?,
         },
         Command::Doctor(args) => doctor(args).await?,
         Command::Process(cmd) => match cmd {
@@ -13332,6 +13347,107 @@ fn actor_journal_readback(args: ActorJournalArgs) -> Result<(), Box<dyn Error>> 
             println!();
         }
         println!("NON_AUTHORIZING_READBACK: Read-only LLM journal readback.");
+    }
+
+    Ok(())
+}
+
+/// Show a compact history of recent actor runs (read-only).
+///
+/// Reads from the in-memory LLM journal and displays the N most recent
+/// actor-run entries as a scannable table (run time, tool, decision,
+/// simulation status, execution status, summary). No external effects.
+fn actor_history_readback(args: ActorHistoryArgs) -> Result<(), Box<dyn Error>> {
+    let journal = global_llm_journal().lock().unwrap();
+    let entries: Vec<_> = journal
+        .all_entries()
+        .iter()
+        .filter(|e| {
+            e.interaction_type
+                == arpagona_agent_core::llm_journal::LlmInteractionType::DirectToolCall
+                && e.objective.as_deref() == Some("actor_run")
+        })
+        .rev()
+        .take(args.limit)
+        .collect();
+
+    if args.json {
+        // JSON output: each entry with key fields for machine consumption
+        let json_entries: Vec<serde_json::Value> = entries
+            .iter()
+            .map(|e| {
+                // Extract tool and status from the decision_gate_outcomes
+                let tool_call_intents = e.tool_call_intents.as_ref();
+                let tool = tool_call_intents
+                    .and_then(|v| v.get("tool"))
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("?");
+                let dec_outcomes = e.decision_gate_outcomes.as_ref();
+                let decision_status = dec_outcomes
+                    .and_then(|v| v.get("decision_status"))
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("?");
+                let approval_state = dec_outcomes
+                    .and_then(|v| v.get("approval_state"))
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("?");
+                serde_json::json!({
+                    "id": e.id,
+                    "created_at": e.created_at,
+                    "tool": tool,
+                    "decision_status": decision_status,
+                    "approval_state": approval_state,
+                    "risk_level": e.risk_level,
+                    "prompt_summary": e.prompt_summary,
+                    "response_summary": e.response_summary,
+                })
+            })
+            .collect();
+        let output = serde_json::json!({
+            "command": "actor_history",
+            "total_matching": entries.len(),
+            "entries": json_entries,
+            "readback_warning":
+                "NON_AUTHORIZING_READBACK: Read-only actor run history. No Decision Gate boundaries crossed.",
+        });
+        println!("{}", serde_json::to_string_pretty(&output)?);
+    } else {
+        // Text output: compact table
+        println!("[Actor Run History] — {} most recent run(s)", entries.len());
+        println!();
+        for (i, entry) in entries.iter().enumerate() {
+            let created = entry.created_at.format("%Y-%m-%d %H:%M:%S");
+
+            // Extract tool and status from structured data in decision_gate_outcomes
+            let tool_call_intents = entry.tool_call_intents.as_ref();
+            let tool = tool_call_intents
+                .and_then(|v| v.get("tool"))
+                .and_then(|v| v.as_str())
+                .unwrap_or("?");
+            let dec_outcomes = entry.decision_gate_outcomes.as_ref();
+            let decision_status = dec_outcomes
+                .and_then(|v| v.get("decision_status"))
+                .and_then(|v| v.as_str())
+                .unwrap_or("?");
+            let approval_state = dec_outcomes
+                .and_then(|v| v.get("approval_state"))
+                .and_then(|v| v.as_str())
+                .unwrap_or("?");
+
+            let risk_str = entry
+                .risk_level
+                .as_ref()
+                .map(|r| format!("{:?}", r))
+                .unwrap_or_else(|| "?".to_owned());
+
+            let task_preview = &entry.prompt_summary[..entry.prompt_summary.len().min(60)];
+
+            println!("  #{:<4} | {} | {} | risk={}", i + 1, created, tool, risk_str);
+            println!("        | task:   {}", task_preview);
+            println!("        | gate:   {} | {}", decision_status, approval_state);
+            println!();
+        }
+        println!("NON_AUTHORIZING_READBACK: Read-only actor run history.");
     }
 
     Ok(())
