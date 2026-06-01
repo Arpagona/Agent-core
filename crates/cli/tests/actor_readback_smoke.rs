@@ -709,3 +709,344 @@ fn llm_journal_and_action_supervise_non_ascii_readback() {
     // Clean up
     let _ = std::fs::remove_file(&path);
 }
+
+// ---------------------------------------------------------------------------
+// actor status -- isolated journal smoke tests (PR #258)
+// ---------------------------------------------------------------------------
+
+/// actor status --json with an explicitly isolated empty journal.
+/// Proves that journal_summary correctly reports zero entries when the
+/// journal file is empty/missing, and that NON_AUTHORIZING_READBACK is
+/// always emitted regardless of journal state.
+#[test]
+fn actor_status_json_isolated_empty_journal() {
+    let path = temp_isolated_journal_path("actor_status_isolated_empty");
+    let _ = std::fs::remove_file(&path);
+
+    let output = std::process::Command::new(ARPAGONA_BIN)
+        .args(["actor", "status", "--json"])
+        .env("ARPAGONA_LLM_JOURNAL_PATH", &path)
+        .output()
+        .expect("failed to run actor status --json with isolated empty journal");
+    assert!(
+        output.status.success(),
+        "actor status --json (isolated empty) failed:\nstdout: {}\nstderr: {}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr),
+    );
+
+    let stdout = String::from_utf8(output.stdout).expect("valid utf-8");
+    let parsed: serde_json::Value =
+        serde_json::from_str(&stdout).expect("actor status --json should be valid JSON");
+
+    // journal_summary must show 0 entries
+    let journal = parsed
+        .get("journal_summary")
+        .expect("JSON should contain 'journal_summary'");
+    assert_eq!(
+        journal
+            .get("total_entries")
+            .and_then(|v| v.as_u64())
+            .unwrap_or(u64::MAX),
+        0,
+        "journal_summary total_entries should be 0 with empty journal"
+    );
+    assert_eq!(
+        journal
+            .get("direct_tool_calls")
+            .and_then(|v| v.as_u64())
+            .unwrap_or(u64::MAX),
+        0,
+        "journal_summary direct_tool_calls should be 0 with empty journal"
+    );
+    assert_eq!(
+        journal
+            .get("governance_entries")
+            .and_then(|v| v.as_u64())
+            .unwrap_or(u64::MAX),
+        0,
+        "journal_summary governance_entries should be 0 with empty journal"
+    );
+
+    // NON_AUTHORIZING_READBACK warning must be present
+    let warning = parsed
+        .get("readback_warning")
+        .and_then(|v| v.as_str())
+        .unwrap_or("");
+    assert!(
+        warning.contains("NON_AUTHORIZING_READBACK"),
+        "isolated status --json must contain NON_AUTHORIZING_READBACK warning"
+    );
+
+    let _ = std::fs::remove_file(&path);
+}
+
+/// actor status --json with a pre-seeded journal containing 3 entries:
+/// 2 DirectToolCall entries (one with decision_gate_outcomes for governance count)
+/// and 1 Synthesis entry (no governance).
+/// Proves journal_summary correctly counts entries from persisted state.
+#[test]
+fn actor_status_json_isolated_with_persisted_entries() {
+    let path = temp_isolated_journal_path("actor_status_persisted");
+    let _ = std::fs::remove_file(&path);
+
+    // Entry 1: DirectToolCall without governance
+    let entry1 = serde_json::json!({
+        "id": "smoke-status-001",
+        "created_at": "2026-06-01T08:00:00Z",
+        "interaction_type": "direct_tool_call",
+        "prompt_summary": "read a file",
+        "response_summary": "file content returned",
+        "provider": "smoke-test",
+        "model": null,
+        "objective": "actor_status_journal_count_test",
+        "proposed_actions": null,
+        "tool_call_intents": null,
+        "decision_gate_outcomes": null,
+        "risk_level": "low",
+        "compute_routing": null,
+    });
+
+    // Entry 2: DirectToolCall WITH decision_gate_outcomes (governance)
+    let entry2 = serde_json::json!({
+        "id": "smoke-status-002",
+        "created_at": "2026-06-01T08:01:00Z",
+        "interaction_type": "direct_tool_call",
+        "prompt_summary": "write to file",
+        "response_summary": "file written successfully",
+        "provider": "smoke-test",
+        "model": null,
+        "objective": "actor_status_journal_count_test",
+        "proposed_actions": null,
+        "tool_call_intents": [{"tool": "write_file", "arguments": {"path": "/tmp/test.txt"}}],
+        "decision_gate_outcomes": {"decision_status": "approved", "approval_state": "automatic"},
+        "risk_level": "medium",
+        "compute_routing": null,
+    });
+
+    // Entry 3: Synthesis (no tool calls, no governance)
+    let entry3 = serde_json::json!({
+        "id": "smoke-status-003",
+        "created_at": "2026-06-01T08:02:00Z",
+        "interaction_type": "synthesis",
+        "prompt_summary": "summarize findings",
+        "response_summary": "summary complete",
+        "provider": "smoke-test",
+        "model": null,
+        "objective": "actor_status_journal_count_test",
+        "proposed_actions": null,
+        "tool_call_intents": null,
+        "decision_gate_outcomes": null,
+        "risk_level": null,
+        "compute_routing": null,
+    });
+
+    // Write all 3 entries as JSONL
+    let jsonl = format!(
+        "{}\n{}\n{}\n",
+        serde_json::to_string(&entry1).expect("entry1 json"),
+        serde_json::to_string(&entry2).expect("entry2 json"),
+        serde_json::to_string(&entry3).expect("entry3 json"),
+    );
+    std::fs::write(&path, jsonl).expect("write journal file");
+
+    let output = std::process::Command::new(ARPAGONA_BIN)
+        .args(["actor", "status", "--json"])
+        .env("ARPAGONA_LLM_JOURNAL_PATH", &path)
+        .output()
+        .expect("failed to run actor status --json with persisted entries");
+    assert!(
+        output.status.success(),
+        "actor status --json (persisted) failed:\nstdout: {}\nstderr: {}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr),
+    );
+
+    let stdout = String::from_utf8(output.stdout).expect("valid utf-8");
+    let parsed: serde_json::Value =
+        serde_json::from_str(&stdout).expect("actor status --json should be valid JSON");
+
+    let journal = parsed
+        .get("journal_summary")
+        .expect("JSON should contain 'journal_summary'");
+    let total = journal
+        .get("total_entries")
+        .and_then(|v| v.as_u64())
+        .unwrap_or(0);
+    let direct = journal
+        .get("direct_tool_calls")
+        .and_then(|v| v.as_u64())
+        .unwrap_or(0);
+    let governance = journal
+        .get("governance_entries")
+        .and_then(|v| v.as_u64())
+        .unwrap_or(0);
+
+    // Expected: total=3, direct=2 (entries 1 and 2 are DirectToolCall),
+    //           governance=1 (only entry 2 has decision_gate_outcomes)
+    assert_eq!(total, 3, "total_entries should be 3 with 3 seeded entries");
+    assert_eq!(
+        direct, 2,
+        "direct_tool_calls should be 2 (entries 1 and 2 are DirectToolCall)"
+    );
+    assert_eq!(
+        governance, 1,
+        "governance_entries should be 1 (only entry 2 has decision_gate_outcomes)"
+    );
+
+    let warning = parsed
+        .get("readback_warning")
+        .and_then(|v| v.as_str())
+        .unwrap_or("");
+    assert!(
+        warning.contains("NON_AUTHORIZING_READBACK"),
+        "must emit NON_AUTHORIZING_READBACK warning with persisted entries"
+    );
+
+    let _ = std::fs::remove_file(&path);
+}
+
+/// actor journal --json with 3 pre-seeded entries containing distinct
+/// content (prompt/response/objective) and different interaction types.
+/// Proves that the readback returns all entries with correct ordering,
+/// proper field values, NON_AUTHORIZING_READBACK warning, and header
+/// metadata (total_entries, displayed_entries).
+#[test]
+fn actor_journal_json_isolated_multiple_persisted_entries() {
+    let path = temp_isolated_journal_path("actor_journal_multiple_persisted");
+    let _ = std::fs::remove_file(&path);
+
+    // Three entries staggered by 1 minute, all matching the default
+    // actor-journal filter (DirectToolCall + objective=actor_run).
+    // They vary in content (prompt, tool calls, governance) to prove
+    // correct field readback of persisted state.
+    let entry1 = serde_json::json!({
+        "id": "multi-001",
+        "created_at": "2026-06-01T08:00:00Z",
+        "interaction_type": "direct_tool_call",
+        "prompt_summary": "Find all markdown files in the project",
+        "response_summary": "Found 15 .md files under docs/ and root",
+        "provider": "smoke-test",
+        "model": null,
+        "objective": "actor_run",
+        "proposed_actions": null,
+        "tool_call_intents": [{"tool": "search_files", "arguments": {"pattern": "*.md"}}],
+        "decision_gate_outcomes": {"decision_status": "approved", "approval_state": "automatic"},
+        "risk_level": "low",
+        "compute_routing": null,
+    });
+
+    let entry2 = serde_json::json!({
+        "id": "multi-002",
+        "created_at": "2026-06-01T08:01:00Z",
+        "interaction_type": "direct_tool_call",
+        "prompt_summary": "Read the project README for setup instructions",
+        "response_summary": "README shows build steps and dependencies",
+        "provider": "smoke-test",
+        "model": null,
+        "objective": "actor_run",
+        "proposed_actions": null,
+        "tool_call_intents": null,
+        "decision_gate_outcomes": null,
+        "risk_level": null,
+        "compute_routing": null,
+    });
+
+    let entry3 = serde_json::json!({
+        "id": "multi-003",
+        "created_at": "2026-06-01T08:02:00Z",
+        "interaction_type": "direct_tool_call",
+        "prompt_summary": "Evaluate code quality of the agent-core library",
+        "response_summary": "Code quality looks solid with good test coverage",
+        "provider": "smoke-test",
+        "model": null,
+        "objective": "actor_run",
+        "proposed_actions": null,
+        "tool_call_intents": null,
+        "decision_gate_outcomes": null,
+        "risk_level": "informational",
+        "compute_routing": null,
+    });
+
+    // Write as JSONL
+    let jsonl = format!(
+        "{}\n{}\n{}\n",
+        serde_json::to_string(&entry1).expect("entry1 json"),
+        serde_json::to_string(&entry2).expect("entry2 json"),
+        serde_json::to_string(&entry3).expect("entry3 json"),
+    );
+    std::fs::write(&path, jsonl).expect("write journal file");
+
+    // Run actor journal --json --limit 10
+    let output = std::process::Command::new(ARPAGONA_BIN)
+        .args(["actor", "journal", "--json", "--limit", "10"])
+        .env("ARPAGONA_LLM_JOURNAL_PATH", &path)
+        .output()
+        .expect("failed to run actor journal --json with persisted entries");
+    assert!(
+        output.status.success(),
+        "actor journal --json (persisted) failed:\nstdout: {}\nstderr: {}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr),
+    );
+
+    let stdout = String::from_utf8(output.stdout).expect("valid utf-8");
+    let parsed: serde_json::Value =
+        serde_json::from_str(&stdout).expect("actor journal --json should be valid JSON");
+
+    // Header metadata
+    assert_eq!(
+        parsed
+            .get("total_entries")
+            .and_then(|v| v.as_u64())
+            .unwrap_or(0),
+        3,
+        "total_entries should be 3"
+    );
+    let displayed = parsed
+        .get("displayed_entries")
+        .and_then(|v| v.as_u64())
+        .unwrap_or(0);
+    assert_eq!(displayed, 3, "displayed_entries should be 3 (no limit hit)");
+
+    // Entries array
+    let entries = parsed
+        .get("entries")
+        .and_then(|v| v.as_array())
+        .expect("JSON should contain entries array");
+    assert_eq!(entries.len(), 3, "should have 3 entries");
+
+    // Verify each entry's core fields
+    for (i, entry) in entries.iter().enumerate() {
+        assert!(entry.get("id").is_some(), "entry {} should have id", i);
+        assert!(
+            entry.get("interaction_type").is_some(),
+            "entry {} should have interaction_type",
+            i
+        );
+        assert!(
+            entry.get("objective").is_some(),
+            "entry {} should have objective",
+            i
+        );
+    }
+
+    // Entry 0 (first in list) should be the most recent (newer-first ordering)
+    let first_id = entries[0].get("id").and_then(|v| v.as_str()).unwrap_or("");
+    assert_eq!(
+        first_id, "multi-003",
+        "first entry should be the most recent (multi-003@08:02Z), got: {first_id}"
+    );
+
+    // NON_AUTHORIZING_READBACK warning
+    let warning = parsed
+        .get("readback_warning")
+        .and_then(|v| v.as_str())
+        .unwrap_or("");
+    assert!(
+        warning.contains("NON_AUTHORIZING_READBACK"),
+        "must contain NON_AUTHORIZING_READBACK warning"
+    );
+
+    let _ = std::fs::remove_file(&path);
+}
