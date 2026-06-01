@@ -10910,7 +10910,8 @@ fn llm_journal_list(args: LlmJournalArgs) -> Result<(), Box<dyn Error>> {
                 println!("        | model: {}", model);
             }
             if let Some(ref obj) = entry.objective {
-                println!("        | objective: {}", &obj[..obj.len().min(80)]);
+                let preview: String = obj.chars().take(80).collect();
+                println!("        | objective: {}", preview);
             }
             println!(
                 "        | prompt: {}",
@@ -10945,7 +10946,7 @@ fn llm_journal_list(args: LlmJournalArgs) -> Result<(), Box<dyn Error>> {
                 println!("        | compute_routing:");
                 println!("        |   selected_node: {node_name}");
                 if !justification.is_empty() {
-                    let just_short = &justification[..justification.len().min(120)];
+                    let just_short: String = justification.chars().take(120).collect();
                     println!("        |   justification: {just_short}");
                 }
                 if !routing_note.is_empty() {
@@ -11051,7 +11052,8 @@ fn action_supervise(args: ActionSuperviseArgs) -> Result<(), Box<dyn Error>> {
                 println!("  Model: {}", model);
             }
             if let Some(ref obj) = entry.objective {
-                println!("  Objective: {}", &obj[..obj.len().min(80)]);
+                let preview: String = obj.chars().take(80).collect();
+                println!("  Objective: {}", preview);
             }
             if let Some(ref rl) = entry.risk_level {
                 println!("  Risk Level: {:?}", rl);
@@ -11063,7 +11065,8 @@ fn action_supervise(args: ActionSuperviseArgs) -> Result<(), Box<dyn Error>> {
                         "  Proposed Actions: {} entries",
                         pa.as_array().map(|a| a.len()).unwrap_or(0)
                     );
-                    println!("    {}", &pa_str[..pa_str.len().min(200)]);
+                    let preview: String = pa_str.chars().take(200).collect();
+                    println!("    {}", preview);
                 } else {
                     println!("  Proposed Actions: {}", pa_str);
                 }
@@ -11075,7 +11078,8 @@ fn action_supervise(args: ActionSuperviseArgs) -> Result<(), Box<dyn Error>> {
                         "  Tool-Call Intents: {} entries",
                         tci.as_array().map(|a| a.len()).unwrap_or(0)
                     );
-                    println!("    {}", &tci_str[..tci_str.len().min(200)]);
+                    let preview: String = tci_str.chars().take(200).collect();
+                    println!("    {}", preview);
                 } else {
                     println!("  Tool-Call Intents: {}", tci_str);
                 }
@@ -11087,7 +11091,8 @@ fn action_supervise(args: ActionSuperviseArgs) -> Result<(), Box<dyn Error>> {
                         "  Decision Gate Outcomes: {} entries",
                         dg.as_array().map(|a| a.len()).unwrap_or(0)
                     );
-                    println!("    {}", &dg_str[..dg_str.len().min(200)]);
+                    let preview: String = dg_str.chars().take(200).collect();
+                    println!("    {}", preview);
                 } else {
                     println!("  Decision Gate Outcomes: {}", dg_str);
                 }
@@ -19512,5 +19517,47 @@ mod tests {
             "truncation never increases byte length"
         );
         // Verify no panic by reaching here — the test itself validates the approach
+    }
+
+    #[test]
+    fn readback_truncation_boundary_sizes_handle_non_ascii() {
+        // Verify that chars().take(N) works for all boundary sizes used
+        // across actor readback and supervision surfaces (80, 120, 200).
+        // These mirror the patterns now used in llm_journal_list and action_supervise.
+
+        let non_ascii = format!("a{}", "é".repeat(100)); // 1 + 200 = 201 bytes, 101 chars
+
+        // Boundary: 80 chars (used for objective preview)
+        let t80: String = non_ascii.chars().take(80).collect();
+        assert_eq!(t80.chars().count(), 80);
+        assert!(
+            t80.len() <= non_ascii.len(),
+            "80-char truncation no larger than input"
+        );
+
+        // Boundary: 120 chars (used for justification preview)
+        let t120: String = non_ascii.chars().take(120).collect();
+        assert_eq!(t120.chars().count(), 101); // only 101 chars available
+        assert_eq!(
+            t120, non_ascii,
+            "120-char truncation of 101-char string equals input"
+        );
+
+        // Boundary: 200 chars (used for pa_str/tci_str/dg_str preview)
+        let t200: String = non_ascii.chars().take(200).collect();
+        assert_eq!(t200.chars().count(), 101);
+        assert_eq!(
+            t200, non_ascii,
+            "200-char truncation of 101-char string equals input"
+        );
+
+        // Case with content exceeding 200 chars containing multi-byte at boundary
+        let long_non_ascii = format!("{}éx", "a".repeat(198));
+        let t200_long: String = long_non_ascii.chars().take(200).collect();
+        assert_eq!(t200_long.chars().count(), 200);
+        assert!(
+            t200_long.len() <= long_non_ascii.len(),
+            "long non-ASCII truncation safe"
+        );
     }
 }
