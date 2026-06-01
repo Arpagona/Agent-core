@@ -781,6 +781,65 @@ fn actor_status_json_isolated_empty_journal() {
     let _ = std::fs::remove_file(&path);
 }
 
+/// actor status (text mode) with an explicitly isolated empty journal.
+///
+/// Proves that text-mode status readback renders correctly with zero
+/// journal entries: the header, journal summary (0 entries), and
+/// NON_AUTHORIZING_READBACK warning are all visible and user-comprehensible.
+/// No panic or silent empty state.
+#[test]
+fn actor_status_text_isolated_empty_journal() {
+    let path = temp_isolated_journal_path("actor_status_text_isolated_empty");
+    let _ = std::fs::remove_file(&path);
+
+    let output = std::process::Command::new(ARPAGONA_BIN)
+        .args(["actor", "status"])
+        .env("ARPAGONA_LLM_JOURNAL_PATH", &path)
+        .output()
+        .expect("failed to run actor status (text) with isolated empty journal");
+    assert!(
+        output.status.success(),
+        "actor status (text) with isolated empty journal failed:\nstdout: {}\nstderr: {}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr),
+    );
+
+    let stdout = String::from_utf8(output.stdout).expect("valid utf-8");
+
+    // 1. Header must be present
+    assert!(
+        stdout.contains("Actor Status Readback"),
+        "text output should contain header"
+    );
+
+    // 2. NON_AUTHORIZING_READBACK warning must be present
+    assert!(
+        stdout.contains("NON_AUTHORIZING_READBACK"),
+        "text output must contain NON_AUTHORIZING_READBACK warning"
+    );
+
+    // 3. Agent identity fields must be visible
+    assert!(
+        stdout.contains("agent_id") && stdout.contains("workspace_id"),
+        "text output should show agent_id and workspace_id"
+    );
+
+    // 4. Journal summary must show 0 entries (empty journal)
+    assert!(
+        stdout.contains("total_entries:      0"),
+        "text output should report total_entries=0 with empty journal, got: {}",
+        stdout
+    );
+
+    // 5. Not JSON (text mode)
+    assert!(
+        !stdout.trim().starts_with('{'),
+        "text mode should not emit JSON"
+    );
+
+    let _ = std::fs::remove_file(&path);
+}
+
 /// actor status --json with a pre-seeded journal containing 3 entries:
 /// 2 DirectToolCall entries (one with decision_gate_outcomes for governance count)
 /// and 1 Synthesis entry (no governance).
