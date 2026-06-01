@@ -16,7 +16,15 @@ Rules:
 
 ## Open candidates
 
-No open daily-validation blockers at this handoff.
+### DV-2026-06-01-001 — Ollama cognitive synthesis stays structured but often fails to answer context-backed beta prompts
+- source: daily validation 2026-06-01 Beta Usage Lab
+- category: beta usability / LLM synthesis quality
+- severity: medium
+- status: open; recorded in PR #252
+- evidence: 8 local-only `cognitive run --llm --provider ollama --assess --allocate --json` scenarios against installed `qwen3.5:9b` all returned the required `[STATE]`, `[KEY GAP / RISK]`, and `[RECOMMENDED NEXT STEP]` sections, but several did not answer the concrete operator request even when the prompt carried enough information. Examples: repository orientation returned `RequestContext` instead of summarizing available local context; code-review asked for missing context instead of naming an argument-schema regression test; compute routing asked for local hardware details instead of recommending local/low-cost routing for a low-risk documentation task; Failure-to-Insight asked for more context instead of forming a non-authorizing candidate from the supplied synthetic bug.
+- expected behavior: model-backed cognitive synthesis should remain non-authorizing and structured while using supplied objective text and safe local context to produce scenario-specific operator help; it should ask for context only when genuinely necessary.
+- suggested fix/tests: add focused synthesis prompt or context-packing regression tests for the eight Beta Usage Lab scenario classes, especially orientation, code review, compute routing and Failure-to-Insight. Acceptance should require a concrete answer plus governance warning, not only the three-section scaffold.
+- do not: call remote model APIs, require model downloads, read secrets, grant shell access, bypass Decision Gate, or let LLM prose authorize execution.
 
 ## Closed / superseded candidates
 
